@@ -37,6 +37,13 @@ def cmd_help():
             ("/memory del <id>", "delete a fact by id"),
             ("/memory clear", "wipe all memory"),
         ]),
+        ("Skills (agent self-learning)", [
+            ("/skill", "list saved skills (lessons agent learned)"),
+            ("/skill search <q>", "find relevant skills for a task"),
+            ("/skill add <task> :: <lesson> [:: tags]", "save a skill"),
+            ("/skill del <id>", "delete a skill"),
+            ("/skill clear", "wipe all skills"),
+        ]),
         ("Files & Shell", [
             ("/ls [path]", "list directory"),
             ("/cd <dir>", "change working dir"),

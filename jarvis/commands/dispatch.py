@@ -13,6 +13,7 @@ from .context import handle_context
 from .history import handle_history
 from .control import handle_control
 from .memory import handle_memory
+from .skill import handle_skill
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/retry", "/paste", "/multi"}
@@ -31,6 +32,10 @@ def handle_slash(inp: str):
         cmd_session(arg); return ("ok", False, inp)
 
     handled, _ = handle_memory(c, arg)
+    if handled:
+        return ("ok", False, inp)
+
+    handled, _ = handle_skill(c, arg)
     if handled:
         return ("ok", False, inp)
 
