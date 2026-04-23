@@ -30,6 +30,17 @@ CORE_TOOLS = [
     {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"}}}},
 ]
 
+OCR_TOOLS = [
+    {"name": "read_image_text", "description": (
+        "Extract text from an image file using macOS Vision framework (on-device OCR). "
+        "Supports PNG, JPG, JPEG, HEIC, TIFF, BMP. Accurate, no internet required. "
+        "Use this whenever the user points to a screenshot, photo, or image with text in it."
+    ),
+     "input_schema": {"type": "object", "properties": {
+        "path": {"type": "string", "description": "Absolute or relative path to the image file"}},
+        "required": ["path"]}},
+]
+
 INTERNET_TOOLS = [
     {"name":"web_search","description":"Search the web using DuckDuckGo (no browser opened, no API key needed). Returns titles, URLs, and snippets for the top results. Use this to look up current information, news, docs, prices, weather, etc.",
      "input_schema":{"type":"object","properties":{

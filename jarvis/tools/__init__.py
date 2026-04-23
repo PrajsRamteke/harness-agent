@@ -12,11 +12,12 @@ from .mac import (
     open_url, notify, shortcut_run, mac_control,
 )
 from .web import web_search, fetch_url, verified_search
+from .ocr import read_image_text
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
-from .schemas_core import CORE_TOOLS, INTERNET_TOOLS
+from .schemas_core import CORE_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
-TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS
+TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + OCR_TOOLS
 
 FUNC = {
     "read_file": read_file, "write_file": write_file, "edit_file": edit_file,
@@ -40,4 +41,6 @@ FUNC = {
     # memory
     "memory_save": memory_save, "memory_list": memory_list,
     "memory_delete": memory_delete,
+    # ocr
+    "read_image_text": read_image_text,
 }
