@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Union, List, Dict
 
 from ..constants import SYSTEM, CLAUDE_CODE_IDENTITY
+from ..storage.memory import as_prompt_block
 from .. import state
 
 
@@ -23,6 +24,15 @@ def build_system() -> Union[str, List[Dict]]:
     body = SYSTEM + "\n\n" + date_line
     if state.pinned_context.strip():
         body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + state.pinned_context.strip()
+    mem_block = as_prompt_block()
+    if mem_block:
+        body += "\n\n" + mem_block
+    body += (
+        "\n\nMEMORY TOOLS: You have memory_save / memory_list / memory_delete. "
+        "When the user tells you something durable about themselves (name, role, "
+        "preferences, recurring context), call memory_save proactively. Use "
+        "memory_list when you need to recall. Do not save ephemeral task details."
+    )
     if state.auth_mode == "oauth":
         return [
             {"type": "text", "text": CLAUDE_CODE_IDENTITY},

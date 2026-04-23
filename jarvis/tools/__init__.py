@@ -12,10 +12,11 @@ from .mac import (
     open_url, notify, shortcut_run, mac_control,
 )
 from .web import web_search, fetch_url, verified_search
+from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .schemas_core import CORE_TOOLS, INTERNET_TOOLS
 from .schemas_mac import MAC_TOOLS
 
-TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS
+TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS
 
 FUNC = {
     "read_file": read_file, "write_file": write_file, "edit_file": edit_file,
@@ -36,4 +37,7 @@ FUNC = {
     # internet
     "web_search": web_search, "fetch_url": fetch_url,
     "verified_search": verified_search,
+    # memory
+    "memory_save": memory_save, "memory_list": memory_list,
+    "memory_delete": memory_delete,
 }

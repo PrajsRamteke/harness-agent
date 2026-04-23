@@ -13,4 +13,5 @@ TOOL_ICONS = {
     "open_url": "🌐", "notify": "🔔",
     "shortcut_run": "⚙️ ", "mac_control": "🎛️ ",
     "web_search": "🌐", "fetch_url": "📡", "verified_search": "🔬",
+    "memory_save": "🧠", "memory_list": "🧠", "memory_delete": "🧠",
 }

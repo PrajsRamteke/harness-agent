@@ -31,6 +31,12 @@ def cmd_help():
             ("/alias <n>=<cmd>", "create a shortcut alias (e.g. /alias gs=/git)"),
             ("/aliases", "list aliases"),
         ]),
+        ("Memory", [
+            ("/memory", "show stored personal facts"),
+            ("/memory add <text>", "save a personal fact"),
+            ("/memory del <id>", "delete a fact by id"),
+            ("/memory clear", "wipe all memory"),
+        ]),
         ("Files & Shell", [
             ("/ls [path]", "list directory"),
             ("/cd <dir>", "change working dir"),
