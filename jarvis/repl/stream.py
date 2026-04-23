@@ -11,6 +11,24 @@ from .system import build_system
 from .trim import trim_messages
 
 
+# Reference to the active stream context so another thread (e.g. the TUI Esc
+# handler) can abort an in-flight response.
+_current_stream = None
+
+
+def cancel_current_stream():
+    """Close the active stream, if any. Safe to call from any thread."""
+    global _current_stream
+    s = _current_stream
+    if s is None:
+        return False
+    try:
+        s.close()
+    except Exception:
+        pass
+    return True
+
+
 def call_claude_stream():
     kwargs: Dict[str, Any] = dict(
         model=state.MODEL, max_tokens=8192, system=build_system(),
@@ -19,12 +37,17 @@ def call_claude_stream():
     if state.think_mode:
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4000}
 
+    global _current_stream
     delays = [1, 3, 6]
     oauth_refreshed = False
     for attempt in range(len(delays) + 1):
         try:
             with state.client.messages.stream(**kwargs) as stream:
-                final = stream.get_final_message()
+                _current_stream = stream
+                try:
+                    final = stream.get_final_message()
+                finally:
+                    _current_stream = None
             state.total_in += final.usage.input_tokens
             state.total_out += final.usage.output_tokens
             return final

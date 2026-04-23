@@ -1,2 +1,3 @@
 anthropic>=0.40
 rich>=13
+textual>=0.80

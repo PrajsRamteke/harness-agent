@@ -2,6 +2,8 @@
 import json, re
 from concurrent.futures import ThreadPoolExecutor
 
+from rich.text import Text
+
 from ..console import console, Panel, Markdown
 from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT
 from ..tools import FUNC
@@ -106,7 +108,9 @@ def render_assistant(resp) -> bool:
             console.print(f"{icon} [yellow]{b.name}[/] [dim]{ap}[/]")
             if re.search(r"\S", out_str):
                 short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
-                console.print(Panel(short, border_style="dim", padding=(0, 1)))
+                # Wrap in Text so stray brackets in tool output (e.g. URLs,
+                # JSON fragments) aren't interpreted as Rich markup tags.
+                console.print(Panel(Text(short), border_style="dim", padding=(0, 1)))
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": b.id,
