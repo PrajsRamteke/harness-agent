@@ -3,7 +3,9 @@
 agent.py — Claude Code-style terminal agent
 Default model: claude-sonnet-4-6
 """
-import os, sys, json, subprocess, pathlib, shlex, time, secrets, hashlib, base64, webbrowser, urllib.request, urllib.parse, urllib.error
+import os, sys, json, subprocess, pathlib, shlex, time, secrets, hashlib, base64, webbrowser, urllib.request, urllib.parse, urllib.error, html, re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from getpass import getpass
 from typing import Dict, List, Any, Optional, Union
 
@@ -56,6 +58,12 @@ CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude
 
 auth_mode: str = "api_key"  # "api_key" or "oauth" — set by make_client()
 MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+AVAILABLE_MODELS = [
+    ("claude-haiku-4-6", "Haiku 4.6 — fastest, cheapest"),
+    ("claude-sonnet-4-6", "Sonnet 4.6 — balanced"),
+    ("claude-opus-4-6", "Opus 4.6 — high capability"),
+    ("claude-opus-4-7", "Opus 4.7 — most capable"),
+]
 MAX_TOOL_OUTPUT = 15000
 MAX_FILE_READ = 200_000
 
@@ -80,6 +88,7 @@ TOOL_ICONS = {
     "clipboard_get": "📋", "clipboard_set": "📋",
     "open_url": "🌐", "notify": "🔔",
     "shortcut_run": "⚙️ ", "mac_control": "🎛️ ",
+    "web_search": "🌐", "fetch_url": "📡", "verified_search": "🔬",
 }
 
 
@@ -378,6 +387,13 @@ CAPABILITIES
 - Mac control: launch_app, focus_app, quit_app, list_apps, frontmost_app, applescript,
   read_ui, click_element, type_text, key_press, click_menu, click_at, wait,
   check_permissions, clipboard_get, clipboard_set, open_url, notify, shortcut_run, mac_control
+- Internet (no browser needed): web_search (quick DuckDuckGo lookup), fetch_url (fetch any URL as plain text),
+  verified_search (PREFERRED for facts — fetches 5-10 independent sites, scores trust 1-10, cross-checks claims, returns verified/contested breakdown)
+
+INTERNET RULES
+- For any factual question, news, health, science, or current events → always use verified_search, NOT web_search.
+- Never trust a single website or blog. verified_search cross-checks 5-10 sources automatically.
+- web_search is only for quick reference lookups where accuracy is not critical.
 
 WORKFLOW FOR GUI TASKS (e.g. "send WhatsApp to Alice saying hi")
 1. launch_app or focus_app to bring the target app forward.
@@ -398,7 +414,27 @@ WORKFLOW FOR GUI TASKS (e.g. "send WhatsApp to Alice saying hi")
 RULES
 - Be concise. Don't narrate obvious steps. Report results, not intentions.
 - Never do anything destructive (delete files, send money, post publicly) without confirming.
-- When a task is done, stop calling tools and summarize."""
+- When a task is done, stop calling tools and summarize.
+
+PERSONALITY & TONE
+- You are Jarvis — direct, calm, confident. Like a skilled engineer, not a customer service bot.
+- NEVER say: "You're absolutely right", "Great question!", "Certainly!", "Of course!",
+  "I apologize", "I'm sorry", "My bad", "I understand your frustration", or any sycophantic filler.
+- NEVER use excessive emojis. One emoji max per response, only if it genuinely adds clarity.
+- If you made an error: just fix it silently and state the correct answer. No self-flagellation.
+- If the user is wrong: say so plainly and explain why. Don't soften facts to please them.
+- Respond like a senior engineer pair-programming: terse, precise, no fluff.
+
+NO HALLUCINATION — NON-NEGOTIABLE RULES
+- NEVER invent or guess: version numbers, release dates, URLs, domain names, website names,
+  quotes, changelogs, statistics, pricing, API docs, or any specific factual claim.
+- NEVER write things like "v2.1.118", "April 23, 2026", "according to the official docs",
+  "the changelog states", "as per codeude.com" — unless you fetched that page yourself this session.
+- BEFORE stating ANY specific fact (number, date, name, version, URL): ask yourself —
+  "Did I fetch this from a real source in this session using verified_search or fetch_url?"
+  If NO → do not state it. Say "I don't know — want me to look it up?" and call verified_search.
+- A confident-sounding wrong answer is worse than saying "I don't know".
+- Uncertainty is honest. Fabrication is a failure. Never dress up a guess as a fact."""
 
 backups: List[tuple] = []  # [(path, prev_content), ...] stack for /undo
 messages: List[Dict] = []
@@ -416,15 +452,22 @@ aliases: Dict[str, str] = (
 
 
 def build_system() -> Union[str, List[Dict]]:
-    """System prompt + any pinned user context.
+    """System prompt + live date/time + any pinned user context.
 
     When authenticated via OAuth, Anthropic requires the FIRST system block to be
     exactly the Claude Code identity string — so we return a 2-block list in that
     case and keep our real instructions in the second block.
     """
-    body = SYSTEM
+    now = datetime.now()
+    date_line = (
+        f"CURRENT DATE & TIME: {now.strftime('%A, %B %d, %Y')} "
+        f"at {now.strftime('%I:%M %p')} "
+        f"(timezone: {datetime.now().astimezone().tzname()})\n"
+        f"Never assume or guess the date — the above is the real current date injected at runtime."
+    )
+    body = SYSTEM + "\n\n" + date_line
     if pinned_context.strip():
-        body = SYSTEM + "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned_context.strip()
+        body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned_context.strip()
     if auth_mode == "oauth":
         return [
             {"type": "text", "text": CLAUDE_CODE_IDENTITY},
@@ -885,6 +928,522 @@ def mac_control(action: str, value: str = "") -> str:
     return f"ERROR: unknown action {action}"
 
 
+# ────────────────────────── internet tools ──────────────────────────
+def _strip_html(raw: str) -> str:
+    """Very lightweight HTML → plain-text: strip tags, decode entities."""
+    # remove <script>, <style> blocks entirely
+    raw = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw, flags=re.S | re.I)
+    # remove all other tags
+    raw = re.sub(r"<[^>]+>", " ", raw)
+    # collapse whitespace
+    raw = re.sub(r"[ \t]+", " ", raw)
+    raw = re.sub(r"\n{3,}", "\n\n", raw)
+    return html.unescape(raw).strip()
+
+
+def web_search(query: str, max_results: int = 8) -> str:
+    """
+    Search the web using DuckDuckGo's free JSON API (no key required).
+    Returns a ranked list of results: title, URL, and snippet.
+    Also tries the HTML endpoint for extra organic results when the JSON
+    Instant Answer doesn't return enough hits.
+    """
+    results: list[str] = []
+
+    # ── 1. DuckDuckGo Instant Answer API (JSON) ──────────────────────
+    try:
+        ia_url = (
+            "https://api.duckduckgo.com/?q="
+            + urllib.parse.quote_plus(query)
+            + "&format=json&no_redirect=1&no_html=1&skip_disambig=1"
+        )
+        req = urllib.request.Request(
+            ia_url,
+            headers={"User-Agent": "HarnessAgent/1.0 (macOS; python)"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8", errors="replace"))
+
+        # Abstract (Wikipedia-style summary)
+        abstract = data.get("AbstractText", "").strip()
+        abstract_url = data.get("AbstractURL", "").strip()
+        if abstract:
+            results.append(f"[Abstract]\n{abstract}\n🔗 {abstract_url}")
+
+        # RelatedTopics
+        for t in data.get("RelatedTopics", [])[:max_results]:
+            if isinstance(t, dict) and t.get("Text") and t.get("FirstURL"):
+                results.append(f"• {t['Text']}\n  🔗 {t['FirstURL']}")
+            elif isinstance(t, dict) and t.get("Topics"):
+                for sub in t["Topics"][:3]:
+                    if sub.get("Text") and sub.get("FirstURL"):
+                        results.append(f"• {sub['Text']}\n  🔗 {sub['FirstURL']}")
+
+        # Definition
+        defn = data.get("Definition", "").strip()
+        defn_url = data.get("DefinitionURL", "").strip()
+        if defn:
+            results.append(f"[Definition]\n{defn}\n🔗 {defn_url}")
+
+        # Answer (e.g. calculator / conversion results)
+        answer = data.get("Answer", "").strip()
+        if answer:
+            results.insert(0, f"[Direct Answer] {answer}")
+
+    except Exception as e:
+        results.append(f"[DDG JSON error: {e}]")
+
+    # ── 2. DDG HTML scrape for organic links (fallback / supplement) ──
+    if len(results) < 3:
+        try:
+            html_url = (
+                "https://html.duckduckgo.com/html/?q="
+                + urllib.parse.quote_plus(query)
+            )
+            req2 = urllib.request.Request(
+                html_url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0 Safari/537.36"
+                    )
+                },
+            )
+            with urllib.request.urlopen(req2, timeout=12) as r:
+                raw_html = r.read().decode("utf-8", errors="replace")
+
+            # Extract result blocks: <a class="result__a" href="...">title</a>
+            link_re = re.compile(
+                r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+                re.S | re.I,
+            )
+            snip_re = re.compile(
+                r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.S | re.I
+            )
+            links = link_re.findall(raw_html)
+            snips = [html.unescape(re.sub(r"<[^>]+>", "", s)) for s in snip_re.findall(raw_html)]
+
+            for i, (href, title) in enumerate(links[:max_results]):
+                # DDG HTML wraps URLs in redirects; try to decode uddg= param
+                try:
+                    qs = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+                    href = qs.get("uddg", [href])[0]
+                except Exception:
+                    pass
+                clean_title = html.unescape(re.sub(r"<[^>]+>", "", title)).strip()
+                snip = snips[i].strip() if i < len(snips) else ""
+                entry = f"• {clean_title}\n  🔗 {urllib.parse.unquote(href)}"
+                if snip:
+                    entry += f"\n  {snip}"
+                results.append(entry)
+
+        except Exception as e:
+            results.append(f"[DDG HTML error: {e}]")
+
+    if not results:
+        return f'No results found for "{query}".'
+
+    header = f'🔍 Web search: "{query}" — {len(results)} result(s)\n' + "─" * 60
+    return (header + "\n\n" + "\n\n".join(results))[:MAX_TOOL_OUTPUT]
+
+
+def fetch_url(url: str, raw: bool = False) -> str:
+    """
+    Fetch a URL and return its content as plain text (HTML stripped by default).
+    Set raw=True to get the raw response body (HTML/JSON/etc.).
+    Follows redirects automatically. Respects MAX_TOOL_OUTPUT.
+    """
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/json,*/*;q=0.9",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            content_type = r.headers.get("Content-Type", "")
+            body = r.read().decode("utf-8", errors="replace")
+            final_url = r.url
+
+        if raw or "json" in content_type or not (
+            "html" in content_type or body.lstrip().startswith("<")
+        ):
+            result = body
+        else:
+            result = _strip_html(body)
+
+        header = f"📄 {final_url}\n[{len(result)} chars]\n" + "─" * 60 + "\n"
+        return (header + result)[:MAX_TOOL_OUTPUT]
+
+    except urllib.error.HTTPError as e:
+        return f"HTTP ERROR {e.code}: {e.reason} — {url}"
+    except urllib.error.URLError as e:
+        return f"URL ERROR: {e.reason} — {url}"
+    except Exception as e:
+        return f"ERROR fetching {url}: {type(e).__name__}: {e}"
+
+
+# ── Credibility tiers: trusted domains score higher ──────────────────
+_TRUSTED_DOMAINS: dict[str, int] = {
+    # encyclopaedias / reference
+    "wikipedia.org": 10, "britannica.com": 10, "scholarpedia.org": 9,
+    # science & academia
+    "nature.com": 10, "science.org": 10, "pubmed.ncbi.nlm.nih.gov": 10,
+    "ncbi.nlm.nih.gov": 10, "scholar.google.com": 9, "arxiv.org": 9,
+    "researchgate.net": 8, "jstor.org": 9, "ieee.org": 9, "acm.org": 9,
+    # government / official
+    "gov": 9, "edu": 9, "who.int": 10, "cdc.gov": 10, "nih.gov": 10,
+    "fda.gov": 10, "europa.eu": 9,
+    # reputable news
+    "bbc.com": 9, "bbc.co.uk": 9, "reuters.com": 9, "apnews.com": 9,
+    "theguardian.com": 8, "nytimes.com": 8, "washingtonpost.com": 8,
+    "economist.com": 8, "ft.com": 8, "bloomberg.com": 8, "wsj.com": 8,
+    "npr.org": 8, "pbs.org": 8, "theatlantic.com": 7,
+    # tech / official docs
+    "docs.python.org": 10, "developer.mozilla.org": 10, "mdn.io": 10,
+    "stackoverflow.com": 8, "github.com": 7, "developer.apple.com": 9,
+    "docs.microsoft.com": 9, "learn.microsoft.com": 9,
+    "cloud.google.com": 9, "aws.amazon.com": 9,
+}
+_UNTRUSTED_PATTERNS: list[str] = [
+    "quora.com", "reddit.com", "yahoo.com/answers", "answers.com",
+    "buzzfeed.com", "dailymail.co.uk", "thesun.co.uk", "nypost.com",
+]
+
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0 Safari/537.36"
+)
+
+
+def _domain_score(url: str) -> tuple[int, str]:
+    """Return (trust_score 1-10, label) for a URL."""
+    try:
+        host = urllib.parse.urlparse(url).netloc.lower().lstrip("www.")
+    except Exception:
+        return 5, "unknown"
+    for pat, score in _TRUSTED_DOMAINS.items():
+        if host == pat or host.endswith("." + pat) or host.endswith(pat):
+            return score, pat
+    for bad in _UNTRUSTED_PATTERNS:
+        if bad in host:
+            return 3, f"low-trust ({bad})"
+    tld = host.rsplit(".", 1)[-1] if "." in host else ""
+    if tld in ("gov", "edu", "ac"):
+        return 9, f"{tld} domain"
+    return 5, "general"
+
+
+def _fetch_snippet(url: str, max_chars: int = 3000) -> str:
+    """Fetch a URL and return a short plain-text snippet, silently on error."""
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": _BROWSER_UA,
+                     "Accept": "text/html,application/xhtml+xml,*/*;q=0.9",
+                     "Accept-Language": "en-US,en;q=0.9"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            raw = r.read(60_000).decode("utf-8", errors="replace")
+        return _strip_html(raw)[:max_chars]
+    except Exception as e:
+        return f"[fetch error: {e}]"
+
+
+def _ddg_organic_urls(query: str, want: int = 12) -> list[tuple[str, str, str]]:
+    """
+    Return up to `want` (url, title, snippet) tuples from DDG HTML scrape.
+    """
+    results: list[tuple[str, str, str]] = []
+    try:
+        html_url = (
+            "https://html.duckduckgo.com/html/?q="
+            + urllib.parse.quote_plus(query)
+        )
+        req = urllib.request.Request(
+            html_url,
+            headers={"User-Agent": _BROWSER_UA},
+        )
+        with urllib.request.urlopen(req, timeout=12) as r:
+            raw_html = r.read().decode("utf-8", errors="replace")
+
+        link_re = re.compile(
+            r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+            re.S | re.I,
+        )
+        snip_re = re.compile(
+            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.S | re.I
+        )
+        links = link_re.findall(raw_html)
+        snips = [
+            html.unescape(re.sub(r"<[^>]+>", "", s)).strip()
+            for s in snip_re.findall(raw_html)
+        ]
+        for i, (href, title) in enumerate(links[:want]):
+            try:
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+                href = qs.get("uddg", [href])[0]
+            except Exception:
+                pass
+            href = urllib.parse.unquote(href)
+            clean_title = html.unescape(re.sub(r"<[^>]+>", "", title)).strip()
+            snip = snips[i] if i < len(snips) else ""
+            results.append((href, clean_title, snip))
+    except Exception:
+        pass
+    return results
+
+
+def _extract_key_claims(text: str, max_sentences: int = 6) -> list[str]:
+    """Pull the first N sentences from a text block as 'key claims'."""
+    # split on sentence-ending punctuation
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    out = []
+    for s in sentences:
+        s = s.strip()
+        if len(s) > 30:
+            out.append(s)
+        if len(out) >= max_sentences:
+            break
+    return out
+
+
+def _agreement_score(claim: str, corpus: list[str]) -> float:
+    """
+    Simple keyword-overlap agreement: what fraction of sources contain
+    the key nouns/numbers from `claim`.  Returns 0.0–1.0.
+    """
+    if not corpus:
+        return 0.0
+    # extract words ≥4 chars that look like content words (not stopwords)
+    stopwords = {
+        "that", "this", "with", "from", "have", "will", "been", "they",
+        "their", "there", "were", "also", "some", "when", "which", "what",
+    }
+    words = [
+        w.lower()
+        for w in re.findall(r"\b[a-zA-Z0-9]{4,}\b", claim)
+        if w.lower() not in stopwords
+    ]
+    if not words:
+        return 0.5
+    hits = sum(
+        1 for doc in corpus
+        if sum(1 for w in words if w in doc.lower()) >= max(1, len(words) // 3)
+    )
+    return hits / len(corpus)
+
+
+def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> str:
+    """
+    Multi-source verified web search.
+
+    Steps:
+      1. Collect 12+ candidate URLs from DuckDuckGo (JSON + HTML).
+      2. Deduplicate by domain so no single site dominates.
+      3. Fetch page content from min_sources..max_sources URLs in parallel.
+      4. Score each source by domain credibility (1-10).
+      5. Extract key claims from the highest-trust sources.
+      6. Cross-check each claim against ALL other sources (agreement score).
+      7. Return a structured report: verified facts, contested points,
+         source list with trust scores, and a confidence summary.
+    """
+    console.print(f"[dim cyan]🔍 verified_search: collecting sources for \"{query}\"…[/]")
+
+    # ── Step 1: gather candidate URLs ────────────────────────────────
+    candidates: list[tuple[str, str, str]] = []   # (url, title, snippet)
+
+    # DDG JSON Instant Answer
+    try:
+        ia_url = (
+            "https://api.duckduckgo.com/?q="
+            + urllib.parse.quote_plus(query)
+            + "&format=json&no_redirect=1&no_html=1&skip_disambig=1"
+        )
+        req = urllib.request.Request(
+            ia_url, headers={"User-Agent": "HarnessAgent/1.0 (macOS; python)"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8", errors="replace"))
+
+        if data.get("AbstractURL") and data.get("AbstractText"):
+            candidates.append((
+                data["AbstractURL"],
+                data.get("AbstractSource", "Abstract"),
+                data["AbstractText"][:300],
+            ))
+        for t in data.get("RelatedTopics", [])[:8]:
+            if isinstance(t, dict) and t.get("FirstURL") and t.get("Text"):
+                candidates.append((t["FirstURL"], t.get("Text", "")[:80], t.get("Text", "")[:200]))
+    except Exception:
+        pass
+
+    # DDG HTML organic results
+    organic = _ddg_organic_urls(query, want=14)
+    candidates.extend(organic)
+
+    # ── Step 2: deduplicate by domain (max 2 per domain) ─────────────
+    seen_domains: dict[str, int] = {}
+    deduped: list[tuple[str, str, str]] = []
+    for url, title, snip in candidates:
+        try:
+            domain = urllib.parse.urlparse(url).netloc.lower().lstrip("www.")
+        except Exception:
+            domain = url
+        if seen_domains.get(domain, 0) < 2:
+            deduped.append((url, title, snip))
+            seen_domains[domain] = seen_domains.get(domain, 0) + 1
+
+    # sort: higher-trust domains first
+    deduped.sort(key=lambda x: _domain_score(x[0])[0], reverse=True)
+    to_fetch = deduped[:max_sources]
+
+    if not to_fetch:
+        return f'❌ verified_search: could not find any sources for "{query}".'
+
+    console.print(
+        f"[dim]  → fetching content from {len(to_fetch)} sources in parallel…[/]"
+    )
+
+    # ── Step 3: fetch page content in parallel ────────────────────────
+    source_data: list[dict] = []   # {url, title, snippet, content, trust, label}
+
+    def _fetch_one(item: tuple[str, str, str]) -> dict:
+        url, title, snip = item
+        trust, label = _domain_score(url)
+        content = _fetch_snippet(url, max_chars=2500)
+        return {
+            "url": url, "title": title, "snippet": snip,
+            "content": content, "trust": trust, "label": label,
+        }
+
+    with ThreadPoolExecutor(max_workers=min(8, len(to_fetch))) as pool:
+        futures = {pool.submit(_fetch_one, item): item for item in to_fetch}
+        for fut in as_completed(futures):
+            try:
+                source_data.append(fut.result())
+            except Exception:
+                pass
+
+    # filter out fetch errors entirely
+    good_sources = [
+        s for s in source_data
+        if not s["content"].startswith("[fetch error")
+        and len(s["content"]) > 100
+    ]
+    error_sources = [
+        s for s in source_data
+        if s["content"].startswith("[fetch error") or len(s["content"]) <= 100
+    ]
+
+    if not good_sources:
+        return (
+            f'⚠️  verified_search: found {len(to_fetch)} URLs but could not '
+            f'fetch readable content from any of them for "{query}".\n'
+            + "\n".join(f"  • {s['url']}" for s in to_fetch)
+        )
+
+    # sort good sources by trust descending
+    good_sources.sort(key=lambda s: s["trust"], reverse=True)
+    all_contents = [s["content"] for s in good_sources]
+
+    # ── Step 4 & 5: extract key claims from top-trust sources ─────────
+    top_sources = good_sources[:3]
+    raw_claims: list[str] = []
+    for src in top_sources:
+        raw_claims.extend(_extract_key_claims(src["content"], max_sentences=5))
+    # deduplicate very similar claims (length-based heuristic)
+    seen_claim_words: set[str] = set()
+    unique_claims: list[str] = []
+    for c in raw_claims:
+        sig = frozenset(c.lower().split())
+        overlap = len(sig & seen_claim_words) / max(len(sig), 1)
+        if overlap < 0.6:
+            unique_claims.append(c)
+            seen_claim_words |= sig
+        if len(unique_claims) >= 10:
+            break
+
+    # ── Step 6: cross-check each claim ───────────────────────────────
+    verified: list[tuple[str, float]] = []    # (claim, agreement_ratio)
+    contested: list[tuple[str, float]] = []
+
+    for claim in unique_claims:
+        ratio = _agreement_score(claim, all_contents)
+        if ratio >= 0.5:
+            verified.append((claim, ratio))
+        else:
+            contested.append((claim, ratio))
+
+    # overall confidence: weighted avg trust of good sources
+    avg_trust = sum(s["trust"] for s in good_sources) / len(good_sources)
+    verified_ratio = len(verified) / max(len(unique_claims), 1)
+    confidence = "🟢 HIGH" if avg_trust >= 7 and verified_ratio >= 0.6 else \
+                 "🟡 MEDIUM" if avg_trust >= 5 else "🔴 LOW"
+
+    # ── Step 7: build the report ──────────────────────────────────────
+    lines: list[str] = []
+    lines.append(f'╔══ 🔍 VERIFIED SEARCH REPORT ══════════════════════════════╗')
+    lines.append(f'  Query    : "{query}"')
+    lines.append(f'  Sources  : {len(good_sources)} fetched / {len(to_fetch)} found'
+                 + (f' ({len(error_sources)} unreachable)' if error_sources else ''))
+    lines.append(f'  Avg trust: {avg_trust:.1f}/10   Confidence: {confidence}')
+    lines.append(f'╚═══════════════════════════════════════════════════════════╝')
+    lines.append("")
+
+    if verified:
+        lines.append("✅ VERIFIED FACTS  (agreed by ≥50% of sources)")
+        lines.append("─" * 60)
+        for claim, ratio in sorted(verified, key=lambda x: -x[1]):
+            pct = int(ratio * 100)
+            lines.append(f"  [{pct:3d}% agreement]  {claim}")
+        lines.append("")
+
+    if contested:
+        lines.append("⚠️  CONTESTED / UNCERTAIN  (found in <50% of sources)")
+        lines.append("─" * 60)
+        for claim, ratio in sorted(contested, key=lambda x: -x[1]):
+            pct = int(ratio * 100)
+            lines.append(f"  [{pct:3d}% agreement]  {claim}")
+        lines.append("")
+
+    lines.append("📚 SOURCES  (sorted by trust score)")
+    lines.append("─" * 60)
+    for i, s in enumerate(good_sources, 1):
+        bar = "█" * s["trust"] + "░" * (10 - s["trust"])
+        lines.append(f"  {i:2d}. [{bar}] {s['trust']}/10  {s['label']}")
+        lines.append(f"      {s['title'][:70]}")
+        lines.append(f"      🔗 {s['url']}")
+        if s["snippet"]:
+            lines.append(f"      ↳ {s['snippet'][:120]}")
+        lines.append("")
+
+    if error_sources:
+        lines.append("❌ UNREACHABLE SOURCES")
+        lines.append("─" * 60)
+        for s in error_sources:
+            lines.append(f"  • {s['url']}")
+        lines.append("")
+
+    lines.append("─" * 60)
+    lines.append(
+        f"ℹ️  This answer was cross-verified across {len(good_sources)} independent "
+        f"websites. Claims marked ✅ appeared in ≥50% of sources. "
+        f"Always check primary sources for critical decisions."
+    )
+
+    report = "\n".join(lines)
+    return report[:MAX_TOOL_OUTPUT]
+
+
 TOOLS = [
     {"name":"read_file","description":"Read a file. Optional offset/limit for line ranges.",
      "input_schema":{"type":"object","properties":{
@@ -969,6 +1528,29 @@ TOOLS = [
     {"name":"mac_control","description":"System controls. action ∈ {volume, mute, unmute, battery, wifi_on, wifi_off, sleep, lock, dark_mode, light_mode, toggle_dark}.",
      "input_schema":{"type":"object","properties":{
         "action":{"type":"string"},"value":{"type":"string"}},"required":["action"]}},
+
+    # ── internet ──
+    {"name":"web_search","description":"Search the web using DuckDuckGo (no browser opened, no API key needed). Returns titles, URLs, and snippets for the top results. Use this to look up current information, news, docs, prices, weather, etc.",
+     "input_schema":{"type":"object","properties":{
+        "query":{"type":"string","description":"Search query string"},
+        "max_results":{"type":"integer","description":"Max number of results to return (default 8)"}},"required":["query"]}},
+    {"name":"fetch_url","description":"Fetch a URL and return its content as plain text (HTML is stripped). Use this to read web pages, docs, JSON APIs, etc. without opening any browser.",
+     "input_schema":{"type":"object","properties":{
+        "url":{"type":"string","description":"Full URL to fetch (http/https)"},
+        "raw":{"type":"boolean","description":"If true, return raw response body (HTML/JSON) instead of stripped text"}},"required":["url"]}},
+    {"name":"verified_search","description":(
+        "Multi-source VERIFIED web search. Searches 5-10 independent websites, "
+        "fetches their content in parallel, scores each by domain credibility (1-10), "
+        "extracts key claims, cross-checks every claim across ALL sources, and returns "
+        "a structured report with: ✅ verified facts (≥50% source agreement), "
+        "⚠️ contested points, 📚 source list with trust scores, and an overall confidence "
+        "level. Use this instead of web_search whenever accuracy matters — news, health, "
+        "science, facts, prices, current events. Never trust a single source."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "query":{"type":"string","description":"What to research and verify"},
+        "min_sources":{"type":"integer","description":"Minimum sources to fetch (default 5)"},
+        "max_sources":{"type":"integer","description":"Maximum sources to fetch (default 10)"}},"required":["query"]}},
 ]
 FUNC = {
     "read_file": read_file, "write_file": write_file, "edit_file": edit_file,
@@ -986,6 +1568,9 @@ FUNC = {
     "clipboard_get": clipboard_get, "clipboard_set": clipboard_set,
     "open_url": open_url, "notify": notify,
     "shortcut_run": shortcut_run, "mac_control": mac_control,
+    # internet
+    "web_search": web_search, "fetch_url": fetch_url,
+    "verified_search": verified_search,
 }
 
 
@@ -1032,18 +1617,101 @@ def call_claude_stream():
             raise
 
 
+# ── Hallucination scrubber ───────────────────────────────────────────────────
+# Patterns that strongly indicate fabricated facts stated as truth.
+# These are checked sentence-by-sentence; flagged sentences are replaced with
+# a warning so the user always knows when something wasn't actually verified.
+_HALLUCINATION_PATTERNS: list[re.Pattern] = [
+    # fake version numbers  e.g. "v2.1.118", "version 3.4.2", "v1.0"
+    re.compile(r'\bv\d+\.\d+[\.\d]*\b', re.I),
+    # "the official changelog / docs / release notes states / says / shows"
+    re.compile(r'\b(official|changelog|release notes?|docs?|documentation)\b.{0,40}\b(states?|says?|shows?|confirms?|reads?|lists?)\b', re.I),
+    # "according to <site>.com / <site>.org"
+    re.compile(r'\baccording to\b.{0,60}\.(com|org|io|net|gov|edu)\b', re.I),
+    # "the correct (date|version|release) is …"
+    re.compile(r'\bthe correct\b.{0,40}\bis\b', re.I),
+    # "I should have verified" / "I verified" / "I checked the source"
+    re.compile(r'\bI (should have |have )?(verified|checked|confirmed|looked up)\b', re.I),
+    # explicit fake self-correction: "not 2025" / "not 2024" etc.
+    re.compile(r'\bnot 20\d\d\b', re.I),
+]
+
+_HALLUCINATION_WARNING = (
+    "\n\n> ⚠️ **[Hallucination guard]** "
+    "A sentence was removed because it contained unverified facts "
+    "(version number, date, citation, or source) that were not fetched this session. "
+    "Use `verified_search` to get real data.\n"
+)
+
+
+def _scrub_hallucinations(text: str) -> tuple[str, bool]:
+    """
+    Scan text line-by-line. Flag any line that matches a hallucination pattern.
+    Flagged lines are dropped in-place; surrounding whitespace/structure is preserved.
+    Returns (cleaned_text, was_flagged).
+    """
+    lines = text.splitlines(keepends=True)   # preserve \n so structure stays intact
+    clean: list[str] = []
+    flagged = False
+    for line in lines:
+        hit = any(p.search(line) for p in _HALLUCINATION_PATTERNS)
+        if hit:
+            flagged = True
+            # replace with empty line to keep paragraph spacing intact
+            clean.append("\n")
+        else:
+            clean.append(line)
+    result = "".join(clean).strip()
+    if flagged:
+        result += _HALLUCINATION_WARNING
+    return result, flagged
+
+
 def render_assistant(resp) -> bool:
     """Print assistant content, execute any tool calls, return True if more turns needed."""
     global last_assistant_text, tool_calls_count
+
+    # Build a friendly short model label: "Sonnet", "Opus", "Haiku" etc.
+    _m = MODEL.lower()
+    if "opus"   in _m: _model_label = "Opus"
+    elif "sonnet" in _m: _model_label = "Sonnet"
+    elif "haiku"  in _m: _model_label = "Haiku"
+    else:                _model_label = MODEL
+
     tool_results = []
     for b in resp.content:
-        if b.type == "text" and b.text.strip():
-            last_assistant_text = b.text
-            console.print(Panel(Markdown(b.text), title=f"🤖 Claude ({MODEL})",
-                                border_style="magenta", padding=(0, 1)))
+        # ── text reply ──────────────────────────────────────────────
+        if b.type == "text":
+            raw = b.text or ""
+            # Must contain at least one non-whitespace character to be worth showing.
+            # .strip() alone isn't enough — Markdown('\n\n') still renders a blank Panel.
+            if not re.search(r"\S", raw):
+                continue
+            text, was_flagged = _scrub_hallucinations(raw.strip())
+            if was_flagged:
+                console.print("[dim red]⚠ hallucination guard triggered — sentence(s) removed[/]")
+            if not re.search(r"\S", text):
+                continue   # entire response was hallucinated — show nothing
+            last_assistant_text = text
+            console.print(Panel(
+                Markdown(text),
+                title=f"Jarvis [{_model_label}]",
+                border_style="magenta",
+                padding=(0, 1),
+            ))
+
+        # ── thinking block ───────────────────────────────────────────
         elif b.type == "thinking":
-            console.print(Panel(b.thinking, title="💭 thinking",
-                                border_style="dim", padding=(0, 1)))
+            thinking = b.thinking or ""
+            if re.search(r"\S", thinking):
+                console.print(Panel(
+                    thinking.strip(),
+                    title="thinking",
+                    border_style="dim",
+                    padding=(0, 1),
+                ))
+
+        # ── tool call ────────────────────────────────────────────────
         elif b.type == "tool_use":
             tool_calls_count += 1
             icon = TOOL_ICONS.get(b.name, "🔧")
@@ -1054,8 +1722,10 @@ def render_assistant(resp) -> bool:
             except Exception as e:
                 out = f"ERROR: {type(e).__name__}: {e}"
             out_str = str(out)
-            preview = out_str[:400] + ("…" if len(out_str) > 400 else "")
-            console.print(Panel(preview, border_style="dim", padding=(0, 1)))
+            # only show preview panel if there is real non-whitespace content
+            if re.search(r"\S", out_str):
+                short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
+                console.print(Panel(short, border_style="dim", padding=(0, 1)))
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": b.id,
@@ -1219,10 +1889,8 @@ def main():
     header_panel()
     while True:
         try:
-            prompt_bits = f"[dim cyan]{CWD.name}[/] "
-            if total_in + total_out:
-                prompt_bits += f"[dim](⇅{(total_in+total_out)//1000}k)[/] "
-            inp = console.input(f"\n{prompt_bits}[bold blue]›[/] ").strip()
+            now_str = datetime.now().strftime("%H:%M")
+            inp = console.input(f"\n[dim]{now_str}[/] [bold green]Jarvis[/] [bold blue]›[/] ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[magenta]bye 👋[/]"); break
         if not inp: continue
@@ -1392,7 +2060,49 @@ def main():
                 t.add_row("📂 cwd", str(CWD))
                 console.print(Panel(t, title="📊 session stats", border_style="cyan"))
             elif c == "/model":
-                if arg: MODEL = arg; header_panel()
+                if arg:
+                    # allow numeric selection or explicit name
+                    chosen = None
+                    if arg.isdigit():
+                        i = int(arg) - 1
+                        if 0 <= i < len(AVAILABLE_MODELS):
+                            chosen = AVAILABLE_MODELS[i][0]
+                    else:
+                        for m, _ in AVAILABLE_MODELS:
+                            if arg == m or arg in m:
+                                chosen = m; break
+                        if not chosen:
+                            chosen = arg  # accept raw model id
+                    if chosen:
+                        MODEL = chosen
+                        console.print(f"[green]✓ model switched to[/] [cyan]{MODEL}[/]")
+                        header_panel()
+                    else:
+                        console.print(f"[red]unknown model: {arg}[/]")
+                else:
+                    t = Table(show_header=True, box=None, pad_edge=False)
+                    t.add_column("#", style="dim"); t.add_column("model", style="cyan"); t.add_column("description"); t.add_column("")
+                    for i, (m, desc) in enumerate(AVAILABLE_MODELS, 1):
+                        marker = "[green]● current[/]" if m == MODEL else ""
+                        t.add_row(str(i), m, desc, marker)
+                    console.print(Panel(t, title="🤖 available models", border_style="cyan"))
+                    sel = console.input("[cyan]select model (# or name, enter to cancel): [/]").strip()
+                    if sel:
+                        chosen = None
+                        if sel.isdigit():
+                            i = int(sel) - 1
+                            if 0 <= i < len(AVAILABLE_MODELS):
+                                chosen = AVAILABLE_MODELS[i][0]
+                        else:
+                            for m, _ in AVAILABLE_MODELS:
+                                if sel == m or sel in m:
+                                    chosen = m; break
+                        if chosen:
+                            MODEL = chosen
+                            console.print(f"[green]✓ model switched to[/] [cyan]{MODEL}[/]")
+                            header_panel()
+                        else:
+                            console.print(f"[red]invalid selection: {sel}[/]")
             elif c == "/key" and arg == "reset":
                 KEY_FILE.unlink(missing_ok=True)
                 console.print("[green]key deleted — restart the agent[/]")
