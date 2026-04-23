@@ -18,7 +18,8 @@ import threading
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Header, Footer, Input, RichLog, Static
+from textual.message import Message
+from textual.widgets import Header, Footer, Input, RichLog, Static, TextArea
 from textual import work
 
 from rich.panel import Panel
@@ -27,6 +28,32 @@ from rich.text import Text
 from .console_shim import TUIConsole
 from .session_modal import SessionPickerScreen, resume_session_into_state
 from .palette_modal import CommandPaletteScreen
+
+
+class PromptArea(TextArea):
+    """Multi-line prompt input.
+
+    Enter submits. Shift+Enter / Alt+Enter / Ctrl+J insert a newline.
+    Pasting multi-line text is supported natively by TextArea.
+    """
+
+    class Submitted(Message):
+        def __init__(self, value: str) -> None:
+            self.value = value
+            super().__init__()
+
+    async def _on_key(self, event):  # type: ignore[override]
+        key = event.key
+        if key == "enter":
+            event.stop()
+            event.prevent_default()
+            self.post_message(self.Submitted(self.text))
+            return
+        if key in ("shift+enter", "alt+enter", "ctrl+j"):
+            event.stop()
+            event.prevent_default()
+            self.insert("\n")
+            return
 
 
 def _swap_console_everywhere(tui_console):
@@ -61,7 +88,9 @@ class JarvisTUI(App):
     }
     #prompt {
         dock: bottom;
-        height: 3;
+        height: auto;
+        min-height: 3;
+        max-height: 12;
         margin: 0 2 2 2;
         background: #0f1216;
         border: tall #2b3340;
@@ -75,9 +104,12 @@ class JarvisTUI(App):
         padding: 0 2;
         margin: 0 2 0 2;
     }
-    Input {
+    Input, TextArea {
         background: #0f1216;
         color: #e6e6e6;
+    }
+    TextArea > .text-area--cursor-line {
+        background: #0f1216;
     }
     Header {
         background: #12151a;
@@ -100,7 +132,7 @@ class JarvisTUI(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
-        yield Input(placeholder="Ask Jarvis…  (/ for commands, Ctrl+D to quit)", id="prompt")
+        yield PromptArea(id="prompt")
         yield Static("", id="statusbar")
         yield Footer()
 
@@ -130,30 +162,29 @@ class JarvisTUI(App):
         db_init()
         state.current_session_id = db_create_session(state.MODEL)
 
-        self.query_one("#prompt", Input).focus()
+        self.query_one("#prompt", PromptArea).focus()
 
     # ─── palette (centered modal) ──────────────────────────────────────
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """Open palette only when '/' is TYPED into an empty input — not when
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Open palette only when '/' is TYPED into an empty prompt — not when
         arriving at '/' by deleting the rest of a previously-selected command.
         """
-        if event.input.id != "prompt":
+        if event.text_area.id != "prompt":
             return
-        val = event.value or ""
+        val = event.text_area.text or ""
         prev = self._last_input_value
         self._last_input_value = val
-        # Opening condition: transition from empty → "/" (length grew by 1).
         if val == "/" and prev == "":
-            event.input.value = ""
+            event.text_area.clear()
             self._last_input_value = ""
             self._open_palette()
 
     def _open_palette(self):
         def after(cmd):
-            inp = self.query_one("#prompt", Input)
+            inp = self.query_one("#prompt", PromptArea)
             if cmd:
-                inp.value = cmd
-                inp.cursor_position = len(cmd)
+                inp.text = cmd
+                inp.move_cursor((0, len(cmd)))
                 self._last_input_value = cmd
             inp.focus()
         self.push_screen(CommandPaletteScreen(), after)
@@ -167,11 +198,14 @@ class JarvisTUI(App):
                 self._tui_console.print("[yellow]⏹ cancelled by user[/]")
 
     # ─── input handling ────────────────────────────────────────────────
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    def on_prompt_area_submitted(self, event: "PromptArea.Submitted") -> None:
         if self._busy:
             return
-        text = (event.value or "").strip()
-        event.input.value = ""
+        raw = event.value or ""
+        text = raw.strip()
+        inp = self.query_one("#prompt", PromptArea)
+        inp.clear()
+        self._last_input_value = ""
         if not text:
             return
 
@@ -254,7 +288,7 @@ class JarvisTUI(App):
     def _turn_done(self):
         self._busy = False
         self._set_status("")
-        self.query_one("#prompt", Input).focus()
+        self.query_one("#prompt", PromptArea).focus()
 
     def _set_status(self, msg: str):
         try:
