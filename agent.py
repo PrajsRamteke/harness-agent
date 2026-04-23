@@ -3,7 +3,7 @@
 agent.py — Claude Code-style terminal agent
 Default model: claude-sonnet-4-6
 """
-import os, sys, json, subprocess, pathlib, shlex, time, secrets, hashlib, base64, webbrowser, urllib.request, urllib.parse, urllib.error, html, re
+import os, sys, json, subprocess, pathlib, shlex, time, secrets, hashlib, base64, webbrowser, urllib.request, urllib.parse, urllib.error, html, re, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from getpass import getpass
@@ -46,6 +46,7 @@ HIST_FILE = CONFIG_DIR / "history.json"
 NOTES_FILE = CONFIG_DIR / "notes.md"
 PIN_FILE = CONFIG_DIR / "pinned.txt"
 ALIAS_FILE = CONFIG_DIR / "aliases.json"
+SESSIONS_DB = CONFIG_DIR / "sessions.db"
 
 # ── Anthropic OAuth (Claude Pro/Max subscription) ──
 OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -1772,6 +1773,10 @@ def cmd_help():
             ("/export <file>", "export conversation as markdown"),
             ("/save <file>", "save session JSON"),
             ("/load <file>", "load session JSON"),
+            ("/session", "list persisted sessions & resume"),
+            ("/session resume <id>", "resume a session by id"),
+            ("/session new", "start a new persisted session"),
+            ("/session delete <id>", "delete a stored session"),
             ("/clear", "clear the terminal screen"),
             ("/exit", "quit"),
         ]),
@@ -1883,10 +1888,219 @@ def export_markdown(path: str) -> str:
     return path
 
 
+# ────────────────────────── Persistent sessions (SQLite) ──────────────────────────
+current_session_id: Optional[int] = None
+
+
+def db_conn() -> sqlite3.Connection:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(str(SESSIONS_DB))
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def db_init():
+    with db_conn() as c:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            model TEXT,
+            created_at REAL,
+            updated_at REAL
+        );
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            idx INTEGER,
+            role TEXT,
+            content_json TEXT,
+            created_at REAL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_msg_session ON messages(session_id, idx);
+        """)
+
+
+def db_create_session(model: str) -> int:
+    now = time.time()
+    with db_conn() as c:
+        cur = c.execute(
+            "INSERT INTO sessions (title, model, created_at, updated_at) VALUES (?,?,?,?)",
+            (None, model, now, now))
+        return cur.lastrowid
+
+
+def db_append_message(session_id: int, idx: int, msg: Dict):
+    serialized = _msg_to_json(msg)
+    content = serialized["content"]
+    content_json = json.dumps(content) if not isinstance(content, str) else json.dumps(content)
+    with db_conn() as c:
+        c.execute(
+            "INSERT INTO messages (session_id, idx, role, content_json, created_at) VALUES (?,?,?,?,?)",
+            (session_id, idx, msg["role"], content_json, time.time()))
+        c.execute("UPDATE sessions SET updated_at=? WHERE id=?", (time.time(), session_id))
+
+
+def db_replace_session_messages(session_id: int, msgs: List[Dict]):
+    """Rewrite all messages for a session (used after /retry etc.)."""
+    with db_conn() as c:
+        c.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
+        now = time.time()
+        for i, m in enumerate(msgs):
+            s = _msg_to_json(m)
+            content_json = json.dumps(s["content"])
+            c.execute(
+                "INSERT INTO messages (session_id, idx, role, content_json, created_at) VALUES (?,?,?,?,?)",
+                (session_id, i, m["role"], content_json, now))
+        c.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now, session_id))
+
+
+def db_set_title_if_empty(session_id: int, title: str):
+    title = (title or "").strip().replace("\n", " ")[:80]
+    if not title:
+        return
+    with db_conn() as c:
+        row = c.execute("SELECT title FROM sessions WHERE id=?", (session_id,)).fetchone()
+        if row and not row["title"]:
+            c.execute("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
+
+
+def db_list_sessions(limit: int = 50) -> List[sqlite3.Row]:
+    with db_conn() as c:
+        return c.execute("""
+            SELECT s.id, s.title, s.model, s.created_at, s.updated_at,
+                   (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS msg_count
+            FROM sessions s
+            WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id=s.id)
+            ORDER BY s.updated_at DESC LIMIT ?""", (limit,)).fetchall()
+
+
+def db_load_session(session_id: int) -> Optional[List[Dict]]:
+    with db_conn() as c:
+        row = c.execute("SELECT id FROM sessions WHERE id=?", (session_id,)).fetchone()
+        if not row: return None
+        rows = c.execute(
+            "SELECT role, content_json FROM messages WHERE session_id=? ORDER BY idx ASC",
+            (session_id,)).fetchall()
+    out = []
+    for r in rows:
+        content = json.loads(r["content_json"])
+        out.append({"role": r["role"], "content": content})
+    return out
+
+
+def db_delete_session(session_id: int) -> bool:
+    with db_conn() as c:
+        cur = c.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+        c.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
+        return cur.rowcount > 0
+
+
+def _fmt_ts(ts: float) -> str:
+    try: return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    except Exception: return "-"
+
+
+def cmd_session(arg: str):
+    """Handle /session subcommands. Returns new session_id if switched, else None."""
+    global messages, current_session_id, tool_calls_count
+    parts = arg.split(maxsplit=1)
+    sub = parts[0] if parts else "list"
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("list", "ls", ""):
+        rows = db_list_sessions()
+        if not rows:
+            console.print("[dim]no saved sessions yet[/]"); return None
+        t = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+        t.add_column("#", style="dim"); t.add_column("id", style="cyan")
+        t.add_column("title"); t.add_column("msgs", justify="right")
+        t.add_column("model", style="magenta"); t.add_column("updated", style="dim")
+        for i, r in enumerate(rows, 1):
+            marker = " [green]●[/]" if r["id"] == current_session_id else ""
+            title = r["title"] or "[dim](untitled)[/]"
+            t.add_row(str(i), str(r["id"]) + marker, title,
+                      str(r["msg_count"]), r["model"] or "-", _fmt_ts(r["updated_at"]))
+        console.print(Panel(t, title="🗂  sessions", border_style="cyan"))
+        sel = console.input("[cyan]resume # or id (enter to cancel, 'd <id>' to delete): [/]").strip()
+        if not sel: return None
+        if sel.startswith("d "):
+            sid = sel[2:].strip()
+            if sid.isdigit() and db_delete_session(int(sid)):
+                console.print(f"[green]deleted session {sid}[/]")
+            else:
+                console.print("[red]not found[/]")
+            return None
+        target = None
+        if sel.isdigit():
+            i = int(sel)
+            if 1 <= i <= len(rows): target = rows[i-1]["id"]
+            else: target = i  # treat as raw id
+        if target is None:
+            console.print("[red]invalid selection[/]"); return None
+        return _resume_session(target)
+
+    if sub == "resume":
+        if not rest.isdigit():
+            console.print("usage: /session resume <id>"); return None
+        return _resume_session(int(rest))
+
+    if sub == "new":
+        sid = db_create_session(MODEL)
+        messages = []; tool_calls_count = 0
+        current_session_id = sid
+        console.print(f"[green]✨ new session #{sid}[/]")
+        return sid
+
+    if sub == "delete":
+        if not rest.isdigit():
+            console.print("usage: /session delete <id>"); return None
+        if db_delete_session(int(rest)):
+            console.print(f"[green]deleted session {rest}[/]")
+        else:
+            console.print("[red]not found[/]")
+        return None
+
+    if sub == "current":
+        console.print(f"[cyan]current session: #{current_session_id}[/]")
+        return None
+
+    console.print("[red]unknown subcommand[/] — try: /session [list|resume <id>|new|delete <id>|current]")
+    return None
+
+
+def _resume_session(sid: int) -> Optional[int]:
+    global messages, current_session_id, tool_calls_count
+    loaded = db_load_session(sid)
+    if loaded is None:
+        console.print(f"[red]session {sid} not found[/]"); return None
+    messages = loaded
+    current_session_id = sid
+    tool_calls_count = 0
+    console.print(f"[green]▶ resumed session #{sid} ({len(messages)} messages)[/]")
+    # render a brief tail so the user has context
+    tail = messages[-6:]
+    for m in tail:
+        cn = m["content"]
+        if isinstance(cn, str):
+            preview = cn[:200]
+        else:
+            texts = []
+            for b in cn:
+                if isinstance(b, dict) and b.get("type") == "text":
+                    texts.append(b.get("text", ""))
+            preview = (" ".join(texts))[:200] or "[tool blocks]"
+        console.print(f"  [dim]{m['role']}:[/] {preview}")
+    return sid
+
+
 def main():
-    global think_mode, MODEL, messages, auto_approve, CWD, pinned_context, tool_calls_count, client, auth_mode
+    global think_mode, MODEL, messages, auto_approve, CWD, pinned_context, tool_calls_count, client, auth_mode, current_session_id
     welcome_banner()
     header_panel()
+    db_init()
+    current_session_id = db_create_session(MODEL)
     while True:
         try:
             now_str = datetime.now().strftime("%H:%M")
@@ -1918,9 +2132,12 @@ def main():
             elif c == "/pwd": console.print(str(CWD))
             elif c in ("/reset", "/new"):
                 messages = []; tool_calls_count = 0
+                current_session_id = db_create_session(MODEL)
                 if c == "/new":
                     console.clear(); welcome_banner(); header_panel()
-                console.print("[green]✨ fresh conversation[/]")
+                console.print(f"[green]✨ fresh conversation (session #{current_session_id})[/]")
+            elif c == "/session" or c == "/sessions":
+                cmd_session(arg)
             elif c == "/retry":
                 # drop trailing assistant/tool-result blocks, re-send last user text
                 last_user = None
@@ -1931,6 +2148,8 @@ def main():
                 if last_user is None:
                     console.print("[red]no prior user message[/]"); continue
                 inp = last_user
+                if current_session_id:
+                    db_replace_session_messages(current_session_id, messages)
                 # fall through to send
             elif c == "/history":
                 if not messages: console.print("[dim]empty[/]"); continue
@@ -1975,7 +2194,9 @@ def main():
                 console.print(f"[green]saved → {arg}[/]")
             elif c == "/load":
                 messages = json.loads(pathlib.Path(arg).read_text())
-                console.print(f"[green]loaded {len(messages)} messages[/]")
+                current_session_id = db_create_session(MODEL)
+                db_replace_session_messages(current_session_id, messages)
+                console.print(f"[green]loaded {len(messages)} messages → session #{current_session_id}[/]")
             elif c == "/git": console.print(git_status())
             elif c == "/diff": console.print(git_diff(arg))
             elif c == "/find":
@@ -2151,15 +2372,25 @@ def main():
             if c not in ("/retry", "/paste", "/multi"):
                 continue
 
-        messages.append({"role": "user", "content": inp})
+        user_msg = {"role": "user", "content": inp}
+        messages.append(user_msg)
+        if current_session_id:
+            db_append_message(current_session_id, len(messages) - 1, user_msg)
+            db_set_title_if_empty(current_session_id, inp)
         try:
             while True:
                 with console.status("[dim]thinking…[/]", spinner="dots"):
                     resp = call_claude_stream()
-                messages.append({"role": "assistant", "content": resp.content})
+                asst_msg = {"role": "assistant", "content": resp.content}
+                messages.append(asst_msg)
+                if current_session_id:
+                    db_append_message(current_session_id, len(messages) - 1, asst_msg)
                 more = render_assistant(resp)
                 if resp.stop_reason == "end_turn" or not more:
                     break
+                # tool results get appended inside render_assistant via messages — persist the latest
+                if current_session_id and messages and messages[-1] is not asst_msg:
+                    db_append_message(current_session_id, len(messages) - 1, messages[-1])
         except KeyboardInterrupt:
             console.print("\n[yellow]interrupted[/]")
         except Exception as e:
