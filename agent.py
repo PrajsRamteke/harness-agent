@@ -1,0 +1,1470 @@
+#!/usr/bin/env python3
+"""
+agent.py — Claude Code-style terminal agent
+Default model: claude-sonnet-4-6
+"""
+import os, sys, json, subprocess, pathlib, shlex, time, secrets, hashlib, base64, webbrowser, urllib.request, urllib.parse, urllib.error
+from getpass import getpass
+from typing import Dict, List, Any, Optional, Union
+
+try:
+    from anthropic import Anthropic, APIStatusError, APIConnectionError, RateLimitError
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    from rich.table import Table
+    from rich.syntax import Syntax
+    from rich.live import Live
+    from rich.spinner import Spinner
+except ModuleNotFoundError:
+    root = pathlib.Path(__file__).resolve().parent
+    script = pathlib.Path(__file__).resolve()
+    venv_python = root / ".venv" / "bin" / "python"
+    print(
+        "Your `python3` is the system (e.g. Homebrew) interpreter. "
+        "`anthropic` and `rich` are installed only in this project's `.venv`, "
+        "so that interpreter cannot import them.\n\n"
+        "Run:\n\n"
+        f"  {venv_python} {script}\n\n"
+        "Or from the project folder:\n\n"
+        f"  cd {root}\n"
+        "  source .venv/bin/activate\n"
+        f"  python {script.name}\n",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+console = Console()
+CWD = pathlib.Path.cwd()
+CONFIG_DIR = pathlib.Path.home() / ".config" / "claude-agent"
+KEY_FILE = CONFIG_DIR / "key"
+OAUTH_FILE = CONFIG_DIR / "oauth.json"
+AUTH_MODE_FILE = CONFIG_DIR / "auth_mode"
+HIST_FILE = CONFIG_DIR / "history.json"
+NOTES_FILE = CONFIG_DIR / "notes.md"
+PIN_FILE = CONFIG_DIR / "pinned.txt"
+ALIAS_FILE = CONFIG_DIR / "aliases.json"
+
+# ── Anthropic OAuth (Claude Pro/Max subscription) ──
+OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+OAUTH_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
+OAUTH_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+OAUTH_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
+OAUTH_SCOPES = "org:create_api_key user:profile user:inference"
+OAUTH_BETA_HEADER = "oauth-2025-04-20"
+CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
+
+auth_mode: str = "api_key"  # "api_key" or "oauth" — set by make_client()
+MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+MAX_TOOL_OUTPUT = 15000
+MAX_FILE_READ = 200_000
+
+# Approx pricing per 1M tokens (USD) — used only for /cost estimates.
+PRICING = {
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-opus-4-7":   (15.0, 75.0),
+    "claude-haiku-4-5":  (1.0, 5.0),
+}
+
+# emoji icons per tool category — makes the event log skimmable
+TOOL_ICONS = {
+    "read_file": "📄", "write_file": "✍️ ", "edit_file": "✏️ ",
+    "list_dir": "📁", "run_bash": "⚡", "search_code": "🔎",
+    "glob_files": "🔭", "git_status": "🌿", "git_diff": "🌿",
+    "git_log": "🌿",
+    "launch_app": "🚀", "focus_app": "🎯", "quit_app": "💤",
+    "list_apps": "📋", "frontmost_app": "👁️ ", "applescript": "🍎",
+    "read_ui": "👀", "click_element": "🖱️ ", "wait": "⏳",
+    "check_permissions": "🔐", "type_text": "⌨️ ", "key_press": "⌨️ ",
+    "click_menu": "📜", "click_at": "🖱️ ",
+    "clipboard_get": "📋", "clipboard_set": "📋",
+    "open_url": "🌐", "notify": "🔔",
+    "shortcut_run": "⚙️ ", "mac_control": "🎛️ ",
+}
+
+
+# ────────────────────────── Auth: API key + Anthropic OAuth ──────────────────────────
+def _secure_write(path: pathlib.Path, data: str):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(data)
+    try: os.chmod(path, 0o600)
+    except OSError: pass
+
+
+def prompt_for_key(reason: str = "") -> str:
+    if reason:
+        console.print(f"[red]{reason}[/]")
+    console.print(Panel(
+        "[bold yellow]Anthropic API key needed[/]\n\n"
+        "Get one at: https://console.anthropic.com/settings/keys\n"
+        "Must start with [cyan]sk-ant-[/]\n\n"
+        f"Saved to: [dim]{KEY_FILE}[/] (chmod 600)",
+        title="Setup · API key", border_style="yellow"
+    ))
+    key = getpass("Paste sk-ant- key (hidden): ").strip()
+    if not key.startswith("sk-ant-"):
+        console.print("[red]Key must start with sk-ant-[/]"); sys.exit(1)
+    _secure_write(KEY_FILE, key)
+    console.print("[green]✓ API key saved[/]")
+    return key
+
+
+def load_key() -> str:
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return os.environ["ANTHROPIC_API_KEY"]
+    if KEY_FILE.exists():
+        k = KEY_FILE.read_text().strip()
+        if k.startswith("sk-ant-"):
+            return k
+    return prompt_for_key()
+
+
+# ── PKCE helpers ──
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _pkce_pair() -> tuple:
+    verifier = _b64url(secrets.token_bytes(32))
+    challenge = _b64url(hashlib.sha256(verifier.encode()).digest())
+    return verifier, challenge
+
+
+def _http_json(url: str, payload: dict, timeout: int = 30) -> tuple:
+    """POST JSON, return (status, body_dict_or_text)."""
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode("utf-8", errors="replace")
+            try: return r.status, json.loads(raw)
+            except json.JSONDecodeError: return r.status, raw
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        try: return e.code, json.loads(raw)
+        except json.JSONDecodeError: return e.code, raw
+    except urllib.error.URLError as e:
+        return 0, f"network error: {e.reason}"
+
+
+def load_oauth_tokens() -> Optional[dict]:
+    if not OAUTH_FILE.exists(): return None
+    try:
+        data = json.loads(OAUTH_FILE.read_text())
+        if not data.get("access_token") or not data.get("refresh_token"):
+            return None
+        return data
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def save_oauth_tokens(data: dict):
+    _secure_write(OAUTH_FILE, json.dumps(data, indent=2))
+
+
+def clear_oauth_tokens():
+    OAUTH_FILE.unlink(missing_ok=True)
+
+
+def oauth_login() -> Optional[dict]:
+    """Run the PKCE authorize→paste→exchange flow. Returns token dict, or None if
+    the user wants to go back / cancels / exchange fails (so the caller can offer
+    a different auth mode instead of exiting)."""
+    verifier, challenge = _pkce_pair()
+    params = {
+        "code": "true",
+        "client_id": OAUTH_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": OAUTH_REDIRECT_URI,
+        "scope": OAUTH_SCOPES,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": verifier,
+    }
+    url = OAUTH_AUTHORIZE_URL + "?" + urllib.parse.urlencode(params)
+    console.print(Panel(
+        "[bold]Log in with your Anthropic (Pro/Max) account[/]\n\n"
+        "1. A browser window will open. Sign in and approve access.\n"
+        "2. You'll land on a page showing a code like [cyan]abc123#xyz789[/].\n"
+        "3. Copy the ENTIRE code (including the [cyan]#[/]) and paste it back here.\n\n"
+        f"If the browser doesn't open, visit this URL manually:\n[dim]{url}[/]\n\n"
+        "[dim]Type [cyan]b[/dim][dim] to go back to the auth method picker.[/]",
+        title="🔐 Anthropic OAuth login", border_style="cyan",
+    ))
+    try: webbrowser.open(url)
+    except Exception: pass
+
+    try:
+        pasted = console.input("Paste the code here (or 'b' to go back): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[yellow]login cancelled — returning to auth picker[/]")
+        return None
+    if pasted.lower() in ("b", "back"):
+        return None
+    if not pasted:
+        console.print("[yellow]no code pasted — returning to auth picker[/]")
+        return None
+
+    # The callback page shows "<code>#<state>". Split on "#" if present.
+    if "#" in pasted:
+        code, returned_state = pasted.split("#", 1)
+    else:
+        code, returned_state = pasted, verifier  # tolerate either form
+    code = code.strip(); returned_state = returned_state.strip()
+
+    status, body = _http_json(OAUTH_TOKEN_URL, {
+        "grant_type": "authorization_code",
+        "code": code,
+        "state": returned_state,
+        "client_id": OAUTH_CLIENT_ID,
+        "redirect_uri": OAUTH_REDIRECT_URI,
+        "code_verifier": verifier,
+    })
+    if status != 200 or not isinstance(body, dict) or "access_token" not in body:
+        console.print(f"[red]Token exchange failed (HTTP {status}): {body}[/]")
+        console.print("[yellow]Returning to auth picker — you can try API key instead.[/]")
+        return None
+
+    expires_in = int(body.get("expires_in") or 3600)
+    tokens = {
+        "access_token": body["access_token"],
+        "refresh_token": body.get("refresh_token", ""),
+        "expires_at": int(time.time()) + expires_in,
+        "scopes": body.get("scope", OAUTH_SCOPES).split() if isinstance(body.get("scope"), str) else body.get("scope", []),
+    }
+    save_oauth_tokens(tokens)
+    console.print("[green]✓ Logged in with Anthropic[/]")
+    return tokens
+
+
+def oauth_refresh(tokens: dict) -> Optional[dict]:
+    """Refresh access token using refresh_token. Returns new token dict or None on failure."""
+    if not tokens.get("refresh_token"):
+        return None
+    status, body = _http_json(OAUTH_TOKEN_URL, {
+        "grant_type": "refresh_token",
+        "refresh_token": tokens["refresh_token"],
+        "client_id": OAUTH_CLIENT_ID,
+    })
+    if status != 200 or not isinstance(body, dict) or "access_token" not in body:
+        return None
+    expires_in = int(body.get("expires_in") or 3600)
+    new_tokens = {
+        "access_token": body["access_token"],
+        "refresh_token": body.get("refresh_token") or tokens["refresh_token"],
+        "expires_at": int(time.time()) + expires_in,
+        "scopes": tokens.get("scopes", []),
+    }
+    save_oauth_tokens(new_tokens)
+    return new_tokens
+
+
+def get_fresh_oauth_token() -> Optional[dict]:
+    """Load tokens; refresh if within 60s of expiry. Returns None if unrecoverable."""
+    tokens = load_oauth_tokens()
+    if not tokens: return None
+    if tokens.get("expires_at", 0) - time.time() < 60:
+        refreshed = oauth_refresh(tokens)
+        if not refreshed:
+            console.print("[yellow]OAuth token refresh failed — please log in again.[/]")
+            return None
+        tokens = refreshed
+    return tokens
+
+
+def _build_client_from_mode(mode: str) -> Anthropic:
+    global auth_mode
+    if mode == "oauth":
+        tokens = get_fresh_oauth_token()
+        if not tokens:
+            tokens = oauth_login()
+        if not tokens:
+            # User backed out or OAuth failed — fall back to the picker so they
+            # can switch to API key without restarting the program.
+            new_mode = _choose_auth_mode()
+            auth_mode = new_mode
+            _secure_write(AUTH_MODE_FILE, new_mode)
+            return _build_client_from_mode(new_mode)
+        return Anthropic(
+            api_key=None,
+            auth_token=tokens["access_token"],
+            default_headers={"anthropic-beta": OAUTH_BETA_HEADER},
+        )
+    return Anthropic(api_key=load_key())
+
+
+def _choose_auth_mode() -> str:
+    """Prompt user to pick API key or OAuth login on first run."""
+    console.print(Panel(
+        "[bold]How would you like to authenticate?[/]\n\n"
+        "  [cyan]1[/]  API key  [dim](pay-as-you-go, sk-ant-…)[/]\n"
+        "  [cyan]2[/]  Log in with Anthropic  [dim](Claude Pro/Max subscription)[/]\n",
+        title="🔐 Setup", border_style="cyan",
+    ))
+    while True:
+        try:
+            ch = console.input("choice [1/2]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[yellow]cancelled[/]"); sys.exit(1)
+        if ch in ("1", "key", "api", "api_key"): return "api_key"
+        if ch in ("2", "oauth", "login"):        return "oauth"
+        console.print("[red]enter 1 or 2[/]")
+
+
+def make_client() -> Anthropic:
+    """Resolve auth mode, build client, validate; handle 401 with refresh/re-auth."""
+    global auth_mode
+
+    # Priority: env var API key → stored auth mode → pick interactively
+    if os.getenv("ANTHROPIC_API_KEY"):
+        auth_mode = "api_key"
+    elif AUTH_MODE_FILE.exists():
+        stored = AUTH_MODE_FILE.read_text().strip()
+        if stored in ("api_key", "oauth"):
+            auth_mode = stored
+            # If oauth was chosen but tokens are gone and no api key either, fall through to picker
+            if auth_mode == "oauth" and not load_oauth_tokens():
+                pass  # oauth_login() will be triggered below
+            elif auth_mode == "api_key" and not KEY_FILE.exists() and not os.getenv("ANTHROPIC_API_KEY"):
+                auth_mode = _choose_auth_mode()
+        else:
+            auth_mode = _choose_auth_mode()
+    elif KEY_FILE.exists():
+        auth_mode = "api_key"
+    elif load_oauth_tokens():
+        auth_mode = "oauth"
+    else:
+        auth_mode = _choose_auth_mode()
+
+    _secure_write(AUTH_MODE_FILE, auth_mode)
+
+    for attempt in range(3):
+        try:
+            c = _build_client_from_mode(auth_mode)
+            c.models.list(limit=1)  # cheap validation
+            return c
+        except APIStatusError as e:
+            if e.status_code == 401:
+                if auth_mode == "oauth":
+                    tokens = load_oauth_tokens()
+                    if tokens and oauth_refresh(tokens):
+                        console.print("[dim]refreshed OAuth token, retrying…[/]")
+                        continue
+                    console.print("[yellow]OAuth session invalid — re-login required.[/]")
+                    clear_oauth_tokens()
+                    oauth_login()
+                    continue
+                else:
+                    KEY_FILE.unlink(missing_ok=True)
+                    prompt_for_key(reason="Stored key rejected (401). Please re-enter.")
+                    continue
+            raise
+        except APIConnectionError as e:
+            console.print(f"[red]Network error: {e}[/]"); sys.exit(1)
+    console.print("[red]Too many auth failures[/]"); sys.exit(1)
+
+
+client = make_client()
+
+
+# ────────────────────────── state ──────────────────────────
+SYSTEM = f"""You are a Jarvis-style macOS agent running in {CWD}. You can control the whole Mac.
+
+CAPABILITIES
+- Files & shell: read_file, write_file, edit_file, list_dir, run_bash, search_code, glob_files, git_*
+- Mac control: launch_app, focus_app, quit_app, list_apps, frontmost_app, applescript,
+  read_ui, click_element, type_text, key_press, click_menu, click_at, wait,
+  check_permissions, clipboard_get, clipboard_set, open_url, notify, shortcut_run, mac_control
+
+WORKFLOW FOR GUI TASKS (e.g. "send WhatsApp to Alice saying hi")
+1. launch_app or focus_app to bring the target app forward.
+2. Call read_ui to inspect the current screen as structured accessibility text
+   (window titles, buttons, text fields, chat messages — everything visible to VoiceOver).
+3. Decide next action from the UI tree. To click a thing, prefer click_element
+   (find by visible text) over click_at. Use key_press for chords (cmd+f, return,
+   arrows) and type_text for typing strings.
+4. After EVERY action (click, keystroke, app switch) call `wait` (0.4–1.0s) then
+   read_ui again to confirm the UI changed as expected. Never chain actions blindly.
+5. Prefer keyboard shortcuts over clicks (cmd+f to search a chat, enter to send, etc.).
+6. For apps with good AppleScript support (Messages, Mail, Safari, Music, Finder, Notes,
+   Reminders, Calendar, System Events) use `applescript` directly — faster and more reliable.
+7. WhatsApp has no AppleScript API — drive it via focus_app → read_ui → keyboard / click_element.
+8. If read_ui returns "(empty UI tree)" or an ACCESSIBILITY DENIED error, call
+   check_permissions and tell the user exactly what to enable in System Settings.
+
+RULES
+- Be concise. Don't narrate obvious steps. Report results, not intentions.
+- Never do anything destructive (delete files, send money, post publicly) without confirming.
+- When a task is done, stop calling tools and summarize."""
+
+backups: List[tuple] = []  # [(path, prev_content), ...] stack for /undo
+messages: List[Dict] = []
+think_mode = False
+total_in = 0
+total_out = 0
+auto_approve = False  # if False, ask before run_bash/write_file/edit_file
+session_start = time.time()
+tool_calls_count = 0
+last_assistant_text = ""
+pinned_context = PIN_FILE.read_text() if PIN_FILE.exists() else ""
+aliases: Dict[str, str] = (
+    json.loads(ALIAS_FILE.read_text()) if ALIAS_FILE.exists() else {}
+)
+
+
+def build_system() -> Union[str, List[Dict]]:
+    """System prompt + any pinned user context.
+
+    When authenticated via OAuth, Anthropic requires the FIRST system block to be
+    exactly the Claude Code identity string — so we return a 2-block list in that
+    case and keep our real instructions in the second block.
+    """
+    body = SYSTEM
+    if pinned_context.strip():
+        body = SYSTEM + "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned_context.strip()
+    if auth_mode == "oauth":
+        return [
+            {"type": "text", "text": CLAUDE_CODE_IDENTITY},
+            {"type": "text", "text": body},
+        ]
+    return body
+
+
+# ────────────────────────── tools ──────────────────────────
+def _save_backup(p: pathlib.Path):
+    if p.exists():
+        backups.append((str(p), p.read_text(errors="ignore")))
+
+
+def read_file(path: str, offset: int = 0, limit: int = 0) -> str:
+    p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
+    if not p.exists(): return f"ERROR: {path} not found"
+    if p.is_dir(): return f"ERROR: {path} is a directory"
+    txt = p.read_text(errors="ignore")
+    if offset or limit:
+        lines = txt.splitlines()
+        end = offset + limit if limit else len(lines)
+        return "\n".join(f"{i+1}\t{l}" for i, l in enumerate(lines[offset:end], start=offset))
+    return txt[:MAX_FILE_READ]
+
+
+def write_file(path: str, content: str) -> str:
+    p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
+    _save_backup(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content)
+    return f"WROTE {p} ({len(content)} bytes)"
+
+
+def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
+    p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
+    if not p.exists(): return f"ERROR: {path} not found"
+    txt = p.read_text(errors="ignore")
+    n = txt.count(old_str)
+    if n == 0: return "ERROR: old_str not found"
+    if n > 1 and not replace_all:
+        return f"ERROR: old_str matches {n} times; pass replace_all=true or add more context"
+    _save_backup(p)
+    new_txt = txt.replace(old_str, new_str) if replace_all else txt.replace(old_str, new_str, 1)
+    p.write_text(new_txt)
+    return f"EDITED {p} ({n} replacement{'s' if n>1 else ''})"
+
+
+def list_dir(path: str = ".") -> str:
+    p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
+    if not p.exists(): return f"ERROR: {path} not found"
+    items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))[:300]
+    return "\n".join(f"{'d' if x.is_dir() else 'f'} {x.name}" for x in items)
+
+
+def run_bash(cmd: str, timeout: int = 60) -> str:
+    DANGEROUS = ["rm -rf /", "mkfs", ":(){:|:&};:", "dd if=/dev/zero"]
+    if any(d in cmd for d in DANGEROUS): return "BLOCKED: dangerous command"
+    if not auto_approve:
+        console.print(f"[yellow]→ run:[/] [cyan]{cmd}[/]")
+        ok = console.input("[dim]approve? [Y/n/a=always] [/]").strip().lower()
+        if ok == "a":
+            globals()["auto_approve"] = True
+        elif ok == "n":
+            return "USER DENIED"
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                           timeout=timeout, cwd=str(CWD))
+        out = (r.stdout or "") + (f"\n[stderr]\n{r.stderr}" if r.stderr else "")
+        return f"$ {cmd}\nexit={r.returncode}\n{out[-MAX_TOOL_OUTPUT:]}"
+    except subprocess.TimeoutExpired:
+        return f"TIMEOUT after {timeout}s"
+
+
+def search_code(pattern: str, path: str = ".") -> str:
+    has_rg = subprocess.run("which rg", shell=True, capture_output=True).returncode == 0
+    cmd = (f"rg -n --max-count 50 {shlex.quote(pattern)} {shlex.quote(path)}"
+           if has_rg else
+           f"grep -rn --max-count=50 {shlex.quote(pattern)} {shlex.quote(path)}")
+    return run_bash(cmd, 20)
+
+
+def glob_files(pattern: str) -> str:
+    matches = sorted(pathlib.Path(CWD).glob(pattern))[:200]
+    return "\n".join(str(m.relative_to(CWD)) for m in matches) or "no matches"
+
+
+def git_status(): return run_bash("git status -sb", 10)
+def git_diff(path: str = ""): return run_bash(f"git diff {shlex.quote(path)}" if path else "git diff", 15)
+def git_log(n: int = 10): return run_bash(f"git log --oneline -n {int(n)}", 10)
+
+
+# ────────────────────────── macOS control ──────────────────────────
+def _osa(script: str, timeout: int = 30, lang: str = "AppleScript") -> str:
+    try:
+        r = subprocess.run(
+            ["osascript", "-l", lang, "-e", script],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        out = r.stdout.strip()
+        if r.returncode != 0:
+            return f"ERROR (exit {r.returncode}): {r.stderr.strip()}\n{out}"
+        return out or "OK"
+    except subprocess.TimeoutExpired:
+        return f"TIMEOUT after {timeout}s"
+
+
+def applescript(code: str, timeout: int = 60) -> str:
+    """Run arbitrary AppleScript. Return the script result (or error)."""
+    return _osa(code, timeout)[:MAX_TOOL_OUTPUT]
+
+
+def launch_app(name: str) -> str:
+    r = subprocess.run(["open", "-a", name], capture_output=True, text=True)
+    if r.returncode != 0:
+        return f"ERROR: {r.stderr.strip() or 'could not open ' + name}"
+    # wait for the process to register with System Events, then bring to front
+    for _ in range(20):
+        time.sleep(0.2)
+        probe = subprocess.run(
+            ["osascript", "-e",
+             f'tell application "System Events" to exists (process "{name}")'],
+            capture_output=True, text=True, timeout=3,
+        )
+        if probe.stdout.strip() == "true":
+            break
+    subprocess.run(["osascript", "-e", f'tell application "{name}" to activate'],
+                   capture_output=True, text=True, timeout=5)
+    time.sleep(0.5)
+    return f"launched and focused {name}"
+
+
+def focus_app(name: str) -> str:
+    return _osa(f'tell application "{name}" to activate')
+
+
+def quit_app(name: str) -> str:
+    return _osa(f'tell application "{name}" to quit')
+
+
+def list_apps() -> str:
+    return _osa('tell application "System Events" to get name of (every process whose background only is false)')
+
+
+def frontmost_app() -> str:
+    return _osa('tell application "System Events" to get name of first process whose frontmost is true')
+
+
+_READ_UI_JXA = r"""
+function run(argv) {
+  const targetApp = argv[0] || "";
+  const maxDepth = parseInt(argv[1] || "7", 10);
+  const maxLines = parseInt(argv[2] || "400", 10);
+  const se = Application("System Events");
+  let appName = targetApp;
+  if (!appName) {
+    try { appName = se.processes.whose({frontmost: true})[0].name(); }
+    catch(e) { return "ERROR: no frontmost app"; }
+  }
+  let proc;
+  try { proc = se.processes.byName(appName); proc.name(); }
+  catch(e) { return "ERROR: process '" + appName + "' not found: " + e.message; }
+
+  const out = ["[UI of " + appName + "]"];
+  const truncate = (s, n) => {
+    s = String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+    return s.length > n ? s.slice(0, n) + "…" : s;
+  };
+
+  function walk(el, depth) {
+    if (out.length >= maxLines) return;
+    let children = [];
+    try { children = el.uiElements(); } catch(e) {}
+    for (const c of children) {
+      if (out.length >= maxLines) return;
+      let role = "?", nm = "", vl = "", ds = "", pos = "";
+      try { role = c.role(); } catch(e) {}
+      try { nm = c.name() || ""; } catch(e) {}
+      try { const v = c.value(); if (v != null) vl = String(v); } catch(e) {}
+      try { ds = c.description() || ""; } catch(e) {}
+      try {
+        const p = c.position(), s = c.size();
+        if (p && s) pos = "@" + Math.round(p[0]+s[0]/2) + "," + Math.round(p[1]+s[1]/2);
+      } catch(e) {}
+      let line = "  ".repeat(depth) + "[" + role + "]";
+      if (nm) line += ' name="' + truncate(nm, 80) + '"';
+      if (vl && vl !== nm) line += ' value="' + truncate(vl, 120) + '"';
+      if (ds && ds !== nm && ds !== vl) line += ' desc="' + truncate(ds, 80) + '"';
+      if (pos) line += " " + pos;
+      out.push(line);
+      if (depth < maxDepth) walk(c, depth + 1);
+    }
+  }
+
+  let wins = [];
+  try { wins = proc.windows(); } catch(e) {}
+  if (wins.length === 0) {
+    out.push("(no windows — app may be launching or backgrounded)");
+    try { walk(proc, 0); } catch(e) {}
+  } else {
+    for (let i = 0; i < wins.length; i++) {
+      const w = wins[i];
+      let title = ""; try { title = w.name() || ""; } catch(e) {}
+      out.push('[Window ' + (i+1) + '] title="' + truncate(title, 100) + '"');
+      walk(w, 1);
+      if (out.length >= maxLines) { out.push("… [truncated at " + maxLines + " lines]"); break; }
+    }
+  }
+  return out.join("\n");
+}
+"""
+
+
+def read_ui(app: str = "", max_depth: int = 7, max_lines: int = 400, max_chars: int = 14000) -> str:
+    """
+    Read the accessibility UI tree of `app` (blank = frontmost). Returns a
+    hierarchical text dump: role, name, value, description, and center-point
+    coordinates for each element. No screenshots, no OCR.
+    """
+    try:
+        r = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", _READ_UI_JXA,
+             app or "", str(max_depth), str(max_lines)],
+            capture_output=True, text=True, timeout=25,
+        )
+        if r.returncode != 0:
+            return f"ERROR: {r.stderr.strip() or r.stdout.strip()}"
+        out = r.stdout.rstrip()
+        if len(out) > max_chars:
+            out = out[:max_chars] + f"\n… [truncated, {len(out)} chars total]"
+        return out or "(empty UI tree)"
+    except subprocess.TimeoutExpired:
+        return "TIMEOUT reading UI (app may be unresponsive or not accessibility-enabled)"
+
+
+_FIND_CLICK_JXA = r"""
+function run(argv) {
+  const appName = argv[0];
+  const query = (argv[1] || "").toLowerCase();
+  const roleFilter = (argv[2] || "").toLowerCase();
+  const nth = parseInt(argv[3] || "1", 10);
+  const se = Application("System Events");
+  let proc;
+  try { proc = se.processes.byName(appName); proc.name(); }
+  catch(e) { return "ERROR: process not found"; }
+
+  const hits = [];
+  function walk(el, depth) {
+    if (depth > 10 || hits.length >= nth + 5) return;
+    let children = [];
+    try { children = el.uiElements(); } catch(e) { return; }
+    for (const c of children) {
+      let role = "", nm = "", vl = "", ds = "";
+      try { role = (c.role() || "").toLowerCase(); } catch(e) {}
+      try { nm = (c.name() || "").toLowerCase(); } catch(e) {}
+      try { const v = c.value(); if (v != null) vl = String(v).toLowerCase(); } catch(e) {}
+      try { ds = (c.description() || "").toLowerCase(); } catch(e) {}
+      const hay = nm + "\n" + vl + "\n" + ds;
+      const roleOk = !roleFilter || role.indexOf(roleFilter) >= 0;
+      if (roleOk && query && hay.indexOf(query) >= 0) hits.push(c);
+      walk(c, depth + 1);
+    }
+  }
+  try {
+    const wins = proc.windows();
+    if (wins.length) for (const w of wins) walk(w, 0); else walk(proc, 0);
+  } catch(e) { return "ERROR walking: " + e.message; }
+
+  if (hits.length < nth) return "NOT_FOUND (" + hits.length + " matches)";
+  const target = hits[nth - 1];
+  try {
+    const p = target.position(), s = target.size();
+    const cx = Math.round(p[0] + s[0]/2), cy = Math.round(p[1] + s[1]/2);
+    // prefer AXPress action when available (works even if off-screen)
+    try { target.actions.byName("AXPress").perform(); return "PRESSED at " + cx + "," + cy; }
+    catch(e) {
+      se.click({at: [cx, cy]});
+      return "CLICKED at " + cx + "," + cy;
+    }
+  } catch(e) { return "ERROR clicking: " + e.message; }
+}
+"""
+
+
+def click_element(app: str, query: str, role: str = "", nth: int = 1) -> str:
+    """
+    Find a UI element in `app` whose name/value/description contains `query`
+    (case-insensitive) and click it. Optional `role` filter (e.g. 'button',
+    'row', 'textfield'). `nth` picks the nth match (1-based).
+    """
+    try:
+        r = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", _FIND_CLICK_JXA,
+             app, query, role, str(nth)],
+            capture_output=True, text=True, timeout=15,
+        )
+        return (r.stdout or r.stderr).strip() or "OK"
+    except subprocess.TimeoutExpired:
+        return "TIMEOUT"
+
+
+def wait(seconds: float = 0.8) -> str:
+    """Sleep — useful after launching/clicking so the UI settles before read_ui."""
+    time.sleep(max(0.0, min(float(seconds), 10.0)))
+    return f"slept {seconds}s"
+
+
+def check_permissions() -> str:
+    """Verify Accessibility permission. Returns a diagnostic string."""
+    probe = 'tell application "System Events" to get name of first process whose frontmost is true'
+    r = subprocess.run(["osascript", "-e", probe], capture_output=True, text=True, timeout=5)
+    if r.returncode == 0:
+        return f"Accessibility OK. Frontmost app: {r.stdout.strip()}"
+    return ("ACCESSIBILITY DENIED.\n"
+            "Open System Settings → Privacy & Security → Accessibility, add & enable your "
+            "Terminal app (Terminal.app / iTerm / the one you launched this agent from), then "
+            "also enable it under 'Automation' if prompted. Error: " + r.stderr.strip())
+
+
+def type_text(text: str) -> str:
+    # escape backslashes and quotes for AppleScript string literal
+    esc = text.replace("\\", "\\\\").replace('"', '\\"')
+    return _osa(f'tell application "System Events" to keystroke "{esc}"')
+
+
+_KEYCODES = {
+    "return": 36, "enter": 36, "tab": 48, "space": 49, "delete": 51, "backspace": 51,
+    "escape": 53, "esc": 53, "left": 123, "right": 124, "down": 125, "up": 126,
+    "home": 115, "end": 119, "pageup": 116, "pagedown": 121,
+    "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97, "f7": 98,
+    "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+}
+
+
+def key_press(keys: str) -> str:
+    """
+    Press a key or chord. Examples: 'return', 'cmd+f', 'cmd+shift+t', 'down'.
+    A single printable character (like 'a') will also work.
+    """
+    parts = [p.strip().lower() for p in keys.split("+")]
+    mods = {"cmd": "command down", "command": "command down",
+            "shift": "shift down", "opt": "option down", "option": "option down",
+            "alt": "option down", "ctrl": "control down", "control": "control down"}
+    mod_flags = [mods[p] for p in parts if p in mods]
+    key = [p for p in parts if p not in mods]
+    if len(key) != 1:
+        return f"ERROR: bad key spec: {keys}"
+    k = key[0]
+    using = ""
+    if mod_flags:
+        using = " using {" + ", ".join(mod_flags) + "}"
+    if k in _KEYCODES:
+        return _osa(f'tell application "System Events" to key code {_KEYCODES[k]}{using}')
+    # printable char
+    esc = k.replace("\\", "\\\\").replace('"', '\\"')
+    return _osa(f'tell application "System Events" to keystroke "{esc}"{using}')
+
+
+def click_menu(app: str, path: list) -> str:
+    """Click a menu item. path = ['File', 'New Window'] or ['Edit','Find','Find…']."""
+    if not path:
+        return "ERROR: path required"
+    parts = " of ".join(f'menu item "{p}"' if i == 0
+                       else (f'menu "{p}"' if i == len(path)-1 else f'menu item "{p}"')
+                       for i, p in enumerate(reversed(path)))
+    # simpler: use hierarchy: menu bar item 1 → menu 1 → menu item "x" → (optional submenu)
+    top = path[0]
+    if len(path) == 1:
+        script = f'''
+        tell application "System Events" to tell process "{app}"
+            click menu bar item "{top}" of menu bar 1
+        end tell
+        '''
+        return _osa(script)
+    # build nested: click menu item "last" of menu "second-to-last" of menu item "..." ... of menu "top" of menu bar item "top" of menu bar 1
+    ref = f'menu item "{path[-1]}"'
+    # walk from path[-2] down to path[1], each item is a submenu-holding menu item + its menu
+    cur = ref
+    for mid in reversed(path[1:-1]):
+        cur = f'{cur} of menu "{mid}" of menu item "{mid}"'
+    cur = f'{cur} of menu "{path[0]}" of menu bar item "{path[0]}" of menu bar 1'
+    script = f'''
+    tell application "System Events" to tell process "{app}"
+        click {cur}
+    end tell
+    '''
+    return _osa(script)
+
+
+def click_at(x: int, y: int) -> str:
+    return _osa(f'tell application "System Events" to click at {{{int(x)}, {int(y)}}}')
+
+
+def clipboard_get() -> str:
+    r = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+    return r.stdout[:MAX_TOOL_OUTPUT]
+
+
+def clipboard_set(text: str) -> str:
+    p = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+    p.communicate(text.encode("utf-8"))
+    return f"clipboard set ({len(text)} chars)"
+
+
+def open_url(url: str) -> str:
+    r = subprocess.run(["open", url], capture_output=True, text=True)
+    return "opened" if r.returncode == 0 else f"ERROR: {r.stderr.strip()}"
+
+
+def notify(title: str, message: str = "") -> str:
+    t = title.replace('"', '\\"')
+    m = message.replace('"', '\\"')
+    return _osa(f'display notification "{m}" with title "{t}"')
+
+
+def shortcut_run(name: str, input_text: str = "") -> str:
+    """Run an Apple Shortcut by name. Optional text input piped in."""
+    cmd = ["shortcuts", "run", name]
+    try:
+        r = subprocess.run(cmd, input=input_text, capture_output=True, text=True, timeout=120)
+        out = r.stdout + (f"\n[stderr]\n{r.stderr}" if r.stderr else "")
+        return out[:MAX_TOOL_OUTPUT] or "OK"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+def mac_control(action: str, value: str = "") -> str:
+    """
+    System controls. action ∈ {volume, mute, unmute, brightness, battery, wifi_on,
+    wifi_off, sleep, lock, dark_mode, light_mode, toggle_dark}. value optional.
+    """
+    a = action.lower()
+    if a == "volume":
+        return _osa(f'set volume output volume {int(value) if value else 50}')
+    if a == "mute":
+        return _osa('set volume with output muted')
+    if a == "unmute":
+        return _osa('set volume without output muted')
+    if a == "battery":
+        return run_bash("pmset -g batt | tail -1", 5)
+    if a == "wifi_on":
+        return run_bash("networksetup -setairportpower en0 on", 5)
+    if a == "wifi_off":
+        return run_bash("networksetup -setairportpower en0 off", 5)
+    if a == "sleep":
+        return run_bash("pmset sleepnow", 5)
+    if a == "lock":
+        return _osa('tell application "System Events" to keystroke "q" using {control down, command down}')
+    if a == "dark_mode":
+        return _osa('tell application "System Events" to tell appearance preferences to set dark mode to true')
+    if a == "light_mode":
+        return _osa('tell application "System Events" to tell appearance preferences to set dark mode to false')
+    if a == "toggle_dark":
+        return _osa('tell application "System Events" to tell appearance preferences to set dark mode to not dark mode')
+    if a == "brightness":
+        # no native AppleScript for brightness; best-effort via key codes F1/F2
+        return "brightness not directly scriptable; use key_press 'f1'/'f2' if function keys mapped"
+    return f"ERROR: unknown action {action}"
+
+
+TOOLS = [
+    {"name":"read_file","description":"Read a file. Optional offset/limit for line ranges.",
+     "input_schema":{"type":"object","properties":{
+        "path":{"type":"string"},
+        "offset":{"type":"integer","description":"0-indexed starting line"},
+        "limit":{"type":"integer","description":"number of lines; 0 = all"}},
+        "required":["path"]}},
+    {"name":"write_file","description":"Create or overwrite a file",
+     "input_schema":{"type":"object","properties":{
+        "path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}},
+    {"name":"edit_file","description":"Replace old_str with new_str. old_str must be unique unless replace_all=true.",
+     "input_schema":{"type":"object","properties":{
+        "path":{"type":"string"},"old_str":{"type":"string"},
+        "new_str":{"type":"string"},"replace_all":{"type":"boolean"}},
+        "required":["path","old_str","new_str"]}},
+    {"name":"list_dir","description":"List directory entries",
+     "input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},
+    {"name":"run_bash","description":"Execute a shell command in the working directory",
+     "input_schema":{"type":"object","properties":{
+        "cmd":{"type":"string"},"timeout":{"type":"integer"}},"required":["cmd"]}},
+    {"name":"search_code","description":"Regex search with ripgrep (or grep fallback)",
+     "input_schema":{"type":"object","properties":{
+        "pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}},
+    {"name":"glob_files","description":"Find files by glob pattern (e.g. '**/*.py')",
+     "input_schema":{"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"]}},
+    {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{}}},
+    {"name":"git_diff","description":"git diff","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},
+    {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"}}}},
+
+    # ── macOS control ──
+    {"name":"launch_app","description":"Launch a Mac app by name (e.g. 'WhatsApp', 'Safari').",
+     "input_schema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},
+    {"name":"focus_app","description":"Bring a running app to front / activate it.",
+     "input_schema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},
+    {"name":"quit_app","description":"Quit a Mac app.",
+     "input_schema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},
+    {"name":"list_apps","description":"List visible running apps.",
+     "input_schema":{"type":"object","properties":{}}},
+    {"name":"frontmost_app","description":"Get the name of the frontmost app.",
+     "input_schema":{"type":"object","properties":{}}},
+    {"name":"applescript","description":"Run arbitrary AppleScript. Highest-leverage Mac automation. Use for Messages, Mail, Safari, Finder, Music, Notes, Reminders, Calendar, System Events.",
+     "input_schema":{"type":"object","properties":{
+        "code":{"type":"string"},"timeout":{"type":"integer"}},"required":["code"]}},
+    {"name":"read_ui","description":"Read the accessibility UI tree of an app as text (no screenshot, no OCR). Hierarchical dump of every visible element: role, name, value, description, and center coordinates. Use this to SEE the screen before deciding what to click or type.",
+     "input_schema":{"type":"object","properties":{
+        "app":{"type":"string","description":"app name; blank = frontmost"},
+        "max_depth":{"type":"integer"},
+        "max_lines":{"type":"integer"},
+        "max_chars":{"type":"integer"}}}},
+    {"name":"click_element","description":"Find a UI element by text (matches name/value/description, case-insensitive) and click it. Much more reliable than click_at. Optional role filter ('button','row','textfield','link',…).",
+     "input_schema":{"type":"object","properties":{
+        "app":{"type":"string"},"query":{"type":"string"},
+        "role":{"type":"string"},"nth":{"type":"integer"}},
+        "required":["app","query"]}},
+    {"name":"wait","description":"Sleep N seconds to let the UI settle after a click/keystroke before reading it again.",
+     "input_schema":{"type":"object","properties":{"seconds":{"type":"number"}}}},
+    {"name":"check_permissions","description":"Verify macOS Accessibility permission is granted to the terminal. Call this first if UI tools are failing.",
+     "input_schema":{"type":"object","properties":{}}},
+    {"name":"type_text","description":"Type a string into the frontmost app via keystroke.",
+     "input_schema":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}},
+    {"name":"key_press","description":"Press a key or chord, e.g. 'return', 'cmd+f', 'cmd+shift+t', 'down'.",
+     "input_schema":{"type":"object","properties":{"keys":{"type":"string"}},"required":["keys"]}},
+    {"name":"click_menu","description":"Click a menu item by path, e.g. app='Safari', path=['File','New Window'].",
+     "input_schema":{"type":"object","properties":{
+        "app":{"type":"string"},
+        "path":{"type":"array","items":{"type":"string"}}},"required":["app","path"]}},
+    {"name":"click_at","description":"Click at absolute screen coordinates (last resort).",
+     "input_schema":{"type":"object","properties":{
+        "x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"]}},
+    {"name":"clipboard_get","description":"Return current clipboard text.",
+     "input_schema":{"type":"object","properties":{}}},
+    {"name":"clipboard_set","description":"Set clipboard text.",
+     "input_schema":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}},
+    {"name":"open_url","description":"Open a URL or file path in the default handler (e.g. 'https://…', 'whatsapp://send?phone=…').",
+     "input_schema":{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}},
+    {"name":"notify","description":"Show a macOS notification banner.",
+     "input_schema":{"type":"object","properties":{
+        "title":{"type":"string"},"message":{"type":"string"}},"required":["title"]}},
+    {"name":"shortcut_run","description":"Run an Apple Shortcut by name, optionally with text input.",
+     "input_schema":{"type":"object","properties":{
+        "name":{"type":"string"},"input_text":{"type":"string"}},"required":["name"]}},
+    {"name":"mac_control","description":"System controls. action ∈ {volume, mute, unmute, battery, wifi_on, wifi_off, sleep, lock, dark_mode, light_mode, toggle_dark}.",
+     "input_schema":{"type":"object","properties":{
+        "action":{"type":"string"},"value":{"type":"string"}},"required":["action"]}},
+]
+FUNC = {
+    "read_file": read_file, "write_file": write_file, "edit_file": edit_file,
+    "list_dir": list_dir, "run_bash": run_bash, "search_code": search_code,
+    "glob_files": glob_files, "git_status": git_status, "git_diff": git_diff,
+    "git_log": git_log,
+    # mac
+    "launch_app": launch_app, "focus_app": focus_app, "quit_app": quit_app,
+    "list_apps": list_apps, "frontmost_app": frontmost_app,
+    "applescript": applescript, "read_ui": read_ui,
+    "click_element": click_element, "wait": wait,
+    "check_permissions": check_permissions,
+    "type_text": type_text, "key_press": key_press,
+    "click_menu": click_menu, "click_at": click_at,
+    "clipboard_get": clipboard_get, "clipboard_set": clipboard_set,
+    "open_url": open_url, "notify": notify,
+    "shortcut_run": shortcut_run, "mac_control": mac_control,
+}
+
+
+# ────────────────────────── API call loop ──────────────────────────
+def call_claude_stream():
+    global total_in, total_out, client
+    kwargs: Dict[str, Any] = dict(
+        model=MODEL, max_tokens=8192, system=build_system(),
+        messages=messages, tools=TOOLS,
+    )
+    if think_mode:
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4000}
+
+    delays = [1, 3, 6]
+    oauth_refreshed = False
+    for attempt in range(len(delays) + 1):
+        try:
+            with client.messages.stream(**kwargs) as stream:
+                final = stream.get_final_message()
+            total_in += final.usage.input_tokens
+            total_out += final.usage.output_tokens
+            return final
+        except RateLimitError:
+            if attempt == len(delays): raise
+            console.print(f"[yellow]rate-limited, retry in {delays[attempt]}s[/]")
+            time.sleep(delays[attempt])
+        except APIStatusError as e:
+            if e.status_code == 401:
+                if auth_mode == "oauth" and not oauth_refreshed:
+                    tokens = load_oauth_tokens()
+                    refreshed = oauth_refresh(tokens) if tokens else None
+                    if refreshed:
+                        console.print("[dim]OAuth token refreshed, retrying…[/]")
+                        client = _build_client_from_mode("oauth")
+                        oauth_refreshed = True
+                        continue
+                    console.print("[red]OAuth session expired. Run /login to re-authenticate.[/]")
+                else:
+                    console.print("[red]Auth failed mid-session. Run /key reset (or /login) and restart.[/]")
+                raise SystemExit(1)
+            if e.status_code >= 500 and attempt < len(delays):
+                console.print(f"[yellow]server {e.status_code}, retry...[/]")
+                time.sleep(delays[attempt]); continue
+            raise
+
+
+def render_assistant(resp) -> bool:
+    """Print assistant content, execute any tool calls, return True if more turns needed."""
+    global last_assistant_text, tool_calls_count
+    tool_results = []
+    for b in resp.content:
+        if b.type == "text" and b.text.strip():
+            last_assistant_text = b.text
+            console.print(Panel(Markdown(b.text), title=f"🤖 Claude ({MODEL})",
+                                border_style="magenta", padding=(0, 1)))
+        elif b.type == "thinking":
+            console.print(Panel(b.thinking, title="💭 thinking",
+                                border_style="dim", padding=(0, 1)))
+        elif b.type == "tool_use":
+            tool_calls_count += 1
+            icon = TOOL_ICONS.get(b.name, "🔧")
+            args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
+            console.print(f"{icon} [yellow]{b.name}[/] [dim]{args_preview}[/]")
+            try:
+                out = FUNC[b.name](**b.input)
+            except Exception as e:
+                out = f"ERROR: {type(e).__name__}: {e}"
+            out_str = str(out)
+            preview = out_str[:400] + ("…" if len(out_str) > 400 else "")
+            console.print(Panel(preview, border_style="dim", padding=(0, 1)))
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": b.id,
+                "content": out_str[:MAX_TOOL_OUTPUT],
+            })
+
+    if tool_results:
+        messages.append({"role": "user", "content": tool_results})
+        return True
+    return False
+
+
+# ────────────────────────── commands ──────────────────────────
+WELCOME_ART = r"""
+   ▄▄· ▄▄▌   ▄▄▄· ▄• ▄▌·▄▄▄▄  ▄▄▄ .     ▄▄▄·  ▄▄ • ▄▄▄ . ▐ ▄ ▄▄▄▄▄
+  ▐█ ▌▪██•  ▐█ ▀█ █▪██▌██▪ ██ ▀▄.▀·    ▐█ ▀█ ▐█ ▀ ▪▀▄.▀·•█▌▐█•██
+  ██ ▄▄██▪  ▄█▀▀█ █▌▐█▌▐█· ▐█▌▐▀▀▪▄    ▄█▀▀█ ▄█ ▀█▄▐▀▀▪▄▐█▐▐▌ ▐█.▪
+  ▐███▌▐█▌▐▌▐█▪ ▐▌▐█▄█▌██. ██ ▐█▄▄▌    ▐█▪ ▐▌▐█▄▪▐█▐█▄▄▌██▐█▌ ▐█▌·
+  ·▀▀▀ .▀▀▀  ▀  ▀  ▀▀▀ ▀▀▀▀▀•  ▀▀▀      ▀  ▀ ·▀▀▀▀  ▀▀▀ ▀▀ █▪ ▀▀▀
+"""
+
+
+def welcome_banner():
+    console.print(f"[bold magenta]{WELCOME_ART}[/]")
+    console.print(Panel(
+        "[bold]Jarvis-style macOS agent[/] — chat, code, and control your Mac.\n"
+        "[dim]Type [cyan]/help[/] for commands • [cyan]/new[/] for a fresh chat • [cyan]/exit[/] to quit[/]",
+        border_style="magenta", padding=(0, 2),
+    ))
+
+
+def cmd_help():
+    t = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+    t.add_column("command"); t.add_column("description")
+    sections = [
+        ("Session", [
+            ("/help", "this menu"),
+            ("/new", "start a fresh conversation (keeps pinned context)"),
+            ("/reset", "clear conversation"),
+            ("/retry", "re-send last user message"),
+            ("/history", "show message summary"),
+            ("/search <q>", "search conversation for a phrase"),
+            ("/export <file>", "export conversation as markdown"),
+            ("/save <file>", "save session JSON"),
+            ("/load <file>", "load session JSON"),
+            ("/clear", "clear the terminal screen"),
+            ("/exit", "quit"),
+        ]),
+        ("Context", [
+            ("/pin <text>", "pin context injected into every system prompt"),
+            ("/unpin", "clear pinned context"),
+            ("/note <text>", "append a note to your notes file"),
+            ("/notes", "show your notes file"),
+            ("/alias <n>=<cmd>", "create a shortcut alias (e.g. /alias gs=/git)"),
+            ("/aliases", "list aliases"),
+        ]),
+        ("Files & Shell", [
+            ("/ls [path]", "list directory"),
+            ("/cd <dir>", "change working dir"),
+            ("/pwd", "print working dir"),
+            ("/find <pat>", "glob find files (e.g. **/*.py)"),
+            ("/run <cmd>", "run a shell command (auto-approved)"),
+            ("/undo", "restore last file edit"),
+            ("/git", "git status"),
+            ("/diff [path]", "git diff"),
+        ]),
+        ("Clipboard", [
+            ("/copy", "copy last assistant response to clipboard"),
+            ("/paste", "send clipboard contents as next message"),
+        ]),
+        ("Control", [
+            ("/think", "toggle extended thinking"),
+            ("/auto", "toggle auto-approve bash"),
+            ("/multi", "enter a multiline message (end with ';;' line)"),
+            ("/model <name>", "switch model"),
+            ("/tokens", "usage so far"),
+            ("/cost", "estimated USD cost of session"),
+            ("/stats", "session stats (time, msgs, tools, tokens)"),
+            ("/key reset", "delete stored API key"),
+            ("/login", "log in with Anthropic (Pro/Max subscription)"),
+            ("/logout", "clear OAuth tokens (fall back to API key)"),
+            ("/auth", "show current auth mode + token info"),
+        ]),
+    ]
+    for section, rows in sections:
+        t.add_row(f"[bold yellow]── {section} ──[/]", "")
+        for c, d in rows:
+            t.add_row(f"[cyan]{c}[/]", d)
+    console.print(Panel(t, title="📖 commands", border_style="blue"))
+
+
+def header_panel():
+    pinned_flag = "[yellow]pinned[/]" if pinned_context.strip() else "[dim]no pin[/]"
+    flags = " • ".join([
+        f"[bold magenta]{MODEL}[/]",
+        f"🧠 {'[green]on[/]' if think_mode else '[dim]off[/]'}",
+        f"⚡ {'[green]auto[/]' if auto_approve else '[dim]ask[/]'}",
+        f"📌 {pinned_flag}",
+        f"💬 {len(messages)}",
+        f"📂 [dim]{CWD.name}[/]",
+        f"🔐 [dim]{auth_mode}[/]",
+    ])
+    console.print(Panel(flags, border_style="green", padding=(0, 1)))
+
+
+def fmt_duration(sec: float) -> str:
+    sec = int(sec)
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}h{m:02d}m{s:02d}s" if h else f"{m}m{s:02d}s"
+
+
+def estimated_cost() -> float:
+    p = PRICING.get(MODEL, (3.0, 15.0))
+    return (total_in * p[0] + total_out * p[1]) / 1_000_000
+
+
+def save_pin():
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    PIN_FILE.write_text(pinned_context)
+
+
+def save_aliases():
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    ALIAS_FILE.write_text(json.dumps(aliases, indent=2))
+
+
+def export_markdown(path: str) -> str:
+    """Dump conversation as a human-readable markdown file."""
+    lines = [f"# Claude session — {time.strftime('%Y-%m-%d %H:%M')}", ""]
+    for m in messages:
+        role = m["role"]
+        c = m["content"]
+        lines.append(f"## {role}")
+        if isinstance(c, str):
+            lines.append(c)
+        else:
+            for b in c:
+                bd = b.model_dump() if hasattr(b, "model_dump") else b
+                t = bd.get("type")
+                if t == "text":
+                    lines.append(bd.get("text", ""))
+                elif t == "thinking":
+                    lines.append(f"> *thinking:* {bd.get('thinking','')}")
+                elif t == "tool_use":
+                    lines.append(f"**🔧 tool:** `{bd.get('name')}` — `{json.dumps(bd.get('input',{}))[:400]}`")
+                elif t == "tool_result":
+                    body = bd.get("content", "")
+                    if isinstance(body, list):
+                        body = "".join(x.get("text", "") for x in body if isinstance(x, dict))
+                    lines.append(f"```\n{str(body)[:2000]}\n```")
+        lines.append("")
+    pathlib.Path(path).write_text("\n".join(lines))
+    return path
+
+
+def main():
+    global think_mode, MODEL, messages, auto_approve, CWD, pinned_context, tool_calls_count, client, auth_mode
+    welcome_banner()
+    header_panel()
+    while True:
+        try:
+            prompt_bits = f"[dim cyan]{CWD.name}[/] "
+            if total_in + total_out:
+                prompt_bits += f"[dim](⇅{(total_in+total_out)//1000}k)[/] "
+            inp = console.input(f"\n{prompt_bits}[bold blue]›[/] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[magenta]bye 👋[/]"); break
+        if not inp: continue
+
+        # alias expansion: first token may resolve to a saved alias
+        if inp.startswith("/"):
+            head = inp.split(maxsplit=1)[0]
+            if head[1:] in aliases:
+                rest = inp[len(head):]
+                inp = aliases[head[1:]] + rest
+
+        if inp.startswith("/"):
+            parts = inp.split(maxsplit=1)
+            c = parts[0]
+            arg = parts[1] if len(parts) > 1 else ""
+            if c == "/exit": break
+            elif c == "/help": cmd_help()
+            elif c == "/ls": console.print(list_dir(arg or "."))
+            elif c == "/cd":
+                try:
+                    os.chdir(arg or str(pathlib.Path.home()))
+                    CWD = pathlib.Path.cwd()
+                    console.print(f"[green]cwd → {CWD}[/]")
+                except Exception as e: console.print(f"[red]{e}[/]")
+            elif c == "/pwd": console.print(str(CWD))
+            elif c in ("/reset", "/new"):
+                messages = []; tool_calls_count = 0
+                if c == "/new":
+                    console.clear(); welcome_banner(); header_panel()
+                console.print("[green]✨ fresh conversation[/]")
+            elif c == "/retry":
+                # drop trailing assistant/tool-result blocks, re-send last user text
+                last_user = None
+                for i in range(len(messages) - 1, -1, -1):
+                    m = messages[i]
+                    if m["role"] == "user" and isinstance(m["content"], str):
+                        last_user = m["content"]; messages = messages[:i]; break
+                if last_user is None:
+                    console.print("[red]no prior user message[/]"); continue
+                inp = last_user
+                # fall through to send
+            elif c == "/history":
+                if not messages: console.print("[dim]empty[/]"); continue
+                t = Table(show_header=True, header_style="bold cyan", box=None)
+                t.add_column("#"); t.add_column("role"); t.add_column("preview")
+                for i, m in enumerate(messages):
+                    cn = m["content"]
+                    if isinstance(cn, str):
+                        preview = cn[:80]
+                    else:
+                        kinds = [getattr(b, "type", b.get("type") if isinstance(b, dict) else "?") for b in cn]
+                        preview = ",".join(kinds)
+                    t.add_row(str(i), m["role"], preview)
+                console.print(t)
+            elif c == "/search":
+                if not arg: console.print("usage: /search <query>"); continue
+                q = arg.lower(); hits = 0
+                for i, m in enumerate(messages):
+                    cn = m["content"]
+                    text = cn if isinstance(cn, str) else json.dumps(
+                        [b.model_dump() if hasattr(b, "model_dump") else b for b in cn])
+                    if q in text.lower():
+                        hits += 1
+                        idx = text.lower().find(q)
+                        snippet = text[max(0, idx-40):idx+80].replace("\n", " ")
+                        console.print(f"[cyan]{i}[/] [{m['role']}] …{snippet}…")
+                console.print(f"[dim]{hits} hits[/]")
+            elif c == "/export":
+                if not arg: arg = f"claude-session-{int(time.time())}.md"
+                console.print(f"[green]exported → {export_markdown(arg)}[/]")
+            elif c == "/clear":
+                console.clear(); header_panel()
+            elif c == "/undo":
+                if not backups: console.print("nothing to undo"); continue
+                path, prev = backups.pop()
+                pathlib.Path(path).write_text(prev)
+                console.print(f"[green]restored {path}[/]")
+            elif c == "/save":
+                if not arg: console.print("usage: /save <file>"); continue
+                pathlib.Path(arg).write_text(json.dumps(
+                    [_msg_to_json(m) for m in messages], indent=2))
+                console.print(f"[green]saved → {arg}[/]")
+            elif c == "/load":
+                messages = json.loads(pathlib.Path(arg).read_text())
+                console.print(f"[green]loaded {len(messages)} messages[/]")
+            elif c == "/git": console.print(git_status())
+            elif c == "/diff": console.print(git_diff(arg))
+            elif c == "/find":
+                if not arg: console.print("usage: /find <glob>"); continue
+                console.print(glob_files(arg))
+            elif c == "/run":
+                if not arg: console.print("usage: /run <cmd>"); continue
+                prev_auto = auto_approve; auto_approve = True
+                console.print(run_bash(arg))
+                auto_approve = prev_auto
+            elif c == "/pin":
+                if not arg: console.print("usage: /pin <text>"); continue
+                pinned_context = (pinned_context + "\n" + arg).strip()
+                save_pin()
+                console.print(f"[green]📌 pinned ({len(pinned_context)} chars)[/]")
+            elif c == "/unpin":
+                pinned_context = ""; save_pin()
+                console.print("[green]📌 cleared[/]")
+            elif c == "/note":
+                if not arg: console.print("usage: /note <text>"); continue
+                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                with NOTES_FILE.open("a") as f:
+                    f.write(f"- [{time.strftime('%Y-%m-%d %H:%M')}] {arg}\n")
+                console.print(f"[green]📝 saved to {NOTES_FILE}[/]")
+            elif c == "/notes":
+                if NOTES_FILE.exists():
+                    console.print(Panel(Markdown(NOTES_FILE.read_text()),
+                                        title="📝 notes", border_style="yellow"))
+                else:
+                    console.print("[dim]no notes yet[/]")
+            elif c == "/alias":
+                if "=" not in arg:
+                    console.print("usage: /alias <name>=<command>  e.g. /alias gs=/git"); continue
+                k, v = arg.split("=", 1)
+                aliases[k.strip().lstrip("/")] = v.strip()
+                save_aliases()
+                console.print(f"[green]alias {k.strip()} → {v.strip()}[/]")
+            elif c == "/aliases":
+                if not aliases: console.print("[dim]none[/]"); continue
+                for k, v in aliases.items():
+                    console.print(f"  [cyan]/{k}[/] → {v}")
+            elif c == "/copy":
+                if not last_assistant_text:
+                    console.print("[dim]nothing to copy[/]"); continue
+                clipboard_set(last_assistant_text)
+                console.print(f"[green]copied {len(last_assistant_text)} chars[/]")
+            elif c == "/paste":
+                pasted = clipboard_get()
+                if not pasted.strip():
+                    console.print("[dim]clipboard empty[/]"); continue
+                console.print(Panel(pasted[:400] + ("…" if len(pasted) > 400 else ""),
+                                    title="📋 pasted", border_style="dim"))
+                inp = pasted  # fall through to send as user message
+            elif c == "/multi":
+                console.print("[dim]enter multiline message, end with a single ';;' line:[/]")
+                buf = []
+                while True:
+                    try: line = input()
+                    except EOFError: break
+                    if line.strip() == ";;": break
+                    buf.append(line)
+                inp = "\n".join(buf)
+                if not inp.strip():
+                    console.print("[dim]empty[/]"); continue
+            elif c == "/think":
+                think_mode = not think_mode; header_panel()
+            elif c == "/auto":
+                auto_approve = not auto_approve; header_panel()
+            elif c == "/tokens":
+                console.print(f"in:{total_in}  out:{total_out}  total:{total_in+total_out}")
+            elif c == "/cost":
+                console.print(f"[green]≈ ${estimated_cost():.4f}[/] "
+                              f"[dim]({total_in} in + {total_out} out @ {MODEL})[/]")
+            elif c == "/stats":
+                t = Table(show_header=False, box=None, padding=(0, 2))
+                t.add_row("⏱  elapsed", fmt_duration(time.time() - session_start))
+                t.add_row("💬 messages", str(len(messages)))
+                t.add_row("🔧 tool calls", str(tool_calls_count))
+                t.add_row("⇅ tokens in/out", f"{total_in} / {total_out}")
+                t.add_row("💰 est. cost", f"${estimated_cost():.4f}")
+                t.add_row("🤖 model", MODEL)
+                t.add_row("📂 cwd", str(CWD))
+                console.print(Panel(t, title="📊 session stats", border_style="cyan"))
+            elif c == "/model":
+                if arg: MODEL = arg; header_panel()
+            elif c == "/key" and arg == "reset":
+                KEY_FILE.unlink(missing_ok=True)
+                console.print("[green]key deleted — restart the agent[/]")
+            elif c == "/login":
+                clear_oauth_tokens()
+                oauth_login()
+                _secure_write(AUTH_MODE_FILE, "oauth")
+                auth_mode = "oauth"
+                try:
+                    client = _build_client_from_mode("oauth")
+                    client.models.list(limit=1)
+                    console.print("[green]✓ OAuth client active[/]")
+                except Exception as e:
+                    console.print(f"[red]login validation failed: {e}[/]")
+            elif c == "/logout":
+                clear_oauth_tokens()
+                if KEY_FILE.exists() or os.getenv("ANTHROPIC_API_KEY"):
+                    _secure_write(AUTH_MODE_FILE, "api_key")
+                    auth_mode = "api_key"
+                    try:
+                        client = _build_client_from_mode("api_key")
+                        console.print("[green]logged out — falling back to API key[/]")
+                    except Exception as e:
+                        console.print(f"[red]{e}[/]")
+                else:
+                    console.print("[yellow]logged out — no API key configured, restart to set one[/]")
+            elif c == "/auth":
+                lines = [f"mode: [bold]{auth_mode}[/]"]
+                if auth_mode == "oauth":
+                    t = load_oauth_tokens()
+                    if t:
+                        rem = int(t.get("expires_at", 0) - time.time())
+                        lines.append(f"access token: …{t['access_token'][-6:]}")
+                        lines.append(f"expires in: {rem}s" if rem > 0 else "[red]expired[/]")
+                        lines.append(f"scopes: {' '.join(t.get('scopes', []))}")
+                    else:
+                        lines.append("[red]no tokens stored[/]")
+                else:
+                    has_env = bool(os.getenv("ANTHROPIC_API_KEY"))
+                    lines.append("source: " + ("env ANTHROPIC_API_KEY" if has_env else f"{KEY_FILE}"))
+                console.print(Panel("\n".join(lines), title="🔐 auth", border_style="cyan"))
+            else:
+                console.print(f"[red]unknown: {c}[/]  (/help)")
+                continue
+            # commands that set `inp` for sending (retry/paste/multi) fall through below
+            if c not in ("/retry", "/paste", "/multi"):
+                continue
+
+        messages.append({"role": "user", "content": inp})
+        try:
+            while True:
+                with console.status("[dim]thinking…[/]", spinner="dots"):
+                    resp = call_claude_stream()
+                messages.append({"role": "assistant", "content": resp.content})
+                more = render_assistant(resp)
+                if resp.stop_reason == "end_turn" or not more:
+                    break
+        except KeyboardInterrupt:
+            console.print("\n[yellow]interrupted[/]")
+        except Exception as e:
+            console.print(f"[red]error: {type(e).__name__}: {e}[/]")
+
+
+def _msg_to_json(m):
+    """Make assistant content blocks JSON-serializable for /save."""
+    c = m["content"]
+    if isinstance(c, str): return m
+    out = []
+    for b in c:
+        if hasattr(b, "model_dump"): out.append(b.model_dump())
+        else: out.append(b)
+    return {"role": m["role"], "content": out}
+
+
+if __name__ == "__main__":
+    main()
