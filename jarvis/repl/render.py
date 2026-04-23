@@ -1,11 +1,31 @@
 """Render assistant response: text panels, thinking blocks, and tool calls."""
 import json, re
+from concurrent.futures import ThreadPoolExecutor
 
 from ..console import console, Panel, Markdown
 from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT
 from ..tools import FUNC
 from .. import state
 from .hallucination import _scrub_hallucinations
+
+# Tools that must run single-threaded — they mutate shared state, cwd, or UI.
+_SERIAL_TOOLS = {
+    "run_bash", "edit_file", "write_file",
+    "click_at", "click_element", "click_menu", "key_press", "type_text",
+    "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
+    "clipboard_set", "mac_control",
+}
+_PARALLEL_WORKERS = 8
+
+
+def _run_tool(b):
+    icon = TOOL_ICONS.get(b.name, "🔧")
+    args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
+    try:
+        out = FUNC[b.name](**b.input)
+    except Exception as e:
+        out = f"ERROR: {type(e).__name__}: {e}"
+    return b, icon, args_preview, str(out)
 
 
 def render_assistant(resp) -> bool:
@@ -18,6 +38,7 @@ def render_assistant(resp) -> bool:
     else:                _model_label = state.MODEL
 
     tool_results = []
+    tool_uses = []  # collect, then run in parallel where safe
     for b in resp.content:
         # ── text reply ──────────────────────────────────────────────
         if b.type == "text":
@@ -51,19 +72,38 @@ def render_assistant(resp) -> bool:
                     padding=(0, 1),
                 ))
 
-        # ── tool call ────────────────────────────────────────────────
+        # ── tool call (collect now, run below in parallel) ───────────
         elif b.type == "tool_use":
             state.tool_calls_count += 1
             if b.name in ("web_search", "fetch_url", "verified_search"):
                 state.web_tool_used_this_turn = True
-            icon = TOOL_ICONS.get(b.name, "🔧")
-            args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
-            console.print(f"{icon} [yellow]{b.name}[/] [dim]{args_preview}[/]")
-            try:
-                out = FUNC[b.name](**b.input)
-            except Exception as e:
-                out = f"ERROR: {type(e).__name__}: {e}"
-            out_str = str(out)
+            tool_uses.append(b)
+
+    # Execute collected tool calls: parallel-safe ones concurrently,
+    # unsafe/stateful ones serially in their original order. Results are
+    # emitted back in the original order so tool_use_id pairing stays intact.
+    if tool_uses:
+        parallel_batch = [b for b in tool_uses if b.name not in _SERIAL_TOOLS]
+        serial_batch = [b for b in tool_uses if b.name in _SERIAL_TOOLS]
+        outputs = {}  # b.id -> (icon, args_preview, out_str)
+
+        if len(parallel_batch) > 1:
+            console.print(f"[cyan]⚡ running {len(parallel_batch)} tools in parallel[/]")
+            with ThreadPoolExecutor(max_workers=min(_PARALLEL_WORKERS, len(parallel_batch))) as ex:
+                for b, icon, ap, out_str in ex.map(_run_tool, parallel_batch):
+                    outputs[b.id] = (icon, ap, out_str)
+        else:
+            for b in parallel_batch:
+                _, icon, ap, out_str = _run_tool(b)
+                outputs[b.id] = (icon, ap, out_str)
+
+        for b in serial_batch:
+            _, icon, ap, out_str = _run_tool(b)
+            outputs[b.id] = (icon, ap, out_str)
+
+        for b in tool_uses:
+            icon, ap, out_str = outputs[b.id]
+            console.print(f"{icon} [yellow]{b.name}[/] [dim]{ap}[/]")
             if re.search(r"\S", out_str):
                 short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
                 console.print(Panel(short, border_style="dim", padding=(0, 1)))
