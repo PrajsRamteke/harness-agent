@@ -10,6 +10,14 @@ from .repl.banners import welcome_banner, header_panel
 from .repl.stream import call_claude_stream
 from .repl.render import render_assistant
 from .commands.dispatch import handle_slash
+from .tools.image_input import (
+    append_image_block,
+    clipboard_image_to_file,
+    extract_image_paths,
+    file_digest,
+    ocr_image_block,
+    process_input_for_images,
+)
 from . import state
 
 
@@ -31,7 +39,8 @@ def main():
             ).strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[magenta]bye 👋[/]"); break
-        if not inp: continue
+        if not inp:
+            continue
 
         # alias expansion: first token may resolve to a saved alias
         if inp.startswith("/"):
@@ -47,6 +56,26 @@ def main():
             if not should_send:
                 continue
             # fall through to send `inp` as a user message
+
+        # auto-OCR any image paths (drag-and-drop drops a filepath into the terminal)
+        hits = extract_image_paths(inp)
+        if hits:
+            names = ", ".join(p.name for _, p in hits)
+            console.print(f"[dim]📷 detected image(s): {names} — running OCR…[/]")
+            inp = process_input_for_images(inp)
+        else:
+            img = clipboard_image_to_file()
+            if img is None:
+                state.last_clipboard_image_digest = ""
+            else:
+                digest = file_digest(img)
+                if digest != state.last_clipboard_image_digest:
+                    state.last_clipboard_image_digest = digest
+                    console.print(f"[dim]📷 fresh clipboard image detected → OCR ({img})[/]")
+                    block, ocr = ocr_image_block(img, label="clipboard")
+                    inp = append_image_block(inp, block)
+                    console.print(Panel(ocr[:400] + ("…" if len(ocr) > 400 else ""),
+                                        title="📷 attached clipboard image (OCR)", border_style="cyan"))
 
         _send_and_loop(inp)
 

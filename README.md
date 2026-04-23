@@ -57,6 +57,12 @@ On first run you'll be prompted to choose an auth mode:
 - `/clear` — reset conversation
 - `/logout` — clear saved credentials
 
+### Images
+
+- Drag an image file into the prompt to OCR it and include it in your message.
+- Copy an image to the macOS clipboard, then type your prompt normally and press Enter; the agent OCRs the fresh clipboard image and attaches it to that same message.
+- `/paste <optional prompt>` also works with clipboard images.
+
 ## Project layout
 
 ```

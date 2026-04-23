@@ -2,6 +2,7 @@
 from ..console import console, Panel, Markdown
 from ..constants import NOTES_FILE
 from ..tools.mac.clipboard import clipboard_get, clipboard_set
+from ..tools.image_input import append_image_block, clipboard_image_to_file, file_digest, ocr_image_block
 from ..storage.prefs import save_pin, save_aliases
 from .. import state
 
@@ -47,6 +48,17 @@ def handle_context(c: str, arg: str):
         console.print(f"[green]copied {len(state.last_assistant_text)} chars[/]")
         return True, None
     if c == "/paste":
+        # First check if clipboard has an image
+        img = clipboard_image_to_file()
+        if img is not None:
+            console.print(f"[dim]📷 image on clipboard → OCR ({img})[/]")
+            body, ocr = ocr_image_block(img, label="clipboard")
+            state.last_clipboard_image_digest = file_digest(img)
+            if arg.strip():
+                body = append_image_block(arg.strip(), body)
+            console.print(Panel(ocr[:400] + ("…" if len(ocr) > 400 else ""),
+                                title="📷 pasted image (OCR)", border_style="cyan"))
+            return True, body
         pasted = clipboard_get()
         if not pasted.strip():
             console.print("[dim]clipboard empty[/]"); return True, None

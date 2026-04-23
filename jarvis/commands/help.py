@@ -49,7 +49,8 @@ def cmd_help():
         ]),
         ("Clipboard", [
             ("/copy", "copy last assistant response to clipboard"),
-            ("/paste", "send clipboard contents as next message"),
+            ("/paste", "send clipboard text, or OCR a clipboard image, as the next message"),
+            ("plain prompt + image clipboard", "type your prompt normally; a fresh clipboard image is OCR'd and attached"),
         ]),
         ("Control", [
             ("/think", "toggle extended thinking"),

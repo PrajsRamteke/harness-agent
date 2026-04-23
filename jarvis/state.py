@@ -26,6 +26,7 @@ session_start: float = time.time()
 tool_calls_count: int = 0
 last_assistant_text: str = ""
 web_tool_used_this_turn: bool = False  # disables hallucination guard when True
+last_clipboard_image_digest: str = ""
 
 # user context
 pinned_context: str = PIN_FILE.read_text() if PIN_FILE.exists() else ""
