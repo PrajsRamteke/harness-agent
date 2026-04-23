@@ -2,7 +2,7 @@
 import pathlib
 
 CWD = pathlib.Path.cwd()
-CONFIG_DIR = pathlib.Path.home() / ".config" / "claude-agent"
+CONFIG_DIR = pathlib.Path.home() / ".config" / "harness-agent"
 KEY_FILE = CONFIG_DIR / "key"
 OAUTH_FILE = CONFIG_DIR / "oauth.json"
 AUTH_MODE_FILE = CONFIG_DIR / "auth_mode"
