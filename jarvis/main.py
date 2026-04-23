@@ -1,7 +1,7 @@
 """Entry point: construct client, init DB, run REPL."""
 from datetime import datetime
 
-from .console import console
+from .console import console, Panel
 from .auth.client import make_client
 from .storage.sessions import (
     db_init, db_create_session, db_append_message, db_set_title_if_empty,
@@ -25,7 +25,10 @@ def main():
     while True:
         try:
             now_str = datetime.now().strftime("%H:%M")
-            inp = console.input(f"\n[dim]{now_str}[/] [bold green]Jarvis[/] [bold blue]›[/] ").strip()
+            console.rule(style="grey37")
+            inp = console.input(
+                f"[bold yellow]▎[/][dim] {now_str} [/][bold bright_yellow]you[/] [bold yellow]❯[/] "
+            ).strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[magenta]bye 👋[/]"); break
         if not inp: continue
