@@ -8,12 +8,13 @@ from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
 from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
+from .trim import trim_messages
 
 
 def call_claude_stream():
     kwargs: Dict[str, Any] = dict(
         model=state.MODEL, max_tokens=8192, system=build_system(),
-        messages=state.messages, tools=TOOLS,
+        messages=trim_messages(state.messages), tools=TOOLS,
     )
     if state.think_mode:
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4000}

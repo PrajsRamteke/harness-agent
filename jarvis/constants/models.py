@@ -8,7 +8,7 @@ AVAILABLE_MODELS = [
     ("claude-opus-4-6", "Opus 4.6 — high capability"),
     ("claude-opus-4-7", "Opus 4.7 — most capable"),
 ]
-MAX_TOOL_OUTPUT = 15000
+MAX_TOOL_OUTPUT = 6000   # trimmed from 15000 — cuts tool-result token cost ~60%
 MAX_FILE_READ = 200_000
 
 # Approx pricing per 1M tokens (USD) — used only for /cost estimates.
