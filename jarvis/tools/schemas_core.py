@@ -25,6 +25,20 @@ CORE_TOOLS = [
         "pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}},
     {"name":"glob_files","description":"Find files by glob pattern (e.g. '**/*.py')",
      "input_schema":{"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"]}},
+    {"name":"rank_files","description":(
+        "Cheaply rank likely relevant files before reading many files. Use this first "
+        "for broad tasks like finding code, resumes, IDs, screenshots, docs, configs, "
+        "or unknown files in a folder. Returns compact paths/scores and optional snippets."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "query":{"type":"string","description":"What you are trying to find or solve."},
+        "path":{"type":"string","description":"Folder or file to scan. Default current directory."},
+        "pattern":{"type":"string","description":"Glob under path. Default **/*."},
+        "max_files":{"type":"integer","description":"Maximum ranked results. Default 30, max 100."},
+        "scan_limit":{"type":"integer","description":"Maximum files to inspect cheaply. Default 700, max 3000."},
+        "include_snippets":{"type":"boolean","description":"Read small text previews to score content matches. Default false."},
+        "max_snippet_chars":{"type":"integer","description":"Snippet chars per matched text file. Default 240."}},
+        "required":["query"]}},
     {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{}}},
     {"name":"git_diff","description":"git diff","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},
     {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"}}}},

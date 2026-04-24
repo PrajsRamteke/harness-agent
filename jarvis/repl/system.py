@@ -40,7 +40,7 @@ def _build_static_body() -> str:
     if mem_block:
         body += "\n\n" + mem_block
     body += (
-        "\n\nMEMORY TOOLS: You have memory_save / memory_list / memory_delete. "
+        "\n\nMEMORY TOOLS: When available, use memory_save / memory_list / memory_delete. "
         "When the user tells you something durable about themselves (name, role, "
         "preferences, recurring context), call memory_save proactively. Use "
         "memory_list when you need to recall. Do not save ephemeral task details."
@@ -48,7 +48,7 @@ def _build_static_body() -> str:
     if sk_block:
         body += "\n\n" + sk_block
     body += (
-        "\n\nSKILL TOOLS (self-learning, separate from user memory): skill_search, "
+        "\n\nSKILL TOOLS (self-learning, separate from user memory): when available, skill_search, "
         "skill_save, skill_list, skill_delete.\n"
         "- At the START of any non-trivial task, call skill_search with keywords "
         "from the user's request. If a past lesson applies, use it — this saves "

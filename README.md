@@ -10,7 +10,7 @@ A single-file, Claude Code-style terminal agent powered by Anthropic's Claude mo
 - Interactive REPL with rich rendering (markdown, syntax-highlighted code, panels, spinners)
 - Two auth modes: **Anthropic API key** (`sk-ant-…`) or **Claude Pro/Max OAuth** (PKCE flow)
 - Built-in tools:
-  - File ops: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob_files`, `search_code`
+  - File ops: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob_files`, `rank_files`, `search_code`
   - Shell: `run_bash`
   - Git: `git_status`, `git_diff`, `git_log`
   - macOS control: launch/focus/quit apps, AppleScript, UI reading, clicks, keystrokes, clipboard, shortcuts, notifications
@@ -51,6 +51,10 @@ On first run you'll be prompted to choose an auth mode:
 - `ANTHROPIC_API_KEY` — use this key instead of the stored one
 - `CLAUDE_MODEL` — override the default model (e.g. `claude-opus-4-7`)
 - `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent independent tool workers, default `64`, capped at `64`
+
+Harness dynamically sends only the likely-needed tool schemas each model turn,
+with core file/code tools always available and specialized macOS/web/OCR tools
+loaded only when the task asks for them.
 
 ### Useful slash commands
 

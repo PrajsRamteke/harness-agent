@@ -3,7 +3,7 @@ import time
 from typing import Any, Dict
 
 from ..console import console, APIStatusError, RateLimitError
-from ..tools import TOOLS
+from ..tools.router import select_tools
 from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
 from ..auth.client import _build_client_from_mode
 from .. import state
@@ -30,9 +30,12 @@ def cancel_current_stream():
 
 
 def call_claude_stream():
+    tools = select_tools(state.messages)
+    if state.show_internal:
+        console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
     kwargs: Dict[str, Any] = dict(
         model=state.MODEL, max_tokens=8192, system=build_system(),
-        messages=trim_messages(state.messages), tools=TOOLS,
+        messages=trim_messages(state.messages), tools=tools,
     )
     if state.think_mode:
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4000}

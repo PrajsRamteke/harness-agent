@@ -1,6 +1,6 @@
 """Tool registry: TOOLS (schemas) and FUNC (name -> callable)."""
 from .files import read_file, write_file, edit_file
-from .dirs import list_dir, glob_files
+from .dirs import list_dir, glob_files, rank_files
 from .shell import run_bash
 from .search import search_code
 from .git import git_status, git_diff, git_log
@@ -19,11 +19,25 @@ from .schemas_core import CORE_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
 TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + SKILL_TOOLS + OCR_TOOLS
+TOOL_GROUPS = {
+    "core": CORE_TOOLS,
+    "mac": MAC_TOOLS,
+    "internet": INTERNET_TOOLS,
+    "memory": MEMORY_TOOLS,
+    "skills": SKILL_TOOLS,
+    "ocr": OCR_TOOLS,
+}
+TOOL_NAME_TO_GROUP = {
+    tool["name"]: group
+    for group, tools in TOOL_GROUPS.items()
+    for tool in tools
+}
 
 FUNC = {
     "read_file": read_file, "write_file": write_file, "edit_file": edit_file,
     "list_dir": list_dir, "run_bash": run_bash, "search_code": search_code,
-    "glob_files": glob_files, "git_status": git_status, "git_diff": git_diff,
+    "glob_files": glob_files, "rank_files": rank_files,
+    "git_status": git_status, "git_diff": git_diff,
     "git_log": git_log,
     # mac
     "launch_app": launch_app, "focus_app": focus_app, "quit_app": quit_app,
