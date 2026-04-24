@@ -44,7 +44,8 @@ def handle_memory(cmd: str, arg: str):
     elif sub == "clear":
         try:
             confirm = console.input("[yellow]wipe all memory? type 'yes': [/]").strip().lower()
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt, RuntimeError):
+            console.print("[dim](interactive confirm not available in TUI — skipping)[/]")
             confirm = ""
         if confirm == "yes":
             n = mem.clear_all()

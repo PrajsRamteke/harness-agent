@@ -54,7 +54,8 @@ def handle_skill(cmd: str, arg: str):
     elif sub == "clear":
         try:
             confirm = console.input("[yellow]wipe all skills? type 'yes': [/]").strip().lower()
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt, RuntimeError):
+            console.print("[dim](interactive confirm not available in TUI — skipping)[/]")
             confirm = ""
         if confirm == "yes":
             n = sk.clear_all()

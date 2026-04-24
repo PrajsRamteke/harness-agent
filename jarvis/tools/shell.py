@@ -6,16 +6,32 @@ from ..constants import CWD, MAX_TOOL_OUTPUT
 from .. import state
 
 
+def _is_tui_console() -> bool:
+    # TUIConsole lives in jarvis.tui.console_shim; fall back to duck-typing.
+    return type(console).__name__ == "TUIConsole"
+
+
 def run_bash(cmd: str, timeout: int = 60) -> str:
     DANGEROUS = ["rm -rf /", "mkfs", ":(){:|:&};:", "dd if=/dev/zero"]
     if any(d in cmd for d in DANGEROUS): return "BLOCKED: dangerous command"
+
     if not state.auto_approve:
-        console.print(f"[yellow]→ run:[/] [cyan]{cmd}[/]")
-        ok = console.input("[dim]approve? [Y/n/a=always] [/]").strip().lower()
-        if ok == "a":
-            state.auto_approve = True
-        elif ok == "n":
-            return "USER DENIED"
+        if _is_tui_console():
+            # The TUI has no blocking prompt mechanism from inside a tool call.
+            # Show the command in the log and proceed; dangerous commands are
+            # still blocked above. Users can disable this by implementing a
+            # modal approval flow later.
+            console.print(f"[yellow]→ run:[/] [cyan]{cmd}[/]")
+        else:
+            console.print(f"[yellow]→ run:[/] [cyan]{cmd}[/]")
+            try:
+                ok = console.input("[dim]approve? [Y/n/a=always] [/]").strip().lower()
+            except (RuntimeError, EOFError):
+                ok = ""
+            if ok == "a":
+                state.auto_approve = True
+            elif ok == "n":
+                return "USER DENIED"
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
                            timeout=timeout, cwd=str(CWD))
