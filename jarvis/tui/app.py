@@ -140,7 +140,7 @@ class JarvisTUI(App):
     # ─── lifecycle ─────────────────────────────────────────────────────
     def on_mount(self):
         self.title = "Jarvis"
-        self.sub_title = "Claude Code-style macOS agent"
+        self.sub_title = "Better than Claude Code agent"
 
         log = self.query_one("#transcript", RichLog)
         status = self.query_one("#statusbar", Static)
