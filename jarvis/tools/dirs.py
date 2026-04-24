@@ -1,5 +1,5 @@
 """Directory listing, glob, and lightweight file ranking."""
-import os, pathlib, re
+import os, pathlib, re, shutil, subprocess
 from ..constants import CWD
 
 SKIP_DIRS = {
@@ -25,6 +25,78 @@ def list_dir(path: str = ".") -> str:
 def glob_files(pattern: str) -> str:
     matches = sorted(pathlib.Path(CWD).glob(pattern))[:200]
     return "\n".join(str(m.relative_to(CWD)) for m in matches) or "no matches"
+
+
+def fast_find(
+    query: str,
+    path: str = "",
+    kind: str = "any",
+    max_results: int = 50,
+) -> str:
+    """Fast file/folder search across the Mac using Spotlight (mdfind) or fd.
+
+    - query: filename/substring to search for (e.g. 'harness', 'resume.pdf').
+    - path: optional folder to scope the search (e.g. '~/Desktop'). Empty = whole Mac.
+    - kind: 'any' | 'file' | 'folder'.
+    - max_results: cap on returned entries (default 50, max 500).
+    """
+    try:
+        max_results = max(1, min(500, int(max_results)))
+    except (TypeError, ValueError):
+        max_results = 50
+
+    q = (query or "").strip()
+    if not q:
+        return "ERROR: query is required"
+
+    scope = os.path.expanduser(path).strip() if path else ""
+    if scope and not os.path.isabs(scope):
+        scope = str((CWD / scope).resolve())
+    if scope and not os.path.isdir(scope):
+        return f"ERROR: scope not found: {path}"
+
+    results: list[str] = []
+
+    # 1) Spotlight via mdfind (instant, indexed) — macOS
+    if shutil.which("mdfind"):
+        cmd = ["mdfind", "-name", q]
+        if scope:
+            cmd += ["-onlyin", scope]
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            for line in out.stdout.splitlines():
+                if not line:
+                    continue
+                if kind == "file" and not os.path.isfile(line):
+                    continue
+                if kind == "folder" and not os.path.isdir(line):
+                    continue
+                results.append(line)
+                if len(results) >= max_results:
+                    break
+        except Exception:
+            pass
+
+    # 2) Fallback to fd if nothing found and fd is installed
+    if not results and shutil.which("fd"):
+        cmd = ["fd", "--hidden", "--no-ignore", q]
+        if kind == "file":
+            cmd += ["-t", "f"]
+        elif kind == "folder":
+            cmd += ["-t", "d"]
+        if scope:
+            cmd.append(scope)
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            results = [l for l in out.stdout.splitlines() if l][:max_results]
+        except Exception:
+            pass
+
+    if not results:
+        where = scope or "whole Mac"
+        return f"No matches for '{q}' in {where}"
+    header = f"Found {len(results)} match(es) for '{q}'" + (f" in {scope}" if scope else "")
+    return header + "\n" + "\n".join(results)
 
 
 def _resolve(path: str) -> pathlib.Path:

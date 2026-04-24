@@ -39,6 +39,18 @@ CORE_TOOLS = [
         "include_snippets":{"type":"boolean","description":"Read small text previews to score content matches. Default false."},
         "max_snippet_chars":{"type":"integer","description":"Snippet chars per matched text file. Default 240."}},
         "required":["query"]}},
+    {"name":"fast_find","description":(
+        "Fast file/folder search by name across the Mac using Spotlight (mdfind) — "
+        "near-instant, indexed. Falls back to 'fd' if installed. Use this instead of "
+        "'find' or recursive globbing when the user wants to locate a file or folder "
+        "anywhere on their system (e.g. 'find my resume', 'where is the harness folder')."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "query":{"type":"string","description":"Name or substring to search for, e.g. 'resume' or 'harness'."},
+        "path":{"type":"string","description":"Optional folder to scope the search, e.g. '~/Desktop'. Empty = whole Mac."},
+        "kind":{"type":"string","enum":["any","file","folder"],"description":"Filter results. Default 'any'."},
+        "max_results":{"type":"integer","description":"Max results. Default 50, max 500."}},
+        "required":["query"]}},
     {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{}}},
     {"name":"git_diff","description":"git diff","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},
     {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"}}}},
