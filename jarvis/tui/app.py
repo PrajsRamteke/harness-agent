@@ -17,6 +17,7 @@ import threading
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import ScrollableContainer
 from textual.message import Message
 from textual.widgets import Header, RichLog, Static, TextArea
 from textual import work
@@ -76,15 +77,22 @@ def _swap_console_everywhere(tui_console):
 
 
 class JarvisTUI(App):
+    ENABLE_COMMAND_PALETTE = False
     CSS = """
     Screen {
         background: #0b0d10;
+        layers: base overlay;
     }
     #transcript {
         background: #0b0d10;
         color: #e6e6e6;
         padding: 0 1;
         border: none;
+        height: 1fr;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-color: #2b3340;
+        scrollbar-background: #0b0d10;
     }
     #prompt {
         dock: bottom;
@@ -123,7 +131,33 @@ class JarvisTUI(App):
         Binding("f2", "toggle_internal", "Internals", show=True),
         Binding("ctrl+t", "toggle_internal", show=False),
         Binding("escape", "escape_action", show=False),
+        Binding("up", "scroll_transcript('up')", show=False, priority=True),
+        Binding("down", "scroll_transcript('down')", show=False, priority=True),
+        Binding("pageup", "scroll_transcript('pageup')", show=False, priority=True),
+        Binding("pagedown", "scroll_transcript('pagedown')", show=False, priority=True),
+        Binding("home", "scroll_transcript('home')", show=False, priority=True),
+        Binding("end", "scroll_transcript('end')", show=False, priority=True),
     ]
+
+    def action_scroll_transcript(self, direction: str) -> None:
+        try:
+            log = self.query_one("#transcript", RichLog)
+        except Exception:
+            return
+        if direction == "pageup":
+            log.scroll_page_up(animate=False)
+        elif direction == "pagedown":
+            log.scroll_page_down(animate=False)
+        elif direction == "up":
+            for _ in range(5):
+                log.scroll_up(animate=False)
+        elif direction == "down":
+            for _ in range(5):
+                log.scroll_down(animate=False)
+        elif direction == "home":
+            log.scroll_home(animate=False)
+        elif direction == "end":
+            log.scroll_end(animate=False)
 
     def __init__(self):
         super().__init__()
@@ -132,10 +166,9 @@ class JarvisTUI(App):
         self._last_input_value = ""
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
-        yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
-        yield PromptArea(id="prompt")
         yield Static("", id="statusbar")
+        yield PromptArea(id="prompt")
+        yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
 
     # ─── lifecycle ─────────────────────────────────────────────────────
     def on_mount(self):
@@ -394,6 +427,23 @@ class JarvisTUI(App):
                 pass
 
     def action_cancel_or_quit(self):
+        # If the user has a text selection in the transcript, Ctrl+C should
+        # copy it (matching normal terminal expectations) instead of
+        # cancelling or quitting.
+        try:
+            selected = self.screen.get_selected_text()
+        except Exception:
+            selected = None
+        if selected:
+            self.copy_to_clipboard(selected)
+            try:
+                import subprocess
+                subprocess.run(["pbcopy"], input=selected.encode(), check=False)
+            except Exception:
+                pass
+            self.screen.clear_selection()
+            self._set_status("copied")
+            return
         if self._busy:
             from ..repl.stream import cancel_current_stream
             cancel_current_stream()
@@ -419,4 +469,4 @@ def run():
     if state.client is None:
         state.client = make_client()
 
-    JarvisTUI().run()
+    JarvisTUI().run(mouse=False)
