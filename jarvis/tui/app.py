@@ -119,6 +119,8 @@ class JarvisTUI(App):
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=True),
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Quit", show=True),
+        Binding("f2", "toggle_internal", "Internals", show=True),
+        Binding("ctrl+t", "toggle_internal", show=False),
         Binding("escape", "escape_action", show=False),
     ]
 
@@ -159,6 +161,7 @@ class JarvisTUI(App):
         header_panel(compact=True)
         db_init()
         state.current_session_id = db_create_session(state.MODEL)
+        self._set_status("ready")
 
         self.query_one("#prompt", PromptArea).focus()
 
@@ -285,12 +288,29 @@ class JarvisTUI(App):
 
     def _turn_done(self):
         self._busy = False
-        self._set_status("")
+        self._set_status("ready")
         self.query_one("#prompt", PromptArea).focus()
 
     def _set_status(self, msg: str):
         try:
-            self.query_one("#statusbar", Static).update(msg)
+            from .. import state
+            trace = "shown" if state.show_internal else "hidden"
+            prefix = f"{msg} | " if msg else ""
+            self.query_one("#statusbar", Static).update(
+                f"{prefix}internals:{trace} | F2 toggle"
+            )
+        except Exception:
+            pass
+
+    def action_toggle_internal(self):
+        from .. import state
+        state.show_internal = not state.show_internal
+        mode = "shown" if state.show_internal else "hidden"
+        self._set_status(f"internals {mode}")
+        try:
+            self._tui_console.print(
+                f"[dim]internal tool trace {mode}; applies to the next tool/thinking output[/]"
+            )
         except Exception:
             pass
 

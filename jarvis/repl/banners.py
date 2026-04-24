@@ -18,7 +18,7 @@ def welcome_banner(compact: bool = False):
         console.print(f"[bold magenta]{WELCOME_ART}[/]")
     console.print(Panel(
         "[bold]Jarvis[/] — chat, code, and control your Mac.\n"
-        "[dim][cyan]/help[/] commands • [cyan]/verbose[/] internals • [cyan]/exit[/] quit[/]",
+        "[dim][cyan]/help[/] commands • [cyan]F2[/]/[cyan]/verbose[/] internals • [cyan]/exit[/] quit[/]",
         border_style="magenta", padding=(0, 2),
     ))
 
