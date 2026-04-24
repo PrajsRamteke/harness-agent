@@ -34,11 +34,22 @@ def build_report(query: str, good_sources: list, error_sources: list,
             lines.append(f"  [{pct:3d}% agreement]  {claim}")
         lines.append("")
 
+    official = [s for s in good_sources if s.get("is_official")]
+    if official:
+        lines.append("🏛️  OFFICIAL SOURCE(S) — prioritised as ground truth")
+        lines.append("─" * 60)
+        for s in official:
+            lines.append(f"  • {s['label']}  🔗 {s['url']}")
+            if s.get("content"):
+                lines.append(f"    ↳ {s['content'][:240].strip()}")
+        lines.append("")
+
     lines.append("📚 SOURCES  (sorted by trust score)")
     lines.append("─" * 60)
     for i, s in enumerate(good_sources, 1):
         bar = "█" * s["trust"] + "░" * (10 - s["trust"])
-        lines.append(f"  {i:2d}. [{bar}] {s['trust']}/10  {s['label']}")
+        marker = " 🏛️ OFFICIAL" if s.get("is_official") else ""
+        lines.append(f"  {i:2d}. [{bar}] {s['trust']}/10  {s['label']}{marker}")
         lines.append(f"      {s['title'][:70]}")
         lines.append(f"      🔗 {s['url']}")
         if s["snippet"]:

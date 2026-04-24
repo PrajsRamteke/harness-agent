@@ -7,6 +7,7 @@ from ._common import _domain_score, _fetch_snippet
 from ._collect import gather_candidates, dedupe_by_domain
 from ._claims import _extract_key_claims, _agreement_score
 from ._report import build_report
+from .search import _enrich_query_with_date
 
 
 def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> str:
@@ -23,12 +24,23 @@ def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> 
       7. Return a structured report: verified facts, contested points,
          source list with trust scores, and a confidence summary.
     """
+    query = _enrich_query_with_date(query)
     console.print(f"[dim cyan]🔍 verified_search: collecting sources for \"{query}\"…[/]")
 
     candidates = gather_candidates(query)
     deduped = dedupe_by_domain(candidates)
-    deduped.sort(key=lambda x: _domain_score(x[0])[0], reverse=True)
+    deduped.sort(key=lambda x: _domain_score(x[0], query)[0], reverse=True)
     to_fetch = deduped[:max_sources]
+
+    # Guarantee the official site (if any) is in the fetch set even if DDG
+    # ranked it outside the top `max_sources`.
+    official_extra = [
+        c for c in deduped[max_sources:]
+        if _domain_score(c[0], query)[1].startswith("official")
+    ]
+    for item in official_extra[:2]:
+        if item not in to_fetch:
+            to_fetch.insert(0, item)
 
     if not to_fetch:
         return f'❌ verified_search: could not find any sources for "{query}".'
@@ -42,11 +54,12 @@ def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> 
 
     def _fetch_one(item: tuple) -> dict:
         url, title, snip = item
-        trust, label = _domain_score(url)
+        trust, label = _domain_score(url, query)
         content = _fetch_snippet(url, max_chars=2500)
         return {
             "url": url, "title": title, "snippet": snip,
             "content": content, "trust": trust, "label": label,
+            "is_official": label.startswith("official"),
         }
 
     with ThreadPoolExecutor(max_workers=min(8, len(to_fetch))) as pool:
@@ -74,14 +87,22 @@ def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> 
             + "\n".join(f"  • {s['url']}" for s in to_fetch)
         )
 
-    good_sources.sort(key=lambda s: s["trust"], reverse=True)
+    # Always sort official sources to the very top, then by trust.
+    good_sources.sort(key=lambda s: (s.get("is_official", False), s["trust"]), reverse=True)
     all_contents = [s["content"] for s in good_sources]
+    official_sources = [s for s in good_sources if s.get("is_official")]
 
-    # ── Step 4 & 5: extract key claims from top-trust sources ─────────
-    top_sources = good_sources[:3]
+    # ── Step 4 & 5: extract key claims, prioritising official sources ─
+    top_sources = official_sources[:2] + [
+        s for s in good_sources if not s.get("is_official")
+    ][: max(1, 3 - len(official_sources[:2]))]
     raw_claims: list = []
+    official_claims: set = set()
     for src in top_sources:
-        raw_claims.extend(_extract_key_claims(src["content"], max_sentences=5))
+        claims = _extract_key_claims(src["content"], max_sentences=6)
+        raw_claims.extend(claims)
+        if src.get("is_official"):
+            official_claims.update(claims)
     seen_claim_words: set = set()
     unique_claims: list = []
     for c in raw_claims:
@@ -94,11 +115,15 @@ def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> 
             break
 
     # ── Step 6: cross-check each claim ───────────────────────────────
+    # A claim is "verified" if it came from the official source OR if
+    # ≥50% of other sources agree. Official-source facts are ground truth
+    # for "what does X say about X" questions, so we never demote them to
+    # 'contested' just because secondary sources haven't indexed them yet.
     verified: list = []
     contested: list = []
     for claim in unique_claims:
         ratio = _agreement_score(claim, all_contents)
-        if ratio >= 0.5:
+        if claim in official_claims or ratio >= 0.5:
             verified.append((claim, ratio))
         else:
             contested.append((claim, ratio))

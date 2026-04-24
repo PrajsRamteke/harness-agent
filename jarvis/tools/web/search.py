@@ -1,7 +1,38 @@
 """Quick DuckDuckGo web search tool."""
 import json, re, html, urllib.parse, urllib.request
+from datetime import datetime
 
 from ...constants import MAX_TOOL_OUTPUT
+
+_RECENCY_RE = re.compile(
+    r"\b(latest|current|currently|recent|recently|today|todays?|now|"
+    r"this\s+(?:year|month|week)|this-year|new|newest|upcoming|"
+    r"as\s+of|right\s+now|nowadays)\b",
+    re.I,
+)
+_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+
+
+def _enrich_query_with_date(query: str) -> str:
+    """Ensure queries about current/recent info are anchored to today's year.
+
+    - If the query contains a stale year (anything other than the current year),
+      rewrite it to the current year. The model often hardcodes last year's
+      number in its query even when the user wants fresh data.
+    - If no year is present but the query implies recency, append current year.
+    """
+    current_year = datetime.now().year
+    has_recency = bool(_RECENCY_RE.search(query))
+    if _YEAR_RE.search(query):
+        if has_recency:
+            def _sub(m: "re.Match") -> str:
+                y = int(m.group(0))
+                return str(current_year) if y != current_year else m.group(0)
+            return _YEAR_RE.sub(_sub, query)
+        return query
+    if has_recency:
+        return f"{query} {current_year}"
+    return query
 
 
 def web_search(query: str, max_results: int = 8) -> str:
@@ -11,6 +42,7 @@ def web_search(query: str, max_results: int = 8) -> str:
     Also tries the HTML endpoint for extra organic results when the JSON
     Instant Answer doesn't return enough hits.
     """
+    query = _enrich_query_with_date(query)
     results: list = []
 
     # ── 1. DuckDuckGo Instant Answer API (JSON) ──────────────────────

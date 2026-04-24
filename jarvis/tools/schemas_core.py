@@ -74,7 +74,7 @@ OCR_TOOLS = [
 ]
 
 INTERNET_TOOLS = [
-    {"name":"web_search","description":"Search the web using DuckDuckGo (no browser opened, no API key needed). Returns titles, URLs, and snippets for the top results. Use this to look up current information, news, docs, prices, weather, etc.",
+    {"name":"web_search","description":"Search the web using DuckDuckGo (no browser opened, no API key needed). Returns titles, URLs, and snippets for the top results. Use this to look up current information, news, docs, prices, weather, etc. IMPORTANT: do NOT hardcode years like '2024' or '2025' in your query — rely on the CURRENT DATE & TIME injected in the system prompt. Use recency words ('latest', 'current', 'today') and the tool will auto-append the actual current year; otherwise omit year entirely.",
      "input_schema":{"type":"object","properties":{
         "query":{"type":"string","description":"Search query string"},
         "max_results":{"type":"integer","description":"Max number of results to return (default 8)"}},"required":["query"]}},
@@ -89,7 +89,10 @@ INTERNET_TOOLS = [
         "a structured report with: ✅ verified facts (≥50% source agreement), "
         "⚠️ contested points, 📚 source list with trust scores, and an overall confidence "
         "level. Use this instead of web_search whenever accuracy matters — news, health, "
-        "science, facts, prices, current events. Never trust a single source."
+        "science, facts, prices, current events. Never trust a single source. "
+        "IMPORTANT: do NOT hardcode years (e.g. '2024', '2025') in the query — "
+        "use the CURRENT DATE & TIME from the system prompt. Recency words "
+        "('latest', 'current', 'today') auto-inject the real current year."
     ),
      "input_schema":{"type":"object","properties":{
         "query":{"type":"string","description":"What to research and verify"},
