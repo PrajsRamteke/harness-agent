@@ -126,7 +126,7 @@ class SessionPickerScreen(ModalScreen[int | None]):
             self.dismiss(None)
 
 
-def resume_session_into_state(sid: int, console_print) -> bool:
+def resume_session_into_state(sid: int, console_print, preview: bool = True) -> bool:
     """Shared helper: load session into state, render a short tail preview."""
     loaded = db_load_session(sid)
     if loaded is None:
@@ -136,6 +136,8 @@ def resume_session_into_state(sid: int, console_print) -> bool:
     state.current_session_id = sid
     state.tool_calls_count = 0
     console_print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
+    if not preview:
+        return True
     tail = state.messages[-6:]
     for m in tail:
         cn = m["content"]

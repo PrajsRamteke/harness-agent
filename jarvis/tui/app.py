@@ -21,6 +21,7 @@ from textual.message import Message
 from textual.widgets import Header, RichLog, Static, TextArea
 from textual import work
 
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
@@ -235,8 +236,79 @@ class JarvisTUI(App):
             if sid is None:
                 self._tui_console.print("[dim]cancelled[/]")
                 return
-            resume_session_into_state(sid, self._tui_console.print)
+            if resume_session_into_state(sid, self._tui_console.print, preview=False):
+                self._render_loaded_session()
         self.push_screen(SessionPickerScreen(), after)
+
+    def _block_dict(self, block):
+        if hasattr(block, "model_dump"):
+            return block.model_dump()
+        return block if isinstance(block, dict) else {}
+
+    def _content_text(self, content) -> str:
+        if isinstance(content, str):
+            return content
+        texts = []
+        for block in content:
+            data = self._block_dict(block)
+            if data.get("type") == "text":
+                texts.append(data.get("text", ""))
+            elif data.get("type") == "image":
+                texts.append("[image]")
+        return "\n\n".join(t for t in texts if t)
+
+    def _render_internal_blocks(self, content) -> None:
+        if isinstance(content, str):
+            return
+        from .. import state
+        if not state.show_internal:
+            return
+        log = self.query_one("#transcript", RichLog)
+        for block in content:
+            data = self._block_dict(block)
+            kind = data.get("type")
+            if kind == "thinking":
+                body = data.get("thinking", "")
+                if body:
+                    log.write(Panel(Text(body), title="thinking", border_style="dim", padding=(0, 1)))
+            elif kind == "tool_use":
+                name = data.get("name", "tool")
+                args = str(data.get("input", ""))[:800]
+                log.write(Panel(Text(args), title=f"tool: {name}", border_style="yellow", padding=(0, 1)))
+            elif kind == "tool_result":
+                body = data.get("content", "")
+                if isinstance(body, list):
+                    body = "\n".join(
+                        item.get("text", "") for item in body if isinstance(item, dict)
+                    )
+                log.write(Panel(Text(str(body)[:2000]), title="tool result", border_style="dim", padding=(0, 1)))
+
+    def _render_loaded_session(self) -> None:
+        from .. import state
+        from ..repl.banners import welcome_banner, header_panel
+
+        log = self.query_one("#transcript", RichLog)
+        log.clear()
+        welcome_banner()
+        header_panel(compact=True)
+        self._tui_console.print(
+            f"[green]▶ resumed session #{state.current_session_id} ({len(state.messages)} messages)[/]"
+        )
+        for msg in state.messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            text = self._content_text(content).strip()
+            if role == "user":
+                if text:
+                    log.write(Panel(Text(text), title="you", title_align="left",
+                                    border_style="green", padding=(0, 1)))
+                self._render_internal_blocks(content)
+            elif role == "assistant":
+                self._render_internal_blocks(content)
+                if text:
+                    log.write(Panel(Markdown(text), title="Jarvis", title_align="left",
+                                    border_style="magenta", padding=(0, 1)))
+        self._set_status("session loaded")
 
     @work(thread=True, exclusive=True)
     def _run_turn(self, inp: str) -> None:
@@ -307,12 +379,15 @@ class JarvisTUI(App):
         state.show_internal = not state.show_internal
         mode = "shown" if state.show_internal else "hidden"
         self._set_status(f"internals {mode}")
-        try:
-            self._tui_console.print(
-                f"[dim]internal tool trace {mode}; applies to the next tool/thinking output[/]"
-            )
-        except Exception:
-            pass
+        if state.current_session_id and state.messages and not self._busy:
+            self._render_loaded_session()
+        else:
+            try:
+                self._tui_console.print(
+                    f"[dim]internal tool trace {mode}; applies to the next tool/thinking output[/]"
+                )
+            except Exception:
+                pass
 
     def action_cancel_or_quit(self):
         if self._busy:

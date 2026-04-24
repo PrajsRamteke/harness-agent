@@ -55,7 +55,7 @@ On first run you'll be prompted to choose an auth mode:
 
 - `/help` — list commands
 - `/model <name>` — switch model
-- `/verbose` or `F2` in TUI — show or hide internal thinking/tool traces
+- `/verbose` or `F2` in TUI — hide or show internal thinking/tool traces; shown by default
 - `/cost` — session token + USD estimate
 - `/clear` — reset conversation
 - `/logout` — clear saved credentials
