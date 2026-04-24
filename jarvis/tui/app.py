@@ -166,7 +166,7 @@ class JarvisTUI(App):
         self._last_input_value = ""
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="statusbar")
+        yield Static("", id="statusbar", markup=True)
         yield PromptArea(id="prompt")
         yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
 
@@ -404,10 +404,18 @@ class JarvisTUI(App):
         try:
             from .. import state
             trace = "shown" if state.show_internal else "hidden"
-            prefix = f"{msg} | " if msg else ""
-            self.query_one("#statusbar", Static).update(
-                f"{prefix}internals:{trace} | F2 toggle"
-            )
+            parts = []
+            if msg:
+                parts.append(f"[b]{msg}[/]")
+            parts.append(f"🤖 {state.MODEL}")
+            if state.current_session_id is not None:
+                parts.append(f"#{state.current_session_id}")
+            parts.append(f"💬 {len(state.messages)}")
+            parts.append(f"🔧 {state.tool_calls_count}")
+            parts.append(f"⇅ {state.total_in}/{state.total_out}")
+            parts.append(f"internals:{trace}")
+            parts.append("[dim]F2 toggle[/]")
+            self.query_one("#statusbar", Static).update(" | ".join(parts))
         except Exception:
             pass
 
