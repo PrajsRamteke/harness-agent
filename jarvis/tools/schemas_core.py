@@ -1,11 +1,16 @@
 """Tool JSON schemas for file/shell/git/internet tools."""
 
 CORE_TOOLS = [
-    {"name":"read_file","description":"Read a file. Optional offset/limit for line ranges.",
+    {"name":"read_file","description":(
+        "Read a text file. Refuses node_modules/.venv/build/dist/caches, binary "
+        "files (images, archives, compiled), and files > 2MB. Use offset/limit "
+        "for line ranges on large files. Only pass force=true if the user "
+        "explicitly asked to read that specific file."),
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},
         "offset":{"type":"integer","description":"0-indexed starting line"},
-        "limit":{"type":"integer","description":"number of lines; 0 = all"}},
+        "limit":{"type":"integer","description":"number of lines; 0 = all"},
+        "force":{"type":"boolean","description":"bypass binary/skip-dir guards; use sparingly"}},
         "required":["path"]}},
     {"name":"write_file","description":"Create or overwrite a file",
      "input_schema":{"type":"object","properties":{
@@ -15,8 +20,12 @@ CORE_TOOLS = [
         "path":{"type":"string"},"old_str":{"type":"string"},
         "new_str":{"type":"string"},"replace_all":{"type":"boolean"}},
         "required":["path","old_str","new_str"]}},
-    {"name":"list_dir","description":"List directory entries",
-     "input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},
+    {"name":"list_dir","description":(
+        "List directory entries. By default hides node_modules/.venv/build/"
+        "dist/caches — pass show_all=true to include them."),
+     "input_schema":{"type":"object","properties":{
+        "path":{"type":"string"},
+        "show_all":{"type":"boolean"}}}},
     {"name":"run_bash","description":"Execute a shell command in the working directory",
      "input_schema":{"type":"object","properties":{
         "cmd":{"type":"string"},"timeout":{"type":"integer"}},"required":["cmd"]}},

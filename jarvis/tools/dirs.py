@@ -15,11 +15,20 @@ DOC_EXTS = {".pdf", ".doc", ".docx", ".rtf"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tif", ".tiff", ".bmp"}
 
 
-def list_dir(path: str = ".") -> str:
+def list_dir(path: str = ".", show_all: bool = False) -> str:
     p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
     if not p.exists(): return f"ERROR: {path} not found"
-    items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))[:300]
-    return "\n".join(f"{'d' if x.is_dir() else 'f'} {x.name}" for x in items)
+    items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+    if not show_all:
+        items = [x for x in items if x.name not in SKIP_DIRS]
+    hidden = 0
+    if not show_all:
+        hidden = sum(1 for x in p.iterdir() if x.name in SKIP_DIRS)
+    items = items[:300]
+    lines = [f"{'d' if x.is_dir() else 'f'} {x.name}" for x in items]
+    if hidden:
+        lines.append(f"… ({hidden} entries hidden: node_modules/build/caches — pass show_all=true to include)")
+    return "\n".join(lines)
 
 
 def glob_files(pattern: str) -> str:
