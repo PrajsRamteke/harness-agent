@@ -157,7 +157,11 @@ class JarvisTUI(App):
         from ..repl.banners import welcome_banner, header_panel
         from .. import state
 
-        state.client = make_client()
+        # Auth is normally resolved *before* the TUI starts (see `run()` below)
+        # so interactive prompts use real stdio. Fall back to in-TUI resolution
+        # only if something bypassed that path.
+        if state.client is None:
+            state.client = make_client()
         welcome_banner()
         header_panel(compact=True)
         db_init()
@@ -403,4 +407,16 @@ def _escape(s: str) -> str:
 
 
 def run():
+    # Resolve authentication BEFORE the Textual app takes over the terminal.
+    # Once the TUI is running, `console` is swapped to a TUIConsole that cannot
+    # read stdin — so any interactive prompt (mode picker, API key entry, OAuth
+    # fallback) would crash. Doing it here means `console.input()` / getpass()
+    # see real stdio, and the user can recover from a reset key / stale auth
+    # mode / OAuth failure before the UI starts.
+    from ..auth.client import make_client
+    from .. import state
+
+    if state.client is None:
+        state.client = make_client()
+
     JarvisTUI().run()
