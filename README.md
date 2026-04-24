@@ -3,6 +3,7 @@
 A single-file, Claude Code-style terminal agent powered by Anthropic's Claude models. Chat, run tools, edit files, execute shell commands, and control macOS apps from one rich TUI.
 
 ![Agent](assets/agent.png)
+![Agent](assets/jarvis.png)
 
 ## Features
 
