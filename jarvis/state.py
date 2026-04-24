@@ -19,6 +19,7 @@ MODEL: str = _INITIAL_MODEL
 backups: List[tuple] = []    # [(path, prev_content), ...] stack for /undo
 messages: List[Dict] = []
 think_mode: bool = False
+show_internal: bool = False
 total_in: int = 0
 total_out: int = 0
 auto_approve: bool = False

@@ -61,6 +61,7 @@ def cmd_help():
         ]),
         ("Control", [
             ("/think", "toggle extended thinking"),
+            ("/verbose", "toggle internal thinking/tool trace"),
             ("/auto", "toggle auto-approve bash"),
             ("/multi", "enter a multiline message (end with ';;' line)"),
             ("/model <name>", "switch model"),

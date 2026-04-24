@@ -13,27 +13,38 @@ WELCOME_ART = r"""
 """
 
 
-def welcome_banner():
-    console.print(f"[bold magenta]{WELCOME_ART}[/]")
+def welcome_banner(compact: bool = False):
+    if not compact:
+        console.print(f"[bold magenta]{WELCOME_ART}[/]")
     console.print(Panel(
-        "[bold]Jarvis-style macOS agent[/] — chat, code, and control your Mac.\n"
-        "[dim]Type [cyan]/help[/] for commands • [cyan]/new[/] for a fresh chat • [cyan]/exit[/] to quit[/]",
+        "[bold]Jarvis[/] — chat, code, and control your Mac.\n"
+        "[dim][cyan]/help[/] commands • [cyan]/verbose[/] internals • [cyan]/exit[/] quit[/]",
         border_style="magenta", padding=(0, 2),
     ))
 
 
-def header_panel():
+def header_panel(compact: bool = False):
     # Use live CWD from constants module (may have been mutated via os.chdir)
     import pathlib
     cwd = pathlib.Path.cwd()
     pinned_flag = "[yellow]pinned[/]" if state.pinned_context.strip() else "[dim]no pin[/]"
+    if compact:
+        flags = "  ".join([
+            f"[bold magenta]{state.MODEL}[/]",
+            f"think:{'[green]on[/]' if state.think_mode else '[dim]off[/]'}",
+            f"tools:{'[green]verbose[/]' if state.show_internal else '[dim]quiet[/]'}",
+            f"cwd:[dim]{cwd.name}[/]",
+        ])
+        console.print(f"[dim]{flags}[/]")
+        return
     flags = " • ".join([
         f"[bold magenta]{state.MODEL}[/]",
-        f"🧠 {'[green]on[/]' if state.think_mode else '[dim]off[/]'}",
-        f"⚡ {'[green]auto[/]' if state.auto_approve else '[dim]ask[/]'}",
-        f"📌 {pinned_flag}",
-        f"💬 {len(state.messages)}",
-        f"📂 [dim]{cwd.name}[/]",
-        f"🔐 [dim]{state.auth_mode}[/]",
+        f"think {'[green]on[/]' if state.think_mode else '[dim]off[/]'}",
+        f"bash {'[green]auto[/]' if state.auto_approve else '[dim]ask[/]'}",
+        f"tools {'[green]verbose[/]' if state.show_internal else '[dim]quiet[/]'}",
+        f"pin {pinned_flag}",
+        f"msgs {len(state.messages)}",
+        f"cwd [dim]{cwd.name}[/]",
+        f"auth [dim]{state.auth_mode}[/]",
     ])
     console.print(Panel(flags, border_style="green", padding=(0, 1)))

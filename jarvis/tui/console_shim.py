@@ -33,10 +33,23 @@ class TUIConsole:
             except Exception:
                 pass
 
+    def _terminal_width(self) -> int:
+        try:
+            return max(24, int(self._log.size.width))
+        except Exception:
+            return 80
+
     # ─── Rich.Console surface ──────────────────────────────────────────
     def print(self, *objects: Any, sep: str = " ", end: str = "\n", **kwargs):
         if not objects:
             self._write(Text(""))
+            return
+        self._renderer.width = self._terminal_width()
+        if all(isinstance(obj, str) for obj in objects):
+            text = sep.join(objects)
+            if end and end != "\n":
+                text += end
+            self._write(Text.from_markup(text))
             return
         for obj in objects:
             if isinstance(obj, str):

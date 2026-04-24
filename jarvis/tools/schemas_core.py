@@ -39,6 +39,24 @@ OCR_TOOLS = [
      "input_schema": {"type": "object", "properties": {
         "path": {"type": "string", "description": "Absolute or relative path to the image file"}},
         "required": ["path"]}},
+    {"name": "read_images_text", "description": (
+        "Bulk OCR many image files concurrently using macOS Vision. Use this for folders "
+        "with many screenshots/photos where only some files contain useful IDs, documents, "
+        "forms, licenses, or other important text. It scans only image extensions, limits "
+        "the number of files, and returns compact per-file text previews to save tokens."
+    ),
+     "input_schema": {"type": "object", "properties": {
+        "paths": {"type": "array", "items": {"type": "string"},
+                  "description": "Optional explicit image paths. If omitted, directory + pattern are used."},
+        "directory": {"type": "string", "description": "Folder to scan when paths is omitted. Default: current directory."},
+        "pattern": {"type": "string", "description": "Glob under directory, e.g. '*.png' or '**/*'. Default: **/*"},
+        "max_files": {"type": "integer", "description": "Maximum images to OCR. Default 80, max 200."},
+        "max_workers": {"type": "integer", "description": "Concurrent OCR workers. Default up to 20, max HARNESS_MAX_PARALLEL_TOOLS."},
+        "max_chars_per_image": {"type": "integer", "description": "Text preview cap per image. Default 800."},
+        "include_empty": {"type": "boolean", "description": "Return empty/no-text results too. Default false."},
+        "keywords": {"type": "array", "items": {"type": "string"},
+                     "description": "Optional terms to prioritize in the output, e.g. required resume skills or ID document words."}}},
+    },
 ]
 
 INTERNET_TOOLS = [

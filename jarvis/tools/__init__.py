@@ -12,7 +12,7 @@ from .mac import (
     open_url, notify, shortcut_run, mac_control,
 )
 from .web import web_search, fetch_url, verified_search
-from .ocr import read_image_text
+from .ocr import read_image_text, read_images_text
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .skills import skill_save, skill_search, skill_list, skill_delete, SKILL_TOOLS
 from .schemas_core import CORE_TOOLS, INTERNET_TOOLS, OCR_TOOLS
@@ -47,4 +47,5 @@ FUNC = {
     "skill_list": skill_list, "skill_delete": skill_delete,
     # ocr
     "read_image_text": read_image_text,
+    "read_images_text": read_images_text,
 }

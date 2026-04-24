@@ -1,6 +1,15 @@
 """Model identifiers, pricing, and output caps."""
 import os
 
+
+def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(min_value, min(max_value, value))
+
+
 MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 AVAILABLE_MODELS = [
     ("claude-haiku-4-6", "Haiku 4.6 — fastest, cheapest"),
@@ -10,6 +19,7 @@ AVAILABLE_MODELS = [
 ]
 MAX_TOOL_OUTPUT = 6000   # trimmed from 15000 — cuts tool-result token cost ~60%
 MAX_FILE_READ = 200_000
+MAX_PARALLEL_TOOLS = _env_int("HARNESS_MAX_PARALLEL_TOOLS", 64, 1, 64)
 
 # Approx pricing per 1M tokens (USD) — used only for /cost estimates.
 PRICING = {

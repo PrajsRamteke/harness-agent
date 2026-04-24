@@ -49,6 +49,7 @@ COMMANDS = [
     ("/paste", "send clipboard text / OCR clipboard image"),
     # Control
     ("/think", "toggle extended thinking"),
+    ("/verbose", "toggle internal tool trace"),
     ("/auto", "toggle auto-approve bash"),
     ("/multi", "enter a multiline message"),
     ("/model ", "switch model"),

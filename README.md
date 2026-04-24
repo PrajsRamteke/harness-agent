@@ -13,6 +13,7 @@ A single-file, Claude Code-style terminal agent powered by Anthropic's Claude mo
   - Shell: `run_bash`
   - Git: `git_status`, `git_diff`, `git_log`
   - macOS control: launch/focus/quit apps, AppleScript, UI reading, clicks, keystrokes, clipboard, shortcuts, notifications
+  - OCR: single-image OCR plus bulk concurrent OCR for folders of screenshots/photos
 - Persistent history, notes, pinned context, and command aliases under `~/.config/claude-agent/`
 - Cost estimates per session (`/cost`)
 - Multiple models supported: `claude-sonnet-4-6` (default), `claude-opus-4-7`, `claude-haiku-4-5`
@@ -48,11 +49,13 @@ On first run you'll be prompted to choose an auth mode:
 
 - `ANTHROPIC_API_KEY` — use this key instead of the stored one
 - `CLAUDE_MODEL` — override the default model (e.g. `claude-opus-4-7`)
+- `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent independent tool workers, default `64`, capped at `64`
 
 ### Useful slash commands
 
 - `/help` — list commands
 - `/model <name>` — switch model
+- `/verbose` — show or hide internal thinking/tool traces
 - `/cost` — session token + USD estimate
 - `/clear` — reset conversation
 - `/logout` — clear saved credentials

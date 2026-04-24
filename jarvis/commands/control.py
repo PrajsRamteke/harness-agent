@@ -1,4 +1,4 @@
-"""Handlers for /think /auto /multi /tokens /cost /stats /model and auth subcmds."""
+"""Handlers for /think /auto /verbose /multi /tokens /cost /stats /model and auth subcmds."""
 import os, time
 
 from ..console import console, Panel, Table
@@ -31,6 +31,12 @@ def handle_control(c: str, arg: str):
         state.think_mode = not state.think_mode; header_panel(); return True, None
     if c == "/auto":
         state.auto_approve = not state.auto_approve; header_panel(); return True, None
+    if c in ("/verbose", "/debug"):
+        state.show_internal = not state.show_internal
+        mode = "shown" if state.show_internal else "hidden"
+        console.print(f"[green]internal tool trace {mode}[/]")
+        header_panel()
+        return True, None
     if c == "/tokens":
         console.print(f"in:{state.total_in}  out:{state.total_out}  total:{state.total_in+state.total_out}")
         return True, None
@@ -44,6 +50,7 @@ def handle_control(c: str, arg: str):
         t.add_row("⏱  elapsed", fmt_duration(time.time() - state.session_start))
         t.add_row("💬 messages", str(len(state.messages)))
         t.add_row("🔧 tool calls", str(state.tool_calls_count))
+        t.add_row("🛠  internals", "shown" if state.show_internal else "hidden")
         t.add_row("⇅ tokens in/out", f"{state.total_in} / {state.total_out}")
         t.add_row("💰 est. cost", f"${estimated_cost():.4f}")
         t.add_row("🤖 model", state.MODEL)

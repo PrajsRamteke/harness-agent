@@ -17,9 +17,8 @@ import threading
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import Header, Footer, Input, RichLog, Static, TextArea
+from textual.widgets import Header, RichLog, Static, TextArea
 from textual import work
 
 from rich.panel import Panel
@@ -83,7 +82,7 @@ class JarvisTUI(App):
     #transcript {
         background: #0b0d10;
         color: #e6e6e6;
-        padding: 1 2;
+        padding: 0 1;
         border: none;
     }
     #prompt {
@@ -91,7 +90,7 @@ class JarvisTUI(App):
         height: auto;
         min-height: 3;
         max-height: 12;
-        margin: 0 2 2 2;
+        margin: 0 1 1 1;
         background: #0f1216;
         border: tall #2b3340;
         padding: 0 1;
@@ -101,8 +100,8 @@ class JarvisTUI(App):
         height: 1;
         background: #12151a;
         color: #7aa2f7;
-        padding: 0 2;
-        margin: 0 2 0 2;
+        padding: 0 1;
+        margin: 0 1 0 1;
     }
     Input, TextArea {
         background: #0f1216;
@@ -134,7 +133,6 @@ class JarvisTUI(App):
         yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
         yield PromptArea(id="prompt")
         yield Static("", id="statusbar")
-        yield Footer()
 
     # ─── lifecycle ─────────────────────────────────────────────────────
     def on_mount(self):
@@ -158,7 +156,7 @@ class JarvisTUI(App):
 
         state.client = make_client()
         welcome_banner()
-        header_panel()
+        header_panel(compact=True)
         db_init()
         state.current_session_id = db_create_session(state.MODEL)
 

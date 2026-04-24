@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from rich.text import Text
 
 from ..console import console, Panel, Markdown
-from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT
+from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT, MAX_PARALLEL_TOOLS
 from ..tools import FUNC
 from .. import state
 from .hallucination import _scrub_hallucinations
@@ -17,8 +17,6 @@ _SERIAL_TOOLS = {
     "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
     "clipboard_set", "mac_control",
 }
-_PARALLEL_WORKERS = 8
-
 
 def _run_tool(b):
     icon = TOOL_ICONS.get(b.name, "🔧")
@@ -28,6 +26,21 @@ def _run_tool(b):
     except Exception as e:
         out = f"ERROR: {type(e).__name__}: {e}"
     return b, icon, args_preview, str(out)
+
+
+def _run_parallel_batch(batch, outputs):
+    if not batch:
+        return
+    if len(batch) > 1:
+        workers = min(MAX_PARALLEL_TOOLS, len(batch))
+        if state.show_internal:
+            console.print(f"[cyan]⚡ running {len(batch)} tools in parallel (max {workers} workers)[/]")
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for b, icon, ap, out_str in ex.map(_run_tool, batch):
+                outputs[b.id] = (icon, ap, out_str)
+    else:
+        b, icon, ap, out_str = _run_tool(batch[0])
+        outputs[b.id] = (icon, ap, out_str)
 
 
 def render_assistant(resp) -> bool:
@@ -66,7 +79,7 @@ def render_assistant(resp) -> bool:
         # ── thinking block ───────────────────────────────────────────
         elif b.type == "thinking":
             thinking = b.thinking or ""
-            if re.search(r"\S", thinking):
+            if state.show_internal and re.search(r"\S", thinking):
                 console.print(Panel(
                     thinking.strip(),
                     title="thinking",
@@ -85,32 +98,28 @@ def render_assistant(resp) -> bool:
     # unsafe/stateful ones serially in their original order. Results are
     # emitted back in the original order so tool_use_id pairing stays intact.
     if tool_uses:
-        parallel_batch = [b for b in tool_uses if b.name not in _SERIAL_TOOLS]
-        serial_batch = [b for b in tool_uses if b.name in _SERIAL_TOOLS]
         outputs = {}  # b.id -> (icon, args_preview, out_str)
+        parallel_batch = []
 
-        if len(parallel_batch) > 1:
-            console.print(f"[cyan]⚡ running {len(parallel_batch)} tools in parallel[/]")
-            with ThreadPoolExecutor(max_workers=min(_PARALLEL_WORKERS, len(parallel_batch))) as ex:
-                for b, icon, ap, out_str in ex.map(_run_tool, parallel_batch):
-                    outputs[b.id] = (icon, ap, out_str)
-        else:
-            for b in parallel_batch:
+        for b in tool_uses:
+            if b.name in _SERIAL_TOOLS:
+                _run_parallel_batch(parallel_batch, outputs)
+                parallel_batch = []
                 _, icon, ap, out_str = _run_tool(b)
                 outputs[b.id] = (icon, ap, out_str)
-
-        for b in serial_batch:
-            _, icon, ap, out_str = _run_tool(b)
-            outputs[b.id] = (icon, ap, out_str)
+            else:
+                parallel_batch.append(b)
+        _run_parallel_batch(parallel_batch, outputs)
 
         for b in tool_uses:
             icon, ap, out_str = outputs[b.id]
-            console.print(f"{icon} [yellow]{b.name}[/] [dim]{ap}[/]")
-            if re.search(r"\S", out_str):
-                short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
-                # Wrap in Text so stray brackets in tool output (e.g. URLs,
-                # JSON fragments) aren't interpreted as Rich markup tags.
-                console.print(Panel(Text(short), border_style="dim", padding=(0, 1)))
+            if state.show_internal:
+                console.print(f"{icon} [yellow]{b.name}[/] [dim]{ap}[/]")
+                if re.search(r"\S", out_str):
+                    short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
+                    # Wrap in Text so stray brackets in tool output (e.g. URLs,
+                    # JSON fragments) aren't interpreted as Rich markup tags.
+                    console.print(Panel(Text(short), border_style="dim", padding=(0, 1)))
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": b.id,
