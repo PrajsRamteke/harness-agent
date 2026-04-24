@@ -13,6 +13,7 @@ from rich.text import Text
 from ..storage.sessions import db_list_sessions, db_delete_session, db_load_session
 from ..utils.time_fmt import _fmt_ts
 from .. import state
+from .mouse_toggle import enable_mouse, disable_mouse
 
 
 class SessionPickerScreen(ModalScreen[int | None]):
@@ -44,8 +45,9 @@ class SessionPickerScreen(ModalScreen[int | None]):
     SessionPickerScreen OptionList {
         background: #12151a;
         color: #e6e6e6;
-        height: auto;
-        max-height: 20;
+        height: 20;
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
     }
     SessionPickerScreen OptionList:focus > .option-list--option-highlighted {
         background: #2b3340;
@@ -56,6 +58,10 @@ class SessionPickerScreen(ModalScreen[int | None]):
     BINDINGS = [
         Binding("escape", "dismiss_cancel", "Cancel", show=True),
         Binding("d", "delete", "Delete", show=True),
+        Binding("down", "cursor_down", show=False),
+        Binding("up", "cursor_up", show=False),
+        Binding("pagedown", "page_down", show=False),
+        Binding("pageup", "page_up", show=False),
     ]
 
     def compose(self) -> ComposeResult:
@@ -66,7 +72,17 @@ class SessionPickerScreen(ModalScreen[int | None]):
                          id="modal_hint")
 
     def on_mount(self):
+        enable_mouse()
+        self._prev_scroll_y = self.app.scroll_sensitivity_y
+        self.app.scroll_sensitivity_y = 1.0
         self._populate()
+
+    def on_unmount(self):
+        disable_mouse()
+        try:
+            self.app.scroll_sensitivity_y = self._prev_scroll_y
+        except AttributeError:
+            pass
 
     def _populate(self):
         opts = self.query_one("#session_list", OptionList)
@@ -111,6 +127,18 @@ class SessionPickerScreen(ModalScreen[int | None]):
     def action_select(self):
         sid = self._current_id()
         self.dismiss(sid)
+
+    def action_cursor_down(self):
+        self.query_one("#session_list", OptionList).action_cursor_down()
+
+    def action_cursor_up(self):
+        self.query_one("#session_list", OptionList).action_cursor_up()
+
+    def action_page_down(self):
+        self.query_one("#session_list", OptionList).action_page_down()
+
+    def action_page_up(self):
+        self.query_one("#session_list", OptionList).action_page_up()
 
     def action_delete(self):
         sid = self._current_id()

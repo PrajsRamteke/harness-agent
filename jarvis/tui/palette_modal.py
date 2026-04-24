@@ -11,6 +11,7 @@ from textual.widgets.option_list import Option
 from rich.text import Text
 
 from .commands_catalog import filter_commands
+from .mouse_toggle import enable_mouse, disable_mouse
 
 
 class CommandPaletteScreen(ModalScreen[str | None]):
@@ -43,10 +44,11 @@ class CommandPaletteScreen(ModalScreen[str | None]):
     CommandPaletteScreen OptionList {
         background: #12151a;
         color: #e6e6e6;
-        height: auto;
-        max-height: 18;
+        height: 18;
         border: none;
         margin-top: 1;
+        overflow-y: auto;
+        scrollbar-size-vertical: 1;
     }
     CommandPaletteScreen OptionList:focus > .option-list--option-highlighted,
     CommandPaletteScreen OptionList > .option-list--option-highlighted {
@@ -63,6 +65,8 @@ class CommandPaletteScreen(ModalScreen[str | None]):
         Binding("escape", "cancel", "Cancel", show=True),
         Binding("down", "cursor_down", show=False),
         Binding("up", "cursor_up", show=False),
+        Binding("pagedown", "page_down", show=False),
+        Binding("pageup", "page_up", show=False),
     ]
 
     def __init__(self, initial: str = "/"):
@@ -77,10 +81,20 @@ class CommandPaletteScreen(ModalScreen[str | None]):
             yield Static("↑/↓ navigate • Enter select • Esc cancel", id="palette_hint")
 
     def on_mount(self):
+        enable_mouse()
+        self._prev_scroll_y = self.app.scroll_sensitivity_y
+        self.app.scroll_sensitivity_y = 1.0
         self._refresh(self._initial)
         inp = self.query_one("#palette_input", Input)
         inp.focus()
         inp.cursor_position = len(inp.value)
+
+    def on_unmount(self):
+        disable_mouse()
+        try:
+            self.app.scroll_sensitivity_y = self._prev_scroll_y
+        except AttributeError:
+            pass
 
     def _refresh(self, query: str):
         opts = self.query_one("#palette_options", OptionList)
@@ -114,6 +128,13 @@ class CommandPaletteScreen(ModalScreen[str | None]):
 
     def action_cursor_up(self):
         self.query_one("#palette_options", OptionList).action_cursor_up()
+
+    def action_page_down(self):
+        self.query_one("#palette_options", OptionList).action_page_down()
+
+    def action_page_up(self):
+        self.query_one("#palette_options", OptionList).action_page_up()
+
 
     def _accept(self):
         opts = self.query_one("#palette_options", OptionList)
