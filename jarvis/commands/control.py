@@ -121,7 +121,11 @@ def _handle_model(arg: str):
         marker = "[green]● current[/]" if m == state.MODEL else ""
         t.add_row(str(i), m, desc, marker)
     console.print(Panel(t, title="🤖 available models", border_style="cyan"))
-    sel = console.input("[cyan]select model (# or name, enter to cancel): [/]").strip()
+    try:
+        sel = console.input("[cyan]select model (# or name, enter to cancel): [/]").strip()
+    except (RuntimeError, EOFError):
+        console.print("[dim]run [cyan]/model <# or name>[/] to switch[/]")
+        return
     if sel:
         chosen = None
         if sel.isdigit():
