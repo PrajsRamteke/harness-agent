@@ -50,15 +50,19 @@ CORE_TOOLS = [
         "required":["query"]}},
     {"name":"fast_find","description":(
         "Fast file/folder search by name across the Mac using Spotlight (mdfind) — "
-        "near-instant, indexed. Falls back to 'fd' if installed. Use this instead of "
-        "'find' or recursive globbing when the user wants to locate a file or folder "
-        "anywhere on their system (e.g. 'find my resume', 'where is the harness folder')."
+        "near-instant (milliseconds), indexed. Falls back to 'fd' if installed. "
+        "ALWAYS prefer this over `run_bash` with 'find ~', 'find /', or recursive "
+        "globbing — those scan the disk and take 30s+. Use fast_find for any query "
+        "of the form 'where is X', 'find my Y', 'locate Z', 'find all PNGs named qr', "
+        "'search for resume.pdf', etc. Supports an ext filter so you can combine name "
+        "+ extension in one call (e.g. query='qr', ext='png')."
     ),
      "input_schema":{"type":"object","properties":{
-        "query":{"type":"string","description":"Name or substring to search for, e.g. 'resume' or 'harness'."},
+        "query":{"type":"string","description":"Name or substring to search for, e.g. 'resume', 'harness', 'qr'."},
         "path":{"type":"string","description":"Optional folder to scope the search, e.g. '~/Desktop'. Empty = whole Mac."},
         "kind":{"type":"string","enum":["any","file","folder"],"description":"Filter results. Default 'any'."},
-        "max_results":{"type":"integer","description":"Max results. Default 50, max 500."}},
+        "max_results":{"type":"integer","description":"Max results. Default 50, max 500."},
+        "ext":{"type":"string","description":"Extension filter, e.g. '.png' or 'png,jpg'. Optional."}},
         "required":["query"]}},
     {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{}}},
     {"name":"git_diff","description":"git diff","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},

@@ -41,13 +41,16 @@ def fast_find(
     path: str = "",
     kind: str = "any",
     max_results: int = 50,
+    ext: str = "",
 ) -> str:
     """Fast file/folder search across the Mac using Spotlight (mdfind) or fd.
 
-    - query: filename/substring to search for (e.g. 'harness', 'resume.pdf').
+    - query: filename/substring to search for (e.g. 'harness', 'resume.pdf', 'qr').
     - path: optional folder to scope the search (e.g. '~/Desktop'). Empty = whole Mac.
     - kind: 'any' | 'file' | 'folder'.
     - max_results: cap on returned entries (default 50, max 500).
+    - ext: optional extension filter, e.g. '.png' or 'png,jpg' — applied after the
+      index query (so 'qr' + ext='png' finds all QR png files in milliseconds).
     """
     try:
         max_results = max(1, min(500, int(max_results)))
@@ -63,6 +66,18 @@ def fast_find(
         scope = str((CWD / scope).resolve())
     if scope and not os.path.isdir(scope):
         return f"ERROR: scope not found: {path}"
+
+    # Normalise extension filter into a set like {'.png', '.jpg'}.
+    exts: set[str] = set()
+    for piece in (ext or "").replace(" ", "").split(","):
+        if not piece:
+            continue
+        exts.add(piece if piece.startswith(".") else f".{piece.lower()}")
+
+    def _ext_ok(line: str) -> bool:
+        if not exts:
+            return True
+        return os.path.splitext(line)[1].lower() in exts
 
     results: list[str] = []
 
@@ -80,6 +95,8 @@ def fast_find(
                     continue
                 if kind == "folder" and not os.path.isdir(line):
                     continue
+                if not _ext_ok(line):
+                    continue
                 results.append(line)
                 if len(results) >= max_results:
                     break
@@ -93,6 +110,8 @@ def fast_find(
             cmd += ["-t", "f"]
         elif kind == "folder":
             cmd += ["-t", "d"]
+        for e in exts:
+            cmd += ["-e", e.lstrip(".")]
         if scope:
             cmd.append(scope)
         try:
@@ -103,7 +122,8 @@ def fast_find(
 
     if not results:
         where = scope or "whole Mac"
-        return f"No matches for '{q}' in {where}"
+        extra = f" (ext filter: {sorted(exts)})" if exts else ""
+        return f"No matches for '{q}'{extra} in {where}"
     header = f"Found {len(results)} match(es) for '{q}'" + (f" in {scope}" if scope else "")
     return header + "\n" + "\n".join(results)
 
