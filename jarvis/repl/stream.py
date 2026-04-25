@@ -60,7 +60,14 @@ def call_claude_stream():
             time.sleep(delays[attempt])
         except APIStatusError as e:
             if e.status_code == 401:
-                if state.auth_mode == "oauth" and not oauth_refreshed:
+                if state.provider == "openrouter":
+                    console.print(
+                        "[red]Auth error — Provider: OpenRouter (API key)[/]\n"
+                        "[yellow]OpenRouter rejected the key. "
+                        "Delete `~/.config/harness-agent/openrouter_key` and restart, "
+                        "or run /provider to reconfigure.[/]"
+                    )
+                elif state.auth_mode == "oauth" and not oauth_refreshed:
                     tokens = load_oauth_tokens()
                     refreshed = oauth_refresh(tokens) if tokens else None
                     if refreshed:
@@ -68,10 +75,34 @@ def call_claude_stream():
                         state.client = _build_client_from_mode("oauth")
                         oauth_refreshed = True
                         continue
-                    console.print("[red]OAuth session expired. Run /login to re-authenticate.[/]")
+                    console.print("[red]Auth error — Provider: Anthropic (OAuth)[/]\n"
+                                  "[yellow]OAuth session expired. Run /login to re-authenticate.[/]")
                 else:
-                    console.print("[red]Auth failed mid-session. Run /key reset (or /login) and restart.[/]")
+                    console.print("[red]Auth error — Provider: Anthropic (API key)[/]\n"
+                                  "[yellow]Run /key reset (or /login) and restart.[/]")
                 raise SystemExit(1)
+            if e.status_code == 402:
+                console.print(
+                    f"[red]Payment required — Provider: {state.provider}[/]\n"
+                    "[yellow]Insufficient credits for this model. "
+                    "Try a [cyan]:free[/] model via /model, or top up at "
+                    "https://openrouter.ai/credits[/]"
+                )
+                raise SystemExit(1)
+            if e.status_code == 404 and state.provider == "openrouter":
+                console.print(
+                    f"[red]OpenRouter: model '{state.MODEL}' not found.[/]\n"
+                    "[yellow]Run /model to pick a valid slug.[/]"
+                )
+                raise SystemExit(1)
+            if e.status_code == 429 and state.provider == "openrouter":
+                console.print(
+                    f"[yellow]OpenRouter rate limit on '{state.MODEL}'. "
+                    "Free models are heavily throttled — retry shortly or try another model.[/]"
+                )
+                if attempt < len(delays):
+                    time.sleep(delays[attempt]); continue
+                raise
             if e.status_code >= 500 and attempt < len(delays):
                 console.print(f"[yellow]server {e.status_code}, retry...[/]")
                 time.sleep(delays[attempt]); continue

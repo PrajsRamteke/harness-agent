@@ -59,7 +59,8 @@ COMMANDS = [
     ("/key reset", "delete stored API key"),
     ("/login", "log in with Anthropic"),
     ("/logout", "clear OAuth tokens"),
-    ("/auth", "show current auth mode"),
+    ("/auth", "show current provider + auth"),
+    ("/provider ", "switch provider (anthropic/openrouter)"),
 ]
 
 

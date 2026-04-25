@@ -1,26 +1,54 @@
-"""Build an Anthropic client using the current auth mode; validate & retry."""
+"""Build an Anthropic-SDK client for the active provider; validate & retry.
+
+Providers:
+  - anthropic  → api.anthropic.com, auth via API key OR OAuth (existing flow).
+  - openrouter → openrouter.ai/api/v1 (Anthropic-compatible /v1/messages),
+                 auth via Bearer token using the Anthropic SDK's `auth_token=`.
+"""
 import os, sys
 
 from ..console import console, Anthropic, APIStatusError, APIConnectionError
-from ..constants import KEY_FILE, AUTH_MODE_FILE, OAUTH_BETA_HEADER
+from ..constants import (
+    KEY_FILE, OPENROUTER_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
+    OAUTH_BETA_HEADER, OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL,
+    MODEL as _DEFAULT_ANTHROPIC_MODEL,
+)
 from ..utils.io import _secure_write
 from .. import state
 from .api_key import load_key, prompt_for_key
+from .openrouter import load_openrouter_key, prompt_for_openrouter_key
 from .oauth_tokens import (
     load_oauth_tokens, clear_oauth_tokens, oauth_refresh, get_fresh_oauth_token,
 )
 from .oauth_flow import oauth_login
-from .mode_picker import _choose_auth_mode
+from .mode_picker import _choose_auth_mode, _choose_provider
+
+
+def _build_openrouter_client() -> Anthropic:
+    key = load_openrouter_key()
+    return Anthropic(
+        api_key=None,
+        auth_token=key,  # sends "Authorization: Bearer <key>"
+        base_url=OPENROUTER_BASE_URL,
+        default_headers={
+            "HTTP-Referer": "https://github.com/harness-agent",
+            "X-Title": "harness",
+        },
+    )
 
 
 def _build_client_from_mode(mode: str) -> Anthropic:
+    """Construct a client. `mode` is 'openrouter' | 'oauth' | 'api_key'.
+
+    If state.provider is openrouter, ignore `mode` and build an OpenRouter client.
+    """
+    if mode == "openrouter" or state.provider == "openrouter":
+        return _build_openrouter_client()
     if mode == "oauth":
         tokens = get_fresh_oauth_token()
         if not tokens:
             tokens = oauth_login()
         if not tokens:
-            # User backed out or OAuth failed — fall back to the picker so they
-            # can switch to API key without restarting the program.
             new_mode = _choose_auth_mode()
             state.auth_mode = new_mode
             _secure_write(AUTH_MODE_FILE, new_mode)
@@ -33,9 +61,54 @@ def _build_client_from_mode(mode: str) -> Anthropic:
     return Anthropic(api_key=load_key())
 
 
+def _resolve_provider() -> str:
+    """Decide provider from env → stored → prompt, preserving legacy behavior."""
+    env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
+    if env_provider in ("anthropic", "openrouter"):
+        return env_provider
+    # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    if os.getenv("OPENROUTER_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
+        return "openrouter"
+    if PROVIDER_FILE.exists():
+        stored = PROVIDER_FILE.read_text().strip()
+        if stored in ("anthropic", "openrouter"):
+            return stored
+    # Legacy: any existing Anthropic state means Anthropic (preserves old flow).
+    if AUTH_MODE_FILE.exists() or KEY_FILE.exists() or load_oauth_tokens():
+        return "anthropic"
+    return _choose_provider()
+
+
 def make_client() -> Anthropic:
-    """Resolve auth mode, build client, validate; handle 401 with refresh/re-auth."""
-    # Priority: env var API key → stored auth mode → pick interactively
+    """Resolve provider + auth, build client, validate; handle 401 with refresh/re-auth."""
+    state.provider = _resolve_provider()
+    _secure_write(PROVIDER_FILE, state.provider)
+
+    if state.provider == "openrouter":
+        if "/" not in state.MODEL:
+            state.MODEL = OPENROUTER_DEFAULT_MODEL
+        for attempt in range(3):
+            try:
+                c = _build_openrouter_client()
+                # Skip cheap validation: OpenRouter's /v1/models schema differs
+                # from Anthropic's and would break client.models.list(). The
+                # first real /v1/messages call will surface any 401.
+                return c
+            except APIStatusError as e:
+                if e.status_code == 401:
+                    OPENROUTER_KEY_FILE.unlink(missing_ok=True)
+                    prompt_for_openrouter_key(
+                        reason="Stored OpenRouter key rejected (401). Please re-enter."
+                    )
+                    continue
+                raise
+            except APIConnectionError as e:
+                console.print(f"[red]Network error: {e}[/]"); sys.exit(1)
+        console.print("[red]Too many OpenRouter auth failures[/]"); sys.exit(1)
+
+    # ── Anthropic path (preserved from original flow) ──
     if os.getenv("ANTHROPIC_API_KEY"):
         state.auth_mode = "api_key"
     elif AUTH_MODE_FILE.exists():
@@ -57,6 +130,10 @@ def make_client() -> Anthropic:
 
     _secure_write(AUTH_MODE_FILE, state.auth_mode)
 
+    # If returning from OpenRouter, restore a valid Anthropic default model.
+    if "/" in state.MODEL:
+        state.MODEL = _DEFAULT_ANTHROPIC_MODEL
+
     for attempt in range(3):
         try:
             c = _build_client_from_mode(state.auth_mode)
@@ -75,7 +152,7 @@ def make_client() -> Anthropic:
                     continue
                 else:
                     KEY_FILE.unlink(missing_ok=True)
-                    prompt_for_key(reason="Stored key rejected (401). Please re-enter.")
+                    prompt_for_key(reason="Stored Anthropic key rejected (401). Please re-enter.")
                     continue
             raise
         except APIConnectionError as e:

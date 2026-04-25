@@ -9,7 +9,8 @@ from typing import Dict, List, Optional
 from .constants import PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL
 
 # auth / client
-auth_mode: str = "api_key"   # "api_key" or "oauth" — set by make_client()
+provider: str = "anthropic"  # "anthropic" or "openrouter" — set by make_client()
+auth_mode: str = "api_key"   # "api_key" or "oauth" — Anthropic-only; unused for openrouter
 client = None                # Anthropic client, set by make_client()
 
 # model

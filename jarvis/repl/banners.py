@@ -45,6 +45,7 @@ def header_panel(compact: bool = False):
         f"pin {pinned_flag}",
         f"msgs {len(state.messages)}",
         f"cwd [dim]{cwd.name}[/]",
-        f"auth [dim]{state.auth_mode}[/]",
+        f"provider [dim]{state.provider}[/]",
+        f"auth [dim]{state.auth_mode if state.provider == 'anthropic' else 'api_key'}[/]",
     ])
     console.print(Panel(flags, border_style="green", padding=(0, 1)))
