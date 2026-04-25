@@ -35,15 +35,21 @@ def _enrich_query_with_date(query: str) -> str:
     return query
 
 
+_BLOCKED_MARKER = "STOP_RETRYING"
+
+
 def web_search(query: str, max_results: int = 8) -> str:
     """
     Search the web using DuckDuckGo's free JSON API (no key required).
     Returns a ranked list of results: title, URL, and snippet.
-    Also tries the HTML endpoint for extra organic results when the JSON
-    Instant Answer doesn't return enough hits.
+
+    Detects rate-limiting / IP blocks (HTTP 202 + DDG splash page) and returns
+    an explicit STOP_RETRYING signal so the agent doesn't keep retrying.
     """
     query = _enrich_query_with_date(query)
     results: list = []
+    ddg_blocked = False
+    last_error: str = ""
 
     # ── 1. DuckDuckGo Instant Answer API (JSON) ──────────────────────
     try:
@@ -57,7 +63,15 @@ def web_search(query: str, max_results: int = 8) -> str:
             headers={"User-Agent": "HarnessAgent/1.0 (macOS; python)"},
         )
         with urllib.request.urlopen(req, timeout=10) as r:
+            status = r.status
             data = json.loads(r.read().decode("utf-8", errors="replace"))
+        # 202 from DDG IA = "request accepted but no answer" — typically the
+        # rate-limit/block path; payload is empty when this happens.
+        if status == 202 and not any([
+            data.get("AbstractText"), data.get("Answer"),
+            data.get("Definition"), data.get("RelatedTopics"),
+        ]):
+            ddg_blocked = True
 
         abstract = data.get("AbstractText", "").strip()
         abstract_url = data.get("AbstractURL", "").strip()
@@ -82,7 +96,7 @@ def web_search(query: str, max_results: int = 8) -> str:
             results.insert(0, f"[Direct Answer] {answer}")
 
     except Exception as e:
-        results.append(f"[DDG JSON error: {e}]")
+        last_error = f"DDG JSON error: {e}"
 
     # ── 2. DDG HTML scrape for organic links (fallback / supplement) ──
     if len(results) < 3:
@@ -102,6 +116,7 @@ def web_search(query: str, max_results: int = 8) -> str:
                 },
             )
             with urllib.request.urlopen(req2, timeout=12) as r:
+                status2 = r.status
                 raw_html = r.read().decode("utf-8", errors="replace")
 
             link_re = re.compile(
@@ -112,6 +127,14 @@ def web_search(query: str, max_results: int = 8) -> str:
                 r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.S | re.I
             )
             links = link_re.findall(raw_html)
+            # Block detection: 202 status, OR no result__a markers AND the
+            # response is the DDG homepage (canonical URL present).
+            html_blocked = (
+                status2 == 202
+                or (not links and 'href="https://duckduckgo.com/"' in raw_html)
+            )
+            if html_blocked:
+                ddg_blocked = True
             snips = [html.unescape(re.sub(r"<[^>]+>", "", s)) for s in snip_re.findall(raw_html)]
 
             for i, (href, title) in enumerate(links[:max_results]):
@@ -128,10 +151,23 @@ def web_search(query: str, max_results: int = 8) -> str:
                 results.append(entry)
 
         except Exception as e:
-            results.append(f"[DDG HTML error: {e}]")
+            last_error = f"DDG HTML error: {e}"
 
     if not results:
-        return f'No results found for "{query}".'
+        if ddg_blocked:
+            return (
+                f"⚠️  {_BLOCKED_MARKER}: DuckDuckGo is rate-limiting this IP "
+                f"(HTTP 202 / splash page). Re-running web_search with a "
+                f"different query will NOT help — same block applies to every "
+                f"query. Do NOT retry web_search this turn. "
+                f"Tell the user the search backend is temporarily blocked and "
+                f"answer from your own knowledge, or wait ~1 hour and try again. "
+                f"(query was: \"{query}\")"
+            )
+        msg = f'No results found for "{query}".'
+        if last_error:
+            msg += f" [{last_error}]"
+        return msg
 
     header = f'🔍 Web search: "{query}" — {len(results)} result(s)\n' + "─" * 60
     return (header + "\n\n" + "\n\n".join(results))[:MAX_TOOL_OUTPUT]
