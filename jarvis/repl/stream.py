@@ -1,6 +1,9 @@
 """Call the configured model API with streaming + retry + OAuth refresh."""
+import threading
 import time
 from typing import Any, Dict
+
+from anthropic import APITimeoutError
 
 from ..console import console, APIStatusError, RateLimitError
 from ..tools.router import select_tools
@@ -37,14 +40,33 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
 
     TUI: pushes deltas via ``TUIConsole`` helpers and sets ``state._assistant_stream_ui_active``.
     Legacy Rich REPL: uses :class:`RichAssistantStreamDisplay`.
+
+    ``text_stream`` only yields *text* deltas; some providers emit nothing until a long
+    queue/processing phase — a background watchdog nudges the activity line so the UI
+    does not look frozen with no explanation.
     """
     rich_live: RichAssistantStreamDisplay | None = None
+    stop_watch = threading.Event()
+    last_progress = [time.monotonic()]
+
+    def _idle_watch() -> None:
+        while not stop_watch.wait(25.0):
+            idle = time.monotonic() - last_progress[0]
+            if idle >= 35:
+                report_turn_phase(
+                    f"Jarvis: still no text tokens ({int(idle)}s) — "
+                    "API queue/throttle (often on OpenRouter :free); Esc cancels"
+                )
+
+    watcher = threading.Thread(target=_idle_watch, daemon=True)
+    watcher.start()
     try:
         if hasattr(console, "assistant_stream_start"):
             console.assistant_stream_start(panel_title)
             state._assistant_stream_ui_active = True
             try:
                 for chunk in stream.text_stream:
+                    last_progress[0] = time.monotonic()
                     console.assistant_stream_push(chunk)
             finally:
                 console.assistant_stream_flush()
@@ -53,8 +75,10 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
         rich_live = RichAssistantStreamDisplay(console)
         rich_live.start(panel_title)
         for chunk in stream.text_stream:
+            last_progress[0] = time.monotonic()
             rich_live.push(chunk)
     finally:
+        stop_watch.set()
         if rich_live is not None:
             rich_live.stop()
 
@@ -93,6 +117,14 @@ def call_claude_stream():
             state.total_in += final.usage.input_tokens
             state.total_out += final.usage.output_tokens
             return final
+        except APITimeoutError:
+            report_turn_phase("HTTP timeout — no data from API")
+            console.print(
+                "[red]Timed out waiting for the model API (read stalled too long).[/]\n"
+                "[dim]OpenRouter free tiers often queue; try `HARNESS_HTTP_READ_TIMEOUT=600` "
+                "for more patience, a faster model, or Esc to cancel earlier.[/]"
+            )
+            raise
         except RateLimitError:
             if attempt == len(delays): raise
             w = delays[attempt]

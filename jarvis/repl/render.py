@@ -116,8 +116,11 @@ def render_assistant(resp) -> bool:
 
         # ── thinking block ───────────────────────────────────────────
         elif b.type == "thinking":
+            # Providers (e.g. some OpenRouter models) may emit reasoning as
+            # `thinking` blocks even when we did not enable Anthropic extended
+            # thinking. Only surface that in the UI when the user toggled /think.
             thinking = b.thinking or ""
-            if state.show_internal and re.search(r"\S", thinking):
+            if state.think_mode and re.search(r"\S", thinking):
                 console.print(Panel(
                     thinking.strip(),
                     title="thinking",

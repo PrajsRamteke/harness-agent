@@ -382,17 +382,20 @@ class JarvisTUI(App):
         if isinstance(content, str):
             return
         from .. import state
-        if not state.show_internal:
-            return
         log = self.query_one("#transcript", RichLog)
         for block in content:
             data = self._block_dict(block)
             kind = data.get("type")
             if kind == "thinking":
+                if not state.think_mode:
+                    continue
                 body = data.get("thinking", "")
                 if body:
                     log.write(Panel(Text(body), title="thinking", border_style="dim", padding=(0, 1)))
-            elif kind == "tool_use":
+                continue
+            if not state.show_internal:
+                continue
+            if kind == "tool_use":
                 name = data.get("name", "tool")
                 args = str(data.get("input", ""))[:800]
                 log.write(Panel(Text(args), title=f"tool: {name}", border_style="yellow", padding=(0, 1)))
@@ -518,7 +521,7 @@ class JarvisTUI(App):
         else:
             try:
                 self._tui_console.print(
-                    f"[dim]internal tool trace {mode}; applies to the next tool/thinking output[/]"
+                    f"[dim]internal tool trace {mode}; thinking panels only when /think is on[/]"
                 )
             except Exception:
                 pass

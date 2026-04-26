@@ -131,6 +131,13 @@ class TUIConsole:
 
         def _go() -> None:
             app._sync_activity_phase(label)
+            # Avoid leaving the footer stuck on the initial "thinking…" for whole turns.
+            if hasattr(app, "_set_status") and label:
+                short = label if len(label) <= 56 else label[:53] + "…"
+                try:
+                    app._set_status(short)
+                except Exception:
+                    pass
 
         try:
             if threading.current_thread() is threading.main_thread():

@@ -7,6 +7,8 @@ Providers:
 """
 import os, sys
 
+import httpx
+
 from ..console import console, Anthropic, APIStatusError, APIConnectionError
 from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
@@ -24,12 +26,29 @@ from .oauth_flow import oauth_login
 from .mode_picker import _choose_auth_mode, _choose_provider
 
 
+def _http_timeout(*, openrouter: bool) -> httpx.Timeout:
+    """Limits how long we wait between bytes on streaming responses.
+
+    OpenRouter (especially free models) often queues or stalls; without a bounded
+    read timeout the UI can sit idle for many minutes while httpx waits. Anthropic
+    direct keeps the SDK-style 10-minute read budget unless overridden.
+    """
+    env_read = os.getenv("HARNESS_HTTP_READ_TIMEOUT", "").strip()
+    if env_read:
+        read = float(env_read)
+    else:
+        read = 240.0 if openrouter else 600.0
+    c = float(os.getenv("HARNESS_HTTP_CONNECT_TIMEOUT", "30").strip() or "30")
+    return httpx.Timeout(connect=c, read=read, write=c, pool=c)
+
+
 def _build_openrouter_client() -> Anthropic:
     key = load_openrouter_key()
     return Anthropic(
         api_key=None,
         auth_token=key,  # sends "Authorization: Bearer <key>"
         base_url=OPENROUTER_BASE_URL,
+        timeout=_http_timeout(openrouter=True),
         default_headers={
             "HTTP-Referer": "https://github.com/harness-agent",
             "X-Title": "harness",
@@ -56,9 +75,10 @@ def _build_client_from_mode(mode: str) -> Anthropic:
         return Anthropic(
             api_key=None,
             auth_token=tokens["access_token"],
+            timeout=_http_timeout(openrouter=False),
             default_headers={"anthropic-beta": OAUTH_BETA_HEADER},
         )
-    return Anthropic(api_key=load_key())
+    return Anthropic(api_key=load_key(), timeout=_http_timeout(openrouter=False))
 
 
 def _resolve_provider() -> str:

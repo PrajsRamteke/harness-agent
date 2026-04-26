@@ -22,6 +22,8 @@ Dependencies: `pip install -r requirements.txt` (anthropic, rich, textual — Py
 - `ANTHROPIC_API_KEY` — skip auth prompt and use this key directly
 - `CLAUDE_MODEL` — override default model (default: `claude-sonnet-4-6`)
 - `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent tool workers (default/cap: 64)
+- `HARNESS_HTTP_READ_TIMEOUT` — max seconds between bytes on a streaming response (default: 240 OpenRouter, 600 Anthropic; raise if free models queue longer)
+- `HARNESS_HTTP_CONNECT_TIMEOUT` — connection timeout in seconds (default: 30)
 
 ## Architecture
 
