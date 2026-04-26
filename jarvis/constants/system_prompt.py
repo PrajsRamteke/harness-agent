@@ -52,3 +52,5 @@ NO HALLUCINATION
 
 API keys/credentials: ALWAYS check in order — ~/.config/* → shell configs (~/.zshrc, etc) → .env → macOS Keychain → fast_find; never scan ~/Desktop/app bundles.
 For "global"/"system" queries or tool refs, use fast_find then ~/.config/system paths; never assume ~/Desktop.
+"""
+
