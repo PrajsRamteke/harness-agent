@@ -144,6 +144,13 @@ def describe_tool_activity(name: str, raw_input) -> str:
     if name == "notify":
         msg = d.get("message") or ""
         return f"Notify: {c(d.get('title', ''))}" + (f" — {c(msg, 40)}" if msg else "")
+    if name == "speck":
+        bits = [f"speck: {c(d.get('text', ''))}"]
+        if d.get("voice"):
+            bits.append(f"voice={c(str(d.get('voice')), 20)}")
+        if d.get("rate"):
+            bits.append(f"rate={d.get('rate')}")
+        return " ".join(bits)
     if name == "shortcut_run":
         line = f"Shortcut: {c(d.get('name', ''))}"
         if d.get("input_text"):

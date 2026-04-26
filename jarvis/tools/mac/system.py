@@ -1,4 +1,4 @@
-"""System-level tools: open_url, notify, shortcut_run, mac_control."""
+"""System-level tools: open_url, notify, speck, shortcut_run, mac_control."""
 import subprocess
 from ...constants import MAX_TOOL_OUTPUT
 from .applescript import _osa
@@ -14,6 +14,44 @@ def notify(title: str, message: str = "") -> str:
     t = title.replace('"', '\\"')
     m = message.replace('"', '\\"')
     return _osa(f'display notification "{m}" with title "{t}"')
+
+
+# Max characters per speck() call (avoid huge stdin / runaway TTS).
+_SPECK_MAX_CHARS = 8000
+
+
+def speck(
+    text: str,
+    voice: str = "",
+    rate: int = 0,
+) -> str:
+    """Speak text aloud with the macOS `say` command (default output device)."""
+    t = (text or "").strip()
+    if not t:
+        return "ERROR: text is empty"
+    if len(t) > _SPECK_MAX_CHARS:
+        return f"ERROR: text exceeds {_SPECK_MAX_CHARS} characters (split into shorter speck calls)"
+    cmd = ["say"]
+    if voice:
+        cmd.extend(["-v", voice])
+    if rate and rate > 0:
+        cmd.extend(["-r", str(int(rate))])
+    try:
+        r = subprocess.run(
+            cmd,
+            input=t,
+            text=True,
+            capture_output=True,
+            timeout=max(30.0, min(600.0, len(t) * 0.05)),
+        )
+    except subprocess.TimeoutExpired:
+        return "ERROR: say timed out"
+    except OSError as e:
+        return f"ERROR: {e}"
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip()
+        return f"ERROR: say failed: {err[:MAX_TOOL_OUTPUT]}"
+    return "spoke"
 
 
 def shortcut_run(name: str, input_text: str = "") -> str:

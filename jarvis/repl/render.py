@@ -30,7 +30,7 @@ _SERIAL_TOOLS = {
     "run_bash", "edit_file", "write_file",
     "click_at", "click_element", "click_menu", "key_press", "type_text",
     "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
-    "clipboard_set", "mac_control",
+    "clipboard_set", "mac_control", "speck",
 }
 
 def _run_tool(b):

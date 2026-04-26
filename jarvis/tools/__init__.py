@@ -10,7 +10,7 @@ from .mac import (
     read_ui, click_element, wait, check_permissions,
     type_text, key_press, click_menu, click_at,
     clipboard_get, clipboard_set,
-    open_url, notify, shortcut_run, mac_control,
+    open_url, notify, speck, shortcut_run, mac_control,
 )
 from .web import web_search, fetch_url, verified_search
 from .ocr import read_image_text, read_images_text
@@ -50,7 +50,7 @@ FUNC = {
     "type_text": type_text, "key_press": key_press,
     "click_menu": click_menu, "click_at": click_at,
     "clipboard_get": clipboard_get, "clipboard_set": clipboard_set,
-    "open_url": open_url, "notify": notify,
+    "open_url": open_url, "notify": notify, "speck": speck,
     "shortcut_run": shortcut_run, "mac_control": mac_control,
     # internet
     "web_search": web_search, "fetch_url": fetch_url,

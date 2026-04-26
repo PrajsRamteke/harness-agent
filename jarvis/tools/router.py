@@ -12,7 +12,7 @@ WEB_RE = re.compile(
     re.I,
 )
 MAC_RE = re.compile(
-    r"\b(click|type|press|open app|launch|focus|safari|finder|whatsapp|messages|mail|calendar|reminders|clipboard|screen|ui|macos)\b",
+    r"\b(click|type|press|open app|launch|focus|safari|finder|whatsapp|messages|mail|calendar|reminders|clipboard|screen|ui|macos|speak|speck|read aloud|text to speech|tts|aloud|voice|sound|notify)\b",
     re.I,
 )
 OCR_RE = re.compile(

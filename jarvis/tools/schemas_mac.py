@@ -49,6 +49,11 @@ MAC_TOOLS = [
     {"name":"notify","description":"Show a macOS notification banner.",
      "input_schema":{"type":"object","properties":{
         "title":{"type":"string"},"message":{"type":"string"}},"required":["title"]}},
+    {"name":"speck","description":"Speak text aloud (macOS TTS). Use only for brief, human-style utterances — the user hears this like a real conversation: a few words, not a paragraph. For long explanations, reply in text and speck a short blip (e.g. status). Optional `voice` (say -v), optional `rate` (words/min, 0=default).",
+     "input_schema":{"type":"object","properties":{
+        "text":{"type":"string","description":"A handful of words or one very short sentence (think in-person, not a script)."},
+        "voice":{"type":"string","description":"Voice name; omit for default. Run `say -v '?'` in shell to list."},
+        "rate":{"type":"integer","description":"Speech rate in words per minute; 0 = default."}},"required":["text"]}},
     {"name":"shortcut_run","description":"Run an Apple Shortcut by name, optionally with text input.",
      "input_schema":{"type":"object","properties":{
         "name":{"type":"string"},"input_text":{"type":"string"}},"required":["name"]}},

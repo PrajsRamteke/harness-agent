@@ -10,7 +10,7 @@ TOOL_ICONS = {
     "check_permissions": "🔐", "type_text": "⌨️ ", "key_press": "⌨️ ",
     "click_menu": "📜", "click_at": "🖱️ ",
     "clipboard_get": "📋", "clipboard_set": "📋",
-    "open_url": "🌐", "notify": "🔔",
+    "open_url": "🌐", "notify": "🔔", "speck": "🗣️ ",
     "shortcut_run": "⚙️ ", "mac_control": "🎛️ ",
     "web_search": "🌐", "fetch_url": "📡", "verified_search": "🔬",
     "memory_save": "🧠", "memory_list": "🧠", "memory_delete": "🧠",
