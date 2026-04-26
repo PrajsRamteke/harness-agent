@@ -552,6 +552,16 @@ class JarvisTUI(App):
                     rest = inp[len(head):]
                     inp = state.aliases[head[1:]] + rest
 
+            if inp.startswith("!"):
+                cmd = inp[1:].strip()
+                if cmd:
+                    from ..tools.shell import run_bash
+                    prev = state.auto_approve; state.auto_approve = True
+                    out = run_bash(cmd)
+                    state.auto_approve = prev
+                    self.call_from_thread(lambda o=out: self._tui_console.print(o))
+                return
+
             if inp.startswith("/"):
                 result, should_send, inp = handle_slash(inp)
                 if result == "exit":

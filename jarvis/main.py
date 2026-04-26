@@ -10,6 +10,7 @@ from .repl.banners import welcome_banner, header_panel
 from .repl.stream import call_claude_stream
 from .repl.render import render_assistant
 from .commands.dispatch import handle_slash
+from .tools.shell import run_bash
 from .tools.image_input import (
     append_image_block,
     clipboard_image_to_file,
@@ -48,6 +49,14 @@ def main():
             if head[1:] in state.aliases:
                 rest = inp[len(head):]
                 inp = state.aliases[head[1:]] + rest
+
+        if inp.startswith("!"):
+            cmd = inp[1:].strip()
+            if cmd:
+                prev = state.auto_approve; state.auto_approve = True
+                console.print(run_bash(cmd))
+                state.auto_approve = prev
+            continue
 
         if inp.startswith("/"):
             result, should_send, inp = handle_slash(inp)
