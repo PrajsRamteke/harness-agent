@@ -40,29 +40,16 @@ def _build_static_body() -> str:
     if mem_block:
         body += "\n\n" + mem_block
     body += (
-        "\n\nMEMORY TOOLS: When available, use memory_save / memory_list / memory_delete. "
-        "When the user tells you something durable about themselves (name, role, "
-        "preferences, recurring context), call memory_save proactively. Use "
-        "memory_list when you need to recall. Do not save ephemeral task details."
+        "\n\nMEMORY: memory_save/memory_list/memory_delete. "
+        "Proactively save durable user facts (name, role, prefs). Don't save ephemeral task details."
     )
     if sk_block:
         body += "\n\n" + sk_block
     body += (
-        "\n\nSKILL TOOLS (self-learning, separate from user memory): when available, skill_search, "
-        "skill_save, skill_list, skill_delete.\n"
-        "- At the START of any non-trivial task, call skill_search with keywords "
-        "from the user's request. If a past lesson applies, use it — this saves "
-        "tokens and tool calls.\n"
-        "- At the END of a task, if you discovered something non-obvious (a "
-        "working command, a gotcha, a shortcut, a reusable pattern), call "
-        "skill_save with a short task pattern + the actionable lesson + tags. "
-        "Save generalizable know-how, NOT one-off specifics.\n"
-        "- You are running inside your own source tree. If a task is genuinely "
-        "repetitive across sessions and would be better as real code (a new tool, "
-        "command, or helper) rather than a text lesson, you MAY propose edits to "
-        "your own codebase via edit_file/write_file — but always show the diff, "
-        "explain why, and get the user's OK before applying. Never break existing "
-        "behavior; prefer additive changes."
+        "\n\nSKILLS: skill_search/skill_save/skill_list/skill_delete.\n"
+        "- START of non-trivial task → skill_search for past lessons.\n"
+        "- END of task → skill_save if you learned something non-obvious (pattern+lesson+tags).\n"
+        "- Can propose edits to own codebase for repetitive tasks — show diff, get OK first."
     )
 
     _cached_body = body

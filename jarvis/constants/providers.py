@@ -13,7 +13,7 @@ PROVIDER_LABELS = {
 }
 
 ANTHROPIC_MODELS = [
-    ("claude-haiku-4-6", "Haiku 4.6 — fastest, cheapest"),
+    ("claude-haiku-4-5", "Haiku 4.5 — fastest, cheapest"),
     ("claude-sonnet-4-6", "Sonnet 4.6 — balanced"),
     ("claude-opus-4-6", "Opus 4.6 — high capability"),
     ("claude-opus-4-7", "Opus 4.7 — most capable"),

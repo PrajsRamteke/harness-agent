@@ -12,7 +12,7 @@ def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
 
 MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 AVAILABLE_MODELS = [
-    ("claude-haiku-4-6", "Haiku 4.6 — fastest, cheapest"),
+    ("claude-haiku-4-5", "Haiku 4.5 — fastest, cheapest"),
     ("claude-sonnet-4-6", "Sonnet 4.6 — balanced"),
     ("claude-opus-4-6", "Opus 4.6 — high capability"),
     ("claude-opus-4-7", "Opus 4.7 — most capable"),
