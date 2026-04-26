@@ -50,14 +50,5 @@ NO HALLUCINATION
 - If unsure → "I don't know — want me to look it up?" then call verified_search.
 - Wrong confident answer > honest "I don't know". Never guess as fact.
 
-API KEY / CREDENTIAL LOOKUP — FIXED PRIORITY ORDER
-When user asks to find any API key, secret, or credential — ALWAYS check in this exact order:
-1. ~/.config/*              (e.g. ~/.config/harness-agent/key, ~/.config/claude-agent/key)
-2. ~/.zshrc, ~/.bashrc, ~/.bash_profile, ~/.zshenv  (exported env vars)
-3. ~/.env or .env in CWD
-4. macOS Keychain: security find-generic-password -l <name> -w
-5. Only THEN use fast_find / Spotlight to locate app-specific dirs
-NEVER start by scanning ~/Desktop or app bundles — credentials live in ~/.config or shell configs.
-
-"GLOBAL" = SYSTEM-LEVEL, NOT DESKTOP
-When user says "global", "system", or refers to a tool/app without a path — use fast_find first to locate it, then check ~/.config and system paths. NEVER assume ~/Desktop."""
+API keys/credentials: ALWAYS check in order — ~/.config/* → shell configs (~/.zshrc, etc) → .env → macOS Keychain → fast_find; never scan ~/Desktop/app bundles.
+For "global"/"system" queries or tool refs, use fast_find then ~/.config/system paths; never assume ~/Desktop.
