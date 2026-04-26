@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.screen import ModalScreen
+from textual.containers import CenterMiddle, Vertical
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
@@ -13,47 +12,27 @@ from rich.text import Text
 from ..storage.sessions import db_list_sessions, db_delete_session, db_load_session
 from ..utils.time_fmt import _fmt_ts
 from .. import state
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
-class SessionPickerScreen(ModalScreen[int | None]):
+class SessionPickerScreen(TuiModalScreen[int | None]):
     """Lists saved sessions. Returns the selected session id, or None if cancelled."""
 
-    DEFAULT_CSS = """
-    SessionPickerScreen {
-        align: center middle;
-        background: rgba(0, 0, 0, 0.55);
-    }
-    SessionPickerScreen > #modal {
+    DEFAULT_CSS = (
+        TUI_MODAL_CHROME_CSS
+        + """
+    SessionPickerScreen #modal {
         width: 80%;
         max-width: 110;
-        height: auto;
         max-height: 80%;
-        background: #12151a;
-        border: tall #7aa2f7;
         padding: 1 2;
     }
-    SessionPickerScreen #modal_title {
-        color: #bb9af7;
-        text-style: bold;
-        padding-bottom: 1;
-    }
-    SessionPickerScreen #modal_hint {
-        color: #7aa2f7;
-        padding-top: 1;
-    }
     SessionPickerScreen OptionList {
-        background: #12151a;
-        color: #e6e6e6;
         height: 20;
-        overflow-y: auto;
-        scrollbar-size-vertical: 1;
-    }
-    SessionPickerScreen OptionList:focus > .option-list--option-highlighted {
-        background: #2b3340;
-        color: #ffffff;
     }
     """
+    )
 
     BINDINGS = [
         Binding("escape", "dismiss_cancel", "Cancel", show=True),
@@ -65,11 +44,12 @@ class SessionPickerScreen(ModalScreen[int | None]):
     ]
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="modal"):
-            yield Static("🗂  sessions", id="modal_title")
-            yield OptionList(id="session_list")
-            yield Static("↑/↓ navigate • Enter resume • d delete • Esc cancel",
-                         id="modal_hint")
+        with CenterMiddle():
+            with Vertical(id="modal"):
+                yield Static("🗂  sessions", id="modal_title")
+                yield OptionList(id="session_list")
+                yield Static("↑/↓ navigate • Enter resume • d delete • Esc cancel",
+                             id="modal_hint")
 
     def on_mount(self):
         enable_mouse()

@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.screen import ModalScreen
+from textual.containers import CenterMiddle, Vertical
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
@@ -12,48 +11,27 @@ from rich.text import Text
 
 from ..constants import PROVIDER_LABELS, models_for
 from .. import state
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
-class ModelPickerScreen(ModalScreen[str | None]):
+class ModelPickerScreen(TuiModalScreen[str | None]):
     """Lists configured models. Dismisses with the selected model id, or None."""
 
-    DEFAULT_CSS = """
-    ModelPickerScreen {
-        align: center middle;
-        background: rgba(0, 0, 0, 0.55);
-    }
-    ModelPickerScreen > #modal {
+    DEFAULT_CSS = (
+        TUI_MODAL_CHROME_CSS
+        + """
+    ModelPickerScreen #modal {
         width: 80%;
         max-width: 110;
-        height: auto;
         max-height: 80%;
-        background: #12151a;
-        border: tall #7aa2f7;
         padding: 1 2;
     }
-    ModelPickerScreen #modal_title {
-        color: #bb9af7;
-        text-style: bold;
-        padding-bottom: 1;
-    }
-    ModelPickerScreen #modal_hint {
-        color: #7aa2f7;
-        padding-top: 1;
-    }
     ModelPickerScreen OptionList {
-        background: #12151a;
-        color: #e6e6e6;
         height: 22;
-        overflow-y: auto;
-        scrollbar-size-vertical: 1;
-    }
-    ModelPickerScreen OptionList:focus > .option-list--option-highlighted,
-    ModelPickerScreen OptionList > .option-list--option-highlighted {
-        background: #2b3340;
-        color: #ffffff;
     }
     """
+    )
 
     BINDINGS = [
         Binding("escape", "dismiss_cancel", "Cancel", show=True),
@@ -64,13 +42,14 @@ class ModelPickerScreen(ModalScreen[str | None]):
     ]
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="modal"):
-            yield Static("🤖  models", id="modal_title")
-            yield OptionList(id="model_list")
-            yield Static(
-                "↑/↓ navigate • Enter select • Esc cancel",
-                id="modal_hint",
-            )
+        with CenterMiddle():
+            with Vertical(id="modal"):
+                yield Static("🤖  models", id="modal_title")
+                yield OptionList(id="model_list")
+                yield Static(
+                    "↑/↓ navigate • Enter select • Esc cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         enable_mouse()

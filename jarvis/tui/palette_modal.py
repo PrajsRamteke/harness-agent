@@ -3,37 +3,30 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.screen import ModalScreen
+from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from rich.text import Text
 
 from .commands_catalog import filter_commands
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
-class CommandPaletteScreen(ModalScreen[str | None]):
+class CommandPaletteScreen(TuiModalScreen[str | None]):
     """Centered overlay. Dismisses with the selected command string, or None."""
 
-    DEFAULT_CSS = """
-    CommandPaletteScreen {
-        align: center middle;
-        background: rgba(0, 0, 0, 0.55);
-    }
-    CommandPaletteScreen > #modal {
+    DEFAULT_CSS = (
+        TUI_MODAL_CHROME_CSS
+        + """
+    CommandPaletteScreen #modal {
         width: 70%;
         max-width: 90;
-        height: auto;
         max-height: 70%;
-        background: #12151a;
-        border: tall #7aa2f7;
         padding: 1 1;
     }
-    CommandPaletteScreen #palette_title {
-        color: #bb9af7;
-        text-style: bold;
+    CommandPaletteScreen #modal_title {
         padding: 0 1 1 1;
     }
     CommandPaletteScreen Input {
@@ -42,24 +35,11 @@ class CommandPaletteScreen(ModalScreen[str | None]):
         border: tall #2b3340;
     }
     CommandPaletteScreen OptionList {
-        background: #12151a;
-        color: #e6e6e6;
         height: 18;
-        border: none;
         margin-top: 1;
-        overflow-y: auto;
-        scrollbar-size-vertical: 1;
-    }
-    CommandPaletteScreen OptionList:focus > .option-list--option-highlighted,
-    CommandPaletteScreen OptionList > .option-list--option-highlighted {
-        background: #2b3340;
-        color: #ffffff;
-    }
-    CommandPaletteScreen #palette_hint {
-        color: #7aa2f7;
-        padding-top: 1;
     }
     """
+    )
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=True),
@@ -74,14 +54,15 @@ class CommandPaletteScreen(ModalScreen[str | None]):
         self._initial = initial or "/"
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="modal"):
-            yield Static("⌘  commands", id="palette_title")
-            yield Input(value=self._initial, placeholder="type to filter…", id="palette_input")
-            yield OptionList(id="palette_options")
-            yield Static(
-                "↑/↓ navigate • Enter run • Esc cancel",
-                id="palette_hint",
-            )
+        with CenterMiddle():
+            with Vertical(id="modal"):
+                yield Static("⌘  commands", id="modal_title")
+                yield Input(value=self._initial, placeholder="type to filter…", id="palette_input")
+                yield OptionList(id="palette_options")
+                yield Static(
+                    "↑/↓ navigate • Enter run • Esc cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self):
         enable_mouse()
