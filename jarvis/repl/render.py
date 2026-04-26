@@ -10,6 +10,19 @@ from ..tools import FUNC
 from .. import state
 from .hallucination import _scrub_hallucinations
 
+
+def assistant_model_label() -> str:
+    """Short label for assistant panels (Sonnet / Opus / Haiku / raw model id)."""
+    m = state.MODEL.lower()
+    if "opus" in m:
+        return "Opus"
+    if "sonnet" in m:
+        return "Sonnet"
+    if "haiku" in m:
+        return "Haiku"
+    return state.MODEL
+
+
 # Tools that must run single-threaded — they mutate shared state, cwd, or UI.
 _SERIAL_TOOLS = {
     "run_bash", "edit_file", "write_file",
@@ -45,12 +58,24 @@ def _run_parallel_batch(batch, outputs):
 
 def render_assistant(resp) -> bool:
     """Print assistant content, execute any tool calls, return True if more turns needed."""
-    # Build a friendly short model label: "Sonnet", "Opus", "Haiku" etc.
-    _m = state.MODEL.lower()
-    if "opus"   in _m: _model_label = "Opus"
-    elif "sonnet" in _m: _model_label = "Sonnet"
-    elif "haiku"  in _m: _model_label = "Haiku"
-    else:                _model_label = state.MODEL
+    _model_label = assistant_model_label()
+    panel_title = f"Jarvis [{_model_label}]"
+
+    def _abort_stream_if_no_text():
+        if not state._assistant_stream_ui_active:
+            return
+        has_text = any(
+            b.type == "text" and re.search(r"\S", (b.text or ""))
+            for b in resp.content
+        )
+        if has_text:
+            return
+        abort = getattr(console, "assistant_stream_abort", None)
+        if abort:
+            abort()
+        state._assistant_stream_ui_active = False
+
+    _abort_stream_if_no_text()
 
     tool_results = []
     tool_uses = []  # collect, then run in parallel where safe
@@ -67,11 +92,20 @@ def render_assistant(resp) -> bool:
             if was_flagged:
                 console.print("[dim red]⚠ hallucination guard triggered — sentence(s) removed[/]")
             if not re.search(r"\S", text):
+                if state.stream_reply_live and state._assistant_stream_ui_active:
+                    ab = getattr(console, "assistant_stream_abort", None)
+                    if ab:
+                        ab()
                 continue
             state.last_assistant_text = text
+            commit = getattr(console, "assistant_stream_commit", None)
+            if state.stream_reply_live and state._assistant_stream_ui_active and commit:
+                commit(text, panel_title, was_flagged)
+                state._assistant_stream_ui_active = False
+                continue
             console.print(Panel(
                 Markdown(text),
-                title=f"Jarvis [{_model_label}]",
+                title=panel_title,
                 border_style="magenta",
                 padding=(0, 1),
             ))

@@ -3,7 +3,7 @@
 Using `jarvis.state.<name> = ...` preserves original global-mutation semantics
 without threading plumbing through every function.
 """
-import json, time
+import json, os, time
 from typing import Dict, List, Optional
 
 from .constants import PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL
@@ -29,6 +29,13 @@ tool_calls_count: int = 0
 last_assistant_text: str = ""
 web_tool_used_this_turn: bool = False  # disables hallucination guard when True
 last_clipboard_image_digest: str = ""
+
+# live typing/streaming of assistant text (API deltas → UI). Disable with HARNESS_STREAM_REPLY=0.
+stream_reply_live: bool = os.getenv("HARNESS_STREAM_REPLY", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+# Set while the TUI live strip is active; cleared on commit/abort.
+_assistant_stream_ui_active: bool = False
 
 # user context
 pinned_context: str = PIN_FILE.read_text() if PIN_FILE.exists() else ""

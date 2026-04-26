@@ -17,7 +17,7 @@ import threading
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import ScrollableContainer
+from textual.containers import Vertical
 from textual.message import Message
 from textual.widgets import Header, RichLog, Static, TextArea
 from textual import work
@@ -83,19 +83,23 @@ class JarvisTUI(App):
         background: #0b0d10;
         layers: base overlay;
     }
+    #main {
+        height: 100%;
+        width: 100%;
+    }
     #transcript {
         background: #0b0d10;
         color: #e6e6e6;
         padding: 0 1;
         border: none;
         height: 1fr;
+        min-height: 0;
         overflow-y: scroll;
         scrollbar-gutter: stable;
         scrollbar-color: #2b3340;
         scrollbar-background: #0b0d10;
     }
     #prompt {
-        dock: bottom;
         height: auto;
         min-height: 3;
         max-height: 12;
@@ -105,7 +109,6 @@ class JarvisTUI(App):
         padding: 0 1;
     }
     #statusbar {
-        dock: bottom;
         height: 1;
         background: #12151a;
         color: #7aa2f7;
@@ -166,9 +169,10 @@ class JarvisTUI(App):
         self._last_input_value = ""
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="statusbar", markup=True)
-        yield PromptArea(id="prompt")
-        yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
+        with Vertical(id="main"):
+            yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
+            yield Static("", id="statusbar", markup=True)
+            yield PromptArea(id="prompt")
 
     # ─── lifecycle ─────────────────────────────────────────────────────
     def on_mount(self):
@@ -391,8 +395,10 @@ class JarvisTUI(App):
                 if state.current_session_id and state.messages and state.messages[-1] is not asst_msg:
                     db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
         except Exception as e:  # surface errors in the transcript, don't crash the app
+            self._tui_console.assistant_stream_abort()
             self._tui_console.print(f"[red]error: {type(e).__name__}: {e}[/]")
         finally:
+            self._tui_console.assistant_stream_abort()
             self.call_from_thread(self._turn_done)
 
     def _turn_done(self):

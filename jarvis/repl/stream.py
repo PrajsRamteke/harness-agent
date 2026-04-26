@@ -9,6 +9,8 @@ from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
 from .trim import trim_messages
+from .render import assistant_model_label
+from .stream_display import RichAssistantStreamDisplay
 
 
 # Reference to the active stream context so another thread (e.g. the TUI Esc
@@ -29,6 +31,33 @@ def cancel_current_stream():
     return True
 
 
+def _consume_live_text_stream(stream, panel_title: str) -> None:
+    """Drain `stream.text_stream` for real-time typing UX; then call `get_final_message()`.
+
+    TUI: pushes deltas via ``TUIConsole`` helpers and sets ``state._assistant_stream_ui_active``.
+    Legacy Rich REPL: uses :class:`RichAssistantStreamDisplay`.
+    """
+    rich_live: RichAssistantStreamDisplay | None = None
+    try:
+        if hasattr(console, "assistant_stream_start"):
+            console.assistant_stream_start(panel_title)
+            state._assistant_stream_ui_active = True
+            try:
+                for chunk in stream.text_stream:
+                    console.assistant_stream_push(chunk)
+            finally:
+                console.assistant_stream_flush()
+            return
+
+        rich_live = RichAssistantStreamDisplay(console)
+        rich_live.start(panel_title)
+        for chunk in stream.text_stream:
+            rich_live.push(chunk)
+    finally:
+        if rich_live is not None:
+            rich_live.stop()
+
+
 def call_claude_stream():
     tools = select_tools(state.messages)
     if state.show_internal:
@@ -43,11 +72,14 @@ def call_claude_stream():
     global _current_stream
     delays = [1, 3, 6]
     oauth_refreshed = False
+    panel_title = f"Jarvis [{assistant_model_label()}]"
     for attempt in range(len(delays) + 1):
         try:
             with state.client.messages.stream(**kwargs) as stream:
                 _current_stream = stream
                 try:
+                    if state.stream_reply_live:
+                        _consume_live_text_stream(stream, panel_title)
                     final = stream.get_final_message()
                 finally:
                     _current_stream = None
