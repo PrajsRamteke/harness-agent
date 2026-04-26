@@ -407,9 +407,11 @@ class JarvisTUI(App):
         if self._busy:
             from ..repl.stream import cancel_current_stream
             if cancel_current_stream():
-                self._set_status("cancelled")
-                self._sync_activity_phase("Cancelled")
                 self._tui_console.print("[yellow]⏹ cancelled by user[/]")
+                # Worker may still be blocked on finalize after close(); reset UI now
+                # so the prompt accepts new input. _turn_done is safe if the worker
+                # also calls it from finally.
+                self._turn_done()
 
     # ─── input handling ────────────────────────────────────────────────
     def on_prompt_area_submitted(self, event: "PromptArea.Submitted") -> None:
@@ -646,8 +648,11 @@ class JarvisTUI(App):
         if self._busy:
             from ..repl.stream import cancel_current_stream
             self._sync_activity_phase("Cancelling…")
-            cancel_current_stream()
-            self._set_status("cancelling…")
+            if cancel_current_stream():
+                self._tui_console.print("[yellow]⏹ cancelled by user[/]")
+                self._turn_done()
+            else:
+                self._set_status("cancelling…")
         else:
             self.exit()
 
