@@ -5,7 +5,7 @@ A single-file, Jarvis terminal agent powered by Anthropic's Claude models. Chat,
 ## vs Claude Code
 
 - **Claude Code** = lives in your editor, great for coding *inside a project.*
-- **Harness** = lives in the terminal, great for *your whole computer* (find files, run shell, organize stuff—e.g. *“Find my all PDFs on system and read, tell me which ones are important, and move them into a pdf folder on the Desktop.”*)
+- **Harness** = lives in the terminal, great for *your whole computer* (find files, run shell, organize) stuff—e.g. ```Find my all PDFs on system and read, tell me which ones are important, and move them into a pdf folder on the Desktop.```
 
 ![Agent](assets/agent.png)
 ![Agent](assets/jarvis.png)
