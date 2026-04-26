@@ -28,7 +28,7 @@ A single-file, Claude Code-style terminal agent powered by Anthropic's Claude mo
 ## Install
 
 ```bash
-git clone <this-repo> harness
+git clone https://github.com/PrajsRamteke/harness-agent.git
 cd harness
 python3 -m venv .venv
 source .venv/bin/activate
