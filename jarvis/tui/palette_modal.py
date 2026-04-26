@@ -78,7 +78,10 @@ class CommandPaletteScreen(ModalScreen[str | None]):
             yield Static("⌘  commands", id="palette_title")
             yield Input(value=self._initial, placeholder="type to filter…", id="palette_input")
             yield OptionList(id="palette_options")
-            yield Static("↑/↓ navigate • Enter select • Esc cancel", id="palette_hint")
+            yield Static(
+                "↑/↓ navigate • Enter run • Esc cancel",
+                id="palette_hint",
+            )
 
     def on_mount(self):
         enable_mouse()

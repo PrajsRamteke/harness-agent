@@ -17,9 +17,11 @@ import sys
 import threading
 import time
 
+from textual.actions import SkipAction
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.message import Message
 from textual.widgets import Header, RichLog, Static, TextArea
 from textual import work
@@ -31,6 +33,20 @@ from rich.text import Text
 from .console_shim import TUIConsole
 from .session_modal import SessionPickerScreen, resume_session_into_state
 from .palette_modal import CommandPaletteScreen
+from .model_modal import ModelPickerScreen
+
+
+def _is_bare_model_command(text: str) -> bool:
+    s = (text or "").strip()
+    if not s.startswith("/model"):
+        return False
+    parts = s.split(maxsplit=1)
+    return len(parts) == 1
+
+
+def _is_session_picker_command(text: str) -> bool:
+    s = (text or "").strip()
+    return s in ("/session", "/sessions", "/session list", "/session ls")
 
 
 class PromptArea(TextArea):
@@ -160,6 +176,10 @@ class JarvisTUI(App):
     ]
 
     def action_scroll_transcript(self, direction: str) -> None:
+        # App-level priority bindings run before modal widgets; skip so ↑/↓/PgUp…
+        # reach OptionList in session/model/command pickers (see Textual SkipAction).
+        if isinstance(self.screen, ModalScreen):
+            raise SkipAction
         try:
             log = self.query_one("#transcript", RichLog)
         except Exception:
@@ -299,14 +319,88 @@ class JarvisTUI(App):
             self._open_palette()
 
     def _open_palette(self):
-        def after(cmd):
+        def after(cmd: str | None):
             inp = self.query_one("#prompt", PromptArea)
-            if cmd:
+            if not cmd:
+                inp.focus()
+                return
+            if _is_session_picker_command(cmd):
+                self._open_session_picker()
+                inp.focus()
+                return
+            if _is_bare_model_command(cmd):
+                self._open_model_picker()
+                inp.focus()
+                return
+            if cmd.endswith(" "):
                 inp.text = cmd
                 inp.move_cursor((0, len(cmd)))
                 self._last_input_value = cmd
+                inp.focus()
+                return
+            if cmd.strip() == "/multi":
+                inp.text = cmd.strip()
+                inp.move_cursor((0, len(inp.text)))
+                self._last_input_value = inp.text
+                inp.focus()
+                return
+            self._dispatch_palette_slash(cmd)
             inp.focus()
+
         self.push_screen(CommandPaletteScreen(), after)
+
+    def _open_model_picker(self):
+        def after(model_id: str | None):
+            if not model_id:
+                self._tui_console.print("[dim]model picker cancelled[/]")
+                return
+            from ..commands.control import _apply_model_selection
+
+            _apply_model_selection(model_id)
+            self._set_status("ready")
+
+        self.push_screen(ModelPickerScreen(), after)
+
+    def _dispatch_palette_slash(self, inp: str):
+        """Run a slash command picked from the palette (no second Enter)."""
+        if self._busy:
+            return
+        from ..commands.dispatch import handle_slash
+        from .. import state
+
+        text = (inp or "").strip()
+        if not text.startswith("/"):
+            return
+        if text in ("/exit", "/quit"):
+            self.exit()
+            return
+        head = text.split(maxsplit=1)[0]
+        if head[1:] in state.aliases:
+            rest = text[len(head) :]
+            text = state.aliases[head[1:]] + rest
+        result, should_send, new_inp = handle_slash(text)
+        if result == "exit":
+            self.exit()
+            return
+        if should_send and new_inp:
+            log = self.query_one("#transcript", RichLog)
+            log.write(
+                Panel(
+                    Text(new_inp),
+                    title="you",
+                    title_align="left",
+                    border_style="green",
+                    padding=(0, 1),
+                )
+            )
+            self._busy = True
+            self._turn_t0 = time.monotonic()
+            self._sync_activity_phase("Starting your request…")
+            self._start_activity_pulse()
+            self._set_status("thinking…")
+            self._run_turn(new_inp)
+            return
+        self._set_status("ready")
 
     def action_escape_action(self):
         """Esc when no modal is open: cancel any in-flight AI turn."""
@@ -327,6 +421,11 @@ class JarvisTUI(App):
         inp.clear()
         self._last_input_value = ""
         if not text:
+            return
+
+        # /model (no argument) → modal picker (no stdin)
+        if _is_bare_model_command(text):
+            self._open_model_picker()
             return
 
         log = self.query_one("#transcript", RichLog)
