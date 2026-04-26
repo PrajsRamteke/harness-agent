@@ -63,8 +63,8 @@ def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -
 
         if p.suffix.lower() in _BINARY_EXTS:
             return (f"ERROR: refused to read '{path}' — binary/non-text extension "
-                    f"'{p.suffix}'. Use a dedicated tool (image_input, pdf, etc.) "
-                    f"or pass force=true if the user explicitly asked.")
+                    f"'{p.suffix}'. Use `read_document` for PDF, images, CSV, "
+                    f"Excel, JSON, etc., or pass force=true if the user explicitly asked.")
 
         try:
             if p.stat().st_size > 2_000_000:

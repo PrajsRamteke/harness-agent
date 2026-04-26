@@ -12,6 +12,22 @@ CORE_TOOLS = [
         "limit":{"type":"integer","description":"number of lines; 0 = all"},
         "force":{"type":"boolean","description":"bypass binary/skip-dir guards; use sparingly"}},
         "required":["path"]}},
+    {"name":"read_document","description":(
+        "Read PDF, images (OCR), CSV/TSV, JSON, HTML, XLSX, XML, YAML, Markdown, or code/text "
+        "in one call—picks the right parser by file type. Use this instead of `read_file` for "
+        "PDFs, spreadsheets, data files, images with text, etc. Single file: pass `path`. "
+        "Several files: pass `paths`. Many files under a folder: pass `directory` and optional "
+        "`pattern` (glob, default **/*). Caps: `max_files`, `max_chars_per_file`, `csv_max_rows`."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "path":{"type":"string","description":"One file to read (omit if using paths or directory)."},
+        "paths":{"type":"array","items":{"type":"string"},"description":"Multiple explicit file paths."},
+        "directory":{"type":"string","description":"Folder to scan when path/paths omitted."},
+        "pattern":{"type":"string","description":"Glob under directory. Default **/*."},
+        "max_files":{"type":"integer","description":"Bulk cap. Default 32, max 80."},
+        "max_chars_per_file":{"type":"integer","description":"Per-file text cap. Default 48000."},
+        "csv_max_rows":{"type":"integer","description":"Max data rows for CSV/Excel preview. Default 200."},
+        "force":{"type":"boolean","description":"Bypass skip-dir and large-file guard when user asked explicitly."}}}},
     {"name":"write_file","description":"Create or overwrite a file",
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}},

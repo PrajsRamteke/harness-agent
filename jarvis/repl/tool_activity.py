@@ -34,6 +34,15 @@ def describe_tool_activity(name: str, raw_input) -> str:
         return f"Shell: {c(d.get('cmd', ''))}"
     if name == "read_file":
         return f"Reading file: {c(d.get('path', ''))}"
+    if name == "read_document":
+        if d.get("path"):
+            return f"Read document: {c(d.get('path', ''))}"
+        pths = d.get("paths")
+        if pths and isinstance(pths, list):
+            return f"Read documents: {len(pths)} file(s)"
+        if d.get("directory"):
+            return f"Read documents: {c(d.get('directory', '.'), 28)} ({c(d.get('pattern', '**/*'), 20)})"
+        return "Read document(s)"
     if name == "write_file":
         return f"Writing file: {c(d.get('path', ''))}"
     if name == "edit_file":

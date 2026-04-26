@@ -2,9 +2,12 @@
 
 Only the subset of the Rich Console API actually used across the codebase is
 implemented: ``print``, ``rule``, ``status`` (as a no-op context manager), and
-``input`` (unused in TUI mode — raises if called). Renderables are forwarded
-to the app's RichLog from any thread via ``App.call_from_thread``.
+``prompt_shell_approval`` (blocking Y/n/a modal for :func:`run_bash`). The raw
+``input`` method still raises — use ``prompt_shell_approval`` for shell approval.
+Renderables are forwarded to the app's RichLog from any thread via
+``App.call_from_thread``.
 """
+import queue
 import re
 import threading
 from contextlib import contextmanager
@@ -226,6 +229,35 @@ class TUIConsole:
                 self._log.clear()
             except Exception:
                 pass
+
+    def prompt_shell_approval(self, cmd: str) -> str:
+        """Block (from worker thread) until the user approves a shell command.
+
+        Returns one of: ``y`` (run), ``n`` (deny), ``a`` (always approve for session)
+        — same contract as the Rich REPL ``approve? [Y/n/a]`` prompt.
+        """
+        from .shell_approval_modal import ShellApprovalScreen
+
+        q: queue.Queue[str] = queue.Queue(maxsize=1)
+
+        def on_done(result: str | None) -> None:
+            if result is None:
+                r = "n"
+            else:
+                r = str(result).strip().lower() or "y"
+            try:
+                q.put_nowait(r)
+            except Exception:
+                pass
+
+        def push() -> None:
+            self._app.push_screen(ShellApprovalScreen(cmd), on_done)
+
+        self._app.call_from_thread(push)
+        try:
+            return q.get(timeout=3600)
+        except queue.Empty:
+            return "n"
 
     def input(self, *args, **kwargs):  # noqa: D401 — unused in TUI mode
         raise RuntimeError("TUIConsole.input called — input flows through the Input widget")

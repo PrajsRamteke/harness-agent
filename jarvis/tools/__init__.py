@@ -1,5 +1,6 @@
 """Tool registry: TOOLS (schemas) and FUNC (name -> callable)."""
 from .files import read_file, write_file, edit_file
+from .read_document import read_document
 from .dirs import list_dir, glob_files, rank_files, fast_find
 from .shell import run_bash
 from .search import search_code
@@ -34,7 +35,7 @@ TOOL_NAME_TO_GROUP = {
 }
 
 FUNC = {
-    "read_file": read_file, "write_file": write_file, "edit_file": edit_file,
+    "read_file": read_file, "read_document": read_document, "write_file": write_file, "edit_file": edit_file,
     "list_dir": list_dir, "run_bash": run_bash, "search_code": search_code,
     "glob_files": glob_files, "rank_files": rank_files,
     "fast_find": fast_find,

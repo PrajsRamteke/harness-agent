@@ -1,6 +1,6 @@
 """Emoji icons per tool category — makes the event log skimmable."""
 TOOL_ICONS = {
-    "read_file": "📄", "write_file": "✍️ ", "edit_file": "✏️ ",
+    "read_file": "📄", "read_document": "📑", "write_file": "✍️ ", "edit_file": "✏️ ",
     "list_dir": "📁", "run_bash": "⚡", "search_code": "🔎",
     "glob_files": "🔭", "rank_files": "🎯", "git_status": "🌿", "git_diff": "🌿",
     "git_log": "🌿",
