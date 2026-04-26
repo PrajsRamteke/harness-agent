@@ -1,9 +1,10 @@
 """File tools: read_file, write_file, edit_file."""
-import os, pathlib
+import pathlib
 
 from ..constants import CWD, MAX_FILE_READ
 from .. import state
 from .dirs import SKIP_DIRS
+from ..path_resolve import robust_resolve
 
 # Extensions that are almost never useful to read as text.
 _BINARY_EXTS = {
@@ -49,7 +50,7 @@ def _looks_binary(p: pathlib.Path) -> bool:
 
 
 def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -> str:
-    p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
+    p = robust_resolve(path)
     if not p.exists(): return f"ERROR: {path} not found"
     if p.is_dir(): return f"ERROR: {path} is a directory"
 
@@ -85,7 +86,7 @@ def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -
 
 
 def write_file(path: str, content: str) -> str:
-    p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
+    p = robust_resolve(path)
     _save_backup(p)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)
@@ -93,7 +94,7 @@ def write_file(path: str, content: str) -> str:
 
 
 def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
-    p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
+    p = robust_resolve(path)
     if not p.exists(): return f"ERROR: {path} not found"
     txt = p.read_text(errors="ignore")
     n = txt.count(old_str)

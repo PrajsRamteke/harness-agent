@@ -1,4 +1,4 @@
-"""Call Claude API with streaming + retry + OAuth refresh."""
+"""Call the configured model API with streaming + retry + OAuth refresh."""
 import time
 from typing import Any, Dict
 
@@ -11,6 +11,7 @@ from .system import build_system
 from .trim import trim_messages
 from .render import assistant_model_label
 from .stream_display import RichAssistantStreamDisplay
+from .turn_progress import report_turn_phase
 
 
 # Reference to the active stream context so another thread (e.g. the TUI Esc
@@ -59,6 +60,7 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
 
 
 def call_claude_stream():
+    report_turn_phase("Jarvis: choosing tools & building request…")
     tools = select_tools(state.messages)
     if state.show_internal:
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
@@ -75,11 +77,16 @@ def call_claude_stream():
     panel_title = f"Jarvis [{assistant_model_label()}]"
     for attempt in range(len(delays) + 1):
         try:
+            report_turn_phase("Jarvis: waiting for model response…")
             with state.client.messages.stream(**kwargs) as stream:
                 _current_stream = stream
                 try:
                     if state.stream_reply_live:
+                        report_turn_phase("Jarvis: streaming reply text…")
                         _consume_live_text_stream(stream, panel_title)
+                    else:
+                        report_turn_phase("Jarvis: buffering full reply (stream off)…")
+                    report_turn_phase("Jarvis: finalizing response…")
                     final = stream.get_final_message()
                 finally:
                     _current_stream = None
@@ -88,8 +95,10 @@ def call_claude_stream():
             return final
         except RateLimitError:
             if attempt == len(delays): raise
-            console.print(f"[yellow]rate-limited, retry in {delays[attempt]}s[/]")
-            time.sleep(delays[attempt])
+            w = delays[attempt]
+            report_turn_phase(f"Rate limited — waiting {w}s before retry…")
+            console.print(f"[yellow]rate-limited, retry in {w}s[/]")
+            time.sleep(w)
         except APIStatusError as e:
             if e.status_code == 401:
                 if state.provider == "openrouter":
@@ -133,9 +142,13 @@ def call_claude_stream():
                     "Free models are heavily throttled — retry shortly or try another model.[/]"
                 )
                 if attempt < len(delays):
-                    time.sleep(delays[attempt]); continue
+                    w = delays[attempt]
+                    report_turn_phase(f"OpenRouter rate limit — waiting {w}s…")
+                    time.sleep(w)
+                    continue
                 raise
             if e.status_code >= 500 and attempt < len(delays):
+                report_turn_phase(f"Server {e.status_code} — retrying soon…")
                 console.print(f"[yellow]server {e.status_code}, retry...[/]")
                 time.sleep(delays[attempt]); continue
             raise

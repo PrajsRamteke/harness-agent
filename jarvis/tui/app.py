@@ -6,6 +6,7 @@ Layout (OpenCode-inspired):
     │                                                                   │
     │                          transcript (RichLog)                     │
     │                                                                   │
+    ├──────────────── activity (phase + clock) ─────────────────────────┤
     ├──────────────────────── status line ──────────────────────────────┤
     │ ❯ input                                                           │
     └───────────────────────────────────────────────────────────────────┘
@@ -14,10 +15,11 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import Header, RichLog, Static, TextArea
 from textual import work
@@ -108,6 +110,21 @@ class JarvisTUI(App):
         border: tall #2b3340;
         padding: 0 1;
     }
+    #activity_row {
+        height: 1;
+        background: #141820;
+        margin: 0 1 0 1;
+        padding: 0 1;
+    }
+    #activity_phase {
+        width: 1fr;
+        min-width: 0;
+        color: #c0caf5;
+    }
+    #activity_clock {
+        width: auto;
+        color: #565f89;
+    }
     #statusbar {
         height: 1;
         background: #12151a;
@@ -167,10 +184,19 @@ class JarvisTUI(App):
         self._busy = False
         self._cancel_flag = threading.Event()
         self._last_input_value = ""
+        self._activity_timer = None
+        self._activity_label = ""
+        self._activity_t0 = 0.0
+        self._turn_t0 = 0.0
+        self._activity_spinner_i = 0
+        self._spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠏"
 
     def compose(self) -> ComposeResult:
         with Vertical(id="main"):
             yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
+            with Horizontal(id="activity_row"):
+                yield Static("", id="activity_phase", markup=True)
+                yield Static("", id="activity_clock", markup=True)
             yield Static("", id="statusbar", markup=True)
             yield PromptArea(id="prompt")
 
@@ -204,8 +230,58 @@ class JarvisTUI(App):
         db_init()
         state.current_session_id = db_create_session(state.MODEL)
         self._set_status("ready")
+        self._sync_activity_phase("")
 
         self.query_one("#prompt", PromptArea).focus()
+
+    def _sync_activity_phase(self, label: str) -> None:
+        self._activity_label = (label or "").strip()
+        self._activity_t0 = time.monotonic()
+        self._activity_spinner_i = 0
+        self._refresh_activity_widgets()
+
+    def _tick_activity_spinner(self) -> None:
+        if self._busy and self._activity_label:
+            self._activity_spinner_i += 1
+            self._refresh_activity_widgets()
+
+    def _refresh_activity_widgets(self) -> None:
+        from datetime import datetime
+
+        try:
+            ph = self.query_one("#activity_phase", Static)
+            clk = self.query_one("#activity_clock", Static)
+        except Exception:
+            return
+        label = self._activity_label
+        if not label and not self._busy:
+            ph.update("")
+            clk.update("")
+            return
+        frames = self._spinner_frames
+        i = self._activity_spinner_i % len(frames)
+        sp = frames[i] if (self._busy and label) else " "
+        step_elapsed = max(0.0, time.monotonic() - self._activity_t0)
+        wall = datetime.now().strftime("%H:%M:%S")
+        ph.update(
+            f"[cyan]{sp}[/] [b]{label}[/] [dim]· this step {step_elapsed:.1f}s[/]"
+        )
+        if self._busy and self._turn_t0:
+            turn_elapsed = max(0.0, time.monotonic() - self._turn_t0)
+            clk.update(
+                f"[dim]{wall}  · turn {turn_elapsed:.1f}s  · step {step_elapsed:.1f}s[/]"
+            )
+        else:
+            clk.update(f"[dim]{wall}  · step {step_elapsed:.1f}s[/]")
+
+    def _start_activity_pulse(self) -> None:
+        self._stop_activity_pulse()
+        self._activity_timer = self.set_interval(0.1, self._tick_activity_spinner)
+
+    def _stop_activity_pulse(self) -> None:
+        if self._activity_timer is not None:
+            self._activity_timer.stop()
+            self._activity_timer = None
 
     # ─── palette (centered modal) ──────────────────────────────────────
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
@@ -238,6 +314,7 @@ class JarvisTUI(App):
             from ..repl.stream import cancel_current_stream
             if cancel_current_stream():
                 self._set_status("cancelled")
+                self._sync_activity_phase("Cancelled")
                 self._tui_console.print("[yellow]⏹ cancelled by user[/]")
 
     # ─── input handling ────────────────────────────────────────────────
@@ -268,6 +345,9 @@ class JarvisTUI(App):
             return
 
         self._busy = True
+        self._turn_t0 = time.monotonic()
+        self._sync_activity_phase("Starting your request…")
+        self._start_activity_pulse()
         self._set_status("thinking…")
         self._run_turn(text)
 
@@ -403,6 +483,9 @@ class JarvisTUI(App):
 
     def _turn_done(self):
         self._busy = False
+        self._turn_t0 = 0.0
+        self._stop_activity_pulse()
+        self._sync_activity_phase("")
         self._set_status("ready")
         self.query_one("#prompt", PromptArea).focus()
 
@@ -460,6 +543,7 @@ class JarvisTUI(App):
             return
         if self._busy:
             from ..repl.stream import cancel_current_stream
+            self._sync_activity_phase("Cancelling…")
             cancel_current_stream()
             self._set_status("cancelling…")
         else:

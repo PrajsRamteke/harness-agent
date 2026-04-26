@@ -1,10 +1,12 @@
 """OCR tools backed by macOS Vision framework."""
 from concurrent.futures import ThreadPoolExecutor
-import subprocess
-import os
 import pathlib
+import subprocess
+import threading
 
 from ..constants import CWD, MAX_PARALLEL_TOOLS
+from ..repl.turn_progress import report_turn_phase
+from ..path_resolve import robust_resolve
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".heic", ".tif", ".tiff", ".bmp"}
 IMPORTANT_TEXT_HINTS = (
@@ -16,7 +18,7 @@ IMPORTANT_TEXT_HINTS = (
 
 
 def _resolve_path(path: str) -> pathlib.Path:
-    return (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path).resolve()
+    return robust_resolve(path, CWD)
 
 
 def _clamp_int(value, default: int, min_value: int, max_value: int) -> int:
@@ -121,12 +123,21 @@ def read_images_text(
     if not images:
         return "No image files found. Supported: PNG, JPG, JPEG, HEIC, TIFF, BMP."
 
-    def ocr_one(path: pathlib.Path) -> tuple[pathlib.Path, str]:
-        return path, read_image_text(str(path))
+    total = len(images)
+    lock = threading.Lock()
+    prog = {"done": 0}
+
+    def ocr_one_tracked(path: pathlib.Path) -> tuple[pathlib.Path, str]:
+        text = read_image_text(str(path))
+        with lock:
+            prog["done"] += 1
+            report_turn_phase(f"OCR: {prog['done']}/{total} — {_display_path(path)}")
+
+        return path, text
 
     rows = []
     with ThreadPoolExecutor(max_workers=min(worker_count, len(images))) as ex:
-        for index, (path, text) in enumerate(ex.map(ocr_one, images)):
+        for index, (path, text) in enumerate(ex.map(ocr_one_tracked, images)):
             clean = " ".join(text.split())
             if not include_empty and (
                 clean == "No text detected in image."

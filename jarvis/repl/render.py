@@ -9,6 +9,8 @@ from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT, MAX_PARALLEL_TOOLS
 from ..tools import FUNC
 from .. import state
 from .hallucination import _scrub_hallucinations
+from .tool_activity import describe_tool_activity
+from .turn_progress import report_turn_phase
 
 
 def assistant_model_label() -> str:
@@ -34,6 +36,7 @@ _SERIAL_TOOLS = {
 def _run_tool(b):
     icon = TOOL_ICONS.get(b.name, "🔧")
     args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
+    report_turn_phase(describe_tool_activity(b.name, b.input))
     try:
         out = FUNC[b.name](**b.input)
     except Exception as e:
@@ -58,6 +61,7 @@ def _run_parallel_batch(batch, outputs):
 
 def render_assistant(resp) -> bool:
     """Print assistant content, execute any tool calls, return True if more turns needed."""
+    report_turn_phase("Jarvis: applying model output (text & tool plan)…")
     _model_label = assistant_model_label()
     panel_title = f"Jarvis [{_model_label}]"
 

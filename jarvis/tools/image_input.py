@@ -9,6 +9,7 @@ from typing import Optional
 
 from ..constants import CWD
 from .ocr import read_image_text
+from ..path_resolve import robust_resolve
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp", ".heic"}
 
@@ -16,10 +17,8 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp",
 def _is_image_path(s: str) -> Optional[pathlib.Path]:
     if not s:
         return None
-    p = pathlib.Path(s).expanduser()
-    if not p.is_absolute():
-        p = (CWD / p)
-    if p.exists() and p.is_file() and p.suffix.lower() in IMAGE_EXTS:
+    p = robust_resolve(s, CWD)
+    if p.is_file() and p.suffix.lower() in IMAGE_EXTS:
         return p
     return None
 

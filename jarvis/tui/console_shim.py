@@ -6,6 +6,7 @@ implemented: ``print``, ``rule``, ``status`` (as a no-op context manager), and
 to the app's RichLog from any thread via ``App.call_from_thread``.
 """
 import re
+import threading
 from contextlib import contextmanager
 from typing import Any
 
@@ -119,6 +120,23 @@ class TUIConsole:
 
         try:
             self._app.call_from_thread(_commit)
+        except Exception:
+            pass
+
+    def report_turn_phase(self, label: str) -> None:
+        """Update the TUI activity line (spinner + phase + clock). Safe from any thread."""
+        app = self._app
+        if not hasattr(app, "_sync_activity_phase"):
+            return
+
+        def _go() -> None:
+            app._sync_activity_phase(label)
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _go()
+            else:
+                app.call_from_thread(_go)
         except Exception:
             pass
 

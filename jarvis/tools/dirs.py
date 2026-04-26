@@ -1,6 +1,7 @@
 """Directory listing, glob, and lightweight file ranking."""
 import os, pathlib, re, shutil, subprocess
 from ..constants import CWD
+from ..path_resolve import robust_resolve
 
 SKIP_DIRS = {
     ".git", ".hg", ".svn", "node_modules", ".venv", "venv", "__pycache__",
@@ -16,7 +17,7 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tif", ".tiff", ".bmp"
 
 
 def list_dir(path: str = ".", show_all: bool = False) -> str:
-    p = (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path)
+    p = robust_resolve(path)
     if not p.exists(): return f"ERROR: {path} not found"
     items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
     if not show_all:
@@ -129,7 +130,7 @@ def fast_find(
 
 
 def _resolve(path: str) -> pathlib.Path:
-    return (CWD / path).resolve() if not os.path.isabs(path) else pathlib.Path(path).resolve()
+    return robust_resolve(path)
 
 
 def _terms(query: str) -> list[str]:
