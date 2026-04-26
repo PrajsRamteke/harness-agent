@@ -15,6 +15,7 @@ from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
 from ..auth.client import _build_client_from_mode
 from ..repl.banners import header_panel
 from ..repl.stats import estimated_cost
+from ..storage.prefs import save_last_model
 from .. import state
 
 
@@ -122,6 +123,7 @@ def _apply_model_selection(chosen: str):
         if state.provider != target_provider:
             return  # switch failed (e.g. user cancelled key prompt)
     state.MODEL = chosen
+    save_last_model()
     console.print(f"[green]✓ model switched to[/] [cyan]{state.MODEL}[/] "
                   f"[dim]({PROVIDER_LABELS[state.provider]})[/]")
     header_panel()
@@ -256,6 +258,7 @@ def _handle_provider(arg: str):
         console.print(f"[green]✓ switched to[/] [bold cyan]{PROVIDER_LABELS[target]}[/] "
                       f"[dim](model: {state.MODEL})[/]")
         header_panel()
+        save_last_model()
     except Exception as e:
         console.print(f"[red]failed to switch provider: {e}[/]")
         state.provider = prev_provider

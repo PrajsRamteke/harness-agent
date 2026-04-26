@@ -6,15 +6,31 @@ without threading plumbing through every function.
 import json, os, time
 from typing import Dict, List, Optional
 
-from .constants import PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL
+from .constants import PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE
 
 # auth / client
 provider: str = "anthropic"  # "anthropic" or "openrouter" — set by make_client()
 auth_mode: str = "api_key"   # "api_key" or "oauth" — Anthropic-only; unused for openrouter
 client = None                # Anthropic client, set by make_client()
 
+
+def _compute_initial_model() -> str:
+    """Env `CLAUDE_MODEL` wins; else last saved pick from a prior run; else default."""
+    if os.environ.get("CLAUDE_MODEL"):
+        return _INITIAL_MODEL
+    if LAST_MODEL_FILE.exists():
+        try:
+            data = json.loads(LAST_MODEL_FILE.read_text())
+            m = data.get("model")
+            if isinstance(m, str) and m.strip():
+                return m.strip()
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+    return _INITIAL_MODEL
+
+
 # model
-MODEL: str = _INITIAL_MODEL
+MODEL: str = _compute_initial_model()
 
 # conversation
 backups: List[tuple] = []    # [(path, prev_content), ...] stack for /undo
