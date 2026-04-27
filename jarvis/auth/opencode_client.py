@@ -346,11 +346,21 @@ class _OpenCodeMessages:
             "max_tokens": max_tokens,
             "stream": True,
         }
-        if tools:
-            kwargs["tools"] = _anthropic_tools_to_openai(tools)
-            kwargs["tool_choice"] = "auto"
+        oai_tools = _anthropic_tools_to_openai(tools) if tools else []
+        if oai_tools:
+            kwargs["tools"] = oai_tools
 
-        response = self._client.chat.completions.create(**kwargs)
+        try:
+            response = self._client.chat.completions.create(**kwargs)
+        except Exception as e:
+            err = str(e)
+            if oai_tools and ("invalid_request" in err or "tool" in err.lower() or "function" in err.lower()):
+                # Model doesn't support tool use — retry without tools
+                kwargs.pop("tools", None)
+                response = self._client.chat.completions.create(**kwargs)
+            else:
+                raise
+
         stream = _OpenCodeStream(response)
         try:
             yield stream
