@@ -19,6 +19,8 @@ from ..utils.io import _secure_write
 from .. import state
 from .api_key import load_key, prompt_for_key
 from .openrouter import load_openrouter_key, prompt_for_openrouter_key
+from .opencode import load_opencode_key, prompt_for_opencode_key
+from .opencode_client import OpenCodeClient
 from .oauth_tokens import (
     load_oauth_tokens, clear_oauth_tokens, oauth_refresh, get_fresh_oauth_token,
 )
@@ -84,16 +86,18 @@ def _build_client_from_mode(mode: str) -> Anthropic:
 def _resolve_provider() -> str:
     """Decide provider from env → stored → prompt, preserving legacy behavior."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
-    if env_provider in ("anthropic", "openrouter"):
+    if env_provider in ("anthropic", "openrouter", "opencode"):
         return env_provider
     # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
     if os.getenv("ANTHROPIC_API_KEY"):
         return "anthropic"
     if os.getenv("OPENROUTER_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
         return "openrouter"
+    if os.getenv("OPENCODE_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
+        return "opencode"
     if PROVIDER_FILE.exists():
         stored = PROVIDER_FILE.read_text().strip()
-        if stored in ("anthropic", "openrouter"):
+        if stored in ("anthropic", "openrouter", "opencode"):
             return stored
     # Legacy: any existing Anthropic state means Anthropic (preserves old flow).
     if AUTH_MODE_FILE.exists() or KEY_FILE.exists() or load_oauth_tokens():
@@ -101,10 +105,34 @@ def _resolve_provider() -> str:
     return _choose_provider()
 
 
-def make_client() -> Anthropic:
+def _build_opencode_client() -> OpenCodeClient:
+    key = load_opencode_key()
+    return OpenCodeClient(api_key=key)
+
+
+def make_client():
     """Resolve provider + auth, build client, validate; handle 401 with refresh/re-auth."""
     state.provider = _resolve_provider()
     _secure_write(PROVIDER_FILE, state.provider)
+
+    if state.provider == "opencode":
+        from ..constants import OPENCODE_DEFAULT_MODEL
+        if not state.MODEL or state.MODEL.startswith("claude-") or "/" in state.MODEL:
+            state.MODEL = OPENCODE_DEFAULT_MODEL
+        for attempt in range(3):
+            try:
+                c = _build_opencode_client()
+                return c
+            except Exception as e:
+                if "401" in str(e) or "unauthorized" in str(e).lower():
+                    from ..constants import OPENCODE_KEY_FILE
+                    OPENCODE_KEY_FILE.unlink(missing_ok=True)
+                    prompt_for_opencode_key(
+                        reason="Stored OpenCode key rejected. Please re-enter."
+                    )
+                    continue
+                raise
+        console.print("[red]Too many OpenCode auth failures[/]"); sys.exit(1)
 
     if state.provider == "openrouter":
         if "/" not in state.MODEL:

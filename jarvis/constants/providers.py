@@ -1,15 +1,16 @@
-"""Provider registry: Anthropic (default) and OpenRouter.
+"""Provider registry: Anthropic, OpenRouter, and OpenCode Go.
 
 Each provider exposes a list of (model_id, description) tuples for the /model
 picker. OpenRouter models are free-tier popular picks; users can also type any
 OpenRouter slug manually at the prompt.
 """
 
-PROVIDERS = ("anthropic", "openrouter")
+PROVIDERS = ("anthropic", "openrouter", "opencode")
 
 PROVIDER_LABELS = {
     "anthropic": "Anthropic",
     "openrouter": "OpenRouter",
+    "opencode": "OpenCode Go",
 }
 
 ANTHROPIC_MODELS = [
@@ -38,8 +39,31 @@ OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m2.5:free"
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
+OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
+
+OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
+
+OPENCODE_MODELS = [
+    ("glm-5.1",         "GLM-5.1 — latest GLM model"),
+    ("glm-5",           "GLM-5 — high capability"),
+    ("kimi-k2.6",       "Kimi K2.6 — Moonshot AI, most capable"),
+    ("kimi-k2.5",       "Kimi K2.5 — Moonshot AI"),
+    ("deepseek-v4-pro", "DeepSeek V4 Pro — strong reasoning"),
+    ("deepseek-v4-flash","DeepSeek V4 Flash — fast & cheap"),
+    ("mimo-v2.5-pro",   "MiMo V2.5 Pro"),
+    ("mimo-v2.5",       "MiMo V2.5"),
+    ("mimo-v2-pro",     "MiMo V2 Pro"),
+    ("mimo-v2-omni",    "MiMo V2 Omni"),
+    ("minimax-m2.7",    "MiniMax M2.7"),
+    ("minimax-m2.5",    "MiniMax M2.5"),
+    ("qwen3.6-plus",    "Qwen3.6 Plus"),
+    ("qwen3.5-plus",    "Qwen3.5 Plus"),
+]
+
 
 def models_for(provider: str):
     if provider == "openrouter":
         return OPENROUTER_FREE_MODELS
+    if provider == "opencode":
+        return OPENCODE_MODELS
     return ANTHROPIC_MODELS

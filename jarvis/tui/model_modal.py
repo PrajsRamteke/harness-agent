@@ -67,9 +67,11 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
     def _populate(self) -> None:
         opts = self.query_one("#model_list", OptionList)
         opts.clear_options()
-        rows = [
-            ("anthropic", m, d) for m, d in models_for("anthropic")
-        ] + [("openrouter", m, d) for m, d in models_for("openrouter")]
+        rows = (
+            [("anthropic", m, d) for m, d in models_for("anthropic")]
+            + [("openrouter", m, d) for m, d in models_for("openrouter")]
+            + [("opencode", m, d) for m, d in models_for("opencode")]
+        )
         for prov, m, desc in rows:
             marker = " ●" if m == state.MODEL else "  "
             label = Text.assemble(

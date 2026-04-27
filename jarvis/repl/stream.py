@@ -140,6 +140,13 @@ def call_claude_stream():
                         "Delete `~/.config/harness-agent/openrouter_key` and restart, "
                         "or run /provider to reconfigure.[/]"
                     )
+                elif state.provider == "opencode":
+                    console.print(
+                        "[red]Auth error — Provider: OpenCode Go (API key)[/]\n"
+                        "[yellow]OpenCode rejected the key. "
+                        "Delete `~/.config/harness-agent/opencode_key` and restart, "
+                        "or run /provider to reconfigure.[/]"
+                    )
                 elif state.auth_mode == "oauth" and not oauth_refreshed:
                     tokens = load_oauth_tokens()
                     refreshed = oauth_refresh(tokens) if tokens else None

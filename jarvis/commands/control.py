@@ -3,8 +3,9 @@ import os, time
 
 from ..console import console, Panel, Table
 from ..constants import (
-    AVAILABLE_MODELS, KEY_FILE, OPENROUTER_KEY_FILE, AUTH_MODE_FILE,
-    PROVIDER_FILE, PROVIDER_LABELS, OPENROUTER_DEFAULT_MODEL, models_for,
+    AVAILABLE_MODELS, KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE,
+    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDER_LABELS,
+    OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, models_for,
 )
 from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
 from ..utils.io import _secure_write
@@ -12,7 +13,8 @@ from ..utils.time_fmt import fmt_duration
 from ..auth.oauth_tokens import load_oauth_tokens, clear_oauth_tokens
 from ..auth.oauth_flow import oauth_login
 from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
-from ..auth.client import _build_client_from_mode
+from ..auth.opencode import prompt_for_opencode_key, load_opencode_key
+from ..auth.client import _build_client_from_mode, _build_opencode_client
 from ..repl.banners import header_panel
 from ..repl.stats import estimated_cost
 from ..storage.prefs import save_last_model
@@ -108,12 +110,20 @@ def _all_models():
     """Combined list: [(provider, model_id, description), ...]."""
     rows = [("anthropic", m, d) for m, d in models_for("anthropic")]
     rows += [("openrouter", m, d) for m, d in models_for("openrouter")]
+    rows += [("opencode", m, d) for m, d in models_for("opencode")]
     return rows
 
 
+_OPENCODE_MODEL_IDS = {m for m, _ in models_for("opencode")}
+
+
 def _provider_for_model(model: str) -> str:
-    """Heuristic: OpenRouter slugs always contain '/', Anthropic ids don't."""
-    return "openrouter" if "/" in model else "anthropic"
+    """Determine provider from model id."""
+    if model in _OPENCODE_MODEL_IDS:
+        return "opencode"
+    if "/" in model:
+        return "openrouter"
+    return "anthropic"
 
 
 def _apply_model_selection(chosen: str):
@@ -193,6 +203,14 @@ def _handle_auth():
             k = OPENROUTER_KEY_FILE.read_text().strip()
             lines.append(f"key: sk-or-…{k[-6:]}")
         lines.append(f"model: [cyan]{state.MODEL}[/]")
+    elif state.provider == "opencode":
+        has_env = bool(os.getenv("OPENCODE_API_KEY"))
+        lines.append("auth: [bold]API key[/]")
+        lines.append("source: " + ("env OPENCODE_API_KEY" if has_env else f"{OPENCODE_KEY_FILE}"))
+        if not has_env and OPENCODE_KEY_FILE.exists():
+            k = OPENCODE_KEY_FILE.read_text().strip()
+            lines.append(f"key: …{k[-6:]}")
+        lines.append(f"model: [cyan]{state.MODEL}[/]")
     else:
         lines.append(f"auth: [bold]{state.auth_mode}[/]")
         if state.auth_mode == "oauth":
@@ -212,26 +230,28 @@ def _handle_auth():
 
 
 def _handle_provider(arg: str):
-    """/provider [anthropic|openrouter] — switch provider mid-session."""
+    """/provider [anthropic|openrouter|opencode] — switch provider mid-session."""
     target = arg.strip().lower() if arg else ""
     if not target:
         console.print(Panel(
-            f"current provider: [bold cyan]{PROVIDER_LABELS[state.provider]}[/]\n\n"
-            "  [cyan]1[/]  Anthropic   [dim](Claude models)[/]\n"
-            "  [cyan]2[/]  OpenRouter  [dim](free & paid)[/]\n\n"
-            "usage: [dim]/provider anthropic[/] or [dim]/provider openrouter[/]",
+            f"current provider: [bold cyan]{PROVIDER_LABELS.get(state.provider, state.provider)}[/]\n\n"
+            "  [cyan]1[/]  Anthropic     [dim](Claude models)[/]\n"
+            "  [cyan]2[/]  OpenRouter    [dim](free & paid)[/]\n"
+            "  [cyan]3[/]  OpenCode Go   [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n\n"
+            "usage: [dim]/provider anthropic[/] or [dim]/provider openrouter[/] or [dim]/provider opencode[/]",
             title="🌐 provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1/2, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1/2/3, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
-            console.print("[dim]TUI mode — run [cyan]/provider anthropic[/] or "
-                          "[cyan]/provider openrouter[/] to switch.[/]")
+            console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
+                          "[cyan]/provider openrouter[/], or [cyan]/provider opencode[/] to switch.[/]")
             return
-        if sel in ("1", "anthropic", "a"):  target = "anthropic"
-        elif sel in ("2", "openrouter", "or"): target = "openrouter"
+        if sel in ("1", "anthropic", "a"):       target = "anthropic"
+        elif sel in ("2", "openrouter", "or"):   target = "openrouter"
+        elif sel in ("3", "opencode", "oc"):     target = "opencode"
         else: return
-    if target not in ("anthropic", "openrouter"):
+    if target not in ("anthropic", "openrouter", "opencode"):
         console.print(f"[red]unknown provider: {target}[/]"); return
     if target == state.provider:
         console.print(f"[dim]already on {PROVIDER_LABELS[target]}[/]"); return
@@ -244,17 +264,24 @@ def _handle_provider(arg: str):
     if target == "openrouter":
         if "/" not in state.MODEL:
             state.MODEL = OPENROUTER_DEFAULT_MODEL
-        # Ensure we have a key before building the client.
         if not os.getenv("OPENROUTER_API_KEY") and not OPENROUTER_KEY_FILE.exists():
             prompt_for_openrouter_key()
+    elif target == "opencode":
+        if state.MODEL not in _OPENCODE_MODEL_IDS:
+            state.MODEL = OPENCODE_DEFAULT_MODEL
+        if not os.getenv("OPENCODE_API_KEY") and not OPENCODE_KEY_FILE.exists():
+            prompt_for_opencode_key()
     else:
-        if "/" in state.MODEL:
+        if "/" in state.MODEL or state.MODEL in _OPENCODE_MODEL_IDS:
             state.MODEL = _DEFAULT_ANTHROPIC_MODEL
 
     try:
-        state.client = _build_client_from_mode(
-            "openrouter" if target == "openrouter" else state.auth_mode
-        )
+        if target == "opencode":
+            state.client = _build_opencode_client()
+        else:
+            state.client = _build_client_from_mode(
+                "openrouter" if target == "openrouter" else state.auth_mode
+            )
         console.print(f"[green]✓ switched to[/] [bold cyan]{PROVIDER_LABELS[target]}[/] "
                       f"[dim](model: {state.MODEL})[/]")
         header_panel()
