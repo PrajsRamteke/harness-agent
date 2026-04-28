@@ -146,13 +146,14 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
         elif role == "assistant":
             text_parts = []
             tool_calls = []
+            reasoning_parts = []
             for raw_block in content:
                 block = _block_as_dict(raw_block)
                 btype = block.get("type", "")
                 if btype == "text":
                     text_parts.append(block.get("text", ""))
                 elif btype == "thinking":
-                    pass  # skip thinking blocks
+                    reasoning_parts.append(block.get("thinking", ""))
                 elif btype == "tool_use":
                     tool_calls.append({
                         "id": block.get("id", ""),
@@ -168,6 +169,8 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
             joined = "\n".join(text_parts)
             if joined:
                 msg_out["content"] = joined
+            if reasoning_parts:
+                msg_out["reasoning_content"] = "\n".join(reasoning_parts)
             if tool_calls:
                 msg_out["tool_calls"] = tool_calls
             if "content" not in msg_out and not tool_calls:
@@ -185,6 +188,9 @@ def _openai_response_to_anthropic(response) -> _FakeMessage:
     msg = choice.message
     content: list = []
 
+    reasoning_content = getattr(msg, "reasoning_content", None)
+    if reasoning_content:
+        content.append(_ContentBlock(type="thinking", thinking=reasoning_content))
     if msg.content:
         content.append(_TextBlock(type="text", text=msg.content))
 
@@ -222,6 +228,7 @@ class _OpenCodeStream:
         self._closed = False
         # Accumulated across streaming — written by _drain(), read by get_final_message()
         self._collected_text: list[str] = []
+        self._collected_reasoning: list[str] = []
         self._collected_tool_calls: dict[int, dict] = {}
         self._usage_obj = None
         self._chunk_queue: queue.Queue = queue.Queue()
@@ -252,6 +259,9 @@ class _OpenCodeStream:
         if hasattr(chunk, "usage") and chunk.usage:
             self._usage_obj = chunk.usage
         text = None
+        reasoning_content = getattr(delta, "reasoning_content", None)
+        if reasoning_content:
+            self._collected_reasoning.append(reasoning_content)
         if delta.content:
             self._collected_text.append(delta.content)
             text = delta.content
@@ -272,6 +282,8 @@ class _OpenCodeStream:
 
     def _build_final(self) -> _FakeMessage:
         content: list = []
+        if self._collected_reasoning:
+            content.append(_ContentBlock(type="thinking", thinking="".join(self._collected_reasoning)))
         if self._collected_text:
             content.append(_TextBlock(type="text", text="".join(self._collected_text)))
         for idx in sorted(self._collected_tool_calls):
