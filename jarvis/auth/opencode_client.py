@@ -11,6 +11,8 @@ Translates:
 from __future__ import annotations
 
 import json
+import queue
+import threading
 import contextlib
 from dataclasses import dataclass, field
 from typing import Any, Generator, Optional
@@ -217,87 +219,129 @@ class _OpenCodeStream:
     def __init__(self, response):
         self._response = response
         self._final: Optional[_FakeMessage] = None
-        self._text_chunks: list[str] = []
         self._closed = False
+        # Accumulated across streaming — written by _drain(), read by get_final_message()
+        self._collected_text: list[str] = []
+        self._collected_tool_calls: dict[int, dict] = {}
+        self._usage_obj = None
+        self._chunk_queue: queue.Queue = queue.Queue()
+        self._reader_started = False
 
-    @property
-    def text_stream(self) -> Generator[str, None, None]:
-        """Yield text deltas from the streaming response."""
-        collected_text = []
-        collected_tool_calls: dict[int, dict] = {}
+    def _start_reader(self) -> None:
+        if self._reader_started:
+            return
+        self._reader_started = True
+        t = threading.Thread(target=self._read_chunks_into_queue, daemon=True)
+        t.start()
 
-        for chunk in self._response:
-            if self._closed:
-                break
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                continue
-            if delta.content:
-                collected_text.append(delta.content)
-                yield delta.content
-            # Collect tool call chunks
-            if delta.tool_calls:
-                for tc_chunk in delta.tool_calls:
-                    idx = tc_chunk.index
-                    if idx not in collected_tool_calls:
-                        collected_tool_calls[idx] = {
-                            "id": "",
-                            "name": "",
-                            "arguments": "",
-                        }
-                    entry = collected_tool_calls[idx]
-                    if tc_chunk.id:
-                        entry["id"] = tc_chunk.id
-                    if tc_chunk.function:
-                        if tc_chunk.function.name:
-                            entry["name"] += tc_chunk.function.name
-                        if tc_chunk.function.arguments:
-                            entry["arguments"] += tc_chunk.function.arguments
+    def _read_chunks_into_queue(self) -> None:
+        """Daemon thread: push every chunk onto the queue, then None sentinel."""
+        try:
+            for chunk in self._response:
+                self._chunk_queue.put(chunk)
+        except Exception:
+            pass
+        finally:
+            self._chunk_queue.put(None)
 
-            # Capture usage from last chunk
-            if hasattr(chunk, "usage") and chunk.usage:
-                self._usage = chunk.usage
+    def _process_chunk(self, chunk) -> Optional[str]:
+        """Extract text delta and accumulate tool call fragments. Returns text or None."""
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta is None:
+            return None
+        if hasattr(chunk, "usage") and chunk.usage:
+            self._usage_obj = chunk.usage
+        text = None
+        if delta.content:
+            self._collected_text.append(delta.content)
+            text = delta.content
+        if delta.tool_calls:
+            for tc_chunk in delta.tool_calls:
+                idx = tc_chunk.index
+                if idx not in self._collected_tool_calls:
+                    self._collected_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
+                entry = self._collected_tool_calls[idx]
+                if tc_chunk.id:
+                    entry["id"] = tc_chunk.id
+                if tc_chunk.function:
+                    if tc_chunk.function.name:
+                        entry["name"] += tc_chunk.function.name
+                    if tc_chunk.function.arguments:
+                        entry["arguments"] += tc_chunk.function.arguments
+        return text
 
-        # Build final message from collected data
+    def _build_final(self) -> _FakeMessage:
         content: list = []
-        if collected_text:
-            content.append(_TextBlock(type="text", text="".join(collected_text)))
-
-        for idx in sorted(collected_tool_calls):
-            tc = collected_tool_calls[idx]
+        if self._collected_text:
+            content.append(_TextBlock(type="text", text="".join(self._collected_text)))
+        for idx in sorted(self._collected_tool_calls):
+            tc = self._collected_tool_calls[idx]
             try:
                 args = json.loads(tc["arguments"] or "{}")
             except json.JSONDecodeError:
                 args = {}
-            content.append(_ToolUseBlock(
-                type="tool_use",
-                id=tc["id"],
-                name=tc["name"],
-                input=args,
-            ))
-
-        usage_obj = getattr(self, "_usage", None)
+            content.append(_ToolUseBlock(type="tool_use", id=tc["id"], name=tc["name"], input=args))
         usage = _Usage(
-            input_tokens=getattr(usage_obj, "prompt_tokens", 0) if usage_obj else 0,
-            output_tokens=getattr(usage_obj, "completion_tokens", 0) if usage_obj else 0,
+            input_tokens=getattr(self._usage_obj, "prompt_tokens", 0) if self._usage_obj else 0,
+            output_tokens=getattr(self._usage_obj, "completion_tokens", 0) if self._usage_obj else 0,
         )
-        stop_reason = "tool_use" if any(
-            b.get("type") == "tool_use" for b in content
-        ) else "end_turn"
-        self._final = _FakeMessage(content=content, usage=usage, stop_reason=stop_reason)
+        stop_reason = "tool_use" if any(b.get("type") == "tool_use" for b in content) else "end_turn"
+        return _FakeMessage(content=content, usage=usage, stop_reason=stop_reason)
+
+    @property
+    def text_stream(self) -> Generator[str, None, None]:
+        """Yield text deltas. Reader runs in a daemon thread; _closed checked every 50ms.
+        Raises KeyboardInterrupt when cancelled so the caller loop exits immediately."""
+        self._start_reader()
+        while True:
+            if self._closed:
+                raise KeyboardInterrupt("stream cancelled")
+            try:
+                chunk = self._chunk_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if chunk is None:
+                break
+            text = self._process_chunk(chunk)
+            if text:
+                yield text
+        self._final = self._build_final()
 
     def get_final_message(self) -> _FakeMessage:
-        if self._final is None:
-            # text_stream was not consumed (stream_reply_live=False path)
-            # drain the stream ourselves
-            for _ in self.text_stream:
-                pass
-        return self._final  # type: ignore[return-value]
+        if self._final is not None:
+            return self._final
+        if self._closed:
+            # Cancelled — return whatever was collected so far
+            self._final = self._build_final()
+            return self._final
+        # Non-streaming path: drain the queue ourselves
+        self._start_reader()
+        while True:
+            if self._closed:
+                self._final = self._build_final()
+                return self._final
+            try:
+                chunk = self._chunk_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if chunk is None:
+                break
+            self._process_chunk(chunk)
+        self._final = self._build_final()
+        return self._final
 
     def close(self):
         self._closed = True
         try:
             self._response.close()
+        except Exception:
+            pass
+        # Also close the underlying httpx response if accessible, to unblock
+        # any thread blocked inside `for chunk in self._response`.
+        try:
+            http_resp = getattr(self._response, "response", None)
+            if http_resp is not None:
+                http_resp.close()
         except Exception:
             pass
 

@@ -588,6 +588,8 @@ class JarvisTUI(App):
                     break
                 if state.current_session_id and state.messages and state.messages[-1] is not asst_msg:
                     db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
+        except KeyboardInterrupt:
+            self._tui_console.assistant_stream_abort()
         except Exception as e:  # surface errors in the transcript, don't crash the app
             self._tui_console.assistant_stream_abort()
             self._tui_console.print(f"[red]error: {type(e).__name__}: {e}[/]")

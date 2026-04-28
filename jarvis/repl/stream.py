@@ -1,4 +1,5 @@
 """Call the configured model API with streaming + retry + OAuth refresh."""
+import ctypes
 import threading
 import time
 from typing import Any, Dict
@@ -20,10 +21,25 @@ from .turn_progress import report_turn_phase
 # Reference to the active stream context so another thread (e.g. the TUI Esc
 # handler) can abort an in-flight response.
 _current_stream = None
+_worker_thread_id: int = 0  # set at the start of each turn
+
+
+def _raise_in_thread(tid: int, exc_type) -> bool:
+    """Inject an exception into a thread by ID using ctypes. Returns True on success."""
+    if not tid:
+        return False
+    try:
+        res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(tid),
+            ctypes.py_object(exc_type),
+        )
+        return res == 1
+    except Exception:
+        return False
 
 
 def cancel_current_stream():
-    """Close the active stream, if any. Safe to call from any thread."""
+    """Close the active stream and interrupt the worker thread. Safe to call from any thread."""
     global _current_stream
     s = _current_stream
     if s is None:
@@ -32,6 +48,9 @@ def cancel_current_stream():
         s.close()
     except Exception:
         pass
+    # Also raise KeyboardInterrupt directly in the worker thread so it unblocks
+    # immediately regardless of what the stream is waiting on.
+    _raise_in_thread(_worker_thread_id, KeyboardInterrupt)
     return True
 
 
@@ -95,7 +114,8 @@ def call_claude_stream():
     if state.think_mode:
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4000}
 
-    global _current_stream
+    global _current_stream, _worker_thread_id
+    _worker_thread_id = threading.current_thread().ident or 0
     delays = [1, 3, 6]
     oauth_refreshed = False
     panel_title = f"Jarvis [{assistant_model_label()}]"
