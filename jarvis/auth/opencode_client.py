@@ -171,6 +171,12 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
                 msg_out["content"] = joined
             if reasoning_parts:
                 msg_out["reasoning_content"] = "\n".join(reasoning_parts)
+            elif tool_calls:
+                # DeepSeek thinking mode requires reasoning_content for
+                # assistant messages that participated in a tool-call turn.
+                # Old sessions (pre-reasoning-support) may be missing the
+                # thinking block — provide empty string to satisfy the API.
+                msg_out["reasoning_content"] = ""
             if tool_calls:
                 msg_out["tool_calls"] = tool_calls
             if "content" not in msg_out and not tool_calls:
@@ -402,6 +408,12 @@ class _OpenCodeMessages:
             "max_tokens": max_tokens,
             "stream": True,
         }
+        # Pass thinking/reasoning mode (used by DeepSeek V4, etc.)
+        if thinking and thinking.get("type") == "enabled":
+            kwargs["reasoning_effort"] = "max"  # agent-grade reasoning
+            kwargs.setdefault("extra_body", {})
+            kwargs["extra_body"]["thinking"] = {"type": "enabled"}
+
         oai_tools = _anthropic_tools_to_openai(tools) if tools else []
         if oai_tools:
             kwargs["tools"] = oai_tools
