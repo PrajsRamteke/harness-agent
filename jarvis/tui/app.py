@@ -577,6 +577,21 @@ class JarvisTUI(App):
                 db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
                 db_set_title_if_empty(state.current_session_id, inp)
 
+            # ── coding addon badge ──────────────────────────────────────
+            from ..repl.system import _is_coding_request
+            if _is_coding_request(state.messages):
+                def _show_coding_badge():
+                    try:
+                        log = self.query_one("#transcript", RichLog)
+                        badge = Text()
+                        badge.append(" ⚡ CODING MODE ", style="bold #0d0d0d on #00d7af")
+                        badge.append("  large-codebase rules active", style="#00d7af")
+                        log.write(badge)
+                    except Exception:
+                        pass
+                self.call_from_thread(_show_coding_badge)
+            # ───────────────────────────────────────────────────────────
+
             while True:
                 resp = call_claude_stream()
                 asst_msg = {"role": "assistant", "content": resp.content}

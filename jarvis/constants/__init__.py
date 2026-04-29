@@ -20,4 +20,4 @@ from .oauth import (
     CLAUDE_CODE_IDENTITY,
 )
 from .icons import TOOL_ICONS
-from .system_prompt import SYSTEM
+from .system_prompt import SYSTEM, CODING_ADDON
