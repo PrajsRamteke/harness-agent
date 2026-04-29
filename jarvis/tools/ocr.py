@@ -4,7 +4,10 @@ import pathlib
 import subprocess
 import threading
 
-from ..constants import CWD, MAX_PARALLEL_TOOLS
+from ..constants import (
+    CWD, MAX_PARALLEL_TOOLS, OCR_MAX_FILES_DEFAULT, OCR_MAX_FILES_CAP,
+    OCR_CHARS_PER_IMAGE, OCR_CHARS_PER_IMAGE_CAP, OCR_SCAN_CHARS, OCR_WORKER_MIN,
+)
 from ..repl.turn_progress import report_turn_phase
 from ..path_resolve import robust_resolve
 
@@ -107,8 +110,8 @@ def read_images_text(
     keywords: list[str] | None = None,
 ) -> str:
     """OCR many images concurrently and return compact per-file text previews."""
-    max_files = _clamp_int(max_files, 80, 1, 200)
-    max_chars_per_image = _clamp_int(max_chars_per_image, 800, 80, 4000)
+    max_files = _clamp_int(max_files, OCR_MAX_FILES_DEFAULT, 1, OCR_MAX_FILES_CAP)
+    max_chars_per_image = _clamp_int(max_chars_per_image, OCR_CHARS_PER_IMAGE, 80, OCR_CHARS_PER_IMAGE_CAP)
     worker_count = _clamp_int(max_workers, min(20, MAX_PARALLEL_TOOLS), 1, MAX_PARALLEL_TOOLS)
 
     if paths:

@@ -3,6 +3,9 @@ import pathlib
 
 CWD = pathlib.Path.cwd()
 CONFIG_DIR = pathlib.Path.home() / ".config" / "harness-agent"
+
+SESSIONS_LIST_LIMIT = 50
+SESSION_TITLE_MAX_LENGTH = 80
 KEY_FILE = CONFIG_DIR / "key"
 OPENROUTER_KEY_FILE = CONFIG_DIR / "openrouter_key"
 OPENCODE_KEY_FILE = CONFIG_DIR / "opencode_key"

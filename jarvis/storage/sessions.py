@@ -2,7 +2,7 @@
 import json, sqlite3, time
 from typing import Dict, List, Optional
 
-from ..constants import CONFIG_DIR, SESSIONS_DB
+from ..constants import CONFIG_DIR, SESSIONS_DB, SESSION_TITLE_MAX_LENGTH, SESSIONS_LIST_LIMIT
 from ..utils.serialize import _msg_to_json
 
 
@@ -71,7 +71,7 @@ def db_replace_session_messages(session_id: int, msgs: List[Dict]):
 
 
 def db_set_title_if_empty(session_id: int, title: str):
-    title = (title or "").strip().replace("\n", " ")[:80]
+    title = (title or "").strip().replace("\n", " ")[:SESSION_TITLE_MAX_LENGTH]
     if not title:
         return
     with db_conn() as c:
@@ -80,7 +80,7 @@ def db_set_title_if_empty(session_id: int, title: str):
             c.execute("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
 
 
-def db_list_sessions(limit: int = 50) -> List[sqlite3.Row]:
+def db_list_sessions(limit: int = SESSIONS_LIST_LIMIT) -> List[sqlite3.Row]:
     with db_conn() as c:
         return c.execute("""
             SELECT s.id, s.title, s.model, s.created_at, s.updated_at,

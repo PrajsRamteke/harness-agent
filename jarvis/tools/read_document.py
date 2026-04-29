@@ -7,7 +7,11 @@ import io
 import json
 import pathlib
 
-from ..constants import CWD, MAX_FILE_READ
+from ..constants import (
+    CWD, MAX_FILE_READ,
+    DOC_MAX_FILES_DEFAULT, DOC_MAX_FILES_CAP,
+    DOC_MAX_CHARS_PER_FILE_DEFAULT, DOC_CSV_MAX_ROWS_DEFAULT,
+)
 from ..path_resolve import robust_resolve
 from .dirs import SKIP_DIRS
 from ..utils.html_clean import _strip_html
@@ -283,18 +287,18 @@ def read_document(
     paths: list[str] | None = None,
     directory: str | None = None,
     pattern: str = "**/*",
-    max_files: int = 32,
-    max_chars_per_file: int = 48_000,
+    max_files: int = DOC_MAX_FILES_DEFAULT,
+    max_chars_per_file: int = DOC_MAX_CHARS_PER_FILE_DEFAULT,
     force: bool = False,
-    csv_max_rows: int = 200,
+    csv_max_rows: int = DOC_CSV_MAX_ROWS_DEFAULT,
 ) -> str:
     """Read PDF, images (OCR), CSV/TSV, JSON, HTML, XLSX, or text; single or bulk.
 
     Prefer this over `read_file` for non-plain-text office/data/media files.
     """
-    max_files = _clamp(max_files, 32, 1, 80)
-    max_chars = _clamp(max_chars_per_file, 48_000, 2_000, min(MAX_FILE_READ, 200_000))
-    csv_max_rows = _clamp(csv_max_rows, 200, 10, 5_000)
+    max_files = _clamp(max_files, DOC_MAX_FILES_DEFAULT, 1, DOC_MAX_FILES_CAP)
+    max_chars = _clamp(max_chars_per_file, DOC_MAX_CHARS_PER_FILE_DEFAULT, 2_000, min(MAX_FILE_READ, 200_000))
+    csv_max_rows = _clamp(csv_max_rows, DOC_CSV_MAX_ROWS_DEFAULT, 10, 5_000)
 
     collected, err = _collect_paths(path, paths, directory, pattern, max_files)
     if err:

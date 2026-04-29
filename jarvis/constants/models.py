@@ -27,3 +27,46 @@ PRICING = {
     "claude-opus-4-7":   (15.0, 75.0),
     "claude-haiku-4-5":  (1.0, 5.0),
 }
+
+# ── Numeric / behavior constants ───────────────────────────────────────────────
+FILE_PERMISSION = 0o600
+PANEL_PREVIEW_CHARS = 400
+OAUTH_EXPIRY_BUFFER = 60      # seconds before expiry to trigger refresh
+OAUTH_DEFAULT_EXPIRY = 3600   # fallback when expires_in missing
+DEFAULT_BASH_TIMEOUT = 60
+DEFAULT_RETRIES = 3
+API_MAX_TOKENS = 8192
+THINKING_BUDGET_TOKENS = 4000
+SPECK_MAX_CHARS = 8000
+CLICK_WAIT_ATTEMPTS = 20
+CLICK_WAIT_DELAY = 0.2
+SETTLE_WAIT = 0.5
+
+# File reading limits
+MAX_FILE_SIZE_BYTES = 2_000_000
+MAX_FILE_CHUNK_BYTES = 4_096
+
+# Document reader defaults
+DOC_MAX_FILES_DEFAULT = 32
+DOC_MAX_FILES_CAP = 80
+DOC_MAX_CHARS_PER_FILE_DEFAULT = 48_000
+DOC_CSV_MAX_ROWS_DEFAULT = 200
+
+# OCR defaults
+OCR_MAX_FILES_DEFAULT = 80
+OCR_MAX_FILES_CAP = 200
+OCR_CHARS_PER_IMAGE = 800
+OCR_CHARS_PER_IMAGE_CAP = 4000
+OCR_SCAN_CHARS = 12_000
+OCR_WORKER_MIN = 1
+
+# Git log default
+GIT_LOG_DEFAULT_COUNT = 10
+
+# Search default
+SEARCH_DEFAULT_MAX_RESULTS = 8
+SEARCH_MATCH_CAP = 50
+
+# ── Mode identifiers ──────────────────────────────────────────────────────────
+MODE_DEFAULT = "default"
+MODE_CODING = "coding"

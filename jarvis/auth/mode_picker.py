@@ -2,6 +2,7 @@
 import sys
 
 from ..console import console, Panel
+from ..constants import PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, AUTH_API_KEY, AUTH_OAUTH
 
 
 def _choose_provider() -> str:
@@ -18,9 +19,9 @@ def _choose_provider() -> str:
             ch = console.input("choice [1/2/3]: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[yellow]cancelled[/]"); sys.exit(1)
-        if ch in ("1", "anthropic", "a"):          return "anthropic"
-        if ch in ("2", "openrouter", "or"):        return "openrouter"
-        if ch in ("3", "opencode", "oc", "go"):    return "opencode"
+        if ch in ("1", "anthropic", "a"):          return PROVIDER_ANTHROPIC
+        if ch in ("2", "openrouter", "or"):        return PROVIDER_OPENROUTER
+        if ch in ("3", "opencode", "oc", "go"):    return PROVIDER_OPENCODE
         console.print("[red]enter 1, 2, or 3[/]")
 
 
@@ -37,6 +38,6 @@ def _choose_auth_mode() -> str:
             ch = console.input("choice [1/2]: ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[yellow]cancelled[/]"); sys.exit(1)
-        if ch in ("1", "key", "api", "api_key"): return "api_key"
-        if ch in ("2", "oauth", "login"):        return "oauth"
+        if ch in ("1", "key", "api", "api_key"): return AUTH_API_KEY
+        if ch in ("2", "oauth", "login"):        return AUTH_OAUTH
         console.print("[red]enter 1 or 2[/]")

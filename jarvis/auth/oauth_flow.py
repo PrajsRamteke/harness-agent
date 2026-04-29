@@ -7,6 +7,7 @@ from ..constants import (
     OAUTH_CLIENT_ID, OAUTH_AUTHORIZE_URL, OAUTH_TOKEN_URL,
     OAUTH_REDIRECT_URI, OAUTH_SCOPES,
 )
+from ..constants.models import OAUTH_DEFAULT_EXPIRY
 from ..utils.http import _http_json
 from .pkce import _pkce_pair
 from .oauth_tokens import save_oauth_tokens
@@ -71,7 +72,7 @@ def oauth_login() -> Optional[dict]:
         console.print("[yellow]Returning to auth picker — you can try API key instead.[/]")
         return None
 
-    expires_in = int(body.get("expires_in") or 3600)
+    expires_in = int(body.get("expires_in") or OAUTH_DEFAULT_EXPIRY)
     tokens = {
         "access_token": body["access_token"],
         "refresh_token": body.get("refresh_token", ""),

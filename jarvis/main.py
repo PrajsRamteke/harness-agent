@@ -11,6 +11,7 @@ from .repl.stream import call_claude_stream
 from .repl.render import render_assistant
 from .commands.dispatch import handle_slash
 from .tools.shell import run_bash
+from .constants import PANEL_PREVIEW_CHARS
 from .tools.image_input import (
     append_image_block,
     clipboard_image_to_file,
@@ -83,7 +84,7 @@ def main():
                     console.print(f"[dim]📷 fresh clipboard image detected → OCR ({img})[/]")
                     block, ocr = ocr_image_block(img, label="clipboard")
                     inp = append_image_block(inp, block)
-                    console.print(Panel(ocr[:400] + ("…" if len(ocr) > 400 else ""),
+                    console.print(Panel(ocr[:PANEL_PREVIEW_CHARS] + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
                                         title="📷 attached clipboard image (OCR)", border_style="cyan"))
 
         _send_and_loop(inp)

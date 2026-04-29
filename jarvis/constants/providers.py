@@ -5,12 +5,20 @@ picker. OpenRouter models are free-tier popular picks; users can also type any
 OpenRouter slug manually at the prompt.
 """
 
+# ── Provider identifiers ──────────────────────────────────────────────────────
 PROVIDERS = ("anthropic", "openrouter", "opencode")
+PROVIDER_ANTHROPIC = "anthropic"
+PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_OPENCODE = "opencode"
+
+# ── Auth mode identifiers ─────────────────────────────────────────────────────
+AUTH_API_KEY = "api_key"
+AUTH_OAUTH = "oauth"
 
 PROVIDER_LABELS = {
-    "anthropic": "Anthropic",
-    "openrouter": "OpenRouter",
-    "opencode": "OpenCode Go",
+    PROVIDER_ANTHROPIC: "Anthropic",
+    PROVIDER_OPENROUTER: "OpenRouter",
+    PROVIDER_OPENCODE: "OpenCode Go",
 }
 
 ANTHROPIC_MODELS = [
@@ -62,8 +70,8 @@ OPENCODE_MODELS = [
 
 
 def models_for(provider: str):
-    if provider == "openrouter":
+    if provider == PROVIDER_OPENROUTER:
         return OPENROUTER_FREE_MODELS
-    if provider == "opencode":
+    if provider == PROVIDER_OPENCODE:
         return OPENCODE_MODELS
     return ANTHROPIC_MODELS

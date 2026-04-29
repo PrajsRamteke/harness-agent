@@ -6,6 +6,8 @@ from ..constants import (
     AVAILABLE_MODELS, KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE,
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDER_LABELS,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, models_for,
+    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
+    AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING,
 )
 from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
 from ..utils.io import _secure_write
@@ -83,10 +85,10 @@ def handle_control(c: str, arg: str):
     if c == "/login":
         clear_oauth_tokens()
         oauth_login()
-        _secure_write(AUTH_MODE_FILE, "oauth")
-        state.auth_mode = "oauth"
+        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+        state.auth_mode = AUTH_OAUTH
         try:
-            state.client = _build_client_from_mode("oauth")
+            state.client = _build_client_from_mode(AUTH_OAUTH)
             state.client.models.list(limit=1)
             console.print("[green]✓ OAuth client active[/]")
         except Exception as e:
@@ -95,10 +97,10 @@ def handle_control(c: str, arg: str):
     if c == "/logout":
         clear_oauth_tokens()
         if KEY_FILE.exists() or os.getenv("ANTHROPIC_API_KEY"):
-            _secure_write(AUTH_MODE_FILE, "api_key")
-            state.auth_mode = "api_key"
+            _secure_write(AUTH_MODE_FILE, AUTH_API_KEY)
+            state.auth_mode = AUTH_API_KEY
             try:
-                state.client = _build_client_from_mode("api_key")
+                state.client = _build_client_from_mode(AUTH_API_KEY)
                 console.print("[green]logged out — falling back to API key[/]")
             except Exception as e:
                 console.print(f"[red]{e}[/]")
@@ -116,22 +118,22 @@ def handle_control(c: str, arg: str):
 
 def _all_models():
     """Combined list: [(provider, model_id, description), ...]."""
-    rows = [("anthropic", m, d) for m, d in models_for("anthropic")]
-    rows += [("openrouter", m, d) for m, d in models_for("openrouter")]
-    rows += [("opencode", m, d) for m, d in models_for("opencode")]
+    rows = [(PROVIDER_ANTHROPIC, m, d) for m, d in models_for(PROVIDER_ANTHROPIC)]
+    rows += [(PROVIDER_OPENROUTER, m, d) for m, d in models_for(PROVIDER_OPENROUTER)]
+    rows += [(PROVIDER_OPENCODE, m, d) for m, d in models_for(PROVIDER_OPENCODE)]
     return rows
 
 
-_OPENCODE_MODEL_IDS = {m for m, _ in models_for("opencode")}
+_OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
 
 
 def _provider_for_model(model: str) -> str:
     """Determine provider from model id."""
     if model in _OPENCODE_MODEL_IDS:
-        return "opencode"
+        return PROVIDER_OPENCODE
     if "/" in model:
-        return "openrouter"
-    return "anthropic"
+        return PROVIDER_OPENROUTER
+    return PROVIDER_ANTHROPIC
 
 
 def _apply_model_selection(chosen: str):
@@ -203,7 +205,7 @@ def _handle_model(arg: str):
 
 def _handle_auth():
     lines = [f"provider: [bold cyan]{PROVIDER_LABELS.get(state.provider, state.provider)}[/]"]
-    if state.provider == "openrouter":
+    if state.provider == PROVIDER_OPENROUTER:
         has_env = bool(os.getenv("OPENROUTER_API_KEY"))
         lines.append("auth: [bold]API key[/]")
         lines.append("source: " + ("env OPENROUTER_API_KEY" if has_env else f"{OPENROUTER_KEY_FILE}"))
@@ -211,7 +213,7 @@ def _handle_auth():
             k = OPENROUTER_KEY_FILE.read_text().strip()
             lines.append(f"key: sk-or-…{k[-6:]}")
         lines.append(f"model: [cyan]{state.MODEL}[/]")
-    elif state.provider == "opencode":
+    elif state.provider == PROVIDER_OPENCODE:
         has_env = bool(os.getenv("OPENCODE_API_KEY"))
         lines.append("auth: [bold]API key[/]")
         lines.append("source: " + ("env OPENCODE_API_KEY" if has_env else f"{OPENCODE_KEY_FILE}"))
@@ -221,7 +223,7 @@ def _handle_auth():
         lines.append(f"model: [cyan]{state.MODEL}[/]")
     else:
         lines.append(f"auth: [bold]{state.auth_mode}[/]")
-        if state.auth_mode == "oauth":
+        if state.auth_mode == AUTH_OAUTH:
             t = load_oauth_tokens()
             if t:
                 rem = int(t.get("expires_at", 0) - time.time())
@@ -255,11 +257,11 @@ def _handle_provider(arg: str):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
                           "[cyan]/provider openrouter[/], or [cyan]/provider opencode[/] to switch.[/]")
             return
-        if sel in ("1", "anthropic", "a"):       target = "anthropic"
-        elif sel in ("2", "openrouter", "or"):   target = "openrouter"
-        elif sel in ("3", "opencode", "oc"):     target = "opencode"
+        if sel in ("1", "anthropic", "a"):       target = PROVIDER_ANTHROPIC
+        elif sel in ("2", "openrouter", "or"):   target = PROVIDER_OPENROUTER
+        elif sel in ("3", "opencode", "oc"):     target = PROVIDER_OPENCODE
         else: return
-    if target not in ("anthropic", "openrouter", "opencode"):
+    if target not in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE):
         console.print(f"[red]unknown provider: {target}[/]"); return
     if target == state.provider:
         console.print(f"[dim]already on {PROVIDER_LABELS[target]}[/]"); return
@@ -269,12 +271,12 @@ def _handle_provider(arg: str):
     _secure_write(PROVIDER_FILE, target)
 
     # Switch to a sensible default model for the new provider.
-    if target == "openrouter":
+    if target == PROVIDER_OPENROUTER:
         if "/" not in state.MODEL:
             state.MODEL = OPENROUTER_DEFAULT_MODEL
         if not os.getenv("OPENROUTER_API_KEY") and not OPENROUTER_KEY_FILE.exists():
             prompt_for_openrouter_key()
-    elif target == "opencode":
+    elif target == PROVIDER_OPENCODE:
         if state.MODEL not in _OPENCODE_MODEL_IDS:
             state.MODEL = OPENCODE_DEFAULT_MODEL
         if not os.getenv("OPENCODE_API_KEY") and not OPENCODE_KEY_FILE.exists():
@@ -284,11 +286,11 @@ def _handle_provider(arg: str):
             state.MODEL = _DEFAULT_ANTHROPIC_MODEL
 
     try:
-        if target == "opencode":
+        if target == PROVIDER_OPENCODE:
             state.client = _build_opencode_client()
         else:
             state.client = _build_client_from_mode(
-                "openrouter" if target == "openrouter" else state.auth_mode
+                PROVIDER_OPENROUTER if target == PROVIDER_OPENROUTER else state.auth_mode
             )
         console.print(f"[green]✓ switched to[/] [bold cyan]{PROVIDER_LABELS[target]}[/] "
                       f"[dim](model: {state.MODEL})[/]")
@@ -302,18 +304,18 @@ def _handle_provider(arg: str):
 
 # ── mode helpers ───────────────────────────────────────────────────────────────
 
-_VALID_MODES = ("default", "coding")
+_VALID_MODES = (MODE_DEFAULT, MODE_CODING)
 
 
 def _toggle_coding_mode() -> None:
     """/coding — toggle between default and coding modes."""
-    if state.active_mode == "coding":
-        state.active_mode = "default"
+    if state.active_mode == MODE_CODING:
+        state.active_mode = MODE_DEFAULT
         console.print(
             "[dim]🔘 Coding mode [red]OFF[/] — back to default system prompt.[/]"
         )
     else:
-        state.active_mode = "coding"
+        state.active_mode = MODE_CODING
         console.print(
             "[bold #00d7af]⚡ Coding mode ON[/] [dim]— CODING_ADDON rules are now active.[/]"
         )

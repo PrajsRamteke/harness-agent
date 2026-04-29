@@ -1,6 +1,6 @@
 """Directory listing, glob, and lightweight file ranking."""
 import os, pathlib, re, shutil, subprocess
-from ..constants import CWD
+from ..constants import CWD, OCR_SCAN_CHARS
 from ..path_resolve import robust_resolve
 
 SKIP_DIRS = {

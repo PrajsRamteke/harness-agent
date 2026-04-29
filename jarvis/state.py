@@ -6,12 +6,15 @@ without threading plumbing through every function.
 import json, os, time
 from typing import Dict, List, Optional
 
-from .constants import PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE
+from .constants import (
+    PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE,
+    PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING,
+)
 
 # auth / client
-provider: str = "anthropic"  # "anthropic", "openrouter", or "opencode" — set by make_client()
-auth_mode: str = "api_key"   # "api_key" or "oauth" — Anthropic-only; unused for openrouter/opencode
-client = None                # Anthropic client, set by make_client()
+provider: str = PROVIDER_ANTHROPIC  # "anthropic", "openrouter", or "opencode" — set by make_client()
+auth_mode: str = AUTH_API_KEY       # "api_key" or "oauth" — Anthropic-only; unused for openrouter/opencode
+client = None                       # Anthropic client, set by make_client()
 
 
 def _compute_initial_model() -> str:
@@ -66,10 +69,10 @@ current_session_id: Optional[int] = None
 # "default"  → base system prompt only
 # "coding"   → base system prompt + CODING_ADDON
 # Future modes can be added here and handled in repl/system.py
-active_mode: str = "default"
+active_mode: str = MODE_DEFAULT
 
 # Human-readable labels + accent colours per mode (for statusbar / badges)
 MODE_LABELS: dict = {
-    "default": ("DEFAULT", "#565f89", "dim"),
-    "coding":  ("⚡ CODING", "#00d7af", "bold"),
+    MODE_DEFAULT: ("DEFAULT", "#565f89", "dim"),
+    MODE_CODING:  ("⚡ CODING", "#00d7af", "bold"),
 }

@@ -2,7 +2,7 @@
 import json, re, html, urllib.parse, urllib.request
 from datetime import datetime
 
-from ...constants import MAX_TOOL_OUTPUT
+from ...constants import MAX_TOOL_OUTPUT, SEARCH_DEFAULT_MAX_RESULTS
 
 _RECENCY_RE = re.compile(
     r"\b(latest|current|currently|recent|recently|today|todays?|now|"
@@ -38,7 +38,7 @@ def _enrich_query_with_date(query: str) -> str:
 _BLOCKED_MARKER = "STOP_RETRYING"
 
 
-def web_search(query: str, max_results: int = 8) -> str:
+def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str:
     """
     Search the web using DuckDuckGo's free JSON API (no key required).
     Returns a ranked list of results: title, URL, and snippet.

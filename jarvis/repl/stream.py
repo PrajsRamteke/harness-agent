@@ -8,6 +8,7 @@ from anthropic import APITimeoutError
 
 from ..console import console, APIStatusError, RateLimitError
 from ..tools.router import select_tools
+from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
 from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
 from ..auth.client import _build_client_from_mode
 from .. import state
@@ -108,11 +109,11 @@ def call_claude_stream():
     if state.show_internal:
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
     kwargs: Dict[str, Any] = dict(
-        model=state.MODEL, max_tokens=8192, system=build_system(),
+        model=state.MODEL, max_tokens=API_MAX_TOKENS, system=build_system(),
         messages=trim_messages(state.messages), tools=tools,
     )
     if state.think_mode:
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4000}
+        kwargs["thinking"] = {"type": "enabled", "budget_tokens": THINKING_BUDGET_TOKENS}
 
     global _current_stream, _worker_thread_id
     _worker_thread_id = threading.current_thread().ident or 0

@@ -7,7 +7,7 @@ Shape on disk:
 import json, os, time
 from typing import List, Dict, Optional
 
-from ..constants import MEMORY_FILE, CONFIG_DIR
+from ..constants import MEMORY_FILE, CONFIG_DIR, FILE_PERMISSION
 
 
 def _load() -> Dict:
@@ -25,7 +25,7 @@ def _load() -> Dict:
 def _save(data: Dict) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     MEMORY_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    try: os.chmod(MEMORY_FILE, 0o600)
+    try: os.chmod(MEMORY_FILE, FILE_PERMISSION)
     except OSError: pass
 
 

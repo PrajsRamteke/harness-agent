@@ -1,5 +1,6 @@
 """App lifecycle controls: launch / focus / quit / list / frontmost."""
 import subprocess, time
+from ...constants import CLICK_WAIT_ATTEMPTS, CLICK_WAIT_DELAY, SETTLE_WAIT
 from .applescript import _osa
 
 
@@ -8,8 +9,8 @@ def launch_app(name: str) -> str:
     if r.returncode != 0:
         return f"ERROR: {r.stderr.strip() or 'could not open ' + name}"
     # wait for the process to register with System Events, then bring to front
-    for _ in range(20):
-        time.sleep(0.2)
+    for _ in range(CLICK_WAIT_ATTEMPTS):
+        time.sleep(CLICK_WAIT_DELAY)
         probe = subprocess.run(
             ["osascript", "-e",
              f'tell application "System Events" to exists (process "{name}")'],
@@ -19,7 +20,7 @@ def launch_app(name: str) -> str:
             break
     subprocess.run(["osascript", "-e", f'tell application "{name}" to activate'],
                    capture_output=True, text=True, timeout=5)
-    time.sleep(0.5)
+    time.sleep(SETTLE_WAIT)
     return f"launched and focused {name}"
 
 

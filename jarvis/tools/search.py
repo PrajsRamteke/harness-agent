@@ -1,5 +1,6 @@
 """Code search via ripgrep/grep."""
 import shlex, subprocess
+from ..constants import SEARCH_MATCH_CAP
 from .shell import run_bash
 
 
@@ -14,8 +15,8 @@ def search_code(pattern: str, path: str = ".") -> str:
     if has_rg:
         # ripgrep respects .gitignore by default; add explicit globs for safety.
         skips = " ".join(f"-g '!{d}'" for d in _SKIP_GLOBS)
-        cmd = f"rg -n --max-count 50 {skips} {shlex.quote(pattern)} {shlex.quote(path)}"
+        cmd = f"rg -n --max-count {SEARCH_MATCH_CAP} {skips} {shlex.quote(pattern)} {shlex.quote(path)}"
     else:
         excludes = " ".join(f"--exclude-dir={d}" for d in _SKIP_GLOBS)
-        cmd = f"grep -rn --max-count=50 {excludes} {shlex.quote(pattern)} {shlex.quote(path)}"
+        cmd = f"grep -rn --max-count={SEARCH_MATCH_CAP} {excludes} {shlex.quote(pattern)} {shlex.quote(path)}"
     return run_bash(cmd, 20)

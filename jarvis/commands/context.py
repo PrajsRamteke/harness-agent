@@ -1,6 +1,6 @@
 """Handlers for context-management slash commands: pin, alias, notes, clipboard."""
 from ..console import console, Panel, Markdown
-from ..constants import NOTES_FILE
+from ..constants import NOTES_FILE, PANEL_PREVIEW_CHARS
 from ..tools.mac.clipboard import clipboard_get, clipboard_set
 from ..tools.image_input import append_image_block, clipboard_image_to_file, file_digest, ocr_image_block
 from ..storage.prefs import save_pin, save_aliases
@@ -56,13 +56,13 @@ def handle_context(c: str, arg: str):
             state.last_clipboard_image_digest = file_digest(img)
             if arg.strip():
                 body = append_image_block(arg.strip(), body)
-            console.print(Panel(ocr[:400] + ("…" if len(ocr) > 400 else ""),
+            console.print(Panel(ocr[:PANEL_PREVIEW_CHARS] + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
                                 title="📷 pasted image (OCR)", border_style="cyan"))
             return True, body
         pasted = clipboard_get()
         if not pasted.strip():
             console.print("[dim]clipboard empty[/]"); return True, None
-        console.print(Panel(pasted[:400] + ("…" if len(pasted) > 400 else ""),
+        console.print(Panel(pasted[:PANEL_PREVIEW_CHARS] + ("…" if len(pasted) > PANEL_PREVIEW_CHARS else ""),
                             title="📋 pasted", border_style="dim"))
         return True, pasted  # fall through to send as user message
     return False, None

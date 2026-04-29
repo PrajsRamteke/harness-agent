@@ -1,7 +1,7 @@
 """File tools: read_file, write_file, edit_file."""
 import pathlib
 
-from ..constants import CWD, MAX_FILE_READ
+from ..constants import CWD, MAX_FILE_READ, MAX_FILE_SIZE_BYTES, MAX_FILE_CHUNK_BYTES
 from .. import state
 from .dirs import SKIP_DIRS
 from ..path_resolve import robust_resolve
@@ -37,7 +37,7 @@ def _looks_binary(p: pathlib.Path) -> bool:
     low printable-ratio."""
     try:
         with p.open("rb") as fh:
-            chunk = fh.read(4096)
+            chunk = fh.read(MAX_FILE_CHUNK_BYTES)
     except Exception:
         return False
     if not chunk:
@@ -67,8 +67,9 @@ def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -
                     f"Excel, JSON, etc., or pass force=true if the user explicitly asked.")
 
         try:
-            if p.stat().st_size > 2_000_000:
-                return (f"ERROR: '{path}' is {p.stat().st_size} bytes (>2MB). "
+            if p.stat().st_size > MAX_FILE_SIZE_BYTES:
+                return (f"ERROR: '{path}' is {p.stat().st_size} bytes "
+                        f"(>{MAX_FILE_SIZE_BYTES:,} bytes). "
                         f"Use offset/limit to page through it, or pass force=true.")
         except OSError:
             pass

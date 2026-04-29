@@ -2,11 +2,11 @@
 import subprocess
 
 from ..console import console
-from ..constants import CWD, MAX_TOOL_OUTPUT
+from ..constants import CWD, MAX_TOOL_OUTPUT, DEFAULT_BASH_TIMEOUT
 from .. import state
 
 
-def run_bash(cmd: str, timeout: int = 60) -> str:
+def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
     DANGEROUS = ["rm -rf /", "mkfs", ":(){:|:&};:", "dd if=/dev/zero"]
     if any(d in cmd for d in DANGEROUS): return "BLOCKED: dangerous command"
 

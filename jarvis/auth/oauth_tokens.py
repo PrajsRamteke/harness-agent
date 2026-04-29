@@ -4,6 +4,7 @@ from typing import Optional
 
 from ..console import console
 from ..constants import OAUTH_FILE, OAUTH_TOKEN_URL, OAUTH_CLIENT_ID, OAUTH_SCOPES
+from ..constants.models import OAUTH_DEFAULT_EXPIRY, OAUTH_EXPIRY_BUFFER
 from ..utils.io import _secure_write
 from ..utils.http import _http_json
 
@@ -38,7 +39,7 @@ def oauth_refresh(tokens: dict) -> Optional[dict]:
     })
     if status != 200 or not isinstance(body, dict) or "access_token" not in body:
         return None
-    expires_in = int(body.get("expires_in") or 3600)
+    expires_in = int(body.get("expires_in") or OAUTH_DEFAULT_EXPIRY)
     new_tokens = {
         "access_token": body["access_token"],
         "refresh_token": body.get("refresh_token") or tokens["refresh_token"],
@@ -50,10 +51,10 @@ def oauth_refresh(tokens: dict) -> Optional[dict]:
 
 
 def get_fresh_oauth_token() -> Optional[dict]:
-    """Load tokens; refresh if within 60s of expiry. Returns None if unrecoverable."""
+    """Load tokens; refresh if within expiry buffer of expiry. Returns None if unrecoverable."""
     tokens = load_oauth_tokens()
     if not tokens: return None
-    if tokens.get("expires_at", 0) - time.time() < 60:
+    if tokens.get("expires_at", 0) - time.time() < OAUTH_EXPIRY_BUFFER:
         refreshed = oauth_refresh(tokens)
         if not refreshed:
             console.print("[yellow]OAuth token refresh failed — please log in again.[/]")

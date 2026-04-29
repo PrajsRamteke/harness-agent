@@ -16,7 +16,7 @@ Shape on disk:
 import json, os, time, re
 from typing import List, Dict
 
-from ..constants import SKILLS_FILE, CONFIG_DIR
+from ..constants import SKILLS_FILE, CONFIG_DIR, FILE_PERMISSION
 
 MAX_INJECT = 8          # how many skills to show in system prompt at most
 MAX_STORE = 200         # cap total entries; oldest low-hit pruned beyond this
@@ -37,7 +37,7 @@ def _load() -> Dict:
 def _save(data: Dict) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     SKILLS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-    try: os.chmod(SKILLS_FILE, 0o600)
+    try: os.chmod(SKILLS_FILE, FILE_PERMISSION)
     except OSError: pass
 
 

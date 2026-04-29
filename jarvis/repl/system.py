@@ -11,7 +11,10 @@ Coding addon logic:
 from datetime import datetime
 from typing import Union, List, Dict
 
-from ..constants import SYSTEM, CODING_ADDON, CLAUDE_CODE_IDENTITY
+from ..constants import (
+    SYSTEM, CODING_ADDON, CLAUDE_CODE_IDENTITY,
+    AUTH_OAUTH, MODE_CODING,
+)
 from ..storage.memory import as_prompt_block
 from ..storage.skills import as_prompt_block as skills_prompt_block
 from .. import state
@@ -35,7 +38,7 @@ def _is_coding_request(messages: list) -> bool:
     default mode never infers coding rules from user text.
     """
     del messages
-    return state.active_mode == "coding"
+    return state.active_mode == MODE_CODING
 
 
 def _build_static_body() -> str:
@@ -103,7 +106,7 @@ def build_system() -> Union[str, List[Dict]]:
 
     body += date_line
 
-    if state.auth_mode == "oauth":
+    if state.auth_mode == AUTH_OAUTH:
         return [
             {"type": "text", "text": CLAUDE_CODE_IDENTITY},
             {"type": "text", "text": body},

@@ -1,6 +1,6 @@
 """System-level tools: open_url, notify, speck, shortcut_run, mac_control."""
 import subprocess
-from ...constants import MAX_TOOL_OUTPUT
+from ...constants import MAX_TOOL_OUTPUT, SPECK_MAX_CHARS
 from .applescript import _osa
 from ..shell import run_bash
 
@@ -16,10 +16,6 @@ def notify(title: str, message: str = "") -> str:
     return _osa(f'display notification "{m}" with title "{t}"')
 
 
-# Max characters per speck() call (avoid huge stdin / runaway TTS).
-_SPECK_MAX_CHARS = 8000
-
-
 def speck(
     text: str,
     voice: str = "",
@@ -29,8 +25,8 @@ def speck(
     t = (text or "").strip()
     if not t:
         return "ERROR: text is empty"
-    if len(t) > _SPECK_MAX_CHARS:
-        return f"ERROR: text exceeds {_SPECK_MAX_CHARS} characters (split into shorter speck calls)"
+    if len(t) > SPECK_MAX_CHARS:
+        return f"ERROR: text exceeds {SPECK_MAX_CHARS} characters (split into shorter speck calls)"
     cmd = ["say"]
     if voice:
         cmd.extend(["-v", voice])
