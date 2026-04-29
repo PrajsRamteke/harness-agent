@@ -23,6 +23,14 @@ from .. import state
 
 def handle_control(c: str, arg: str):
     """Return (handled, new_inp_or_None)."""
+    # ── mode switching ─────────────────────────────────────────────────────────
+    if c == "/coding":
+        _toggle_coding_mode()
+        return True, None
+    if c == "/mode":
+        _handle_mode(arg)
+        return True, None
+    # ─────────────────────────────────────────────────────────────────────────
     if c == "/multi":
         console.print("[dim]enter multiline message, end with a single ';;' line:[/]")
         buf = []
@@ -290,3 +298,60 @@ def _handle_provider(arg: str):
         console.print(f"[red]failed to switch provider: {e}[/]")
         state.provider = prev_provider
         _secure_write(PROVIDER_FILE, prev_provider)
+
+
+# ── mode helpers ───────────────────────────────────────────────────────────────
+
+_VALID_MODES = ("default", "coding")
+
+
+def _toggle_coding_mode() -> None:
+    """/coding — toggle between default and coding modes."""
+    if state.active_mode == "coding":
+        state.active_mode = "default"
+        console.print(
+            "[dim]🔘 Coding mode [red]OFF[/] — back to default system prompt.[/]"
+        )
+    else:
+        state.active_mode = "coding"
+        console.print(
+            "[bold #00d7af]⚡ Coding mode ON[/] [dim]— CODING_ADDON rules are now active.[/]"
+        )
+    header_panel(compact=True)
+
+
+def _handle_mode(arg: str) -> None:
+    """/mode [name] — show current mode or switch to a named mode."""
+    target = arg.strip().lower()
+    if not target:
+        # Show available modes
+        label, colour, _style = state.MODE_LABELS.get(
+            state.active_mode, (state.active_mode, "#ffffff", "")
+        )
+        lines = [
+            f"current mode: [{colour}]{label}[/]\n",
+            "available modes:",
+        ]
+        for m in _VALID_MODES:
+            lbl, col, _s = state.MODE_LABELS.get(m, (m, "#ffffff", ""))
+            marker = " ← active" if m == state.active_mode else ""
+            lines.append(f"  [cyan]{m}[/]  [{col}]{lbl}[/]{marker}")
+        lines.append("\nusage: [dim]/mode coding[/]  or  [dim]/coding[/] to toggle  or  [dim]Tab[/] in TUI")
+        console.print(Panel("\n".join(lines), title="🎛  mode", border_style="cyan"))
+        return
+
+    if target not in _VALID_MODES:
+        console.print(
+            f"[red]unknown mode: {target}[/]  "
+            f"valid: {', '.join(_VALID_MODES)}"
+        )
+        return
+
+    if target == state.active_mode:
+        console.print(f"[dim]already in {target} mode[/]")
+        return
+
+    state.active_mode = target
+    lbl, col, _s = state.MODE_LABELS.get(target, (target, "#ffffff", ""))
+    console.print(f"[{col}]✓ mode switched to {lbl}[/]")
+    header_panel(compact=True)

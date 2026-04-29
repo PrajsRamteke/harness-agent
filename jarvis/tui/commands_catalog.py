@@ -47,6 +47,11 @@ COMMANDS = [
     # Clipboard
     ("/copy", "copy last assistant response"),
     ("/paste", "send clipboard text / OCR clipboard image"),
+    # Modes
+    ("/coding", "toggle coding mode ON/OFF (adds large-codebase rules)"),
+    ("/mode", "show current mode"),
+    ("/mode coding", "switch to coding mode"),
+    ("/mode default", "switch back to default mode"),
     # Control
     ("/think", "toggle extended thinking"),
     ("/verbose", "toggle internal tool trace (thinking UI needs /think)"),

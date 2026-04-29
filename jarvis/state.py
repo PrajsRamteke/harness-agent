@@ -61,3 +61,15 @@ aliases: Dict[str, str] = (
 
 # persistent session
 current_session_id: Optional[int] = None
+
+# ── active mode ────────────────────────────────────────────────────────────────
+# "default"  → base system prompt only
+# "coding"   → base system prompt + CODING_ADDON
+# Future modes can be added here and handled in repl/system.py
+active_mode: str = "default"
+
+# Human-readable labels + accent colours per mode (for statusbar / badges)
+MODE_LABELS: dict = {
+    "default": ("DEFAULT", "#565f89", "dim"),
+    "coding":  ("⚡ CODING", "#00d7af", "bold"),
+}

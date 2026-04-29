@@ -23,6 +23,14 @@ def welcome_banner(compact: bool = False):
     ))
 
 
+def _mode_flag() -> str:
+    """Compact rich-markup mode indicator for header panels."""
+    lbl, col, style = state.MODE_LABELS.get(
+        state.active_mode, (state.active_mode, "#ffffff", "")
+    )
+    return f"[{style} {col}]{lbl}[/]" if style else f"[{col}]{lbl}[/]"
+
+
 def header_panel(compact: bool = False):
     # Use live CWD from constants module (may have been mutated via os.chdir)
     import pathlib
@@ -31,6 +39,7 @@ def header_panel(compact: bool = False):
     if compact:
         flags = "  ".join([
             f"[bold magenta]{state.MODEL}[/]",
+            f"mode:{_mode_flag()}",
             f"think:{'[green]on[/]' if state.think_mode else '[dim]off[/]'}",
             f"tools:{'[green]verbose[/]' if state.show_internal else '[dim]quiet[/]'}",
             f"cwd:[dim]{cwd.name}[/]",
@@ -39,6 +48,7 @@ def header_panel(compact: bool = False):
         return
     flags = " • ".join([
         f"[bold magenta]{state.MODEL}[/]",
+        f"mode {_mode_flag()}",
         f"think {'[green]on[/]' if state.think_mode else '[dim]off[/]'}",
         f"bash {'[green]auto[/]' if state.auto_approve else '[dim]ask[/]'}",
         f"tools {'[green]verbose[/]' if state.show_internal else '[dim]quiet[/]'}",

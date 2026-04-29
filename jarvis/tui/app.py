@@ -165,6 +165,7 @@ class JarvisTUI(App):
         Binding("ctrl+d", "quit", "Quit", show=True),
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Quit", show=True),
         Binding("f2", "toggle_internal", "Internals", show=True),
+        Binding("tab", "cycle_mode", "Mode", show=True),
         Binding("ctrl+t", "toggle_internal", show=False),
         Binding("escape", "escape_action", show=False),
         Binding("up", "scroll_transcript('up')", show=False, priority=True),
@@ -577,20 +578,41 @@ class JarvisTUI(App):
                 db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
                 db_set_title_if_empty(state.current_session_id, inp)
 
-            # ── coding addon badge ──────────────────────────────────────
-            from ..repl.system import _is_coding_request
-            if _is_coding_request(state.messages):
-                def _show_coding_badge():
+            # ── mode / auto-detect badge ───────────────────────────────────────
+            # Two cases:
+            #   1. Explicit mode (e.g. coding) → solid coloured badge
+            #   2. Default mode but keyword auto-detected → dimmer "auto" badge
+            from ..repl.system import _is_coding_request, _keyword_detected
+            _explicit_mode = state.active_mode != "default"
+            _auto_detected = (not _explicit_mode) and _keyword_detected(state.messages)
+
+            if _explicit_mode:
+                lbl, col, _s = state.MODE_LABELS.get(
+                    state.active_mode, (state.active_mode, "#00d7af", "bold")
+                )
+                def _show_explicit_badge(label=lbl, colour=col):
                     try:
                         log = self.query_one("#transcript", RichLog)
                         badge = Text()
-                        badge.append(" ⚡ CODING MODE ", style="bold #0d0d0d on #00d7af")
-                        badge.append("  large-codebase rules active", style="#00d7af")
+                        badge.append(f" {label} ", style=f"bold #0d0d0d on {colour}")
+                        badge.append("  addon rules active", style=colour)
                         log.write(badge)
                     except Exception:
                         pass
-                self.call_from_thread(_show_coding_badge)
-            # ───────────────────────────────────────────────────────────
+                self.call_from_thread(_show_explicit_badge)
+
+            elif _auto_detected:
+                def _show_auto_badge():
+                    try:
+                        log = self.query_one("#transcript", RichLog)
+                        badge = Text()
+                        badge.append(" ⚡ CODING ", style="bold #0d0d0d on #00af87")
+                        badge.append("  auto-detected · /coding to stay in mode", style="dim #00af87")
+                        log.write(badge)
+                    except Exception:
+                        pass
+                self.call_from_thread(_show_auto_badge)
+            # ──────────────────────────────────────────────────────────────────
 
             while True:
                 resp = call_claude_stream()
@@ -624,9 +646,18 @@ class JarvisTUI(App):
         try:
             from .. import state
             trace = "shown" if state.show_internal else "hidden"
+            lbl, col, _s = state.MODE_LABELS.get(
+                state.active_mode, (state.active_mode, "#565f89", "dim")
+            )
+            mode_part = (
+                f"[bold {col}]{lbl}[/]"
+                if state.active_mode != "default"
+                else f"[dim]{lbl}[/]"
+            )
             parts = []
             if msg:
                 parts.append(f"[b]{msg}[/]")
+            parts.append(f"🎛 {mode_part}")
             parts.append(f"🤖 {state.MODEL}")
             if state.current_session_id is not None:
                 parts.append(f"#{state.current_session_id}")
@@ -634,10 +665,45 @@ class JarvisTUI(App):
             parts.append(f"🔧 {state.tool_calls_count}")
             parts.append(f"⇅ {state.total_in}/{state.total_out}")
             parts.append(f"internals:{trace}")
-            parts.append("[dim]F2 toggle[/]")
+            parts.append("[dim]F2 internals · Tab mode[/]")
             self.query_one("#statusbar", Static).update(" | ".join(parts))
         except Exception:
             pass
+
+    def action_cycle_mode(self) -> None:
+        """Tab — cycle through available modes (default → coding → …)."""
+        from .. import state
+        from ..commands.control import _VALID_MODES
+
+        # If prompt has text, Tab should insert a tab / do nothing special
+        try:
+            prompt = self.query_one("#prompt", PromptArea)
+            if prompt.text.strip():
+                # Let normal Tab behaviour through (indent / focus)
+                return
+        except Exception:
+            pass
+
+        modes = list(_VALID_MODES)
+        current_idx = modes.index(state.active_mode) if state.active_mode in modes else 0
+        next_mode = modes[(current_idx + 1) % len(modes)]
+        state.active_mode = next_mode
+
+        lbl, col, _s = state.MODE_LABELS.get(next_mode, (next_mode, "#ffffff", ""))
+        try:
+            log = self.query_one("#transcript", RichLog)
+            badge = Text()
+            if next_mode == "default":
+                badge.append(" DEFAULT MODE ", style="bold #e6e6e6 on #2b3340")
+                badge.append("  coding addon off", style="#565f89")
+            else:
+                badge.append(f" {lbl} ", style=f"bold #0d0d0d on {col}")
+                badge.append("  addon rules active", style=col)
+            log.write(badge)
+        except Exception:
+            pass
+
+        self._set_status(f"mode → {lbl}")
 
     def action_toggle_internal(self):
         from .. import state

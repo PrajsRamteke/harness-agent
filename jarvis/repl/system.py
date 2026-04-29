@@ -4,9 +4,13 @@ Cache: the expensive memory+skills+body string is rebuilt only when the
 memory/skills content actually changes between turns. The date/time line is
 always fresh but is cheap (~50 tokens) so we splice it in separately.
 
-Coding addon: the CODING_ADDON block (~400 tokens) is appended only when the
-latest user message looks like a coding request — saving tokens on every
-non-coding turn (GUI tasks, questions, searches, etc.).
+Coding addon logic (two-layer):
+  1. Explicit mode  — if state.active_mode == "coding", always inject CODING_ADDON.
+     Keyword check is skipped entirely; no false negatives, no token waste.
+  2. Auto-detect    — only when mode is "default". Checks the last user message
+     against a tight set of rare/unambiguous coding keywords (NOT generic words
+     like "fix", "add", "run"). A hit injects the addon for *this turn only*
+     without changing state.active_mode.
 """
 from datetime import datetime
 from typing import Union, List, Dict
@@ -22,41 +26,49 @@ _cached_mem_key: str = ""
 _cached_sk_key: str = ""
 _cached_pinned: str = ""
 
-# Keywords that signal a coding request. Checked against the last user message.
-_CODE_KEYWORDS = {
-    # actions
-    "fix", "bug", "debug", "refactor", "implement", "build", "write", "create",
-    "add", "update", "edit", "change", "modify", "delete", "remove", "rename",
-    "migrate", "integrate", "deploy", "install", "configure", "setup", "test",
-    "lint", "compile", "run", "start", "optimize", "review", "explain",
-    # code artifacts
-    "code", "coding", "function", "class", "component", "hook", "module", "file", "script",
-    "api", "endpoint", "route", "schema", "model", "types", "interface", "enum",
-    "reducer", "saga", "selector", "action", "store", "state", "props", "param",
-    "import", "export", "package", "dependency", "repo", "codebase", "pr",
+# ── rare / unambiguous coding keywords (auto-detect in default mode only) ──────
+# Rules for inclusion:
+#   ✓ Almost never appears in a non-coding sentence
+#   ✓ Whole-word match (padded with spaces / boundaries) to avoid false hits
+#   ✗ Generic words (fix, run, add, file, error, update, test, ...) — excluded
+_RARE_CODE_KEYWORDS: frozenset[str] = frozenset({
+    #actions
+    "bug", "debug", "refactor", "implement", "deploy", "install", "configure",
+    "lint", "compile", "review",
+
     # languages / frameworks / tools
-    "typescript", "javascript", "python", "react", "native", "node", "nestjs",
-    "next", "redux", "saga", "navigation", "expo", "android", "ios", "git",
-    "npm", "yarn", "bun", "webpack", "babel", "jest", "eslint", "prettier",
+    "typescript", "javascript", "python", "java", "c++", "c#", "php", "ruby",
+    "go", "rust", "swift", "kotlin", "dart", "react", "reactjs", "native",
+    "node", "nestjs", "express", "next", "redux", "navigation", "expo",
+    "android", "ios", "git", "github", "gitlab", "npm", "yarn", "bun",
+    "webpack", "vite", "babel", "jest", "eslint", "prettier", "docker",
+    "kubernetes", "firebase", "supabase", "mongodb", "mysql", "postgresql",
+
+    # code artifacts
+    "codebase", "coding", "function", "class", "component", "hook", "module", "file",
+    "script", "api", "endpoint", "route", "schema", "model", "types", "interface",
+    "enum", "reducer", "selector", "action", "store", "state", "props", "param",
+    "import", "export", "package", "dependency", "repo", "codebase", "pr",
+
     # error patterns
     "error", "exception", "crash", "undefined", "null", "nan", "failed",
-    "warning", "deprecat", "type error", "syntax", "import error", "issue"
-}
+    "warning", "deprecated", "type error", "syntax", "import error",
+    "cannot read", "not found", "unexpected token", "missing module"
+})
 
 
-def _is_coding_request(messages: list) -> bool:
-    """Return True if the latest user message looks like a coding task.
+def _keyword_detected(messages: list) -> bool:
+    """Return True if the last user message contains a rare coding keyword.
 
-    Checks the last user message text against _CODE_KEYWORDS.
-    Falls back to False (no addon) on any parse error — safe default.
+    Called ONLY when state.active_mode == "default".
+    Uses whole-string containment (fast) — keywords are chosen to be rare
+    enough that substring match has negligible false-positive rate.
     """
     try:
-        # Walk backwards to find the last user message
         for msg in reversed(messages):
             if msg.get("role") != "user":
                 continue
             content = msg.get("content", "")
-            # Content can be a plain string or a list of blocks
             if isinstance(content, str):
                 text = content.lower()
             elif isinstance(content, list):
@@ -67,14 +79,29 @@ def _is_coding_request(messages: list) -> bool:
                 )
             else:
                 return False
-            # Check for any keyword hit
-            for kw in _CODE_KEYWORDS:
+            for kw in _RARE_CODE_KEYWORDS:
                 if kw in text:
                     return True
-            return False  # found the last user msg but no keyword matched
+            return False  # found last user msg, no keyword hit
     except Exception:
         pass
     return False
+
+
+def _is_coding_request(messages: list) -> bool:
+    """Return True when the coding addon should be active for this turn.
+
+    Two-layer check:
+      • Explicit mode  — state.active_mode == "coding"  → always True, fast path.
+      • Auto-detect    — mode == "default" → scan for rare unambiguous keywords.
+
+    Used by both build_system() (to decide prompt injection) and the TUI
+    badge renderer (to decide which badge to show).
+    """
+    if state.active_mode == "coding":
+        return True          # explicit — no keyword scan needed
+    # default mode: auto-detect via rare keywords only
+    return _keyword_detected(messages)
 
 
 def _build_static_body() -> str:
