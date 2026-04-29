@@ -208,8 +208,13 @@ class TUIConsole:
         prev = None
         if self._status is not None:
             try:
-                prev = getattr(self._status, "renderable", None)
-                self._app.call_from_thread(self._status.update, message)
+                from textual.widgets import RichLog
+                if isinstance(self._status, RichLog):
+                    self._app.call_from_thread(self._status.clear)
+                    self._app.call_from_thread(self._status.write, message)
+                else:
+                    prev = getattr(self._status, "renderable", None)
+                    self._app.call_from_thread(self._status.update, message)
             except Exception:
                 pass
         try:
@@ -217,7 +222,13 @@ class TUIConsole:
         finally:
             if self._status is not None:
                 try:
-                    self._app.call_from_thread(self._status.update, prev or "")
+                    from textual.widgets import RichLog
+                    if isinstance(self._status, RichLog):
+                        self._app.call_from_thread(self._status.clear)
+                        if prev:
+                            self._app.call_from_thread(self._status.write, prev)
+                    else:
+                        self._app.call_from_thread(self._status.update, prev or "")
                 except Exception:
                     pass
 

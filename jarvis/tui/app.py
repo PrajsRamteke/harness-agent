@@ -104,6 +104,7 @@ class JarvisTUI(App):
     #main {
         height: 100%;
         width: 100%;
+        min-width: 0;
     }
     #transcript {
         background: #0b0d10;
@@ -112,6 +113,7 @@ class JarvisTUI(App):
         border: none;
         height: 1fr;
         min-height: 0;
+        min-width: 0;
         overflow-y: scroll;
         scrollbar-gutter: stable;
         scrollbar-color: #2b3340;
@@ -125,12 +127,14 @@ class JarvisTUI(App):
         background: #0f1216;
         border: tall #2b3340;
         padding: 0 1;
+        min-width: 0;
     }
     #activity_row {
-        height: 1;
+        height: auto;
         background: #141820;
         margin: 0 1 0 1;
         padding: 0 1;
+        min-width: 0;
     }
     #activity_phase {
         width: 1fr;
@@ -139,14 +143,17 @@ class JarvisTUI(App):
     }
     #activity_clock {
         width: auto;
+        min-width: 0;
         color: #565f89;
     }
     #statusbar {
-        height: 1;
+        height: auto;
+        max-height: 6;
         background: #12151a;
         color: #7aa2f7;
         padding: 0 1;
         margin: 0 1 0 1;
+        min-width: 0;
     }
     Input, TextArea {
         background: #0f1216;
@@ -218,7 +225,7 @@ class JarvisTUI(App):
             with Horizontal(id="activity_row"):
                 yield Static("", id="activity_phase", markup=True)
                 yield Static("", id="activity_clock", markup=True)
-            yield Static("", id="statusbar", markup=True)
+            yield RichLog(id="statusbar", wrap=True, highlight=True, markup=True, auto_scroll=False, max_lines=6)
             yield PromptArea(id="prompt")
 
     # ─── lifecycle ─────────────────────────────────────────────────────
@@ -227,7 +234,7 @@ class JarvisTUI(App):
         self.sub_title = "Better than Claude Code agent"
 
         log = self.query_one("#transcript", RichLog)
-        status = self.query_one("#statusbar", Static)
+        status = self.query_one("#statusbar", RichLog)
 
         # Install the shim BEFORE touching any jarvis.repl/* code so their
         # module-local `console` names are rebound to the TUI console.
@@ -666,7 +673,8 @@ class JarvisTUI(App):
             parts.append(f"⇅ {state.total_in}/{state.total_out}")
             parts.append(f"internals:{trace}")
             parts.append("[dim]F2 internals · Tab mode[/]")
-            self.query_one("#statusbar", Static).update(" | ".join(parts))
+            self.query_one("#statusbar", RichLog).clear()
+            self.query_one("#statusbar", RichLog).write(" | ".join(parts))
         except Exception:
             pass
 
