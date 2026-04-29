@@ -672,7 +672,6 @@ class JarvisTUI(App):
             parts.append(f"🔧 {state.tool_calls_count}")
             parts.append(f"⇅ {state.total_in}/{state.total_out} = {state.total_in + state.total_out}")
             parts.append(f"internals:{trace}")
-            parts.append("[dim]F2 internals · Tab mode[/]")
             self.query_one("#statusbar", RichLog).clear()
             self.query_one("#statusbar", RichLog).write(" | ".join(parts))
         except Exception:
