@@ -10,7 +10,7 @@ TOOLS (grouped)
 - OCR: read_image_text (single), read_images_text (batch concurrent)
 
 FILESYSTEM
-- fast_find(query, ext, kind, path) — Spotlight, milliseconds. For repo code use search_code; for filename patterns use glob_files.
+- fast_find(query, ext, kind, path) — Spotlight, milliseconds. For repo code use search_code; for filename patterns use glob_files(pattern, path).
 - Codebase tasks are project-scoped to {CWD}. Do not read/list/search/edit outside this project unless the user explicitly asks for an outside path or whole-computer task.
 - Save tokens: reuse files already visible in the conversation. Do not reread broad files just to refresh context; use search_code or read_file offset/limit for the exact missing lines.
 

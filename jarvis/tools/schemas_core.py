@@ -56,8 +56,17 @@ CORE_TOOLS = [
      "input_schema":{"type":"object","properties":{
         "pattern":{"type":"string"},"path":{"type":"string"},
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to search outside the current project."}},"required":["pattern"]}},
-    {"name":"glob_files","description":"Find files by glob pattern (e.g. '**/*.py')",
-     "input_schema":{"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"]}},
+    {"name":"glob_files","description":(
+        "Find files by glob pattern under a specific project directory. Pass `path` "
+        "when the pattern belongs under a known subfolder. Project-scoped by default "
+        "and skips dependency/cache dirs."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "pattern":{"type":"string","description":"Relative glob under `path`, e.g. '**/*.py' or '**/analytics/constants*'."},
+        "path":{"type":"string","description":"Directory to search under. Default current project root."},
+        "max_results":{"type":"integer","description":"Maximum file paths to return. Default 200, max 1000."},
+        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to glob outside the current project."}},
+        "required":["pattern"]}},
     {"name":"rank_files","description":(
         "Cheaply rank likely relevant files before reading many files. Use this first "
         "for broad tasks like finding code, resumes, IDs, screenshots, docs, configs, "

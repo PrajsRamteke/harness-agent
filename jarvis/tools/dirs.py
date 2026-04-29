@@ -36,9 +36,54 @@ def list_dir(path: str = ".", show_all: bool = False, allow_outside_project: boo
     return "\n".join(lines)
 
 
-def glob_files(pattern: str) -> str:
-    matches = sorted(pathlib.Path(CWD).glob(pattern))[:200]
-    return "\n".join(str(m.relative_to(CWD)) for m in matches) or "no matches"
+def glob_files(
+    pattern: str,
+    path: str = ".",
+    max_results: int = 200,
+    allow_outside_project: bool = False,
+) -> str:
+    root = robust_resolve(path)
+    if not root.exists():
+        return f"ERROR: {path} not found"
+    if not root.is_dir():
+        return f"ERROR: {path} is not a directory"
+    if not allow_outside_project:
+        scope_err = project_scope_error(root, "glob_files", "allow_outside_project=true")
+        if scope_err:
+            return scope_err
+    try:
+        max_results = max(1, min(1000, int(max_results)))
+    except (TypeError, ValueError):
+        max_results = 200
+
+    pat = (pattern or "").strip()
+    if not pat:
+        return "ERROR: pattern is required"
+    if pathlib.Path(pat).is_absolute():
+        return "ERROR: pass absolute search roots via `path` and keep `pattern` relative."
+
+    matches = []
+    for p in sorted(root.glob(pat)):
+        if len(matches) >= max_results:
+            break
+        if not p.is_file() or (not allow_outside_project and _is_skipped(p)):
+            continue
+        try:
+            label = str(p.relative_to(CWD))
+        except ValueError:
+            try:
+                label = str(p.relative_to(root))
+            except ValueError:
+                label = str(p)
+        matches.append(label)
+
+    if not matches:
+        try:
+            searched = str(root.relative_to(CWD)) or "."
+        except ValueError:
+            searched = str(root)
+        return f"no matches under {searched} for {pat}"
+    return "\n".join(matches)
 
 
 def fast_find(
