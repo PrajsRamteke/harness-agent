@@ -3,9 +3,10 @@
 CORE_TOOLS = [
     {"name":"read_file","description":(
         "Read a text file. Refuses node_modules/.venv/build/dist/caches, binary "
-        "files (images, archives, compiled), and files > 2MB. Use offset/limit "
-        "for line ranges on large files. Only pass force=true if the user "
-        "explicitly asked to read that specific file."),
+        "files (images, archives, compiled), files > 2MB, and outside-project "
+        "paths. Use offset/limit for line ranges and avoid rereading files already "
+        "present in context. Only pass force=true if the user explicitly asked to "
+        "read that specific outside/blocked file."),
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},
         "offset":{"type":"integer","description":"0-indexed starting line"},
@@ -17,7 +18,8 @@ CORE_TOOLS = [
         "in one call—picks the right parser by file type. Use this instead of `read_file` for "
         "PDFs, spreadsheets, data files, images with text, etc. Single file: pass `path`. "
         "Several files: pass `paths`. Many files under a folder: pass `directory` and optional "
-        "`pattern` (glob, default **/*). Caps: `max_files`, `max_chars_per_file`, `csv_max_rows`."
+        "`pattern` (glob, default **/*). Project-scoped by default; use force only for "
+        "explicit outside-project requests. Caps: `max_files`, `max_chars_per_file`, `csv_max_rows`."
     ),
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string","description":"One file to read (omit if using paths or directory)."},
@@ -30,24 +32,30 @@ CORE_TOOLS = [
         "force":{"type":"boolean","description":"Bypass skip-dir and large-file guard when user asked explicitly."}}}},
     {"name":"write_file","description":"Create or overwrite a file",
      "input_schema":{"type":"object","properties":{
-        "path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}},
+        "path":{"type":"string"},"content":{"type":"string"},
+        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to write outside the current project."}},
+        "required":["path","content"]}},
     {"name":"edit_file","description":"Replace old_str with new_str. old_str must be unique unless replace_all=true.",
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},"old_str":{"type":"string"},
-        "new_str":{"type":"string"},"replace_all":{"type":"boolean"}},
+        "new_str":{"type":"string"},"replace_all":{"type":"boolean"},
+        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
         "required":["path","old_str","new_str"]}},
     {"name":"list_dir","description":(
-        "List directory entries. By default hides node_modules/.venv/build/"
+        "List project directory entries. Refuses outside-project paths unless "
+        "allow_outside_project=true. By default hides node_modules/.venv/build/"
         "dist/caches — pass show_all=true to include them."),
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},
-        "show_all":{"type":"boolean"}}}},
+        "show_all":{"type":"boolean"},
+        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to inspect outside the current project."}}}},
     {"name":"run_bash","description":"Execute a shell command in the working directory",
      "input_schema":{"type":"object","properties":{
         "cmd":{"type":"string"},"timeout":{"type":"integer"}},"required":["cmd"]}},
-    {"name":"search_code","description":"Regex search with ripgrep (or grep fallback)",
+    {"name":"search_code","description":"Regex search with ripgrep (or grep fallback). Project-scoped by default.",
      "input_schema":{"type":"object","properties":{
-        "pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}},
+        "pattern":{"type":"string"},"path":{"type":"string"},
+        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to search outside the current project."}},"required":["pattern"]}},
     {"name":"glob_files","description":"Find files by glob pattern (e.g. '**/*.py')",
      "input_schema":{"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"]}},
     {"name":"rank_files","description":(
@@ -62,7 +70,8 @@ CORE_TOOLS = [
         "max_files":{"type":"integer","description":"Maximum ranked results. Default 30, max 100."},
         "scan_limit":{"type":"integer","description":"Maximum files to inspect cheaply. Default 700, max 3000."},
         "include_snippets":{"type":"boolean","description":"Read small text previews to score content matches. Default false."},
-        "max_snippet_chars":{"type":"integer","description":"Snippet chars per matched text file. Default 240."}},
+        "max_snippet_chars":{"type":"integer","description":"Snippet chars per matched text file. Default 240."},
+        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to rank files outside the current project."}},
         "required":["query"]}},
     {"name":"fast_find","description":(
         "Fast file/folder search by name across the Mac using Spotlight (mdfind) — "

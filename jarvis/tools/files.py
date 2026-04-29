@@ -4,7 +4,7 @@ import pathlib
 from ..constants import CWD, MAX_FILE_READ, MAX_FILE_SIZE_BYTES, MAX_FILE_CHUNK_BYTES
 from .. import state
 from .dirs import SKIP_DIRS
-from ..path_resolve import robust_resolve
+from ..path_resolve import project_scope_error, robust_resolve
 
 # Extensions that are almost never useful to read as text.
 _BINARY_EXTS = {
@@ -55,6 +55,10 @@ def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -
     if p.is_dir(): return f"ERROR: {path} is a directory"
 
     if not force:
+        scope_err = project_scope_error(p, "read_file")
+        if scope_err:
+            return scope_err
+
         skip = _in_skip_dir(p)
         if skip:
             return (f"ERROR: refused to read '{path}' — inside '{skip}/' "
@@ -86,16 +90,30 @@ def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -
     return txt[:MAX_FILE_READ]
 
 
-def write_file(path: str, content: str) -> str:
+def write_file(path: str, content: str, allow_outside_project: bool = False) -> str:
     p = robust_resolve(path)
+    if not allow_outside_project:
+        scope_err = project_scope_error(p, "write_file", "allow_outside_project=true")
+        if scope_err:
+            return scope_err
     _save_backup(p)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)
     return f"WROTE {p} ({len(content)} bytes)"
 
 
-def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False) -> str:
+def edit_file(
+    path: str,
+    old_str: str,
+    new_str: str,
+    replace_all: bool = False,
+    allow_outside_project: bool = False,
+) -> str:
     p = robust_resolve(path)
+    if not allow_outside_project:
+        scope_err = project_scope_error(p, "edit_file", "allow_outside_project=true")
+        if scope_err:
+            return scope_err
     if not p.exists(): return f"ERROR: {path} not found"
     txt = p.read_text(errors="ignore")
     n = txt.count(old_str)

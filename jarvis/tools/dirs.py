@@ -1,7 +1,7 @@
 """Directory listing, glob, and lightweight file ranking."""
 import os, pathlib, re, shutil, subprocess
 from ..constants import CWD, OCR_SCAN_CHARS
-from ..path_resolve import robust_resolve
+from ..path_resolve import project_scope_error, robust_resolve
 
 SKIP_DIRS = {
     ".git", ".hg", ".svn", "node_modules", ".venv", "venv", "__pycache__",
@@ -16,9 +16,13 @@ DOC_EXTS = {".pdf", ".doc", ".docx", ".rtf"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tif", ".tiff", ".bmp"}
 
 
-def list_dir(path: str = ".", show_all: bool = False) -> str:
+def list_dir(path: str = ".", show_all: bool = False, allow_outside_project: bool = False) -> str:
     p = robust_resolve(path)
     if not p.exists(): return f"ERROR: {path} not found"
+    if not allow_outside_project:
+        scope_err = project_scope_error(p, "list_dir", "allow_outside_project=true")
+        if scope_err:
+            return scope_err
     items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
     if not show_all:
         items = [x for x in items if x.name not in SKIP_DIRS]
@@ -171,11 +175,16 @@ def rank_files(
     scan_limit: int = 700,
     include_snippets: bool = False,
     max_snippet_chars: int = 240,
+    allow_outside_project: bool = False,
 ) -> str:
     """Rank likely relevant files before expensive reads/OCR/PDF extraction."""
     root = _resolve(path)
     if not root.exists():
         return f"ERROR: {path} not found"
+    if not allow_outside_project:
+        scope_err = project_scope_error(root, "rank_files", "allow_outside_project=true")
+        if scope_err:
+            return scope_err
     try:
         max_files = max(1, min(100, int(max_files)))
         scan_limit = max(20, min(3000, int(scan_limit)))

@@ -12,7 +12,7 @@ from ..constants import (
     DOC_MAX_FILES_DEFAULT, DOC_MAX_FILES_CAP,
     DOC_MAX_CHARS_PER_FILE_DEFAULT, DOC_CSV_MAX_ROWS_DEFAULT,
 )
-from ..path_resolve import robust_resolve
+from ..path_resolve import project_scope_error, robust_resolve
 from .dirs import SKIP_DIRS
 from ..utils.html_clean import _strip_html
 
@@ -207,6 +207,10 @@ def _read_one(
     if path.is_dir():
         return f"ERROR: is a directory: {path}"
     if not force:
+        scope_err = project_scope_error(path, "read_document")
+        if scope_err:
+            return scope_err
+
         reason = _skip_dir_reason(path)
         if reason:
             return (
@@ -247,6 +251,7 @@ def _collect_paths(
     directory: str | None,
     pattern: str,
     max_files: int,
+    force: bool,
 ) -> tuple[list[pathlib.Path], str | None]:
     """Returns (files, error_message)."""
     out: list[pathlib.Path] = []
@@ -267,6 +272,9 @@ def _collect_paths(
             return [], f"ERROR: directory not found: {directory}"
         if not root.is_dir():
             return [], f"ERROR: not a directory: {directory}"
+        scope_err = None if force else project_scope_error(root, "read_document")
+        if scope_err:
+            return [], scope_err
         pat = pattern or "**/*"
         seen: list[pathlib.Path] = []
         for p in sorted(root.glob(pat)):
@@ -300,7 +308,7 @@ def read_document(
     max_chars = _clamp(max_chars_per_file, DOC_MAX_CHARS_PER_FILE_DEFAULT, 2_000, min(MAX_FILE_READ, 200_000))
     csv_max_rows = _clamp(csv_max_rows, DOC_CSV_MAX_ROWS_DEFAULT, 10, 5_000)
 
-    collected, err = _collect_paths(path, paths, directory, pattern, max_files)
+    collected, err = _collect_paths(path, paths, directory, pattern, max_files, force)
     if err:
         return err
     if not collected:

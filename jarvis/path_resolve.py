@@ -36,3 +36,24 @@ def robust_resolve(path: str, cwd: pathlib.Path | None = None) -> pathlib.Path:
     except OSError:
         pass
     return base
+
+
+def is_within(path: pathlib.Path, root: pathlib.Path | None = None) -> bool:
+    """Return True when ``path`` is inside ``root`` after resolving both."""
+    root = (root or CWD).resolve()
+    try:
+        path.resolve().relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def project_scope_error(path: pathlib.Path, tool: str, escape: str = "force=true") -> str | None:
+    """Default guard for codebase tools: stay inside the current project."""
+    if is_within(path, CWD):
+        return None
+    return (
+        f"ERROR: {tool} refused outside-project path '{path}'. "
+        f"This codebase is rooted at '{CWD}'. Use a project-relative path, "
+        f"or pass {escape} only when the user explicitly asked for that outside file."
+    )

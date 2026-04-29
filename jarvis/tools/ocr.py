@@ -8,7 +8,6 @@ from ..constants import (
     CWD, MAX_PARALLEL_TOOLS, OCR_MAX_FILES_DEFAULT, OCR_MAX_FILES_CAP,
     OCR_CHARS_PER_IMAGE, OCR_CHARS_PER_IMAGE_CAP, OCR_SCAN_CHARS, OCR_WORKER_MIN,
 )
-from ..repl.turn_progress import report_turn_phase
 from ..path_resolve import robust_resolve
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".heic", ".tif", ".tiff", ".bmp"}
@@ -131,6 +130,8 @@ def read_images_text(
     prog = {"done": 0}
 
     def ocr_one_tracked(path: pathlib.Path) -> tuple[pathlib.Path, str]:
+        from ..repl.turn_progress import report_turn_phase
+
         text = read_image_text(str(path))
         with lock:
             prog["done"] += 1

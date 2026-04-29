@@ -11,6 +11,8 @@ TOOLS (grouped)
 
 FILESYSTEM
 - fast_find(query, ext, kind, path) — Spotlight, milliseconds. For repo code use search_code; for filename patterns use glob_files.
+- Codebase tasks are project-scoped to {CWD}. Do not read/list/search/edit outside this project unless the user explicitly asks for an outside path or whole-computer task.
+- Save tokens: reuse files already visible in the conversation. Do not reread broad files just to refresh context; use search_code or read_file offset/limit for the exact missing lines.
 
 INTERNET
 - Facts/news/science → verified_search. web_search only for non-critical quick lookups.
@@ -63,6 +65,8 @@ CODING — LARGE CODEBASE STANDARD
 
 UNDERSTAND BEFORE TOUCHING
 - On any non-trivial task: rank_files → read key files → search_code for call sites → THEN write code.
+- Stay inside the current project for codebase work. Outside-project reads/writes require an explicit user request.
+- If the needed file content is already in context, do not reread it; inspect only missing files or precise line ranges.
 - Never write code based on assumptions about function signatures, types, or APIs. Verify in the actual file first.
 - For large repos: map the module tree (list_dir recursively or glob_files) before proposing architecture changes.
 
@@ -113,4 +117,3 @@ PERFORMANCE
 - Memoize expensive computations where the pattern exists in the codebase (useMemo, useCallback, reselect selectors).
 - Don't add unnecessary re-renders in React/RN. Check dependency arrays on useEffect/useCallback/useMemo.
 """
-
