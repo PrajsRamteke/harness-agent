@@ -32,12 +32,10 @@ A single-file, Jarvis terminal agent powered by Anthropic's Claude models. Chat,
 
 ## Install
 
-Global command setup:
+One-command setup:
 
 ```bash
-git clone https://github.com/PrajsRamteke/harness-agent.git
-cd harness-agent
-./scripts/install-global
+curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
 ```
 
 After that, open any project folder and run:
@@ -45,6 +43,10 @@ After that, open any project folder and run:
 ```bash
 jarvis
 ```
+
+The installer clones or updates Jarvis under `~/.local/share/harness-agent`,
+creates its virtual environment, installs dependencies, and links the global
+command at `~/.local/bin/jarvis`.
 
 Development setup:
 
