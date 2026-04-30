@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON="${PYTHON:-python3}"
+BIN_DIR="${HOME}/.local/bin"
+LINK="${BIN_DIR}/jarvis"
+
+cd "${ROOT}"
+
+if [ ! -d ".venv" ]; then
+  "${PYTHON}" -m venv .venv
+fi
+
+".venv/bin/python" -m pip install -e .
+
+mkdir -p "${BIN_DIR}"
+
+if [ -e "${LINK}" ] && [ ! -L "${LINK}" ]; then
+  echo "error: ${LINK} already exists and is not a symlink"
+  echo "move it first, then rerun this script"
+  exit 1
+fi
+
+ln -sfn "${ROOT}/.venv/bin/jarvis" "${LINK}"
+
+echo "installed: ${LINK} -> ${ROOT}/.venv/bin/jarvis"
+
+case ":${PATH}:" in
+  *":${BIN_DIR}:"*)
+    echo "ready: run 'jarvis' from any project folder"
+    ;;
+  *)
+    echo "add this to your shell profile, then open a new terminal:"
+    echo "export PATH=\"${BIN_DIR}:\$PATH\""
+    ;;
+esac
