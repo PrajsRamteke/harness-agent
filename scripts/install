@@ -4,9 +4,7 @@ set -euo pipefail
 REPO_URL="${JARVIS_REPO_URL:-https://github.com/PrajsRamteke/harness-agent.git}"
 BRANCH="${JARVIS_BRANCH:-main}"
 INSTALL_DIR="${JARVIS_INSTALL_DIR:-${HOME}/.local/share/harness-agent}"
-BIN_DIR="${JARVIS_BIN_DIR:-${HOME}/.local/bin}"
 PYTHON="${PYTHON:-python3}"
-LINK="${BIN_DIR}/jarvis"
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -15,8 +13,57 @@ need_cmd() {
   fi
 }
 
+path_has() {
+  case ":${PATH}:" in
+    *":$1:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+choose_bin_dir() {
+  if [ -n "${JARVIS_BIN_DIR:-}" ]; then
+    echo "${JARVIS_BIN_DIR}"
+    return
+  fi
+
+  for dir in "${HOME}/.local/bin" "/opt/homebrew/bin" "/usr/local/bin"; do
+    if path_has "${dir}" && { [ -w "${dir}" ] || { [ ! -e "${dir}" ] && [ -w "$(dirname "${dir}")" ]; }; }; then
+      echo "${dir}"
+      return
+    fi
+  done
+
+  echo "${HOME}/.local/bin"
+}
+
+ensure_path_in_profile() {
+  local dir="$1"
+  if path_has "${dir}"; then
+    return
+  fi
+
+  local profile=""
+  case "$(basename "${SHELL:-}")" in
+    zsh) profile="${HOME}/.zshrc" ;;
+    bash) profile="${HOME}/.bashrc" ;;
+    *) profile="${HOME}/.profile" ;;
+  esac
+
+  touch "${profile}"
+  if ! grep -F "export PATH=\"${dir}:\$PATH\"" "${profile}" >/dev/null 2>&1; then
+    {
+      echo
+      echo "# Jarvis command"
+      echo "export PATH=\"${dir}:\$PATH\""
+    } >> "${profile}"
+  fi
+}
+
 need_cmd git
 need_cmd "${PYTHON}"
+
+BIN_DIR="$(choose_bin_dir)"
+LINK="${BIN_DIR}/jarvis"
 
 if [ -d "${INSTALL_DIR}/.git" ]; then
   echo "updating ${INSTALL_DIR}"
@@ -61,8 +108,9 @@ case ":${PATH}:" in
     ;;
   *)
     echo
-    echo "${BIN_DIR} is not on PATH yet."
-    echo "Add this to your shell profile, then open a new terminal:"
-    echo "export PATH=\"${BIN_DIR}:\$PATH\""
+    ensure_path_in_profile "${BIN_DIR}"
+    echo "Added ${BIN_DIR} to your shell profile."
+    echo "Open a new terminal, then run: jarvis"
+    echo "For this terminal only, run: export PATH=\"${BIN_DIR}:\$PATH\""
     ;;
 esac

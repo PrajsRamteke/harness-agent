@@ -3,7 +3,54 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
-BIN_DIR="${HOME}/.local/bin"
+
+path_has() {
+  case ":${PATH}:" in
+    *":$1:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+choose_bin_dir() {
+  if [ -n "${JARVIS_BIN_DIR:-}" ]; then
+    echo "${JARVIS_BIN_DIR}"
+    return
+  fi
+
+  for dir in "${HOME}/.local/bin" "/opt/homebrew/bin" "/usr/local/bin"; do
+    if path_has "${dir}" && { [ -w "${dir}" ] || { [ ! -e "${dir}" ] && [ -w "$(dirname "${dir}")" ]; }; }; then
+      echo "${dir}"
+      return
+    fi
+  done
+
+  echo "${HOME}/.local/bin"
+}
+
+ensure_path_in_profile() {
+  local dir="$1"
+  if path_has "${dir}"; then
+    return
+  fi
+
+  local profile=""
+  case "$(basename "${SHELL:-}")" in
+    zsh) profile="${HOME}/.zshrc" ;;
+    bash) profile="${HOME}/.bashrc" ;;
+    *) profile="${HOME}/.profile" ;;
+  esac
+
+  touch "${profile}"
+  if ! grep -F "export PATH=\"${dir}:\$PATH\"" "${profile}" >/dev/null 2>&1; then
+    {
+      echo
+      echo "# Jarvis command"
+      echo "export PATH=\"${dir}:\$PATH\""
+    } >> "${profile}"
+  fi
+}
+
+BIN_DIR="$(choose_bin_dir)"
 LINK="${BIN_DIR}/jarvis"
 
 cd "${ROOT}"
@@ -31,7 +78,9 @@ case ":${PATH}:" in
     echo "ready: run 'jarvis' from any project folder"
     ;;
   *)
-    echo "add this to your shell profile, then open a new terminal:"
-    echo "export PATH=\"${BIN_DIR}:\$PATH\""
+    ensure_path_in_profile "${BIN_DIR}"
+    echo "added ${BIN_DIR} to your shell profile"
+    echo "open a new terminal, then run: jarvis"
+    echo "for this terminal only, run: export PATH=\"${BIN_DIR}:\$PATH\""
     ;;
 esac
