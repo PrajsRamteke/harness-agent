@@ -27,8 +27,8 @@ PRICING = {
     # ── Anthropic (direct API) ────────────────────────────────────────────────
     "claude-haiku-4-5":  (1.0,   5.0),
     "claude-sonnet-4-6": (3.0,  15.0),
-    "claude-opus-4-6":   (15.0, 75.0),
-    "claude-opus-4-7":   (15.0, 75.0),
+    "claude-opus-4-6":   (5.0, 25.0),
+    "claude-opus-4-7":   (5.0, 25.0),
 
     # ── OpenRouter free-tier (all :free suffix → $0) ─────────────────────────
     "minimax/minimax-m2.5:free":                     (0.0, 0.0),
@@ -42,21 +42,21 @@ PRICING = {
     "google/gemma-3-27b-it:free":                    (0.0, 0.0),
     "nousresearch/hermes-3-llama-3.1-405b:free":     (0.0, 0.0),
 
-    # ── OpenCode Go models (estimates — update as needed) ────────────────────
-    "glm-5.1":          (2.0,   8.0),    # Zhipu GLM-5 series
-    "glm-5":            (2.0,   8.0),
-    "kimi-k2.6":        (1.0,   4.0),    # Moonshot Kimi K2
-    "kimi-k2.5":        (1.0,   4.0),
-    "deepseek-v4-pro":  (1.74,  3.48),   # official DeepSeek API
-    "deepseek-v4-flash":(0.14,  0.28),   # official DeepSeek API
-    "mimo-v2.5-pro":    (1.0,   4.0),    # MiMo series
-    "mimo-v2.5":        (0.5,   2.0),
-    "mimo-v2-pro":      (1.0,   4.0),
-    "mimo-v2-omni":     (0.5,   2.0),
-    "minimax-m2.7":     (1.5,   6.0),    # MiniMax
-    "minimax-m2.5":     (1.0,   5.0),
-    "qwen3.6-plus":     (0.5,   2.0),    # Alibaba Qwen
-    "qwen3.5-plus":     (0.5,   2.0),
+    # ── OpenCode Go models (real pricing, help.apiyi) ──────────────────────────
+    "glm-5.1":          (1.40,   4.40),    # Zhipu GLM-5.1 (help.apiyi)
+    "glm-5":            (1.00,   3.20),    # Zhipu GLM-5 (help.apiyi)
+    "kimi-k2.6":        (0.32,   1.34),    # Moonshot Kimi K2.6 (help.apiyi+1)
+    "kimi-k2.5":        (0.60,   3.00),    # Moonshot Kimi K2.5 (help.apiyi)
+    "deepseek-v4-pro":  (1.74,   3.48),    # DeepSeek v4 Pro (help.apiyi+1)
+    "deepseek-v4-flash":(0.14,   0.28),    # DeepSeek v4 Flash (help.apiyi)
+    "mimo-v2.5-pro":    (1.00,   3.00),    # MiMo v2.5 Pro (help.apiyi)
+    "mimo-v2.5":        (0.40,   2.00),    # MiMo v2.5 (help.apiyi)
+    "mimo-v2-pro":      (1.00,   3.00),    # MiMo v2 Pro
+    "mimo-v2-omni":     (0.40,   2.00),    # MiMo v2 Omni (help.apiyi)
+    "minimax-m2.7":     (0.30,   1.20),    # MiniMax M2.7 (help.apiyi)
+    "minimax-m2.5":     (0.30,   1.20),    # MiniMax M2.5 (help.apiyi)
+    "qwen3.6-plus":     (0.50,   3.00),    # Qwen 3.6 Plus (help.apiyi)
+    "qwen3.5-plus":     (0.20,   1.20),    # Qwen 3.5 Plus (help.apiyi)
 }
 
 # ── Numeric / behavior constants ───────────────────────────────────────────────
