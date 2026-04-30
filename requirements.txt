@@ -3,3 +3,4 @@ rich>=13
 textual>=0.80
 pypdf>=4.0
 openpyxl>=3.0
+openai>=1.0
