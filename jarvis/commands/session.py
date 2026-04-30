@@ -83,6 +83,8 @@ def _resume_session(sid: int) -> Optional[int]:
     state.messages = loaded
     state.current_session_id = sid
     state.tool_calls_count = 0
+    state.total_in = 0
+    state.total_out = 0
     console.print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
     # render a brief tail so the user has context
     tail = state.messages[-6:]

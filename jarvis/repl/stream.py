@@ -135,7 +135,12 @@ def call_claude_stream():
                     final = stream.get_final_message()
                 finally:
                     _current_stream = None
-            state.total_in += final.usage.input_tokens
+            # input_tokens is the FULL prompt sent in THIS request (includes full
+            # conversation history).  Accumulating it across turns massively
+            # overcounts — just store the latest value which reflects total
+            # *unique* input consumed so far.  Output tokens are per-turn unique
+            # so accumulation is correct.
+            state.total_in = final.usage.input_tokens
             state.total_out += final.usage.output_tokens
             return final
         except APITimeoutError:
