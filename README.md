@@ -46,7 +46,16 @@ jarvis
 
 The installer clones or updates Jarvis under `~/.local/share/harness-agent`,
 creates its virtual environment, installs dependencies, and links the global
-command at `~/.local/bin/jarvis`.
+`jarvis` command into a bin folder on your PATH when possible. If your shell
+does not already include a usable bin folder, it adds `~/.local/bin` to your
+shell profile; open a new terminal after install.
+
+If zsh says `command not found: jarvis`, run:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+jarvis
+```
 
 Development setup:
 
