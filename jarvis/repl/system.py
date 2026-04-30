@@ -12,9 +12,10 @@ from datetime import datetime
 from typing import Union, List, Dict
 
 from ..constants import (
-    SYSTEM, CODING_ADDON, CLAUDE_CODE_IDENTITY,
+    CODING_ADDON, CLAUDE_CODE_IDENTITY,
     AUTH_OAUTH, MODE_CODING,
 )
+from ..constants.system_prompt import build_base_system
 from ..storage.memory import as_prompt_block
 from ..storage.skills import as_prompt_block as skills_prompt_block
 from .. import state
@@ -24,6 +25,7 @@ _cached_body: str = ""
 _cached_mem_key: str = ""
 _cached_sk_key: str = ""
 _cached_pinned: str = ""
+_cached_cwd: str = ""
 
 def _keyword_detected(messages: list) -> bool:
     """Compatibility shim: default mode no longer auto-detects coding turns."""
@@ -43,20 +45,23 @@ def _is_coding_request(messages: list) -> bool:
 
 def _build_static_body() -> str:
     """Everything except the date/time line and coding addon. Cached between turns."""
-    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_pinned
+    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_pinned, _cached_cwd
 
     mem_block = as_prompt_block()
     sk_block = skills_prompt_block()
     pinned = state.pinned_context.strip()
+    from pathlib import Path
+    cwd = str(Path.cwd())
 
     # Use content as cache key — only rebuild when something actually changed.
     if (mem_block == _cached_mem_key
             and sk_block == _cached_sk_key
             and pinned == _cached_pinned
+            and cwd == _cached_cwd
             and _cached_body):
         return _cached_body
 
-    body = SYSTEM
+    body = build_base_system(Path(cwd))
     if pinned:
         body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned
     if mem_block:
@@ -78,6 +83,7 @@ def _build_static_body() -> str:
     _cached_mem_key = mem_block
     _cached_sk_key = sk_block
     _cached_pinned = pinned
+    _cached_cwd = cwd
     return body
 
 

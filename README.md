@@ -37,14 +37,18 @@ git clone https://github.com/PrajsRamteke/harness-agent.git
 cd harness
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ## Usage
 
 ```bash
-python agent.py
+jarvis
 ```
+
+Run `jarvis` from the folder you want it to treat as the current project. The
+TUI status bar shows that project path, and questions like "explain this app"
+or "fix this project" are scoped to that folder.
 
 On first run you'll be prompted to choose an auth mode:
 

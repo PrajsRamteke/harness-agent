@@ -2,7 +2,7 @@
 import json, os, pathlib, time
 
 from ..console import console
-from ..constants import CONFIG_DIR, NOTES_FILE
+from ..constants import CONFIG_DIR, NOTES_FILE, set_cwd
 from ..tools.dirs import list_dir, glob_files
 from ..tools.shell import run_bash
 from ..tools.git import git_status, git_diff
@@ -18,7 +18,8 @@ def handle_files_shell(c: str, arg: str) -> bool:
     if c == "/cd":
         try:
             os.chdir(arg or str(pathlib.Path.home()))
-            console.print(f"[green]cwd → {pathlib.Path.cwd()}[/]")
+            cwd = set_cwd(pathlib.Path.cwd())
+            console.print(f"[green]cwd → {cwd}[/]")
         except Exception as e: console.print(f"[red]{e}[/]")
         return True
     if c == "/pwd": console.print(str(pathlib.Path.cwd())); return True

@@ -651,6 +651,7 @@ class JarvisTUI(App):
 
     def _set_status(self, msg: str):
         try:
+            import pathlib
             from .. import state
             trace = "shown" if state.show_internal else "hidden"
             lbl, col, _s = state.MODE_LABELS.get(
@@ -668,6 +669,7 @@ class JarvisTUI(App):
             parts.append(f"🤖 {state.MODEL}")
             if state.current_session_id is not None:
                 parts.append(f"#{state.current_session_id}")
+            parts.append(f"📁 {_escape(str(pathlib.Path.cwd()))}")
             parts.append(f"💬 {len(state.messages)}")
             parts.append(f"🔧 {state.tool_calls_count}")
             parts.append(f"⇅ {state.total_in}/{state.total_out} = {state.total_in + state.total_out}")
