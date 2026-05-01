@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Union, List, Dict
 
 from ..constants import (
-    CODING_ADDON, CLAUDE_CODE_IDENTITY,
+    CODING_ADDON, OAUTH_IDENTITY,
     AUTH_OAUTH, MODE_CODING,
 )
 from ..constants.system_prompt import build_base_system
@@ -93,7 +93,7 @@ def build_system() -> Union[str, List[Dict]]:
     Coding addon (~400 tokens) is only appended in explicit coding mode.
 
     When authenticated via OAuth, Anthropic requires the FIRST system block to be
-    exactly the Claude Code identity string — so we return a 2-block list in that
+    exactly the OAuth identity string — so we return a 2-block list in that
     case and keep our real instructions in the second block.
     """
     now = datetime.now()
@@ -114,7 +114,7 @@ def build_system() -> Union[str, List[Dict]]:
 
     if state.auth_mode == AUTH_OAUTH:
         return [
-            {"type": "text", "text": CLAUDE_CODE_IDENTITY},
+            {"type": "text", "text": OAUTH_IDENTITY},
             {"type": "text", "text": body},
         ]
     return body

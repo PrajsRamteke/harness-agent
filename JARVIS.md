@@ -1,6 +1,6 @@
-# CLAUDE.md
+# JARVIS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance for working with code in this repository.
 
 ## Running the Agent
 

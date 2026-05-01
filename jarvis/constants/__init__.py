@@ -33,7 +33,7 @@ from .providers import (
 from .oauth import (
     OAUTH_CLIENT_ID, OAUTH_AUTHORIZE_URL, OAUTH_TOKEN_URL,
     OAUTH_REDIRECT_URI, OAUTH_SCOPES, OAUTH_BETA_HEADER,
-    CLAUDE_CODE_IDENTITY,
+    OAUTH_IDENTITY,
 )
 from .icons import TOOL_ICONS
 from .system_prompt import SYSTEM, CODING_ADDON, build_base_system
