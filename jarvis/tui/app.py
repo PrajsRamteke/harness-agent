@@ -386,6 +386,29 @@ class JarvisTUI(App):
         if head[1:] in state.aliases:
             rest = text[len(head) :]
             text = state.aliases[head[1:]] + rest
+
+        # Commands that need stdin (OAuth token paste, key entry) must run in
+        # the worker thread so the TUIConsole can show a blocking input modal.
+        if head in ("/login", "/logout", "/auth", "/key", "/model", "/session", "/sessions"):
+            # Show the command in the transcript, then run in worker thread
+            log = self.query_one("#transcript", RichLog)
+            log.write(
+                Panel(
+                    Text(text),
+                    title="you",
+                    title_align="left",
+                    border_style="green",
+                    padding=(0, 1),
+                )
+            )
+            self._busy = True
+            self._turn_t0 = time.monotonic()
+            self._sync_activity_phase("Starting your request…")
+            self._start_activity_pulse()
+            self._set_status("thinking…")
+            self._run_turn(text)
+            return
+
         result, should_send, new_inp = handle_slash(text)
         if result == "exit":
             self.exit()

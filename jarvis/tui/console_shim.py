@@ -1,11 +1,9 @@
 """Rich-Console-compatible shim that routes output to a Textual RichLog.
 
-Only the subset of the Rich Console API actually used across the codebase is
-implemented: ``print``, ``rule``, ``status`` (as a no-op context manager), and
-``prompt_shell_approval`` (blocking Y/n/a modal for :func:`run_bash`). The raw
-``input`` method still raises — use ``prompt_shell_approval`` for shell approval.
-Renderables are forwarded to the app's RichLog from any thread via
-``App.call_from_thread``.
+Implemented: ``print``, ``rule``, ``status`` (no-op context manager),
+``prompt_shell_approval`` (blocking Y/n/a modal), and ``input`` (blocking
+text-input modal for worker threads). Renderables are forwarded to the app's
+RichLog from any thread via ``App.call_from_thread``.
 """
 import queue
 import re
@@ -270,5 +268,55 @@ class TUIConsole:
         except queue.Empty:
             return "n"
 
-    def input(self, *args, **kwargs):  # noqa: D401 — unused in TUI mode
-        raise RuntimeError("TUIConsole.input called — input flows through the Input widget")
+    def input(self, prompt: str = "", *, password: bool = False, **kwargs) -> str:  # noqa: D401
+        """Show a text input modal and return the entered text.
+
+        Can only be called from a worker thread (not the main Textual thread)
+        because it blocks with a Queue. Raises ``EOFError`` if the user cancels.
+
+        The prompt text is printed to the transcript before the modal opens.
+        """
+        if threading.current_thread() is threading.main_thread():
+            raise RuntimeError(
+                "TUIConsole.input cannot be called from the main thread; "
+                "use the Input widget or route through _run_turn instead."
+            )
+
+        # Print the prompt to the transcript first
+        if prompt:
+            self.print(prompt, end="")
+
+        from .text_input_modal import TextInputScreen
+
+        q: queue.Queue[str | None] = queue.Queue(maxsize=1)
+
+        def on_done(result: str | None) -> None:
+            try:
+                q.put_nowait(result)
+            except Exception:
+                pass
+
+        placeholder = "(paste here)"
+        if password:
+            placeholder = "(password, hidden)"
+
+        def push() -> None:
+            self._app.push_screen(
+                TextInputScreen(
+                    title="Input required",
+                    body=prompt,
+                    placeholder=placeholder,
+                    password=password,
+                ),
+                on_done,
+            )
+
+        self._app.call_from_thread(push)
+        try:
+            result = q.get(timeout=3600)
+        except queue.Empty:
+            result = None
+
+        if result is None:
+            raise EOFError("Input cancelled")
+        return result
