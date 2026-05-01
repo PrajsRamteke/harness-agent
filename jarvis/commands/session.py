@@ -53,11 +53,8 @@ def cmd_session(arg: str):
         return _resume_session(int(rest))
 
     if sub == "new":
-        sid = db_create_session(state.MODEL)
-        state.messages = []; state.tool_calls_count = 0
-        state.current_session_id = sid
-        console.print(f"[green]✨ new session #{sid}[/]")
-        return sid
+        console.print("[yellow]/session new is the same as /new — use [/][cyan]/new[/][yellow] instead[/]")
+        return None
 
     if sub == "delete":
         if not rest.isdigit():

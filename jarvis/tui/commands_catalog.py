@@ -13,7 +13,7 @@ COMMANDS = [
     ("/load ", "load session JSON"),
     ("/session", "list persisted sessions & resume"),
     ("/session resume ", "resume a session by id"),
-    ("/session new", "start a new persisted session"),
+    # /new does the same thing — /session new removed as duplicate
     ("/session delete ", "delete a stored session"),
     ("/clear", "clear the terminal screen"),
     ("/exit", "quit"),

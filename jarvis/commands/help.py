@@ -18,7 +18,7 @@ def cmd_help():
             ("/load <file>", "load session JSON"),
             ("/session", "list persisted sessions & resume"),
             ("/session resume <id>", "resume a session by id"),
-            ("/session new", "start a new persisted session"),
+            # /new does the same thing — /session new removed as duplicate
             ("/session delete <id>", "delete a stored session"),
             ("/clear", "clear the terminal screen"),
             ("/exit", "quit"),
@@ -59,12 +59,17 @@ def cmd_help():
             ("/paste", "send clipboard text, or OCR a clipboard image, as the next message"),
             ("plain prompt + image clipboard", "type your prompt normally; a fresh clipboard image is OCR'd and attached"),
         ]),
+        ("Modes", [
+            ("/coding", "toggle coding mode ON/OFF (adds large-codebase rules)"),
+            ("/mode", "show current mode / switch mode (e.g. /mode coding)"),
+        ]),
         ("Control", [
             ("/think", "toggle extended thinking"),
             ("/verbose", "toggle internal tool trace (thinking panels only with /think on)"),
             ("/auto", "toggle auto-approve bash"),
             ("/multi", "enter a multiline message (end with ';;' line)"),
             ("/model <name>", "switch model"),
+            ("/provider <name>", "switch provider (anthropic/openrouter)"),
             ("/tokens", "usage so far"),
             ("/cost", "estimated USD cost of session"),
             ("/stats", "session stats (time, msgs, tools, tokens)"),
