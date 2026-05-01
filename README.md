@@ -25,6 +25,13 @@ A single-file, Jarvis terminal agent powered by Anthropic's Claude models. Chat,
 - macOS (for the mac-control tools; core agent works anywhere)
 - An Anthropic API key **or** a Claude Pro/Max subscription
 
+On macOS, Apple's built-in `python3` can still be too old. If install reports
+that Python 3.10+ is required, install a newer Python first:
+
+```bash
+brew install python@3.11
+```
+
 ## Install
 
 One-command setup:
