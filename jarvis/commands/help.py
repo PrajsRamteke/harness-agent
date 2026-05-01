@@ -54,6 +54,10 @@ def cmd_help():
             ("/git", "git status"),
             ("/diff [path]", "git diff"),
         ]),
+        ("Project", [
+            ("/project graph", "generate interactive HTML visualization of the project structure"),
+            ("/project graph --rebuild", "force rescan before generating"),
+        ]),
         ("Clipboard", [
             ("/copy", "copy last assistant response to clipboard"),
             ("/paste", "send clipboard text, or OCR a clipboard image, as the next message"),

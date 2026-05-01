@@ -2,8 +2,8 @@
   "name": "harness",
   "lang": "Unknown",
   "fw": "unknown",
-  "files": 115,
-  "scanned": 93,
+  "files": 117,
+  "scanned": 94,
   "entries": [
     "jarvis/main.py"
   ],
@@ -16,6 +16,7 @@
       "harness_jarvis.egg-info/",
       "requirements.txt",
       "pyproject.toml",
+      "project_graph.html",
       "README.md",
       ".gitignore",
       "agent.py",
@@ -80,6 +81,7 @@
       "skill.py",
       "memory.py",
       "dispatch.py",
+      "graph.py",
       "control.py",
       "session.py",
       "__init__.py",
@@ -500,6 +502,25 @@
         "pathlib",
         "set_cwd",
         "time"
+      ]
+    },
+    "jarvis/commands/graph.py": {
+      "e": [
+        "cmd_graph",
+        "_build_html"
+      ],
+      "i": [
+        "..console",
+        "..tools.project_graph",
+        "GRAPH_FILE",
+        "Panel",
+        "Path",
+        "console",
+        "ensure as get_graph",
+        "json",
+        "os",
+        "pathlib",
+        "webbrowser"
       ]
     },
     "jarvis/commands/help.py": {
@@ -1658,5 +1679,5 @@
     }
   },
   "deps": {},
-  "ts": 1777655185
+  "ts": 1777657306
 }

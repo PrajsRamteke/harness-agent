@@ -1,0 +1,281 @@
+"""/project graph — generate interactive HTML visualization of the project graph."""
+import json
+import os
+import webbrowser
+from pathlib import Path
+
+from ..console import console, Panel
+from ..tools.project_graph import ensure as get_graph, GRAPH_FILE
+
+
+def cmd_graph(arg: str):
+    """Handle /project graph [--rebuild] — generate project_graph.html."""
+    rebuild = "--rebuild" in arg or "-r" in arg
+
+    root = Path.cwd().resolve()
+    graph_path = root / GRAPH_FILE
+
+    if rebuild or not graph_path.exists():
+        console.print("[dim]building project graph…[/]")
+        graph = get_graph(root, rebuild=True)
+        console.print(f"[dim]scanned {graph.get('scanned', 0)} source files[/]")
+    else:
+        graph = get_graph(root, rebuild=False)
+        if "error" in graph:
+            console.print(f"[red]{graph['error']}[/]")
+            return
+        console.print(f"[dim]loaded existing graph ({graph.get('scanned', 0)} files)[/]")
+
+    html = _build_html(graph, root.name)
+    out_path = root / "project_graph.html"
+    out_path.write_text(html, encoding="utf-8")
+
+    console.print(
+        Panel(
+            f"[green]📊 project_graph.html[/] — {len(html):,} bytes\n"
+            f"[dim]open in browser:[/] [cyan]file://{out_path}[/]",
+            title="Project Graph",
+            border_style="green",
+        )
+    )
+    webbrowser.open(f"file://{out_path}")
+
+
+def _build_html(graph: dict, project_name: str) -> str:
+    """Generate self-contained interactive HTML with D3.js tree layout."""
+    graph_json = json.dumps(graph)
+
+    # Use a template with placeholders that avoid JS/Python brace conflict.
+    # The HTML is stored as a raw string; Python placeholders use REPLACE_ME_*
+    # markers and are substituted after construction.
+    GRAPH_DATA_PLACEHOLDER = "__GRAPH_DATA_PLACEHOLDER__"
+
+    html = (
+        '<!DOCTYPE html>\n'
+        '<html lang="en">\n'
+        '<head>\n'
+        '<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '<title>Project Graph \u2014 {name}</title>\n'
+        '<script src="https://d3js.org/d3.v7.min.js"></script>\n'
+        '<style>\n'
+        '  *{margin:0;padding:0;box-sizing:border-box;}\n'
+        '  body{font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',\'Inter\',Roboto,sans-serif;background:#0d1117;color:#c9d1d9;overflow:hidden;height:100vh;}\n'
+        '  #header{position:fixed;top:0;left:0;right:0;z-index:100;background:linear-gradient(180deg,#161b22 0%,#0d1117 100%);border-bottom:1px solid #30363d;padding:12px 24px;display:flex;align-items:center;gap:20px;backdrop-filter:blur(12px);}\n'
+        '  h1{font-size:18px;font-weight:600;background:linear-gradient(135deg,#58a6ff,#79c0ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}\n'
+        '  #stats{display:flex;gap:16px;font-size:13px;color:#8b949e;}\n'
+        '  #stats span{background:#21262d;padding:2px 10px;border-radius:12px;}\n'
+        '  #search{margin-left:auto;background:#21262d;border:1px solid #30363d;border-radius:8px;padding:6px 14px;color:#c9d1d9;font-size:13px;width:220px;outline:none;transition:border-color .2s;}\n'
+        '  #search:focus{border-color:#58a6ff;}#search::placeholder{color:#484f58;}\n'
+        '  #legend{display:flex;gap:12px;font-size:11px;color:#8b949e;align-items:center;}\n'
+        '  .legend-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;}\n'
+        '  #tooltip{position:fixed;z-index:200;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:14px 18px;font-size:13px;max-width:420px;pointer-events:none;opacity:0;transition:opacity .15s;box-shadow:0 8px 32px rgba(0,0,0,.5);line-height:1.5;}\n'
+        '  #tooltip .tt-name{font-weight:600;color:#f0f6fc;font-size:15px;margin-bottom:6px;}\n'
+        '  #tooltip .tt-path{color:#8b949e;font-size:12px;font-family:\'SF Mono\',\'Monaco\',monospace;margin-bottom:8px;}\n'
+        '  #tooltip .tt-section{color:#58a6ff;font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-top:6px;}\n'
+        '  #tooltip .tt-items{color:#c9d1d9;font-family:\'SF Mono\',\'Monaco\',monospace;font-size:12px;word-break:break-all;}\n'
+        '  svg{display:block;width:100%;height:100vh;}\n'
+        '  .node-circle{cursor:pointer;transition:r .15s;}\n'
+        '  .node-circle:hover{filter:brightness(1.3);}\n'
+        '  .node-label{font-size:12px;fill:#c9d1d9;font-family:\'SF Mono\',\'Monaco\',monospace;pointer-events:none;}\n'
+        '  .link{fill:none;stroke:#30363d;stroke-width:1.5;stroke-opacity:.6;}\n'
+        '  .dir-label{fill:#58a6ff;font-weight:600;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;pointer-events:none;}\n'
+        '</style>\n'
+        '</head>\n'
+        '<body>\n'
+        '\n'
+        '<div id="header">\n'
+        '  <h1>\U0001f4ca {name}</h1>\n'
+        '  <div id="stats">\n'
+        '    <span>\U0001f4c1 <span id="dirCount">0</span> dirs</span>\n'
+        '    <span>\U0001f4c4 <span id="fileCount">0</span> files</span>\n'
+        '    <span>\U0001f50d <span id="scanCount">0</span> scanned</span>\n'
+        '  </div>\n'
+        '  <div id="legend">\n'
+        '    <span><span class="legend-dot" style="background:#58a6ff"></span>dir</span>\n'
+        '    <span><span class="legend-dot" style="background:#7ee787"></span>file</span>\n'
+        '    <span><span class="legend-dot" style="background:#d2a8ff"></span>entry</span>\n'
+        '  </div>\n'
+        '  <input id="search" type="text" placeholder="Search files\u2026" spellcheck="false">\n'
+        '</div>\n'
+        '\n'
+        '<div id="tooltip"></div>\n'
+        '<svg id="tree"></svg>\n'
+        '\n'
+        '<script>\n'
+        'const DATA = ' + GRAPH_DATA_PLACEHOLDER + ';\n'
+        '\n'
+        'function buildHierarchy(d) {\n'
+        '  const files = d.tree || {};\n'
+        '  const dirMap = d.dirs || {};\n'
+        '  const root = { name: d.name || "project", children: [], path: "", depth: 0 };\n'
+        '  for (const [relpath, meta] of Object.entries(files)) {\n'
+        '    const parts = relpath.split("/");\n'
+        '    let node = root, curPath = "";\n'
+        '    for (let i = 0; i < parts.length; i++) {\n'
+        '      const part = parts[i];\n'
+        '      const isFile = i === parts.length - 1 && part.includes(".");\n'
+        '      curPath = curPath ? curPath + "/" + part : part;\n'
+        '      let child = node.children?.find(c => c.name === part);\n'
+        '      if (!child) {\n'
+        '        child = { name: part, path: curPath, children: [], isFile, depth: i, _meta: isFile ? meta : null };\n'
+        '        if (!node.children) node.children = [];\n'
+        '        node.children.push(child);\n'
+        '      }\n'
+        '      node = child;\n'
+        '    }\n'
+        '  }\n'
+        '  for (const [dirpath, children] of Object.entries(dirMap)) {\n'
+        '    if (dirpath === "") continue;\n'
+        '    const parts = dirpath.split("/");\n'
+        '    let node = root, found = true, curPath = "";\n'
+        '    for (let i = 0; i < parts.length; i++) {\n'
+        '      curPath = curPath ? curPath + "/" + parts[i] : parts[i];\n'
+        '      const child = node.children?.find(c => c.name === parts[i]);\n'
+        '      if (!child) { found = false; break; }\n'
+        '      node = child;\n'
+        '    }\n'
+        '    if (!found) {\n'
+        '      node = root; curPath = "";\n'
+        '      for (let i = 0; i < parts.length; i++) {\n'
+        '        curPath = curPath ? curPath + "/" + parts[i] : parts[i];\n'
+        '        let child = node.children?.find(c => c.name === parts[i]);\n'
+        '        if (!child) {\n'
+        '          child = { name: parts[i], path: curPath, children: [], isFile: false, depth: i, _meta: null };\n'
+        '          if (!node.children) node.children = [];\n'
+        '          node.children.push(child);\n'
+        '        }\n'
+        '        node = child;\n'
+        '      }\n'
+        '      for (const fc of (children || []).filter(c => c.includes("."))) {\n'
+        '        if (!node.children?.find(c => c.name === fc)) {\n'
+        '          node.children.push({ name: fc, path: curPath + "/" + fc, children: [], isFile: true, depth: parts.length, _meta: files[curPath + "/" + fc] || null });\n'
+        '        }\n'
+        '      }\n'
+        '    }\n'
+        '  }\n'
+        '  function sortChildren(node) {\n'
+        '    if (node.children) {\n'
+        '      node.children.sort((a,b) => { if (a.isFile && !b.isFile) return 1; if (!a.isFile && b.isFile) return -1; return a.name.localeCompare(b.name); });\n'
+        '      node.children.forEach(sortChildren);\n'
+        '    }\n'
+        '  }\n'
+        '  sortChildren(root);\n'
+        '  return root;\n'
+        '}\n'
+        '\n'
+        'const W = window.innerWidth, H = window.innerHeight;\n'
+        'const M = { top: 80, right: 40, bottom: 40, left: 280 };\n'
+        'const svg = d3.select("#tree");\n'
+        'svg.selectAll("*").remove();\n'
+        'const g = svg.append("g").attr("transform", "translate(" + M.left + "," + M.top + ")");\n'
+        '\n'
+        'const treeLayout = d3.tree()\n'
+'  .size([Math.max(H - M.top - M.bottom, DATA.scanned * 24), W - M.left - M.right - 40])\n'
+'  .separation((a, b) => a.parent === b.parent ? 2.0 : 3.5);\n'
+        'const root = buildHierarchy(DATA);\n'
+        'const treeRoot = d3.hierarchy(root);\n'
+        'const links = treeLayout(treeRoot).links();\n'
+        '\n'
+        'document.getElementById("dirCount").textContent = DATA.dirs ? Object.keys(DATA.dirs).length : 0;\n'
+        'document.getElementById("fileCount").textContent = DATA.files || 0;\n'
+        'document.getElementById("scanCount").textContent = DATA.scanned || 0;\n'
+        '\n'
+        'g.selectAll(".link").data(links).join("path").attr("class","link")\n'
+        '  .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));\n'
+        '\n'
+        'const node = g.selectAll("g.node").data(treeRoot.descendants()).join("g")\n'
+        '  .attr("transform", d => "translate(" + d.y + "," + d.x + ")");\n'
+        '\n'
+        'const isEntry = d => d.data._meta && DATA.entries && DATA.entries.includes(d.data.path);\n'
+        'const isDir = d => !d.data.isFile;\n'
+        'const hasKids = d => d.data.children && d.data.children.length > 0;\n'
+        '\n'
+        'node.append("circle").attr("class","node-circle")\n'
+        '  .attr("r", d => isEntry(d) ? 8 : (isDir(d) ? (hasKids(d) ? 6 : 4) : 4.5))\n'
+        '  .attr("fill", d => isEntry(d) ? "#d2a8ff" : (isDir(d) ? "#58a6ff" : "#7ee787"))\n'
+        '  .attr("stroke", d => isEntry(d) ? "#bc8cff" : (isDir(d) ? "#1f6feb" : "#238636"))\n'
+        '  .attr("stroke-width", 1.5)\n'
+        '  .on("mouseenter", showTooltip).on("mousemove", moveTooltip).on("mouseleave", hideTooltip);\n'
+        '\n'
+        'node.append("text")\n'
+        '  .attr("class", d => d.data.isFile ? "node-label" : "dir-label")\n'
+        '  .attr("dx", d => isDir(d) ? -12 : 10).attr("dy", 4)\n'
+        '  .attr("text-anchor", d => isDir(d) ? "end" : "start")\n'
+        '  .each(function(d) {\n'
+        '    const el = d3.select(this);\n'
+        '    let text = d.data.name.length > 45 ? d.data.name.slice(0, 42) + "\\u2026" : d.data.name;\n'
+        '    if (d.data.isFile && d.data._meta && d.data._meta.e && d.data._meta.e.length) {\n'
+        '      text += " \\u2192 " + d.data._meta.e.slice(0, 2).join(", ") + (d.data._meta.e.length > 2 ? "\\u2026" : "");\n'
+        '    }\n'
+        '    el.text(text);\n'
+        '  });\n'
+        '\n'
+        'const tooltip = document.getElementById("tooltip");\n'
+        'function showTooltip(e, d) {\n'
+        '  const meta = d.data._meta;\n'
+        '  let html = \'<div class="tt-name">\' + d.data.name + \'</div>\';\n'
+        '  html += \'<div class="tt-path">\' + d.data.path + \'</div>\';\n'
+        '  if (isEntry(d)) html += \'<div class="tt-section">\\ud83d\\udccc Entry Point</div>\';\n'
+        '  if (meta) {\n'
+        '    if (meta.e && meta.e.length) {\n'
+        '      html += \'<div class="tt-section">\\u2192 Exports</div>\';\n'
+        '      html += \'<div class="tt-items">\' + meta.e.join(", ") + \'</div>\';\n'
+        '    }\n'
+        '    if (meta.i && meta.i.length) {\n'
+        '      html += \'<div class="tt-section">\\u2190 Imports</div>\';\n'
+        '      html += \'<div class="tt-items">\' + meta.i.slice(0, 15).join("<br>") + \'</div>\';\n'
+        '      if (meta.i.length > 15) html += \'<div style="color:#484f58;font-size:11px">... \' + (meta.i.length - 15) + \' more</div>\';\n'
+        '    }\n'
+        '  } else if (isDir(d)) {\n'
+        '    html += \'<div style="color:#8b949e;font-size:12px">\' + (d.data.children?.length || 0) + \' items</div>\';\n'
+        '  }\n'
+        '  tooltip.innerHTML = html;\n'
+        '  tooltip.style.opacity = 1;\n'
+        '}\n'
+        'function moveTooltip(e) {\n'
+        '  let x = e.clientX + 16, y = e.clientY - 10;\n'
+        '  const rect = tooltip.getBoundingClientRect();\n'
+        '  if (x + rect.width > window.innerWidth) x = e.clientX - rect.width - 16;\n'
+        '  if (y + rect.height > window.innerHeight) y = e.clientY - rect.height - 10;\n'
+        '  tooltip.style.left = x + "px";\n'
+        '  tooltip.style.top = y + "px";\n'
+        '}\n'
+        'function hideTooltip() { tooltip.style.opacity = 0; }\n'
+        '\n'
+        'const zoom = d3.zoom().scaleExtent([0.2, 5])\n'
+        '  .on("zoom", (event) => g.attr("transform", event.transform));\n'
+        'svg.call(zoom);\n'
+        'svg.call(zoom.transform, d3.zoomIdentity.translate(M.left, M.top));\n'
+        '\n'
+        'document.getElementById("search").addEventListener("input", function() {\n'
+        '  const q = this.value.toLowerCase().trim();\n'
+        '  if (!q) { node.style("opacity", 1); svg.selectAll(".link").style("opacity", 0.6); return; }\n'
+        '  node.each(function(d) {\n'
+        '    const match = d.data.path.toLowerCase().includes(q) ||\n'
+        '      d.data.name.toLowerCase().includes(q) ||\n'
+        '      (d.data._meta?.e || []).some(e => e.toLowerCase().includes(q));\n'
+        '    d3.select(this).style("opacity", match ? 1 : 0.08);\n'
+        '  });\n'
+        '  svg.selectAll(".link").style("opacity", function(d) {\n'
+        '    return (d.source.data.path.toLowerCase().includes(q) || d.target.data.path.toLowerCase().includes(q)) ? 0.6 : 0.04;\n'
+        '  });\n'
+        '});\n'
+        '\n'
+        'window.addEventListener("resize", () => { svg.attr("width", W).attr("height", H); });\n'
+        '\n'
+        'setTimeout(() => {\n'
+        '  const bounds = g.node()?.getBBox();\n'
+        '  if (bounds) {\n'
+        '    const s = Math.min((window.innerWidth - 80) / (bounds.width || 1), (window.innerHeight - 80) / (bounds.height || 1));\n'
+        '    if (s < 1) { svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(M.left + 20, M.top + 20).scale(s * 0.9)); }\n'
+        '  }\n'
+        '}, 100);\n'
+        '</script>\n'
+        '</body>\n'
+        '</html>'
+    )
+
+    html = html.replace(GRAPH_DATA_PLACEHOLDER, graph_json)
+    html = html.replace("{name}", project_name)
+    return html

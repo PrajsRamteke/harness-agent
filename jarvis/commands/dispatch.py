@@ -14,6 +14,7 @@ from .history import handle_history
 from .control import handle_control
 from .memory import handle_memory
 from .skill import handle_skill
+from .graph import cmd_graph
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/retry", "/paste", "/multi"}
@@ -42,6 +43,15 @@ def handle_slash(inp: str):
     # grouped handlers
     if handle_files_shell(c, arg):
         return ("ok", False, inp)
+
+    # /project graph
+    if c == "/project":
+        subparts = inp.split(maxsplit=2)
+        sub = subparts[1] if len(subparts) > 1 else ""
+        subarg = subparts[2] if len(subparts) > 2 else ""
+        if sub == "graph":
+            cmd_graph(subarg)
+            return ("ok", False, inp)
 
     handled, new_inp = handle_history(c, arg)
     if handled:
