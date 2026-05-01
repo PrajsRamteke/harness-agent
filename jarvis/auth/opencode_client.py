@@ -171,11 +171,12 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
                 msg_out["content"] = joined
             if reasoning_parts:
                 msg_out["reasoning_content"] = "\n".join(reasoning_parts)
-            elif tool_calls:
-                # DeepSeek thinking mode requires reasoning_content for
-                # assistant messages that participated in a tool-call turn.
-                # Old sessions (pre-reasoning-support) may be missing the
-                # thinking block — provide empty string to satisfy the API.
+            else:
+                # Some providers (Moonshot AI / kimi-k2.6, DeepSeek V4) require
+                # reasoning_content on EVERY assistant message when thinking mode
+                # is detected.  Old sessions / plain-text responses pre-dating
+                # thinking mode lack the field entirely — set empty string so the
+                # API doesn't reject with 400.
                 msg_out["reasoning_content"] = ""
             if tool_calls:
                 msg_out["tool_calls"] = tool_calls
@@ -402,10 +403,10 @@ class _OpenCodeMessages:
             oai_messages.append({"role": "system", "content": sys_text})
         oai_messages.extend(_anthropic_messages_to_openai(messages))
 
-        # When thinking mode is active, DeepSeek requires `reasoning_content`
-        # on EVERY assistant message in the conversation (even if empty).
-        # Without this, the API returns 400:
-        #   "The `reasoning_content` in the thinking mode must be passed back to the API."
+        # Safety net: _anthropic_messages_to_openai now sets reasoning_content
+        # on EVERY assistant message (empty string if no thinking block), so this
+        # loop is redundant — but keep as defense-in-depth in case the converter
+        # ever changes.
         if thinking and thinking.get("type") == "enabled":
             for msg in oai_messages:
                 if msg["role"] == "assistant" and "reasoning_content" not in msg:

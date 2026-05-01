@@ -101,6 +101,27 @@ CORE_TOOLS = [
     {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{}}},
     {"name":"git_diff","description":"git diff","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},
     {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"}}}},
+    {"name":"read_project_graph","description":(
+        "Read (or build) the project structure graph — a compact map of all source "
+        "files, their exports, imports, directory tree, framework, and dependencies. "
+        "Use this at the START of any coding task to navigate the project without "
+        "expensive search_code/glob_files discovery calls. The graph persists on "
+        "disk across sessions so you never rediscover structure. Pass rebuild=true "
+        "if the project changed significantly since last graph build."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "rebuild":{"type":"boolean","description":"Force full rescan. Default false — reads existing graph if available."}},
+        "required":[]}},
+    {"name":"update_project_graph","description":(
+        "Update the project graph after making file changes (edit_file, write_file, "
+        "rename, delete). Fast incremental update: only rescans the files you list. "
+        "Call this after modifying files so the graph stays current. Pass empty or "
+        "omit files to do a full rebuild."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "files":{"type":"array","items":{"type":"string"},
+                  "description":"List of changed file paths (relative to project root). If omitted, rescans everything."}},
+        "required":[]}},
 ]
 
 OCR_TOOLS = [

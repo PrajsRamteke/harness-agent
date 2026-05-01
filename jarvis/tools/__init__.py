@@ -16,6 +16,7 @@ from .web import web_search, fetch_url, verified_search
 from .ocr import read_image_text, read_images_text
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .skills import skill_save, skill_search, skill_list, skill_delete, SKILL_TOOLS
+from .project_graph import tool_read_project_graph, tool_update_project_graph
 from .schemas_core import CORE_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
@@ -64,4 +65,7 @@ FUNC = {
     # ocr
     "read_image_text": read_image_text,
     "read_images_text": read_images_text,
+    # project graph
+    "read_project_graph": tool_read_project_graph,
+    "update_project_graph": tool_update_project_graph,
 }
