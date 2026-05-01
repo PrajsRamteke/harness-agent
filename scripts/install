@@ -113,11 +113,11 @@ if [ -x ".venv/bin/python" ] && ! python_ok ".venv/bin/python"; then
 fi
 
 if [ ! -d ".venv" ]; then
-  "${PYTHON}" -m venv .venv
+  "${PYTHON}" -m venv --upgrade-deps .venv
 fi
 
 ".venv/bin/python" -m pip install --upgrade pip setuptools wheel
-".venv/bin/python" -m pip install -e .
+".venv/bin/python" -m pip install .
 
 mkdir -p "${BIN_DIR}"
 
