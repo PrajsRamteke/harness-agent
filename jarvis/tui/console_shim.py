@@ -95,8 +95,13 @@ class TUIConsole:
         except Exception:
             pass
 
-    def assistant_stream_commit(self, text: str, title: str, was_flagged: bool) -> None:
-        """Replace the in-log stream preview with the final scrubbed panel."""
+    def assistant_stream_commit(self, text: str, title: str, was_flagged: bool,
+                                thinking_blocks: list[str] | None = None) -> None:
+        """Replace the in-log stream preview with the final scrubbed panel.
+
+        If *thinking_blocks* are provided, render them first (above the text
+        panel) so thinking content appears before the assistant's reply.
+        """
         del was_flagged
         from .. import state as _state
 
@@ -107,6 +112,13 @@ class TUIConsole:
             self._as_buffer = ""
             self._as_dirty = 0
             _state._assistant_stream_ui_active = False
+            # render thinking blocks BEFORE the text panel
+            if thinking_blocks and _state.show_internal:
+                for tb in thinking_blocks:
+                    self._log.write(
+                        Panel(Text(tb), title="thinking", border_style="dim", padding=(0, 1)),
+                        scroll_end=True,
+                    )
             if re.search(r"\S", text):
                 self._log.write(
                     Panel(

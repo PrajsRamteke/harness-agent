@@ -83,6 +83,7 @@ def render_assistant(resp) -> bool:
 
     tool_results = []
     tool_uses = []  # collect, then run in parallel where safe
+    thinking_blocks = []  # rendered AFTER text commit to avoid erase by stream UI
     for b in resp.content:
         # ── text reply ──────────────────────────────────────────────
         if b.type == "text":
@@ -104,8 +105,9 @@ def render_assistant(resp) -> bool:
             state.last_assistant_text = text
             commit = getattr(console, "assistant_stream_commit", None)
             if state.stream_reply_live and state._assistant_stream_ui_active and commit:
-                commit(text, panel_title, was_flagged)
+                commit(text, panel_title, was_flagged, thinking_blocks=thinking_blocks)
                 state._assistant_stream_ui_active = False
+                thinking_blocks = []  # already rendered inside commit; don't re-render
                 continue
             console.print(Panel(
                 Markdown(text),
@@ -114,19 +116,11 @@ def render_assistant(resp) -> bool:
                 padding=(0, 1),
             ))
 
-        # ── thinking block ───────────────────────────────────────────
+        # ── thinking block — collect, render after text commit ───────
         elif b.type == "thinking":
-            # Providers (e.g. some OpenRouter models) may emit reasoning as
-            # `thinking` blocks even when we did not enable Anthropic extended
-            # thinking. Only surface that in the UI when the user toggled /think.
             thinking = b.thinking or ""
-            if state.think_mode and re.search(r"\S", thinking):
-                console.print(Panel(
-                    thinking.strip(),
-                    title="thinking",
-                    border_style="dim",
-                    padding=(0, 1),
-                ))
+            if re.search(r"\S", thinking):
+                thinking_blocks.append(thinking.strip())
 
         # ── tool call (collect now, run below in parallel) ───────────
         elif b.type == "tool_use":
@@ -134,6 +128,17 @@ def render_assistant(resp) -> bool:
             if b.name in ("web_search", "fetch_url", "verified_search"):
                 state.web_tool_used_this_turn = True
             tool_uses.append(b)
+
+    # Render thinking blocks (non-streaming / REPL path only — the TUI
+    # streaming path renders them inside assistant_stream_commit above).
+    if state.show_internal:
+        for thinking in thinking_blocks:
+            console.print(Panel(
+                thinking,
+                title="thinking",
+                border_style="dim",
+                padding=(0, 1),
+            ))
 
     # Execute collected tool calls: parallel-safe ones concurrently,
     # unsafe/stateful ones serially in their original order. Results are

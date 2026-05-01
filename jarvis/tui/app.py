@@ -519,7 +519,7 @@ class JarvisTUI(App):
             data = self._block_dict(block)
             kind = data.get("type")
             if kind == "thinking":
-                if not state.think_mode:
+                if not state.show_internal:
                     continue
                 body = data.get("thinking", "")
                 if body:
@@ -696,6 +696,8 @@ class JarvisTUI(App):
             parts.append(f"💬 {len(state.messages)}")
             parts.append(f"🔧 {state.tool_calls_count}")
             parts.append(f"⇅ {state.total_in}/{state.total_out} = {state.total_in + state.total_out}")
+            think_flag = f"[green]think:on[/]" if state.think_mode else f"[dim]think:off[/]"
+            parts.append(think_flag)
             parts.append(f"internals:{trace}")
             self.query_one("#statusbar", RichLog).clear()
             self.query_one("#statusbar", RichLog).write(" | ".join(parts))
@@ -747,7 +749,7 @@ class JarvisTUI(App):
         else:
             try:
                 self._tui_console.print(
-                    f"[dim]internal tool trace {mode}; thinking panels only when /think is on[/]"
+                    f"[dim]internal tool trace {mode}[/]"
                 )
             except Exception:
                 pass

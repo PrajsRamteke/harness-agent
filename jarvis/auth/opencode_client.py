@@ -402,6 +402,15 @@ class _OpenCodeMessages:
             oai_messages.append({"role": "system", "content": sys_text})
         oai_messages.extend(_anthropic_messages_to_openai(messages))
 
+        # When thinking mode is active, DeepSeek requires `reasoning_content`
+        # on EVERY assistant message in the conversation (even if empty).
+        # Without this, the API returns 400:
+        #   "The `reasoning_content` in the thinking mode must be passed back to the API."
+        if thinking and thinking.get("type") == "enabled":
+            for msg in oai_messages:
+                if msg["role"] == "assistant" and "reasoning_content" not in msg:
+                    msg["reasoning_content"] = ""
+
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": oai_messages,
@@ -422,7 +431,12 @@ class _OpenCodeMessages:
             response = self._client.chat.completions.create(**kwargs)
         except Exception as e:
             err = str(e)
-            if oai_tools and ("invalid_request" in err or "tool" in err.lower() or "function" in err.lower()):
+            # Don't silently swallow reasoning_content errors — they need
+            # the above fix, not a tool-removal retry.
+            if oai_tools and ("reasoning_content" not in err.lower() and
+                              ("invalid_request" in err or
+                               "tool" in err.lower() or
+                               "function" in err.lower())):
                 # Model doesn't support tool use — retry without tools
                 kwargs.pop("tools", None)
                 response = self._client.chat.completions.create(**kwargs)
