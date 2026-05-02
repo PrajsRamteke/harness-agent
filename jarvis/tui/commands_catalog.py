@@ -44,6 +44,9 @@ COMMANDS = [
     ("/undo", "restore last file edit"),
     ("/git", "git status"),
     ("/diff", "git diff"),
+    # Project
+    ("/project graph", "generate interactive project structure visualization"),
+    ("/project graph --rebuild", "force rescan before generating graph"),
     # Clipboard
     ("/copy", "copy last assistant response"),
     ("/paste", "send clipboard text / OCR clipboard image"),
