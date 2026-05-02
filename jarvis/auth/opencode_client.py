@@ -172,11 +172,13 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
             if reasoning_parts:
                 msg_out["reasoning_content"] = "\n".join(reasoning_parts)
             elif tool_calls:
-                # DeepSeek thinking mode requires reasoning_content for
-                # assistant messages that participated in a tool-call turn.
-                # Old sessions (pre-reasoning-support) may be missing the
-                # thinking block — provide empty string to satisfy the API.
-                msg_out["reasoning_content"] = ""
+                # Kimi K2.6 (Moonshot) and other thinking-mode providers require
+                # NON-EMPTY `reasoning_content` on assistant messages that
+                # contain tool_calls.  Empty string `""` is treated as missing
+                # and causes 400: "thinking is enabled but reasoning_content is
+                # missing in assistant tool call message at index N".
+                # Use a single space as placeholder when real thinking is absent.
+                msg_out["reasoning_content"] = " "
             if tool_calls:
                 msg_out["tool_calls"] = tool_calls
             if "content" not in msg_out and not tool_calls:
@@ -402,14 +404,19 @@ class _OpenCodeMessages:
             oai_messages.append({"role": "system", "content": sys_text})
         oai_messages.extend(_anthropic_messages_to_openai(messages))
 
-        # When thinking mode is active, DeepSeek requires `reasoning_content`
-        # on EVERY assistant message in the conversation (even if empty).
-        # Without this, the API returns 400:
-        #   "The `reasoning_content` in the thinking mode must be passed back to the API."
-        if thinking and thinking.get("type") == "enabled":
-            for msg in oai_messages:
-                if msg["role"] == "assistant" and "reasoning_content" not in msg:
-                    msg["reasoning_content"] = ""
+        # DeepSeek, Kimi (Moonshot), and other thinking-mode providers require
+        # `reasoning_content` on EVERY assistant message in the conversation.
+        # Kimi (Moonshot) specifically requires NON-EMPTY `reasoning_content`
+        # on assistant messages that have tool_calls — empty string `""` is
+        # treated as missing.  Some models enable thinking by default at the
+        # API level regardless of whether we request it, so this guard runs
+        # unconditionally.  Without this, the API returns 400:
+        #   "thinking is enabled but reasoning_content is missing in assistant
+        #    tool call message at index N"
+        for msg in oai_messages:
+            if msg["role"] == "assistant" and "reasoning_content" not in msg:
+                # Must be non-empty for tool-call messages (Kimi K2.6).
+                msg["reasoning_content"] = " " if msg.get("tool_calls") else ""
 
         kwargs: dict[str, Any] = {
             "model": model,
