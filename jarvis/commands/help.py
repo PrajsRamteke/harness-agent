@@ -63,6 +63,9 @@ def cmd_help():
             ("/coding", "toggle coding mode ON/OFF (adds large-codebase rules)"),
             ("/mode", "show current mode / switch mode (e.g. /mode coding)"),
         ]),
+        ("Project Graph", [
+            ("/project graph visual", "generate & open interactive HTML project graph visualization"),
+        ]),
         ("Control", [
             ("/think", "toggle extended thinking"),
             ("/verbose", "toggle internal tool trace (thinking panels only with /think on)"),

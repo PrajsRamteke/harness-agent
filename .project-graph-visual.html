@@ -1,0 +1,1990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Graph — harness</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    overflow-x: hidden;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #161b22; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+  .header {
+    background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+    border-bottom: 1px solid #30363d;
+    padding: 24px 32px;
+    position: sticky; top: 0; z-index: 100;
+    backdrop-filter: blur(12px);
+  }
+  .header-top {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
+  }
+  .header h1 {
+    font-size: 24px; font-weight: 700;
+    background: linear-gradient(90deg, #58a6ff, #79c0ff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .header h1 span { font-weight: 400; opacity: 0.7; }
+  .header-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;
+    border: 1px solid #30363d;
+  }
+  .badge-lang { background: #161b22; color: #58a6ff; }
+  .badge-fw { background: #161b22; color: #3fb950; }
+  .badge-files { background: #161b22; color: #d2a8ff; }
+  .badge-entry { background: #1f2a45; color: #79c0ff; border-color: #1f6feb; }
+  
+  .stats-section {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px; padding: 20px 32px; background: #0d1117;
+  }
+  .stat-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 16px; text-align: center;
+    transition: border-color 0.2s, transform 0.15s;
+  }
+  .stat-card:hover {
+    border-color: #58a6ff; transform: translateY(-2px);
+  }
+  .stat-value {
+    font-size: 28px; font-weight: 700; color: #f0f6fc;
+  }
+  .stat-label {
+    font-size: 12px; color: #8b949e; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .stat-icon { font-size: 20px; margin-bottom: 4px; }
+
+  .main { display: flex; height: calc(100vh - 180px); }
+  .sidebar {
+    width: 320px; min-width: 320px;
+    border-right: 1px solid #30363d;
+    display: flex; flex-direction: column;
+    background: #0d1117;
+  }
+  .sidebar-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #30363d;
+    font-size: 13px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sidebar-header input {
+    flex: 1; background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; padding: 6px 10px; color: #c9d1d9; font-size: 13px;
+    outline: none; transition: border-color 0.15s;
+  }
+  .sidebar-header input:focus { border-color: #58a6ff; }
+  .sidebar-header input::placeholder { color: #484f58; }
+  
+  .tree-container { flex: 1; overflow-y: auto; padding: 8px 0; }
+  
+  .tree-node {
+    font-size: 13px; line-height: 1.6;
+    cursor: default; user-select: none;
+  }
+  .tree-dir {
+    padding: 2px 0;
+  }
+  .tree-dir-label {
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 12px; cursor: pointer;
+    color: #8b949e; font-weight: 500;
+    transition: background 0.1s;
+  }
+  .tree-dir-label:hover { background: #161b22; }
+  .tree-dir-label .arrow {
+    display: inline-block; width: 12px; text-align: center;
+    transition: transform 0.15s; font-size: 10px; color: #484f58;
+  }
+  .tree-dir-label .arrow.open { transform: rotate(90deg); }
+  .tree-dir-label .dir-icon { color: #d29922; font-size: 14px; }
+  .tree-dir-children { display: none; padding-left: 20px; }
+  .tree-dir-children.open { display: block; }
+  
+  .tree-file {
+    display: flex; align-items: center; gap: 6px;
+    padding: 2px 12px 2px 32px; cursor: pointer;
+    transition: background 0.1s;
+    color: #c9d1d9;
+  }
+  .tree-file:hover { background: #161b22; }
+  .tree-file .ext-dot {
+    width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex-shrink: 0;
+  }
+  .tree-file .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-file .file-imports {
+    margin-left: auto; font-size: 10px; color: #484f58;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px;
+  }
+  .tree-file.selected { background: #1f2a45; }
+
+  .content {
+    flex: 1; display: flex; flex-direction: column;
+    overflow: hidden; background: #0d1117;
+  }
+  .content-header {
+    padding: 12px 20px;
+    border-bottom: 1px solid #30363d;
+    font-size: 14px; font-weight: 600; color: #f0f6fc;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .content-header .file-path { color: #8b949e; font-weight: 400; font-size: 13px; }
+  .content-body {
+    flex: 1; overflow-y: auto; padding: 20px;
+  }
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; color: #484f58; gap: 16px;
+  }
+  .empty-state .big-icon { font-size: 48px; opacity: 0.5; }
+  .empty-state p { font-size: 14px; }
+
+  .file-detail-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .file-detail-card h3 {
+    font-size: 16px; color: #f0f6fc; margin-bottom: 8px;
+  }
+  .file-detail-card .meta {
+    display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  .file-detail-card .meta-item {
+    font-size: 12px; color: #8b949e;
+  }
+  .file-detail-card .meta-item strong { color: #c9d1d9; }
+  
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 10px; border-radius: 12px; font-size: 12px;
+    border: 1px solid #30363d;
+  }
+  .tag-export { background: #1a3a2a; color: #3fb950; border-color: #238636; }
+  .tag-import { background: #1f2a45; color: #79c0ff; border-color: #1f6feb; }
+
+  .dep-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px; margin-top: 8px;
+  }
+  .dep-card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+    padding: 10px 14px; font-size: 13px;
+  }
+  .dep-card .dep-name { color: #58a6ff; font-weight: 500; }
+  .dep-card .dep-ver { color: #8b949e; font-size: 11px; margin-left: 6px; }
+
+  .graph-canvas-wrap {
+    width: 100%; height: 400px; background: #0d1117;
+    border: 1px solid #30363d; border-radius: 8px; overflow: hidden;
+    position: relative;
+  }
+  .graph-canvas-wrap canvas { width: 100% !important; height: 100% !important; }
+
+  .filter-bar {
+    display: flex; gap: 8px; padding: 12px 20px;
+    border-bottom: 1px solid #30363d; flex-wrap: wrap;
+  }
+  .filter-btn {
+    padding: 4px 12px; border-radius: 16px; font-size: 12px;
+    border: 1px solid #30363d; background: transparent; color: #8b949e;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+  .filter-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+
+  .entry-points {
+    padding: 12px 20px; border-bottom: 1px solid #30363d;
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  }
+  .entry-points-label { font-size: 12px; color: #8b949e; font-weight: 600; }
+  .entry-badge {
+    padding: 2px 10px; border-radius: 12px; font-size: 11px;
+    background: #1f2a45; color: #79c0ff; border: 1px solid #1f6feb;
+  }
+
+  @media (max-width: 768px) {
+    .main { flex-direction: column; height: auto; }
+    .sidebar { width: 100%; min-width: auto; max-height: 300px; border-right: none; border-bottom: 1px solid #30363d; }
+    .header { padding: 16px; }
+    .stats-section { padding: 12px 16px; }
+    .stats-section { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .highlight { background: #3a1e1e !important; color: #ff7b72 !important; }
+  .fade { opacity: 0.25; }
+  
+  .progress-bar {
+    width: 100%; height: 3px; background: #161b22; border-radius: 2px; overflow: hidden;
+    margin-top: 4px;
+  }
+  .progress-fill {
+    height: 100%; border-radius: 2px; transition: width 0.3s;
+    background: linear-gradient(90deg, #58a6ff, #79c0ff);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <h1>📁 harness <span>— Project Graph</span></h1>
+    <div class="header-badges">
+      <span class="badge badge-lang">⬡ Python</span>
+      <span class="badge badge-fw">◆ unknown</span>
+      <span class="badge badge-files">⊞ 94 src / 117 total</span>
+      <span class="badge badge-entry">★ jarvis/main.py</span>
+    </div>
+  </div>
+</div>
+
+<div class="stats-section">
+  <div class="stat-card">
+    <div class="stat-icon">📄</div>
+    <div class="stat-value">94</div>
+    <div class="stat-label">Source Files</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon">📂</div>
+    <div class="stat-value">16</div>
+    <div class="stat-label">Directories</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon">🔗</div>
+    <div class="stat-value">0</div>
+    <div class="stat-label">Dependencies</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon">📤</div>
+    <div class="stat-value">81</div>
+    <div class="stat-label">Files with Exports</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon">📥</div>
+    <div class="stat-value">90</div>
+    <div class="stat-label">Files with Imports</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon">🎯</div>
+    <div class="stat-value">1</div>
+    <div class="stat-label">Entry Points</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      🔍 <input type="text" id="searchInput" placeholder="Search files..." oninput="filterTree()">
+    </div>
+    <div class="tree-container" id="treeContainer"></div>
+  </div>
+  <div class="content">
+    <div class="content-header" id="contentHeader">
+      <span>📄 File Details</span>
+      <span class="file-path" id="filePath"></span>
+    </div>
+    <div class="filter-bar" id="filterBar">
+      <button class="filter-btn active" data-ext="all" onclick="setFilter('all', this)">All</button>
+      <button class="filter-btn" data-ext=".py" onclick="setFilter('.py', this)">Python</button>
+      <button class="filter-btn" data-ext=".ts,.tsx" onclick="setFilter('.ts,.tsx', this)">TypeScript</button>
+      <button class="filter-btn" data-ext=".js,.jsx" onclick="setFilter('.js,.jsx', this)">JavaScript</button>
+      <button class="filter-btn" data-ext=".rs" onclick="setFilter('.rs', this)">Rust</button>
+      <button class="filter-btn" data-ext="other" onclick="setFilter('other', this)">Other</button>
+    </div>
+    <div class="entry-points">
+      <span class="entry-points-label">★ Entry Points:</span>
+      <span class="entry-badge">jarvis/main.py</span>
+    </div>
+    <div class="content-body" id="contentBody">
+      <div class="empty-state">
+        <div class="big-icon">🗺️</div>
+        <p>Click a file in the tree to inspect its details</p>
+        <p style="font-size:12px;color:#30363d">94 source files · 114 tracked</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const files = [{"path": ".gitignore", "name": ".gitignore", "dir": "", "ext": "", "exports": [], "imports": []}, {"path": ".project-graph-visual.html", "name": ".project-graph-visual.html", "dir": "", "ext": ".html", "exports": [], "imports": []}, {"path": "JARVIS.md", "name": "JARVIS.md", "dir": "", "ext": ".md", "exports": [], "imports": []}, {"path": "README.md", "name": "README.md", "dir": "", "ext": ".md", "exports": [], "imports": []}, {"path": "agent.py", "name": "agent.py", "dir": "", "ext": ".py", "exports": [], "imports": ["jarvis.cli"]}, {"path": "pyproject.toml", "name": "pyproject.toml", "dir": "", "ext": ".toml", "exports": [], "imports": []}, {"path": "requirements.txt", "name": "requirements.txt", "dir": "", "ext": ".txt", "exports": [], "imports": []}, {"path": "assets/agent.png", "name": "agent.png", "dir": "assets", "ext": ".png", "exports": [], "imports": []}, {"path": "assets/jarvis.png", "name": "jarvis.png", "dir": "assets", "ext": ".png", "exports": [], "imports": []}, {"path": "harness/__init__.py", "name": "__init__.py", "dir": "harness", "ext": ".py", "exports": [], "imports": ["jarvis", "jarvis.main"]}, {"path": "harness_jarvis.egg-info/SOURCES.txt", "name": "SOURCES.txt", "dir": "harness_jarvis.egg-info", "ext": ".txt", "exports": [], "imports": []}, {"path": "harness_jarvis.egg-info/dependency_links.txt", "name": "dependency_links.txt", "dir": "harness_jarvis.egg-info", "ext": ".txt", "exports": [], "imports": []}, {"path": "harness_jarvis.egg-info/entry_points.txt", "name": "entry_points.txt", "dir": "harness_jarvis.egg-info", "ext": ".txt", "exports": [], "imports": []}, {"path": "harness_jarvis.egg-info/requires.txt", "name": "requires.txt", "dir": "harness_jarvis.egg-info", "ext": ".txt", "exports": [], "imports": []}, {"path": "harness_jarvis.egg-info/top_level.txt", "name": "top_level.txt", "dir": "harness_jarvis.egg-info", "ext": ".txt", "exports": [], "imports": []}, {"path": "jarvis/__init__.py", "name": "__init__.py", "dir": "jarvis", "ext": ".py", "exports": [], "imports": []}, {"path": "jarvis/__main__.py", "name": "__main__.py", "dir": "jarvis", "ext": ".py", "exports": [], "imports": [".cli"]}, {"path": "jarvis/cli.py", "name": "cli.py", "dir": "jarvis", "ext": ".py", "exports": ["_build_parser", "main"], "imports": [".main", ".tui.app", "__future__", "argparse"]}, {"path": "jarvis/console.py", "name": "console.py", "dir": "jarvis", "ext": ".py", "exports": [], "imports": ["anthropic", "pathlib,", "rich.console", "rich.live", "rich.markdown", "rich.panel", "rich.spinner", "rich.syntax", "rich.table"]}, {"path": "jarvis/main.py", "name": "main.py", "dir": "jarvis", "ext": ".py", "exports": ["main", "_send_and_loop"], "imports": [".", ".auth.client", ".commands.dispatch", ".console", ".constants", ".repl.banners", ".repl.render", ".repl.stream", ".storage.sessions", ".tools.image_input", ".tools.shell", "datetime"]}, {"path": "jarvis/path_resolve.py", "name": "path_resolve.py", "dir": "jarvis", "ext": ".py", "exports": ["_unicode_space_key", "robust_resolve", "is_within", "project_scope_error"], "imports": [".constants", "__future__", "os", "pathlib", "unicodedata"]}, {"path": "jarvis/state.py", "name": "state.py", "dir": "jarvis", "ext": ".py", "exports": ["_compute_initial_model"], "imports": [".constants", "json,", "typing"]}, {"path": "jarvis/auth/__init__.py", "name": "__init__.py", "dir": "jarvis/auth", "ext": ".py", "exports": [], "imports": [".api_key", ".client", ".mode_picker", ".oauth_flow", ".oauth_tokens", ".openrouter", ".pkce"]}, {"path": "jarvis/auth/api_key.py", "name": "api_key.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["prompt_for_key", "load_key"], "imports": ["..console", "..constants", "..utils.io", "getpass", "os,"]}, {"path": "jarvis/auth/client.py", "name": "client.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["_http_timeout", "_build_openrouter_client", "_build_client_from_mode", "_resolve_provider", "_build_opencode_client", "make_client"], "imports": ["..", "..console", "..constants", "..utils.io", ".api_key", ".oauth_flow", ".oauth_tokens", ".opencode", ".opencode_client", ".openrouter", "httpx", "os,"]}, {"path": "jarvis/auth/mode_picker.py", "name": "mode_picker.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["_choose_provider", "_choose_auth_mode"], "imports": ["..console", "..constants", "sys"]}, {"path": "jarvis/auth/oauth_flow.py", "name": "oauth_flow.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["oauth_login"], "imports": ["..console", "..constants", "..constants.models", "..utils.http", ".oauth_tokens", ".pkce", "time,", "typing"]}, {"path": "jarvis/auth/oauth_tokens.py", "name": "oauth_tokens.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["load_oauth_tokens", "save_oauth_tokens", "clear_oauth_tokens", "oauth_refresh", "get_fresh_oauth_token"], "imports": ["..console", "..constants", "..constants.models", "..utils.http", "..utils.io", "json,", "typing"]}, {"path": "jarvis/auth/opencode.py", "name": "opencode.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["prompt_for_opencode_key", "load_opencode_key"], "imports": ["..console", "..constants", "..utils.io", "getpass", "os,"]}, {"path": "jarvis/auth/opencode_client.py", "name": "opencode_client.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["_Usage", "_ContentBlock", "__init__", "model_dump", "get", "__getitem__", "__contains__", "_TextBlock"], "imports": ["..constants", "__future__", "contextlib", "dataclasses", "json", "openai", "queue", "threading", "typing"]}, {"path": "jarvis/auth/openrouter.py", "name": "openrouter.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["prompt_for_openrouter_key", "load_openrouter_key"], "imports": ["..console", "..constants", "..utils.io", "getpass", "os,"]}, {"path": "jarvis/auth/pkce.py", "name": "pkce.py", "dir": "jarvis/auth", "ext": ".py", "exports": ["_b64url", "_pkce_pair"], "imports": ["base64,"]}, {"path": "jarvis/commands/__init__.py", "name": "__init__.py", "dir": "jarvis/commands", "ext": ".py", "exports": [], "imports": [".dispatch", ".help", ".session"]}, {"path": "jarvis/commands/context.py", "name": "context.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["handle_context"], "imports": ["..", "..console", "..constants", "..storage.prefs", "..tools.image_input", "..tools.mac.clipboard"]}, {"path": "jarvis/commands/control.py", "name": "control.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["handle_control", "_all_models", "_provider_for_model", "_apply_model_selection", "_handle_model", "_handle_auth", "_handle_provider", "_toggle_coding_mode"], "imports": ["..auth.client", "..auth.oauth_flow", "..auth.oauth_tokens", "..auth.opencode", "..auth.openrouter", "..console", "..constants", "..constants.models", "..repl.banners", "..utils.io", "..utils.time_fmt", "os,"]}, {"path": "jarvis/commands/dispatch.py", "name": "dispatch.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["handle_slash"], "imports": ["..console", ".context", ".control", ".files_shell", ".help", ".history", ".memory", ".project_graph_visual", ".session", ".skill"]}, {"path": "jarvis/commands/files_shell.py", "name": "files_shell.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["handle_files_shell"], "imports": ["..", "..console", "..constants", "..storage.prefs", "..storage.sessions", "..tools.dirs", "..tools.git", "..tools.shell", "..utils.serialize", "json,"]}, {"path": "jarvis/commands/help.py", "name": "help.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["cmd_help"], "imports": ["..console"]}, {"path": "jarvis/commands/history.py", "name": "history.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["handle_history"], "imports": ["..", "..console", "..repl.banners", "..storage.sessions", "json"]}, {"path": "jarvis/commands/memory.py", "name": "memory.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["_render_table", "handle_memory"], "imports": ["..console", "..storage"]}, {"path": "jarvis/commands/project_graph_visual.py", "name": "project_graph_visual.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["handle_project", "_generate_visual", "_build_html"], "imports": ["..console", "..tools.project_graph", "json", "os", "pathlib", "webbrowser"]}, {"path": "jarvis/commands/session.py", "name": "session.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["cmd_session", "_resume_session"], "imports": ["..", "..console", "..storage.sessions", "..utils.time_fmt", "typing"]}, {"path": "jarvis/commands/skill.py", "name": "skill.py", "dir": "jarvis/commands", "ext": ".py", "exports": ["_render", "handle_skill"], "imports": ["..console", "..storage"]}, {"path": "jarvis/constants/__init__.py", "name": "__init__.py", "dir": "jarvis/constants", "ext": ".py", "exports": [], "imports": [".icons", ".models", ".oauth", ".paths", ".providers", ".system_prompt"]}, {"path": "jarvis/constants/icons.py", "name": "icons.py", "dir": "jarvis/constants", "ext": ".py", "exports": [], "imports": []}, {"path": "jarvis/constants/models.py", "name": "models.py", "dir": "jarvis/constants", "ext": ".py", "exports": ["_env_int"], "imports": ["os"]}, {"path": "jarvis/constants/oauth.py", "name": "oauth.py", "dir": "jarvis/constants", "ext": ".py", "exports": [], "imports": []}, {"path": "jarvis/constants/paths.py", "name": "paths.py", "dir": "jarvis/constants", "ext": ".py", "exports": ["set_cwd"], "imports": ["pathlib", "sys"]}, {"path": "jarvis/constants/providers.py", "name": "providers.py", "dir": "jarvis/constants", "ext": ".py", "exports": ["models_for"], "imports": []}, {"path": "jarvis/constants/system_prompt.py", "name": "system_prompt.py", "dir": "jarvis/constants", "ext": ".py", "exports": ["build_base_system"], "imports": ["pathlib"]}, {"path": "jarvis/repl/__init__.py", "name": "__init__.py", "dir": "jarvis/repl", "ext": ".py", "exports": [], "imports": [".banners", ".hallucination", ".render", ".stats", ".stream", ".system"]}, {"path": "jarvis/repl/banners.py", "name": "banners.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["welcome_banner", "_mode_flag", "header_panel"], "imports": ["..", "..console", "pathlib", "rich.markup"]}, {"path": "jarvis/repl/hallucination.py", "name": "hallucination.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["_scrub_hallucinations"], "imports": ["re"]}, {"path": "jarvis/repl/render.py", "name": "render.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["assistant_model_label", "_run_tool", "_run_parallel_batch", "render_assistant", "_abort_stream_if_no_text"], "imports": ["..", "..console", "..constants", "..tools", ".hallucination", ".tool_activity", ".turn_progress", "concurrent.futures", "json,", "rich.text"]}, {"path": "jarvis/repl/stats.py", "name": "stats.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["estimated_cost"], "imports": ["..", "..constants"]}, {"path": "jarvis/repl/stream.py", "name": "stream.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["_raise_in_thread", "cancel_current_stream", "_consume_live_text_stream", "_idle_watch", "call_claude_stream"], "imports": ["..", "..auth.client", "..auth.oauth_tokens", "..console", "..constants.models", "..tools.router", ".system", "anthropic", "ctypes", "threading", "time", "typing"]}, {"path": "jarvis/repl/stream_display.py", "name": "stream_display.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["RichAssistantStreamDisplay", "__init__", "start", "_panel", "push", "stop"], "imports": ["__future__", "rich.live", "rich.markdown", "rich.panel"]}, {"path": "jarvis/repl/system.py", "name": "system.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["_get_git_branch", "_keyword_detected", "_is_coding_request", "_build_static_body", "build_system"], "imports": ["..", "..constants", "..constants.system_prompt", "..storage.memory", "..storage.skills", "datetime", "pathlib", "subprocess", "typing"]}, {"path": "jarvis/repl/tool_activity.py", "name": "tool_activity.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["_clip", "_norm_input", "describe_tool_activity"], "imports": ["__future__"]}, {"path": "jarvis/repl/trim.py", "name": "trim.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["_is_tool_result_block", "_content_chars", "_total_chars", "_stub_tool_results", "trim_messages"], "imports": ["copy", "typing"]}, {"path": "jarvis/repl/turn_progress.py", "name": "turn_progress.py", "dir": "jarvis/repl", "ext": ".py", "exports": ["report_turn_phase"], "imports": ["..console", "__future__"]}, {"path": "jarvis/storage/__init__.py", "name": "__init__.py", "dir": "jarvis/storage", "ext": ".py", "exports": [], "imports": [".prefs", ".sessions"]}, {"path": "jarvis/storage/memory.py", "name": "memory.py", "dir": "jarvis/storage", "ext": ".py", "exports": ["_load", "_save", "list_facts", "add_fact", "delete_fact", "clear_all", "as_prompt_block"], "imports": ["..constants", "json,", "typing"]}, {"path": "jarvis/storage/prefs.py", "name": "prefs.py", "dir": "jarvis/storage", "ext": ".py", "exports": ["save_pin", "save_aliases", "save_last_model", "export_markdown"], "imports": ["..", "..constants", "json,"]}, {"path": "jarvis/storage/sessions.py", "name": "sessions.py", "dir": "jarvis/storage", "ext": ".py", "exports": ["db_conn", "db_init", "db_create_session", "db_append_message", "db_replace_session_messages", "db_set_title_if_empty", "db_list_sessions", "db_load_session"], "imports": ["..constants", "..utils.serialize", "json,", "typing"]}, {"path": "jarvis/storage/skills.py", "name": "skills.py", "dir": "jarvis/storage", "ext": ".py", "exports": ["_load", "_save", "_prune", "list_skills", "add_skill", "delete_skill", "clear_all", "_tokens"], "imports": ["..constants", "json,", "typing"]}, {"path": "jarvis/tools/__init__.py", "name": "__init__.py", "dir": "jarvis/tools", "ext": ".py", "exports": [], "imports": [".dirs", ".files", ".git", ".mac", ".memory", ".ocr", ".project_graph", ".read_document", ".search", ".shell", ".skills", ".web"]}, {"path": "jarvis/tools/dirs.py", "name": "dirs.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["list_dir", "glob_files", "fast_find", "_ext_ok", "_resolve", "_terms", "_is_skipped", "_safe_rel"], "imports": ["..constants", "..path_resolve", "os,"]}, {"path": "jarvis/tools/files.py", "name": "files.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["_save_backup", "_in_skip_dir", "_looks_binary", "read_file", "write_file", "edit_file"], "imports": ["..", "..constants", "..path_resolve", ".dirs", ".project_graph", "pathlib"]}, {"path": "jarvis/tools/git.py", "name": "git.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["git_status", "git_diff", "git_log"], "imports": ["..constants", ".shell", "shlex"]}, {"path": "jarvis/tools/image_input.py", "name": "image_input.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["_is_image_path", "extract_image_paths", "clipboard_image_to_file", "file_digest", "ocr_image_block", "append_image_block", "process_input_for_images"], "imports": ["..constants", "..path_resolve", ".ocr", "hashlib", "pathlib", "re", "shlex", "subprocess", "tempfile", "typing"]}, {"path": "jarvis/tools/memory.py", "name": "memory.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["memory_save", "memory_list", "memory_delete"], "imports": ["..storage"]}, {"path": "jarvis/tools/ocr.py", "name": "ocr.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["_resolve_path", "_clamp_int", "read_image_text", "_discover_images", "_display_path", "_score_text", "read_images_text", "ocr_one_tracked"], "imports": ["..constants", "..path_resolve", "..repl.turn_progress", "Foundation", "Vision", "concurrent.futures", "pathlib", "subprocess", "threading"]}, {"path": "jarvis/tools/project_graph.py", "name": "project_graph.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["_scan_ts", "_scan_py", "_scan_rs", "_scan_go", "_scan_file", "_detect_lang", "_detect_framework", "_clean_import_path"], "imports": ["..constants", "__future__", "json", "os", "pathlib", "re", "time"]}, {"path": "jarvis/tools/read_document.py", "name": "read_document.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["_skip_dir_reason", "_clamp", "_truncate", "_read_pdf", "_read_csvish", "_read_json", "_read_html", "_read_xlsx"], "imports": ["..constants", "..path_resolve", "..utils.html_clean", ".dirs", ".ocr", "__future__", "csv", "io", "json", "openpyxl", "pathlib", "pypdf"]}, {"path": "jarvis/tools/router.py", "name": "router.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["_block_to_text", "_latest_text", "_recent_tool_groups", "_dedupe_tools", "select_tools"], "imports": [".", "__future__", "json", "re", "typing"]}, {"path": "jarvis/tools/schemas_core.py", "name": "schemas_core.py", "dir": "jarvis/tools", "ext": ".py", "exports": [], "imports": []}, {"path": "jarvis/tools/schemas_mac.py", "name": "schemas_mac.py", "dir": "jarvis/tools", "ext": ".py", "exports": [], "imports": []}, {"path": "jarvis/tools/search.py", "name": "search.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["search_code"], "imports": ["..constants", "..path_resolve", ".shell", "shlex,"]}, {"path": "jarvis/tools/shell.py", "name": "shell.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["run_bash"], "imports": ["..", "..console", "..constants", "subprocess"]}, {"path": "jarvis/tools/skills.py", "name": "skills.py", "dir": "jarvis/tools", "ext": ".py", "exports": ["skill_save", "skill_search", "skill_list", "skill_delete"], "imports": ["..storage"]}, {"path": "jarvis/tools/mac/__init__.py", "name": "__init__.py", "dir": "jarvis/tools/mac", "ext": ".py", "exports": [], "imports": [".applescript", ".apps", ".clipboard", ".input", ".system", ".ui"]}, {"path": "jarvis/tools/mac/_jxa_scripts.py", "name": "_jxa_scripts.py", "dir": "jarvis/tools/mac", "ext": ".py", "exports": [], "imports": []}, {"path": "jarvis/tools/mac/applescript.py", "name": "applescript.py", "dir": "jarvis/tools/mac", "ext": ".py", "exports": ["_osa", "applescript"], "imports": ["...constants", "subprocess"]}, {"path": "jarvis/tools/mac/apps.py", "name": "apps.py", "dir": "jarvis/tools/mac", "ext": ".py", "exports": ["launch_app", "focus_app", "quit_app", "list_apps", "frontmost_app"], "imports": ["...constants", ".applescript", "subprocess,"]}, {"path": "jarvis/tools/mac/clipboard.py", "name": "clipboard.py", "dir": "jarvis/tools/mac", "ext": ".py", "exports": ["clipboard_get", "clipboard_set"], "imports": ["...constants", "subprocess"]}, {"path": "jarvis/tools/mac/input.py", "name": "input.py", "dir": "jarvis/tools/mac", "ext": ".py", "exports": ["type_text", "key_press", "click_menu", "click_at"], "imports": [".applescript"]}, {"path": "jarvis/tools/mac/system.py", "name": "system.py", "dir": "jarvis/tools/mac", "ext": ".py", "exports": ["open_url", "notify", "speck", "shortcut_run", "mac_control"], "imports": ["...constants", "..shell", ".applescript", "subprocess"]}, {"path": "jarvis/tools/mac/ui.py", "name": "ui.py", "dir": "jarvis/tools/mac", "ext": ".py", "exports": ["read_ui", "click_element", "wait", "check_permissions"], "imports": ["._jxa_scripts", "subprocess,"]}, {"path": "jarvis/tools/web/__init__.py", "name": "__init__.py", "dir": "jarvis/tools/web", "ext": ".py", "exports": [], "imports": [".fetch", ".search", ".verified"]}, {"path": "jarvis/tools/web/_claims.py", "name": "_claims.py", "dir": "jarvis/tools/web", "ext": ".py", "exports": ["_extract_key_claims", "_agreement_score"], "imports": ["re"]}, {"path": "jarvis/tools/web/_collect.py", "name": "_collect.py", "dir": "jarvis/tools/web", "ext": ".py", "exports": ["gather_candidates", "dedupe_by_domain"], "imports": ["._common", "json,"]}, {"path": "jarvis/tools/web/_common.py", "name": "_common.py", "dir": "jarvis/tools/web", "ext": ".py", "exports": ["_query_keywords", "_host_root_label", "_matches_official", "_domain_score", "_fetch_snippet", "_ddg_organic_urls"], "imports": ["...utils.html_clean", "re,"]}, {"path": "jarvis/tools/web/_report.py", "name": "_report.py", "dir": "jarvis/tools/web", "ext": ".py", "exports": ["build_report"], "imports": []}, {"path": "jarvis/tools/web/fetch.py", "name": "fetch.py", "dir": "jarvis/tools/web", "ext": ".py", "exports": ["fetch_url"], "imports": ["...constants", "...utils.html_clean", "urllib.request,"]}, {"path": "jarvis/tools/web/search.py", "name": "search.py", "dir": "jarvis/tools/web", "ext": ".py", "exports": ["_enrich_query_with_date", "_sub", "web_search"], "imports": ["...constants", "datetime", "json,"]}, {"path": "jarvis/tools/web/verified.py", "name": "verified.py", "dir": "jarvis/tools/web", "ext": ".py", "exports": ["verified_search", "_fetch_one"], "imports": ["...console", "...constants", "._claims", "._collect", "._common", "._report", ".search", "concurrent.futures"]}, {"path": "jarvis/tui/__init__.py", "name": "__init__.py", "dir": "jarvis/tui", "ext": ".py", "exports": [], "imports": []}, {"path": "jarvis/tui/app.py", "name": "app.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["_is_bare_model_command", "_is_session_picker_command", "PromptArea", "Submitted", "__init__", "_on_key", "_swap_console_everywhere", "JarvisTUI"], "imports": ["__future__", "sys", "textual", "textual.actions", "textual.app", "textual.binding", "textual.containers", "textual.message", "textual.screen", "textual.widgets", "threading", "time"]}, {"path": "jarvis/tui/commands_catalog.py", "name": "commands_catalog.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["filter_commands"], "imports": []}, {"path": "jarvis/tui/console_shim.py", "name": "console_shim.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["_truncate_rich_log_lines", "TUIConsole", "__init__", "assistant_stream_start", "_anchor", "assistant_stream_push", "assistant_stream_flush", "_flush_streaming_panel"], "imports": ["contextlib", "queue", "re", "rich.console", "rich.markdown", "rich.panel", "rich.rule", "rich.text", "textual.geometry", "textual.widgets", "threading", "typing"]}, {"path": "jarvis/tui/modal_chrome.py", "name": "modal_chrome.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["TuiModalScreen", "__init__"], "imports": ["__future__", "textual.screen", "typing"]}, {"path": "jarvis/tui/model_modal.py", "name": "model_modal.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["ModelPickerScreen", "compose", "on_mount", "on_unmount", "_populate", "action_dismiss_cancel", "action_cursor_down", "action_cursor_up"], "imports": ["..", "..constants", ".modal_chrome", ".mouse_toggle", "__future__", "rich.text", "textual.app", "textual.binding", "textual.containers", "textual.widgets", "textual.widgets.option_list"]}, {"path": "jarvis/tui/mouse_toggle.py", "name": "mouse_toggle.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["_write", "enable_mouse", "disable_mouse"], "imports": ["__future__", "sys"]}, {"path": "jarvis/tui/palette_modal.py", "name": "palette_modal.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["CommandPaletteScreen", "__init__", "compose", "on_mount", "on_unmount", "_refresh", "on_input_changed", "on_input_submitted"], "imports": [".commands_catalog", ".modal_chrome", ".mouse_toggle", "__future__", "rich.text", "textual.app", "textual.binding", "textual.containers", "textual.widgets", "textual.widgets.option_list"]}, {"path": "jarvis/tui/session_modal.py", "name": "session_modal.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["SessionPickerScreen", "compose", "on_mount", "on_unmount", "_populate", "_current_id", "action_dismiss_cancel", "action_select"], "imports": ["..", "..storage.sessions", "..utils.time_fmt", ".modal_chrome", ".mouse_toggle", "__future__", "rich.text", "textual.app", "textual.binding", "textual.containers", "textual.widgets", "textual.widgets.option_list"]}, {"path": "jarvis/tui/shell_approval_modal.py", "name": "shell_approval_modal.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["ShellApprovalScreen", "__init__", "compose", "on_mount", "on_unmount", "action_approve", "action_deny", "action_always"], "imports": [".mouse_toggle", "__future__", "rich.panel", "rich.text", "textual.app", "textual.binding", "textual.containers", "textual.screen", "textual.widgets"]}, {"path": "jarvis/tui/text_input_modal.py", "name": "text_input_modal.py", "dir": "jarvis/tui", "ext": ".py", "exports": ["TextInputScreen", "__init__", "compose", "on_mount", "on_unmount", "on_input_submitted", "action_cancel"], "imports": [".modal_chrome", ".mouse_toggle", "__future__", "textual.app", "textual.binding", "textual.containers", "textual.widgets"]}, {"path": "jarvis/utils/__init__.py", "name": "__init__.py", "dir": "jarvis/utils", "ext": ".py", "exports": [], "imports": [".html_clean", ".http", ".io", ".serialize", ".time_fmt"]}, {"path": "jarvis/utils/html_clean.py", "name": "html_clean.py", "dir": "jarvis/utils", "ext": ".py", "exports": ["_strip_html"], "imports": ["re,"]}, {"path": "jarvis/utils/http.py", "name": "http.py", "dir": "jarvis/utils", "ext": ".py", "exports": ["_http_json"], "imports": ["json,"]}, {"path": "jarvis/utils/io.py", "name": "io.py", "dir": "jarvis/utils", "ext": ".py", "exports": ["_secure_write"], "imports": ["..constants", "os,"]}, {"path": "jarvis/utils/serialize.py", "name": "serialize.py", "dir": "jarvis/utils", "ext": ".py", "exports": ["_msg_to_json"], "imports": []}, {"path": "jarvis/utils/time_fmt.py", "name": "time_fmt.py", "dir": "jarvis/utils", "ext": ".py", "exports": ["fmt_duration", "_fmt_ts"], "imports": ["datetime"]}];
+const graph = {
+  "name": "harness",
+  "lang": "Python",
+  "fw": "unknown",
+  "files": 117,
+  "scanned": 94,
+  "entries": [
+    "jarvis/main.py"
+  ],
+  "dirs": {
+    "": [
+      "tests/",
+      "harness/",
+      "scripts/",
+      "jarvis/",
+      "assets/",
+      "harness_jarvis.egg-info/",
+      "requirements.txt",
+      "pyproject.toml",
+      "README.md",
+      ".gitignore",
+      "agent.py",
+      ".project-graph-visual.html",
+      "JARVIS.md",
+      "tests",
+      "harness",
+      "scripts",
+      "jarvis",
+      "assets",
+      "harness_jarvis.egg-info"
+    ],
+    "assets": [
+      "agent.png",
+      "jarvis.png"
+    ],
+    "harness": [
+      "__init__.py"
+    ],
+    "harness_jarvis.egg-info": [
+      "PKG-INFO",
+      "SOURCES.txt",
+      "entry_points.txt",
+      "requires.txt",
+      "top_level.txt",
+      "dependency_links.txt"
+    ],
+    "jarvis": [
+      "console.py",
+      "__init__.py",
+      "path_resolve.py",
+      "cli.py",
+      "main.py",
+      "__main__.py",
+      "state.py",
+      "tools",
+      "auth",
+      "tui",
+      "constants",
+      "providers",
+      "repl",
+      "utils",
+      "storage",
+      "commands"
+    ],
+    "jarvis/auth": [
+      "pkce.py",
+      "oauth_tokens.py",
+      "openrouter.py",
+      "client.py",
+      "__init__.py",
+      "opencode.py",
+      "api_key.py",
+      "opencode_client.py",
+      "oauth_flow.py",
+      "mode_picker.py",
+      "providers"
+    ],
+    "jarvis/auth/providers": [
+      "oauth",
+      "cloud"
+    ],
+    "jarvis/commands": [
+      "skill.py",
+      "memory.py",
+      "dispatch.py",
+      "control.py",
+      "session.py",
+      "__init__.py",
+      "context.py",
+      "files_shell.py",
+      "project_graph_visual.py",
+      "help.py",
+      "history.py"
+    ],
+    "jarvis/constants": [
+      "models.py",
+      "paths.py",
+      "icons.py",
+      "system_prompt.py",
+      "__init__.py",
+      "providers.py",
+      "oauth.py"
+    ],
+    "jarvis/repl": [
+      "system.py",
+      "render.py",
+      "banners.py",
+      "__init__.py",
+      "turn_progress.py",
+      "tool_activity.py",
+      "trim.py",
+      "stream.py",
+      "stats.py",
+      "hallucination.py",
+      "stream_display.py"
+    ],
+    "jarvis/storage": [
+      "sessions.py",
+      "skills.py",
+      "memory.py",
+      "__init__.py",
+      "prefs.py"
+    ],
+    "jarvis/tools": [
+      "schemas_mac.py",
+      "files.py",
+      "dirs.py",
+      "git.py",
+      "image_input.py",
+      "schemas_core.py",
+      "skills.py",
+      "memory.py",
+      "shell.py",
+      "__init__.py",
+      "ocr.py",
+      "project_graph.py",
+      "search.py",
+      "router.py",
+      "read_document.py",
+      "web",
+      "mac"
+    ],
+    "jarvis/tools/mac": [
+      "_jxa_scripts.py",
+      "applescript.py",
+      "system.py",
+      "ui.py",
+      "__init__.py",
+      "apps.py",
+      "input.py",
+      "clipboard.py"
+    ],
+    "jarvis/tools/web": [
+      "fetch.py",
+      "_collect.py",
+      "_report.py",
+      "_common.py",
+      "__init__.py",
+      "_claims.py",
+      "verified.py",
+      "search.py"
+    ],
+    "jarvis/tui": [
+      "palette_modal.py",
+      "model_modal.py",
+      "modal_chrome.py",
+      "text_input_modal.py",
+      "commands_catalog.py",
+      "session_modal.py",
+      "__init__.py",
+      "mouse_toggle.py",
+      "shell_approval_modal.py",
+      "app.py",
+      "console_shim.py"
+    ],
+    "jarvis/utils": [
+      "serialize.py",
+      "io.py",
+      "__init__.py",
+      "time_fmt.py",
+      "http.py",
+      "html_clean.py"
+    ],
+    "scripts": [
+      "install",
+      "install-global"
+    ]
+  },
+  "tree": {
+    "agent.py": {
+      "i": [
+        "jarvis.cli"
+      ]
+    },
+    "harness/__init__.py": {
+      "i": [
+        "jarvis",
+        "jarvis.main"
+      ]
+    },
+    "jarvis/__main__.py": {
+      "i": [
+        ".cli"
+      ]
+    },
+    "jarvis/auth/__init__.py": {
+      "i": [
+        ".api_key",
+        ".client",
+        ".mode_picker",
+        ".oauth_flow",
+        ".oauth_tokens",
+        ".openrouter",
+        ".pkce"
+      ]
+    },
+    "jarvis/auth/api_key.py": {
+      "e": [
+        "prompt_for_key",
+        "load_key"
+      ],
+      "i": [
+        "..console",
+        "..constants",
+        "..utils.io",
+        "getpass",
+        "os,"
+      ]
+    },
+    "jarvis/auth/client.py": {
+      "e": [
+        "_http_timeout",
+        "_build_openrouter_client",
+        "_build_client_from_mode",
+        "_resolve_provider",
+        "_build_opencode_client",
+        "make_client"
+      ],
+      "i": [
+        "..",
+        "..console",
+        "..constants",
+        "..utils.io",
+        ".api_key",
+        ".oauth_flow",
+        ".oauth_tokens",
+        ".opencode",
+        ".opencode_client",
+        ".openrouter",
+        "httpx",
+        "os,"
+      ]
+    },
+    "jarvis/auth/mode_picker.py": {
+      "e": [
+        "_choose_provider",
+        "_choose_auth_mode"
+      ],
+      "i": [
+        "..console",
+        "..constants",
+        "sys"
+      ]
+    },
+    "jarvis/auth/oauth_flow.py": {
+      "e": [
+        "oauth_login"
+      ],
+      "i": [
+        "..console",
+        "..constants",
+        "..constants.models",
+        "..utils.http",
+        ".oauth_tokens",
+        ".pkce",
+        "time,",
+        "typing"
+      ]
+    },
+    "jarvis/auth/oauth_tokens.py": {
+      "e": [
+        "load_oauth_tokens",
+        "save_oauth_tokens",
+        "clear_oauth_tokens",
+        "oauth_refresh",
+        "get_fresh_oauth_token"
+      ],
+      "i": [
+        "..console",
+        "..constants",
+        "..constants.models",
+        "..utils.http",
+        "..utils.io",
+        "json,",
+        "typing"
+      ]
+    },
+    "jarvis/auth/opencode.py": {
+      "e": [
+        "prompt_for_opencode_key",
+        "load_opencode_key"
+      ],
+      "i": [
+        "..console",
+        "..constants",
+        "..utils.io",
+        "getpass",
+        "os,"
+      ]
+    },
+    "jarvis/auth/opencode_client.py": {
+      "e": [
+        "_Usage",
+        "_ContentBlock",
+        "__init__",
+        "model_dump",
+        "get",
+        "__getitem__",
+        "__contains__",
+        "_TextBlock"
+      ],
+      "i": [
+        "..constants",
+        "__future__",
+        "contextlib",
+        "dataclasses",
+        "json",
+        "openai",
+        "queue",
+        "threading",
+        "typing"
+      ]
+    },
+    "jarvis/auth/openrouter.py": {
+      "e": [
+        "prompt_for_openrouter_key",
+        "load_openrouter_key"
+      ],
+      "i": [
+        "..console",
+        "..constants",
+        "..utils.io",
+        "getpass",
+        "os,"
+      ]
+    },
+    "jarvis/auth/pkce.py": {
+      "e": [
+        "_b64url",
+        "_pkce_pair"
+      ],
+      "i": [
+        "base64,"
+      ]
+    },
+    "jarvis/cli.py": {
+      "e": [
+        "_build_parser",
+        "main"
+      ],
+      "i": [
+        ".main",
+        ".tui.app",
+        "__future__",
+        "argparse"
+      ]
+    },
+    "jarvis/commands/__init__.py": {
+      "i": [
+        ".dispatch",
+        ".help",
+        ".session"
+      ]
+    },
+    "jarvis/commands/context.py": {
+      "e": [
+        "handle_context"
+      ],
+      "i": [
+        "..",
+        "..console",
+        "..constants",
+        "..storage.prefs",
+        "..tools.image_input",
+        "..tools.mac.clipboard"
+      ]
+    },
+    "jarvis/commands/control.py": {
+      "e": [
+        "handle_control",
+        "_all_models",
+        "_provider_for_model",
+        "_apply_model_selection",
+        "_handle_model",
+        "_handle_auth",
+        "_handle_provider",
+        "_toggle_coding_mode"
+      ],
+      "i": [
+        "..auth.client",
+        "..auth.oauth_flow",
+        "..auth.oauth_tokens",
+        "..auth.opencode",
+        "..auth.openrouter",
+        "..console",
+        "..constants",
+        "..constants.models",
+        "..repl.banners",
+        "..utils.io",
+        "..utils.time_fmt",
+        "os,"
+      ]
+    },
+    "jarvis/commands/dispatch.py": {
+      "e": [
+        "handle_slash"
+      ],
+      "i": [
+        "..console",
+        ".context",
+        ".control",
+        ".files_shell",
+        ".help",
+        ".history",
+        ".memory",
+        ".project_graph_visual",
+        ".session",
+        ".skill"
+      ]
+    },
+    "jarvis/commands/files_shell.py": {
+      "e": [
+        "handle_files_shell"
+      ],
+      "i": [
+        "..",
+        "..console",
+        "..constants",
+        "..storage.prefs",
+        "..storage.sessions",
+        "..tools.dirs",
+        "..tools.git",
+        "..tools.shell",
+        "..utils.serialize",
+        "json,"
+      ]
+    },
+    "jarvis/commands/help.py": {
+      "e": [
+        "cmd_help"
+      ],
+      "i": [
+        "..console"
+      ]
+    },
+    "jarvis/commands/history.py": {
+      "e": [
+        "handle_history"
+      ],
+      "i": [
+        "..",
+        "..console",
+        "..repl.banners",
+        "..storage.sessions",
+        "json"
+      ]
+    },
+    "jarvis/commands/memory.py": {
+      "e": [
+        "_render_table",
+        "handle_memory"
+      ],
+      "i": [
+        "..console",
+        "..storage"
+      ]
+    },
+    "jarvis/commands/project_graph_visual.py": {
+      "e": [
+        "handle_project",
+        "_generate_visual",
+        "_build_html"
+      ],
+      "i": [
+        "..console",
+        "..tools.project_graph",
+        "json",
+        "os",
+        "pathlib",
+        "webbrowser"
+      ]
+    },
+    "jarvis/commands/session.py": {
+      "e": [
+        "cmd_session",
+        "_resume_session"
+      ],
+      "i": [
+        "..",
+        "..console",
+        "..storage.sessions",
+        "..utils.time_fmt",
+        "typing"
+      ]
+    },
+    "jarvis/commands/skill.py": {
+      "e": [
+        "_render",
+        "handle_skill"
+      ],
+      "i": [
+        "..console",
+        "..storage"
+      ]
+    },
+    "jarvis/console.py": {
+      "i": [
+        "anthropic",
+        "pathlib,",
+        "rich.console",
+        "rich.live",
+        "rich.markdown",
+        "rich.panel",
+        "rich.spinner",
+        "rich.syntax",
+        "rich.table"
+      ]
+    },
+    "jarvis/constants/__init__.py": {
+      "i": [
+        ".icons",
+        ".models",
+        ".oauth",
+        ".paths",
+        ".providers",
+        ".system_prompt"
+      ]
+    },
+    "jarvis/constants/models.py": {
+      "e": [
+        "_env_int"
+      ],
+      "i": [
+        "os"
+      ]
+    },
+    "jarvis/constants/paths.py": {
+      "e": [
+        "set_cwd"
+      ],
+      "i": [
+        "pathlib",
+        "sys"
+      ]
+    },
+    "jarvis/constants/providers.py": {
+      "e": [
+        "models_for"
+      ]
+    },
+    "jarvis/constants/system_prompt.py": {
+      "e": [
+        "build_base_system"
+      ],
+      "i": [
+        "pathlib"
+      ]
+    },
+    "jarvis/main.py": {
+      "e": [
+        "main",
+        "_send_and_loop"
+      ],
+      "i": [
+        ".",
+        ".auth.client",
+        ".commands.dispatch",
+        ".console",
+        ".constants",
+        ".repl.banners",
+        ".repl.render",
+        ".repl.stream",
+        ".storage.sessions",
+        ".tools.image_input",
+        ".tools.shell",
+        "datetime"
+      ]
+    },
+    "jarvis/path_resolve.py": {
+      "e": [
+        "_unicode_space_key",
+        "robust_resolve",
+        "is_within",
+        "project_scope_error"
+      ],
+      "i": [
+        ".constants",
+        "__future__",
+        "os",
+        "pathlib",
+        "unicodedata"
+      ]
+    },
+    "jarvis/repl/__init__.py": {
+      "i": [
+        ".banners",
+        ".hallucination",
+        ".render",
+        ".stats",
+        ".stream",
+        ".system"
+      ]
+    },
+    "jarvis/repl/banners.py": {
+      "e": [
+        "welcome_banner",
+        "_mode_flag",
+        "header_panel"
+      ],
+      "i": [
+        "..",
+        "..console",
+        "pathlib",
+        "rich.markup"
+      ]
+    },
+    "jarvis/repl/hallucination.py": {
+      "e": [
+        "_scrub_hallucinations"
+      ],
+      "i": [
+        "re"
+      ]
+    },
+    "jarvis/repl/render.py": {
+      "e": [
+        "assistant_model_label",
+        "_run_tool",
+        "_run_parallel_batch",
+        "render_assistant",
+        "_abort_stream_if_no_text"
+      ],
+      "i": [
+        "..",
+        "..console",
+        "..constants",
+        "..tools",
+        ".hallucination",
+        ".tool_activity",
+        ".turn_progress",
+        "concurrent.futures",
+        "json,",
+        "rich.text"
+      ]
+    },
+    "jarvis/repl/stats.py": {
+      "e": [
+        "estimated_cost"
+      ],
+      "i": [
+        "..",
+        "..constants"
+      ]
+    },
+    "jarvis/repl/stream.py": {
+      "e": [
+        "_raise_in_thread",
+        "cancel_current_stream",
+        "_consume_live_text_stream",
+        "_idle_watch",
+        "call_claude_stream"
+      ],
+      "i": [
+        "..",
+        "..auth.client",
+        "..auth.oauth_tokens",
+        "..console",
+        "..constants.models",
+        "..tools.router",
+        ".system",
+        "anthropic",
+        "ctypes",
+        "threading",
+        "time",
+        "typing"
+      ]
+    },
+    "jarvis/repl/stream_display.py": {
+      "e": [
+        "RichAssistantStreamDisplay",
+        "__init__",
+        "start",
+        "_panel",
+        "push",
+        "stop"
+      ],
+      "i": [
+        "__future__",
+        "rich.live",
+        "rich.markdown",
+        "rich.panel"
+      ]
+    },
+    "jarvis/repl/system.py": {
+      "e": [
+        "_get_git_branch",
+        "_keyword_detected",
+        "_is_coding_request",
+        "_build_static_body",
+        "build_system"
+      ],
+      "i": [
+        "..",
+        "..constants",
+        "..constants.system_prompt",
+        "..storage.memory",
+        "..storage.skills",
+        "datetime",
+        "pathlib",
+        "subprocess",
+        "typing"
+      ]
+    },
+    "jarvis/repl/tool_activity.py": {
+      "e": [
+        "_clip",
+        "_norm_input",
+        "describe_tool_activity"
+      ],
+      "i": [
+        "__future__"
+      ]
+    },
+    "jarvis/repl/trim.py": {
+      "e": [
+        "_is_tool_result_block",
+        "_content_chars",
+        "_total_chars",
+        "_stub_tool_results",
+        "trim_messages"
+      ],
+      "i": [
+        "copy",
+        "typing"
+      ]
+    },
+    "jarvis/repl/turn_progress.py": {
+      "e": [
+        "report_turn_phase"
+      ],
+      "i": [
+        "..console",
+        "__future__"
+      ]
+    },
+    "jarvis/state.py": {
+      "e": [
+        "_compute_initial_model"
+      ],
+      "i": [
+        ".constants",
+        "json,",
+        "typing"
+      ]
+    },
+    "jarvis/storage/__init__.py": {
+      "i": [
+        ".prefs",
+        ".sessions"
+      ]
+    },
+    "jarvis/storage/memory.py": {
+      "e": [
+        "_load",
+        "_save",
+        "list_facts",
+        "add_fact",
+        "delete_fact",
+        "clear_all",
+        "as_prompt_block"
+      ],
+      "i": [
+        "..constants",
+        "json,",
+        "typing"
+      ]
+    },
+    "jarvis/storage/prefs.py": {
+      "e": [
+        "save_pin",
+        "save_aliases",
+        "save_last_model",
+        "export_markdown"
+      ],
+      "i": [
+        "..",
+        "..constants",
+        "json,"
+      ]
+    },
+    "jarvis/storage/sessions.py": {
+      "e": [
+        "db_conn",
+        "db_init",
+        "db_create_session",
+        "db_append_message",
+        "db_replace_session_messages",
+        "db_set_title_if_empty",
+        "db_list_sessions",
+        "db_load_session"
+      ],
+      "i": [
+        "..constants",
+        "..utils.serialize",
+        "json,",
+        "typing"
+      ]
+    },
+    "jarvis/storage/skills.py": {
+      "e": [
+        "_load",
+        "_save",
+        "_prune",
+        "list_skills",
+        "add_skill",
+        "delete_skill",
+        "clear_all",
+        "_tokens"
+      ],
+      "i": [
+        "..constants",
+        "json,",
+        "typing"
+      ]
+    },
+    "jarvis/tools/__init__.py": {
+      "i": [
+        ".dirs",
+        ".files",
+        ".git",
+        ".mac",
+        ".memory",
+        ".ocr",
+        ".project_graph",
+        ".read_document",
+        ".search",
+        ".shell",
+        ".skills",
+        ".web"
+      ]
+    },
+    "jarvis/tools/dirs.py": {
+      "e": [
+        "list_dir",
+        "glob_files",
+        "fast_find",
+        "_ext_ok",
+        "_resolve",
+        "_terms",
+        "_is_skipped",
+        "_safe_rel"
+      ],
+      "i": [
+        "..constants",
+        "..path_resolve",
+        "os,"
+      ]
+    },
+    "jarvis/tools/files.py": {
+      "e": [
+        "_save_backup",
+        "_in_skip_dir",
+        "_looks_binary",
+        "read_file",
+        "write_file",
+        "edit_file"
+      ],
+      "i": [
+        "..",
+        "..constants",
+        "..path_resolve",
+        ".dirs",
+        ".project_graph",
+        "pathlib"
+      ]
+    },
+    "jarvis/tools/git.py": {
+      "e": [
+        "git_status",
+        "git_diff",
+        "git_log"
+      ],
+      "i": [
+        "..constants",
+        ".shell",
+        "shlex"
+      ]
+    },
+    "jarvis/tools/image_input.py": {
+      "e": [
+        "_is_image_path",
+        "extract_image_paths",
+        "clipboard_image_to_file",
+        "file_digest",
+        "ocr_image_block",
+        "append_image_block",
+        "process_input_for_images"
+      ],
+      "i": [
+        "..constants",
+        "..path_resolve",
+        ".ocr",
+        "hashlib",
+        "pathlib",
+        "re",
+        "shlex",
+        "subprocess",
+        "tempfile",
+        "typing"
+      ]
+    },
+    "jarvis/tools/mac/__init__.py": {
+      "i": [
+        ".applescript",
+        ".apps",
+        ".clipboard",
+        ".input",
+        ".system",
+        ".ui"
+      ]
+    },
+    "jarvis/tools/mac/applescript.py": {
+      "e": [
+        "_osa",
+        "applescript"
+      ],
+      "i": [
+        "...constants",
+        "subprocess"
+      ]
+    },
+    "jarvis/tools/mac/apps.py": {
+      "e": [
+        "launch_app",
+        "focus_app",
+        "quit_app",
+        "list_apps",
+        "frontmost_app"
+      ],
+      "i": [
+        "...constants",
+        ".applescript",
+        "subprocess,"
+      ]
+    },
+    "jarvis/tools/mac/clipboard.py": {
+      "e": [
+        "clipboard_get",
+        "clipboard_set"
+      ],
+      "i": [
+        "...constants",
+        "subprocess"
+      ]
+    },
+    "jarvis/tools/mac/input.py": {
+      "e": [
+        "type_text",
+        "key_press",
+        "click_menu",
+        "click_at"
+      ],
+      "i": [
+        ".applescript"
+      ]
+    },
+    "jarvis/tools/mac/system.py": {
+      "e": [
+        "open_url",
+        "notify",
+        "speck",
+        "shortcut_run",
+        "mac_control"
+      ],
+      "i": [
+        "...constants",
+        "..shell",
+        ".applescript",
+        "subprocess"
+      ]
+    },
+    "jarvis/tools/mac/ui.py": {
+      "e": [
+        "read_ui",
+        "click_element",
+        "wait",
+        "check_permissions"
+      ],
+      "i": [
+        "._jxa_scripts",
+        "subprocess,"
+      ]
+    },
+    "jarvis/tools/memory.py": {
+      "e": [
+        "memory_save",
+        "memory_list",
+        "memory_delete"
+      ],
+      "i": [
+        "..storage"
+      ]
+    },
+    "jarvis/tools/ocr.py": {
+      "e": [
+        "_resolve_path",
+        "_clamp_int",
+        "read_image_text",
+        "_discover_images",
+        "_display_path",
+        "_score_text",
+        "read_images_text",
+        "ocr_one_tracked"
+      ],
+      "i": [
+        "..constants",
+        "..path_resolve",
+        "..repl.turn_progress",
+        "Foundation",
+        "Vision",
+        "concurrent.futures",
+        "pathlib",
+        "subprocess",
+        "threading"
+      ]
+    },
+    "jarvis/tools/project_graph.py": {
+      "e": [
+        "_scan_ts",
+        "_scan_py",
+        "_scan_rs",
+        "_scan_go",
+        "_scan_file",
+        "_detect_lang",
+        "_detect_framework",
+        "_clean_import_path"
+      ],
+      "i": [
+        "..constants",
+        "__future__",
+        "json",
+        "os",
+        "pathlib",
+        "re",
+        "time"
+      ]
+    },
+    "jarvis/tools/read_document.py": {
+      "e": [
+        "_skip_dir_reason",
+        "_clamp",
+        "_truncate",
+        "_read_pdf",
+        "_read_csvish",
+        "_read_json",
+        "_read_html",
+        "_read_xlsx"
+      ],
+      "i": [
+        "..constants",
+        "..path_resolve",
+        "..utils.html_clean",
+        ".dirs",
+        ".ocr",
+        "__future__",
+        "csv",
+        "io",
+        "json",
+        "openpyxl",
+        "pathlib",
+        "pypdf"
+      ]
+    },
+    "jarvis/tools/router.py": {
+      "e": [
+        "_block_to_text",
+        "_latest_text",
+        "_recent_tool_groups",
+        "_dedupe_tools",
+        "select_tools"
+      ],
+      "i": [
+        ".",
+        "__future__",
+        "json",
+        "re",
+        "typing"
+      ]
+    },
+    "jarvis/tools/search.py": {
+      "e": [
+        "search_code"
+      ],
+      "i": [
+        "..constants",
+        "..path_resolve",
+        ".shell",
+        "shlex,"
+      ]
+    },
+    "jarvis/tools/shell.py": {
+      "e": [
+        "run_bash"
+      ],
+      "i": [
+        "..",
+        "..console",
+        "..constants",
+        "subprocess"
+      ]
+    },
+    "jarvis/tools/skills.py": {
+      "e": [
+        "skill_save",
+        "skill_search",
+        "skill_list",
+        "skill_delete"
+      ],
+      "i": [
+        "..storage"
+      ]
+    },
+    "jarvis/tools/web/__init__.py": {
+      "i": [
+        ".fetch",
+        ".search",
+        ".verified"
+      ]
+    },
+    "jarvis/tools/web/_claims.py": {
+      "e": [
+        "_extract_key_claims",
+        "_agreement_score"
+      ],
+      "i": [
+        "re"
+      ]
+    },
+    "jarvis/tools/web/_collect.py": {
+      "e": [
+        "gather_candidates",
+        "dedupe_by_domain"
+      ],
+      "i": [
+        "._common",
+        "json,"
+      ]
+    },
+    "jarvis/tools/web/_common.py": {
+      "e": [
+        "_query_keywords",
+        "_host_root_label",
+        "_matches_official",
+        "_domain_score",
+        "_fetch_snippet",
+        "_ddg_organic_urls"
+      ],
+      "i": [
+        "...utils.html_clean",
+        "re,"
+      ]
+    },
+    "jarvis/tools/web/_report.py": {
+      "e": [
+        "build_report"
+      ]
+    },
+    "jarvis/tools/web/fetch.py": {
+      "e": [
+        "fetch_url"
+      ],
+      "i": [
+        "...constants",
+        "...utils.html_clean",
+        "urllib.request,"
+      ]
+    },
+    "jarvis/tools/web/search.py": {
+      "e": [
+        "_enrich_query_with_date",
+        "_sub",
+        "web_search"
+      ],
+      "i": [
+        "...constants",
+        "datetime",
+        "json,"
+      ]
+    },
+    "jarvis/tools/web/verified.py": {
+      "e": [
+        "verified_search",
+        "_fetch_one"
+      ],
+      "i": [
+        "...console",
+        "...constants",
+        "._claims",
+        "._collect",
+        "._common",
+        "._report",
+        ".search",
+        "concurrent.futures"
+      ]
+    },
+    "jarvis/tui/app.py": {
+      "e": [
+        "_is_bare_model_command",
+        "_is_session_picker_command",
+        "PromptArea",
+        "Submitted",
+        "__init__",
+        "_on_key",
+        "_swap_console_everywhere",
+        "JarvisTUI"
+      ],
+      "i": [
+        "__future__",
+        "sys",
+        "textual",
+        "textual.actions",
+        "textual.app",
+        "textual.binding",
+        "textual.containers",
+        "textual.message",
+        "textual.screen",
+        "textual.widgets",
+        "threading",
+        "time"
+      ]
+    },
+    "jarvis/tui/commands_catalog.py": {
+      "e": [
+        "filter_commands"
+      ]
+    },
+    "jarvis/tui/console_shim.py": {
+      "e": [
+        "_truncate_rich_log_lines",
+        "TUIConsole",
+        "__init__",
+        "assistant_stream_start",
+        "_anchor",
+        "assistant_stream_push",
+        "assistant_stream_flush",
+        "_flush_streaming_panel"
+      ],
+      "i": [
+        "contextlib",
+        "queue",
+        "re",
+        "rich.console",
+        "rich.markdown",
+        "rich.panel",
+        "rich.rule",
+        "rich.text",
+        "textual.geometry",
+        "textual.widgets",
+        "threading",
+        "typing"
+      ]
+    },
+    "jarvis/tui/modal_chrome.py": {
+      "e": [
+        "TuiModalScreen",
+        "__init__"
+      ],
+      "i": [
+        "__future__",
+        "textual.screen",
+        "typing"
+      ]
+    },
+    "jarvis/tui/model_modal.py": {
+      "e": [
+        "ModelPickerScreen",
+        "compose",
+        "on_mount",
+        "on_unmount",
+        "_populate",
+        "action_dismiss_cancel",
+        "action_cursor_down",
+        "action_cursor_up"
+      ],
+      "i": [
+        "..",
+        "..constants",
+        ".modal_chrome",
+        ".mouse_toggle",
+        "__future__",
+        "rich.text",
+        "textual.app",
+        "textual.binding",
+        "textual.containers",
+        "textual.widgets",
+        "textual.widgets.option_list"
+      ]
+    },
+    "jarvis/tui/mouse_toggle.py": {
+      "e": [
+        "_write",
+        "enable_mouse",
+        "disable_mouse"
+      ],
+      "i": [
+        "__future__",
+        "sys"
+      ]
+    },
+    "jarvis/tui/palette_modal.py": {
+      "e": [
+        "CommandPaletteScreen",
+        "__init__",
+        "compose",
+        "on_mount",
+        "on_unmount",
+        "_refresh",
+        "on_input_changed",
+        "on_input_submitted"
+      ],
+      "i": [
+        ".commands_catalog",
+        ".modal_chrome",
+        ".mouse_toggle",
+        "__future__",
+        "rich.text",
+        "textual.app",
+        "textual.binding",
+        "textual.containers",
+        "textual.widgets",
+        "textual.widgets.option_list"
+      ]
+    },
+    "jarvis/tui/session_modal.py": {
+      "e": [
+        "SessionPickerScreen",
+        "compose",
+        "on_mount",
+        "on_unmount",
+        "_populate",
+        "_current_id",
+        "action_dismiss_cancel",
+        "action_select"
+      ],
+      "i": [
+        "..",
+        "..storage.sessions",
+        "..utils.time_fmt",
+        ".modal_chrome",
+        ".mouse_toggle",
+        "__future__",
+        "rich.text",
+        "textual.app",
+        "textual.binding",
+        "textual.containers",
+        "textual.widgets",
+        "textual.widgets.option_list"
+      ]
+    },
+    "jarvis/tui/shell_approval_modal.py": {
+      "e": [
+        "ShellApprovalScreen",
+        "__init__",
+        "compose",
+        "on_mount",
+        "on_unmount",
+        "action_approve",
+        "action_deny",
+        "action_always"
+      ],
+      "i": [
+        ".mouse_toggle",
+        "__future__",
+        "rich.panel",
+        "rich.text",
+        "textual.app",
+        "textual.binding",
+        "textual.containers",
+        "textual.screen",
+        "textual.widgets"
+      ]
+    },
+    "jarvis/tui/text_input_modal.py": {
+      "e": [
+        "TextInputScreen",
+        "__init__",
+        "compose",
+        "on_mount",
+        "on_unmount",
+        "on_input_submitted",
+        "action_cancel"
+      ],
+      "i": [
+        ".modal_chrome",
+        ".mouse_toggle",
+        "__future__",
+        "textual.app",
+        "textual.binding",
+        "textual.containers",
+        "textual.widgets"
+      ]
+    },
+    "jarvis/utils/__init__.py": {
+      "i": [
+        ".html_clean",
+        ".http",
+        ".io",
+        ".serialize",
+        ".time_fmt"
+      ]
+    },
+    "jarvis/utils/html_clean.py": {
+      "e": [
+        "_strip_html"
+      ],
+      "i": [
+        "re,"
+      ]
+    },
+    "jarvis/utils/http.py": {
+      "e": [
+        "_http_json"
+      ],
+      "i": [
+        "json,"
+      ]
+    },
+    "jarvis/utils/io.py": {
+      "e": [
+        "_secure_write"
+      ],
+      "i": [
+        "..constants",
+        "os,"
+      ]
+    },
+    "jarvis/utils/serialize.py": {
+      "e": [
+        "_msg_to_json"
+      ]
+    },
+    "jarvis/utils/time_fmt.py": {
+      "e": [
+        "fmt_duration",
+        "_fmt_ts"
+      ],
+      "i": [
+        "datetime"
+      ]
+    }
+  },
+  "deps": {},
+  "ts": 1777709311
+};
+const extColors = {".py": "#3572A5", ".ts": "#3178C6", ".tsx": "#3178C6", ".js": "#F7DF1E", ".jsx": "#F7DF1E", ".rs": "#DEA584", ".go": "#00ADD8", ".swift": "#F05138", ".kt": "#7F52FF", ".java": "#B07219", ".css": "#663399", ".scss": "#C6538C", ".html": "#E34F26", ".json": "#292929", ".yaml": "#CB171E", ".yml": "#CB171E", ".md": "#083FA1", ".toml": "#9C4221", ".lock": "#7E7E7E", ".txt": "#6e7681", ".cfg": "#8b949e", ".ini": "#8b949e", ".svg": "#FFB13B", ".xml": "#0060AC", ".sql": "#E38C00", ".sh": "#89E051", ".bash": "#89E051", ".zsh": "#89E051", ".csv": "#217346", ".mdx": "#083FA1", ".vue": "#42B883", ".svelte": "#FF3E00", ".env": "#FFA500", ".gradle": "#02303A", ".kts": "#7F52FF"};
+
+// Build tree
+function buildTree(data) {
+  const tree = { __children: {} };
+  for (const f of data) {
+    const parts = f.dir ? f.dir.split('/') : [];
+    let node = tree;
+    for (const p of parts) {
+      if (!node.__children[p]) node.__children[p] = { __children: {} };
+      node = node.__children[p];
+    }
+    node.__children[f.name] = { __file: true, ...f };
+  }
+  return tree;
+}
+
+function getExtColor(ext) {
+  return extColors[ext] || '#6e7681';
+}
+
+function renderTreeNode(name, node, depth, searchTerm) {
+  if (node.__file) {
+    const ext = node.ext || '';
+    const color = getExtColor(ext);
+    const match = searchTerm && node.path.toLowerCase().includes(searchTerm.toLowerCase());
+    const cls = match ? 'highlight' : '';
+    return `<div class="tree-file ${cls}" onclick="selectFile('${node.path.replace(/'/g, "\\'")}', this)">
+      <span class="ext-dot" style="background:${color}"></span>
+      <span class="file-name">${node.name}</span>
+      <span class="file-imports">${node.imports.length ? '↩' + node.imports.length : ''}</span>
+    </div>`;
+  }
+  
+  const children = Object.keys(node.__children || {});
+  const dirs = children.filter(k => !node.__children[k].__file);
+  const files = children.filter(k => node.__children[k].__file);
+  
+  if (searchTerm) {
+    // Check if any file matches in subtree
+    const hasMatch = files.some(f => node.__children[f].path.toLowerCase().includes(searchTerm.toLowerCase()))
+      || dirs.some(d => renderSubtreeHasMatch(node.__children[d], searchTerm));
+    if (!hasMatch) return '';
+  }
+  
+  const fileHtml = files.map(f => renderTreeNode(f, node.__children[f], depth + 1, searchTerm)).join('');
+  const dirHtml = dirs.map(d => renderTreeNode(d, node.__children[d], depth + 1, searchTerm)).join('');
+  const childrenHtml = fileHtml + dirHtml;
+  
+  if (!childrenHtml && !searchTerm) return '';
+  if (!childrenHtml) return '';
+  
+  return `<div class="tree-dir">
+    <div class="tree-dir-label" onclick="toggleDir(this)">
+      <span class="arrow open">▶</span>
+      <span class="dir-icon">📁</span>
+      <span>${name || '/'}</span>
+    </div>
+    <div class="tree-dir-children open">${childrenHtml}</div>
+  </div>`;
+}
+
+function renderSubtreeHasMatch(node, searchTerm) {
+  if (node.__file) return node.path.toLowerCase().includes(searchTerm.toLowerCase());
+  const children = Object.keys(node.__children || {});
+  return children.some(k => renderSubtreeHasMatch(node.__children[k], searchTerm));
+}
+
+function toggleDir(el) {
+  const arrow = el.querySelector('.arrow');
+  const children = el.nextElementSibling;
+  arrow.classList.toggle('open');
+  children.classList.toggle('open');
+}
+
+const treeData = buildTree(files);
+
+function renderTree() {
+  const searchTerm = document.getElementById('searchInput').value;
+  const container = document.getElementById('treeContainer');
+  container.innerHTML = renderTreeNode('', treeData, 0, searchTerm);
+}
+
+renderTree();
+
+function filterTree() {
+  renderTree();
+}
+
+let selectedFile = null;
+let currentFilter = 'all';
+
+function setFilter(ext, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentFilter = ext;
+  if (selectedFile) {
+    selectFileByPath(selectedFile);
+  }
+}
+
+function selectFile(path, el) {
+  document.querySelectorAll('.tree-file').forEach(e => e.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+  selectedFile = path;
+  selectFileByPath(path);
+}
+
+function selectFileByPath(path) {
+  const file = files.find(f => f.path === path);
+  if (!file) return;
+  
+  const body = document.getElementById('contentBody');
+  const pathEl = document.getElementById('filePath');
+  pathEl.textContent = path;
+  
+  const ext = file.ext || '';
+  const color = getExtColor(ext);
+  const relDir = file.dir || '/';
+  
+  let importsHtml = '';
+  if (file.imports && file.imports.length) {
+    importsHtml = `<div class="file-detail-card">
+      <h3>📥 Imports</h3>
+      <div class="tag-list">${file.imports.map(i => `<span class="tag tag-import">${i}</span>`).join('')}</div>
+    </div>`;
+  }
+  
+  let exportsHtml = '';
+  if (file.exports && file.exports.length) {
+    exportsHtml = `<div class="file-detail-card">
+      <h3>📤 Exports</h3>
+      <div class="tag-list">${file.exports.map(e => `<span class="tag tag-export">${e}</span>`).join('')}</div>
+    </div>`;
+  }
+  
+  body.innerHTML = `<div class="file-detail-card">
+    <h3>${file.name}</h3>
+    <div class="meta">
+      <span class="meta-item">📁 <strong>${relDir}</strong></span>
+      <span class="meta-item">🔤 <strong>${ext || 'none'}</strong></span>
+      <span class="meta-item">↩ <strong>${file.imports.length}</strong> imports</span>
+      <span class="meta-item">↪ <strong>${file.exports.length}</strong> exports</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" style="width:${Math.min(100, file.exports.length * 25 + file.imports.length * 10)}%"></div>
+    </div>
+  </div>
+  ${importsHtml}
+  ${exportsHtml}
+  <div class="file-detail-card">
+    <h3>🔗 Connected Files</h3>
+    <div class="tag-list">
+      ${findConnectedFiles(file).map(c => `<span class="tag" style="cursor:pointer" onclick="selectFileByPath('${c.path.replace(/'/g, "\\'")}')">${c.path}</span>`).join('') || '<span style="color:#484f58">No direct connections</span>'}
+    </div>
+  </div>`;
+}
+
+function findConnectedFiles(file) {
+  const connected = [];
+  for (const f of files) {
+    if (f.path === file.path) continue;
+    const myImports = file.imports || [];
+    const theirImports = f.imports || [];
+    const myExports = file.exports || [];
+    const theirExports = f.exports || [];
+    
+    // f imports something I export
+    for (const e of myExports) {
+      if (theirImports.some(i => i.includes(e) || e.includes(i))) {
+        connected.push(f); break;
+      }
+    }
+    if (connected.length > 0 && connected[connected.length-1] === f) continue;
+    // I import something f exports
+    for (const e of theirExports) {
+      if (myImports.some(i => i.includes(e) || e.includes(i))) {
+        connected.push(f); break;
+      }
+    }
+  }
+  return connected.slice(0, 12);
+}
+
+// Dependency visualization
+
+</script>
+
+<script>
+// Additional: dependency cards at bottom
+(function() {
+  const body = document.getElementById('contentBody');
+  const empty = body.querySelector('.empty-state');
+  if (empty) {
+    empty.innerHTML = `
+      <div style="text-align:center">
+        <div class="big-icon" style="font-size:64px">🗺️</div>
+        <p style="font-size:18px;color:#f0f6fc;margin:12px 0 4px">Project Graph Active</p>
+        <p style="font-size:13px;color:#8b949e">94 source files across 17 directories</p>
+        <p style="font-size:12px;color:#484f58;margin-top:16px">Click any file in the sidebar tree to inspect details →</p>
+      </div>
+    `;
+  }
+})();
+</script>
+
+</body>
+</html>

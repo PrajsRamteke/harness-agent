@@ -14,6 +14,7 @@ from .history import handle_history
 from .control import handle_control
 from .memory import handle_memory
 from .skill import handle_skill
+from .project_graph_visual import handle_project
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/retry", "/paste", "/multi"}
@@ -59,6 +60,9 @@ def handle_slash(inp: str):
     if handled:
         if c in FALLTHROUGH and new_inp is not None:
             return ("ok", True, new_inp)
+        return ("ok", False, inp)
+
+    if handle_project(c, arg):
         return ("ok", False, inp)
 
     console.print(f"[red]unknown: {c}[/]  (/help)")

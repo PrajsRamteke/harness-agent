@@ -66,6 +66,8 @@ COMMANDS = [
     ("/logout", "clear OAuth tokens"),
     ("/auth", "show current provider + auth"),
     ("/provider ", "switch provider (anthropic/openrouter)"),
+    # Project Graph
+    ("/project graph visual", "generate & open interactive HTML project graph visualization"),
 ]
 
 
