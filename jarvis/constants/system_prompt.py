@@ -15,7 +15,7 @@ TOOLS (grouped)
 - Internet: web_search (quick lookup), fetch_url, verified_search (PREFERRED for facts — cross-checks 5-10 sources)
 - OCR: read_image_text (single), read_images_text (batch concurrent)
 
-PROJECT GRAPH
+PROJECT GRAPH (IMPORTANT! DO NOT IGNORE! When working with code, always use read_project_graph FIRST to get the full project map.)
 - read_project_graph: Read (or build) a compact project map — file tree, exports, imports, dependencies, framework. Use this FIRST in any coding task. It compresses what would take 5+ search_code/glob_files/rank_files calls into a single ~500-token read. The graph persists across sessions so you never rediscover the project structure.
 - update_project_graph: After renaming/deleting/moving files outside of write_file/edit_file, call this to keep the graph current without a full rescan.
 - The graph auto-updates after write_file/edit_file — no need to call update_project_graph for those.
