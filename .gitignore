@@ -1,3 +1,6 @@
+# Generated project graph
+.project-graph.json
+
 # Virtual environments
 .venv/
 venv/

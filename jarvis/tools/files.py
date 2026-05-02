@@ -5,6 +5,7 @@ from ..constants import CWD, MAX_FILE_READ, MAX_FILE_SIZE_BYTES, MAX_FILE_CHUNK_
 from .. import state
 from .dirs import SKIP_DIRS
 from ..path_resolve import project_scope_error, robust_resolve
+from .project_graph import _auto_update_graph
 
 # Extensions that are almost never useful to read as text.
 _BINARY_EXTS = {
@@ -99,6 +100,7 @@ def write_file(path: str, content: str, allow_outside_project: bool = False) -> 
     _save_backup(p)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)
+    _auto_update_graph(str(p.relative_to(CWD)))
     return f"WROTE {p} ({len(content)} bytes)"
 
 
@@ -123,4 +125,5 @@ def edit_file(
     _save_backup(p)
     new_txt = txt.replace(old_str, new_str) if replace_all else txt.replace(old_str, new_str, 1)
     p.write_text(new_txt)
+    _auto_update_graph(str(p.relative_to(CWD)))
     return f"EDITED {p} ({n} replacement{'s' if n>1 else ''})"

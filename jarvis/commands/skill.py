@@ -1,5 +1,5 @@
 """/skill slash command — view, search, add, delete agent skill-memory."""
-from ..console import console, Panel
+from ..console import console, Table, Panel
 from ..storage import skills as sk
 
 
@@ -7,13 +7,16 @@ def _render(rows, title):
     if not rows:
         console.print(Panel("(no skills)", title=f"🧠 {title}", border_style="magenta"))
         return
-    lines = []
+    t = Table(show_header=True, header_style="bold magenta", box=None, padding=(0, 2))
+    t.add_column("#", style="dim", no_wrap=True)
+    t.add_column("hits", justify="right", no_wrap=True)
+    t.add_column("tags", style="dim")
+    t.add_column("task")
+    t.add_column("lesson")
     for r in rows:
-        tag = f" [dim][{', '.join(r.get('tags', []))}][/]" if r.get("tags") else ""
-        lines.append(f"[magenta]#{r['id']}[/] [dim]hits={r.get('hits',0)}[/]{tag}  "
-                     f"[bold]{r['task']}[/] → {r['lesson']}")
-    console.print(Panel("\n".join(lines),
-                        title=f"🧠 {title} ({len(rows)})", border_style="magenta"))
+        tags = ", ".join(r.get("tags", [])) if r.get("tags") else ""
+        t.add_row(str(r["id"]), str(r.get("hits", 0)), tags, r["task"], r["lesson"])
+    console.print(Panel(t, title=f"🧠 {title} ({len(rows)})", border_style="magenta"))
 
 
 def handle_skill(cmd: str, arg: str):

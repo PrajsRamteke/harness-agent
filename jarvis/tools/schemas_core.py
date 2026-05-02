@@ -132,6 +132,32 @@ OCR_TOOLS = [
     },
 ]
 
+PROJECT_GRAPH_TOOLS = [
+    {"name":"read_project_graph","description":(
+        "Read (or build) the project structure graph — a compact map of all source "
+        "files, their exports, imports, directory tree, framework, and dependencies. "
+        "Use this at the START of any coding task to navigate the project without "
+        "expensive search_code/glob_files/rank_files discovery calls. The graph "
+        "persists on disk across sessions so you never rediscover structure. "
+        "Pass rebuild=true if the project changed significantly since last build."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "rebuild":{"type":"boolean","description":"Force full rescan. Default false — reads existing graph if available."}},
+        "required":[]}},
+    {"name":"update_project_graph","description":(
+        "Update the project graph after making file changes (edit_file, write_file, "
+        "rename, delete). Fast incremental update: only rescans the files you list. "
+        "Call this after modifying files so the graph stays current. Pass empty or "
+        "omit files to do a full rebuild. Note: the graph is also auto-updated behind "
+        "the scenes after write_file/edit_file, so you only need to call this if you "
+        "renamed, deleted, or moved files outside of those tools."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "files":{"type":"array","items":{"type":"string"},
+                  "description":"List of changed file paths (relative to project root). If omitted, rescans everything."}},
+        "required":[]}},
+]
+
 INTERNET_TOOLS = [
     {"name":"web_search","description":"Search the web using DuckDuckGo (no browser opened, no API key needed). Returns titles, URLs, and snippets for the top results. Use this to look up current information, news, docs, prices, weather, etc. IMPORTANT: do NOT hardcode years like '2024' or '2025' in your query — rely on the CURRENT DATE & TIME injected in the system prompt. Use recency words ('latest', 'current', 'today') and the tool will auto-append the actual current year; otherwise omit year entirely.",
      "input_schema":{"type":"object","properties":{

@@ -1,5 +1,5 @@
 """/memory slash command — view, add, delete, or clear stored personal facts."""
-from ..console import console, Panel
+from ..console import console, Table, Panel
 from ..storage import memory as mem
 
 
@@ -8,8 +8,12 @@ def _render_table() -> None:
     if not facts:
         console.print(Panel("(memory is empty)", title="🧠 memory", border_style="cyan"))
         return
-    lines = [f"[cyan]#{f['id']}[/]  {f['text']}" for f in facts]
-    console.print(Panel("\n".join(lines), title=f"🧠 memory ({len(facts)})", border_style="cyan"))
+    t = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+    t.add_column("#", style="dim", no_wrap=True)
+    t.add_column("fact")
+    for f in facts:
+        t.add_row(str(f["id"]), f["text"])
+    console.print(Panel(t, title=f"🧠 memory ({len(facts)})", border_style="cyan"))
 
 
 def handle_memory(cmd: str, arg: str):
