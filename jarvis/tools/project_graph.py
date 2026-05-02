@@ -45,6 +45,9 @@ GRAPH_FILE = ".project-graph.json"
 # Cap for large projects — keeps build fast and graph compact
 MAX_SCAN = 1000
 
+# Max files to stat-check for staleness (just mtime, no reading — very fast)
+STALE_CHECK_CAP = 200
+
 # Files that look like entry points
 ENTRY_NAMES = {
     "index.ts", "index.tsx", "index.js", "App.tsx", "App.ts",
@@ -287,6 +290,34 @@ def build(project_root: str | Path | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Staleness check — auto-rebuild if source files changed externally
+# ---------------------------------------------------------------------------
+
+def _is_stale(graph: dict, root: Path) -> bool:
+    """Quick mtime check — if any source file is newer than graph timestamp, rebuild."""
+    graph_ts = graph.get("ts", 0)
+    checked = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        for fn in filenames:
+            if fn in SKIP_FILES:
+                continue
+            ext = Path(fn).suffix
+            if ext not in PARSE_EXTS:
+                continue
+            checked += 1
+            fp = Path(dirpath) / fn
+            try:
+                if fp.stat().st_mtime > graph_ts:
+                    return True
+            except OSError:
+                continue
+            if checked >= STALE_CHECK_CAP:
+                return False  # Hit cap without finding newer file — assume fresh
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Read / Write / Ensure
 # ---------------------------------------------------------------------------
 
@@ -312,10 +343,15 @@ def read(root: Path | str | None = None) -> dict | None:
 
 
 def ensure(root: Path | str | None = None, rebuild: bool = False) -> dict:
-    """Return existing graph or build & write a new one."""
+    """Return existing graph or build & write a new one.
+
+    If a graph exists but source files have been modified externally (e.g. user
+    edited in VSCode), it auto-rebuilds — no stale data returned.
+    """
     if not rebuild:
         existing = read(root)
-        if existing:
+        r = Path(root or os.getcwd()).resolve()
+        if existing and not _is_stale(existing, r):
             return existing
     g = build(root)
     write(g, root)
@@ -489,12 +525,13 @@ def _auto_update_graph(file_path: str, root: Path | None = None) -> None:
 
     Called by write_file() and edit_file() in files.py.
     Single-file incremental update — fast, no full rescan.
+    If no graph exists yet, does nothing (graph will be built on first read).
     """
     try:
         r = root or _get_root()
         graph = read(r)
         if graph is None:
-            return  # No graph yet — nothing to update
+            return  # No graph yet — read_project_graph will build it later
         update_after_change([file_path], r)
     except Exception:
         pass  # Never break the write/edit flow
