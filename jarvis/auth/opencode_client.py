@@ -261,10 +261,15 @@ class _OpenCodeStream:
 
     def _process_chunk(self, chunk) -> Optional[str]:
         """Extract text delta and accumulate tool call fragments. Returns text or None."""
+        # DEBUG: log chunk structure
+        print(f"[DEBUG chunk] type={type(chunk).__name__}, attrs={[a for a in dir(chunk) if not a.startswith('_')]}, choices={getattr(chunk, 'choices', None)}")
         delta = chunk.choices[0].delta if chunk.choices else None
         if delta is None:
             return None
-        if hasattr(chunk, "usage") and chunk.usage:
+        # Usage on streaming chunks lives at the root chunk level, NOT on delta.
+        # Some providers emit usage on every chunk; others only on the final chunk.
+        # Always overwrite so the LAST chunk with usage wins (final totals).
+        if hasattr(chunk, "usage") and chunk.usage is not None:
             self._usage_obj = chunk.usage
         text = None
         reasoning_content = getattr(delta, "reasoning_content", None)
@@ -305,6 +310,8 @@ class _OpenCodeStream:
             input_tokens=getattr(self._usage_obj, "prompt_tokens", 0) if self._usage_obj else 0,
             output_tokens=getattr(self._usage_obj, "completion_tokens", 0) if self._usage_obj else 0,
         )
+        # DEBUG: print usage info
+        print(f"[DEBUG usage] prompt_tokens={usage.input_tokens}, completion_tokens={usage.output_tokens}, _usage_obj={self._usage_obj}, type={type(self._usage_obj)}")
         stop_reason = "tool_use" if any(b.get("type") == "tool_use" for b in content) else "end_turn"
         return _FakeMessage(content=content, usage=usage, stop_reason=stop_reason)
 
