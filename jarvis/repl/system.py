@@ -25,7 +25,26 @@ _cached_body: str = ""
 _cached_mem_key: str = ""
 _cached_sk_key: str = ""
 _cached_pinned: str = ""
-_cached_cwd: str = ""
+_cached_cwd_branch: str = ""
+
+
+def _get_git_branch(cwd: str) -> str | None:
+    """Quickly detect the current git branch. Returns None if not in a repo."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+            return branch if branch else None
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        pass
+    return None
 
 def _keyword_detected(messages: list) -> bool:
     """Compatibility shim: default mode no longer auto-detects coding turns."""
@@ -45,23 +64,25 @@ def _is_coding_request(messages: list) -> bool:
 
 def _build_static_body() -> str:
     """Everything except the date/time line and coding addon. Cached between turns."""
-    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_pinned, _cached_cwd
+    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_pinned, _cached_cwd_branch
 
     mem_block = as_prompt_block()
     sk_block = skills_prompt_block()
     pinned = state.pinned_context.strip()
     from pathlib import Path
     cwd = str(Path.cwd())
+    branch = _get_git_branch(cwd)
+    cwd_branch_key = cwd + "|" + (branch or "")
 
     # Use content as cache key — only rebuild when something actually changed.
     if (mem_block == _cached_mem_key
             and sk_block == _cached_sk_key
             and pinned == _cached_pinned
-            and cwd == _cached_cwd
+            and cwd_branch_key == _cached_cwd_branch
             and _cached_body):
         return _cached_body
 
-    body = build_base_system(Path(cwd))
+    body = build_base_system(Path(cwd), git_branch=branch)
     if pinned:
         body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned
     if mem_block:
@@ -83,7 +104,7 @@ def _build_static_body() -> str:
     _cached_mem_key = mem_block
     _cached_sk_key = sk_block
     _cached_pinned = pinned
-    _cached_cwd = cwd
+    _cached_cwd_branch = cwd_branch_key
     return body
 
 

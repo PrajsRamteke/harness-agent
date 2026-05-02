@@ -2,9 +2,12 @@
 import pathlib
 
 
-def build_base_system(cwd: pathlib.Path | None = None) -> str:
+def build_base_system(cwd: pathlib.Path | None = None, git_branch: str | None = None) -> str:
     cwd = cwd or pathlib.Path.cwd()
-    return f"""Jarvis — macOS agent + code assistant running in {cwd}.
+    header = f"Jarvis — macOS agent + code assistant running in {cwd}"
+    if git_branch:
+        header += f" (git: {git_branch})"
+    return f"""{header}.
 
 TOOLS (grouped)
 - Files/shell: read_file, read_document (PDF/CSV/JSON/HTML/XLSX/YAML/images), write_file, edit_file, list_dir, run_bash, search_code (ripgrep, skips node_modules/.git/build), glob_files, rank_files, git_*, read_project_graph, update_project_graph
