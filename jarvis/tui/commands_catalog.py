@@ -52,6 +52,9 @@ COMMANDS = [
     ("/mode", "show current mode"),
     ("/mode coding", "switch to coding mode"),
     ("/mode default", "switch back to default mode"),
+    # Scan
+    ("/scan me", "[one-time] AI-powered deep scan: identity, docs, projects → memory"),
+    ("/scan", "show /scan me usage (one-time LLM-driven system scan)"),
     # Control
     ("/think", "toggle extended thinking"),
     ("/verbose", "toggle internal tool trace (thinking UI needs /think)"),

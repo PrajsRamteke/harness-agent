@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from rich.text import Text
 
 from ..console import console, Panel, Markdown
-from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT, MAX_PARALLEL_TOOLS
+from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT, MAX_PARALLEL_TOOLS, CONTEXT_BUNDLE_MAX_CHARS
 from ..tools import FUNC
 from .. import state
 from .hallucination import _scrub_hallucinations
@@ -31,7 +31,12 @@ _SERIAL_TOOLS = {
     "click_at", "click_element", "click_menu", "key_press", "type_text",
     "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
     "clipboard_set", "mac_control", "speck",
+    # context — builds/shared state
+    "resolve_context", "read_bundle",
 }
+
+# Context tools get a much higher output limit since they bundle many files at once.
+_CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle"}
 
 def _run_tool(b):
     icon = TOOL_ICONS.get(b.name, "🔧")
@@ -169,7 +174,9 @@ def render_assistant(resp) -> bool:
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": b.id,
-                "content": out_str[:MAX_TOOL_OUTPUT],
+                # Context tools (resolve_context, read_bundle) return the FULL
+                # output — no truncation. Everything else gets the standard cap.
+                "content": out_str if b.name in _CONTEXT_TOOL_NAMES else out_str[:MAX_TOOL_OUTPUT],
             })
 
     if tool_results:

@@ -1,6 +1,39 @@
 """Tool JSON schemas for file/shell/git/internet tools."""
 
-CORE_TOOLS = [
+CONTEXT_TOOLS = [
+    {"name": "resolve_context", "description": (
+        "ONE-CALL codebase understanding: give it a task description and get ALL "
+        "related files at once (target + imports + importers + tests + types + configs). "
+        "Instead of making 5-20 separate read_file/search_code calls, call this ONCE "
+        "and receive a bundle with every file you need to plan and execute the change.\n\n"
+        "How to use:\n"
+        "  1. User gives a coding task\n"
+        "  2. Call resolve_context with the task (be specific about the feature/file)\n"
+        "  3. Read the bundle — it contains all files + their relationships\n"
+        "  4. Plan your edits using the bundle\n"
+        "  5. Call edit_file/write_file to make changes\n"
+        "  6. Verify with run_bash (tests/lint)\n\n"
+        "This replaces the old: explore → locate → read → plan loop with ONE call."
+    ),
+     "input_schema": {"type": "object", "properties": {
+        "task": {"type": "string", "description": (
+            "Natural-language description of the coding task. Be specific: "
+            "'Fix login bug in JWT token refresh' or 'Add user profile edit page'"
+        )},
+     }, "required": ["task"]}},
+    {"name": "read_bundle", "description": (
+        "Batch-read multiple files at once. Provide up to 20 file paths and get "
+        "all their contents in one result. Use this when you already know which "
+        "files you need (from a previous resolve_context call, from the user, or "
+        "from search_code results). Saves 10-20 separate read_file calls."
+    ),
+     "input_schema": {"type": "object", "properties": {
+        "paths": {"type": "array", "items": {"type": "string"},
+                  "description": "File paths relative to project root. Max 20."},
+     }, "required": ["paths"]}},
+]
+
+CORE_TOOLS = CONTEXT_TOOLS + [
     {"name":"read_file","description":(
         "Read a text file. Refuses node_modules/.venv/build/dist/caches, binary "
         "files (images, archives, compiled), files > 2MB, and outside-project "
