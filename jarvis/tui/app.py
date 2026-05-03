@@ -118,10 +118,9 @@ class JarvisTUI(App):
         height: 1fr;
         min-height: 0;
         min-width: 0;
-        overflow-y: scroll;
-        scrollbar-gutter: stable;
-        scrollbar-color: #21262d #0d1117;
-        scrollbar-size-vertical: 2;
+        overflow-y: auto;
+        scrollbar-color: transparent transparent;
+        scrollbar-size-vertical: 0;
     }
 
     /* ── Prompt input ───────────────────────────────────── */
@@ -163,7 +162,8 @@ class JarvisTUI(App):
         margin: 0 2 0 2;
         padding: 0 2;
         min-width: 0;
-        border-bottom: solid #21262d;
+        border-left: tall #30363d;
+        border-right: tall #30363d;
         display: none;
     }
     #activity_row.-visible {
@@ -173,13 +173,13 @@ class JarvisTUI(App):
         width: 1fr;
         min-width: 0;
         color: #c9d1d9;
-        padding: 1 0;
+        padding: 0 0;
     }
     #activity_clock {
         width: auto;
         min-width: 0;
         color: #8b949e;
-        padding: 1 0;
+        padding: 0 0;
     }
 
     /* ── Status bar ─────────────────────────────────────── */
@@ -192,6 +192,8 @@ class JarvisTUI(App):
         margin: 0 2 0 2;
         min-width: 0;
         border: tall #30363d;
+        scrollbar-size-vertical: 0;
+        scrollbar-color: transparent transparent;
     }
 
     /* ── Shared widget defaults ─────────────────────────── */
@@ -794,7 +796,7 @@ class JarvisTUI(App):
 
             right = []
             right.append(f"💬 [dim]{len(state.messages)}[/]")
-            right.append(f"⇅ [dim]{state.total_in + state.total_out}[/]")
+            right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
             if state.think_mode:
                 right.append("[#3fb950]think:on[/]")
             else:

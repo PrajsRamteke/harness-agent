@@ -30,8 +30,8 @@ TUI_MODAL_CHROME_CSS = """
     color: #e6edf3;
     border: none;
     overflow-y: auto;
-    scrollbar-size-vertical: 1;
-    scrollbar-color: #21262d #161b22;
+    scrollbar-size-vertical: 0;
+    scrollbar-color: transparent transparent;
 }
 .tui-modal-screen OptionList:focus > .option-list--option-highlighted,
 .tui-modal-screen OptionList > .option-list--option-highlighted {
