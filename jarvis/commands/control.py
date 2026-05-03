@@ -4,7 +4,7 @@ import os, time
 from ..console import console, Panel, Table
 from ..constants import (
     AVAILABLE_MODELS, KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE,
-    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDER_LABELS,
+    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDER_LABELS, LAST_THEME_FILE,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, models_for,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
     AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING,
@@ -389,5 +389,8 @@ def _handle_theme(arg: str) -> None:
 
     state.theme = target
     state.theme_colors = state.THEMES[target]
+    # Persist so it survives restarts
+    import json
+    LAST_THEME_FILE.write_text(json.dumps({"theme": target}))
     console.print(f"[green]✓ switched to [bold]{target}[/] theme[/]")
     header_panel(compact=True)

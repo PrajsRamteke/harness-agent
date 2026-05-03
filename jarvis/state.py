@@ -7,7 +7,7 @@ import json, os, time
 from typing import Dict, List, Optional
 
 from .constants import (
-    PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE,
+    PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE, LAST_THEME_FILE,
     PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING,
 )
 
@@ -101,3 +101,23 @@ THEMES = {
 }
 theme: str = "red"
 theme_colors: dict = THEMES["red"]
+
+
+def _reload_saved_theme() -> None:
+    """Restore theme from last session, falling back to default."""
+    global theme, theme_colors
+    if LAST_THEME_FILE.exists():
+        try:
+            data = json.loads(LAST_THEME_FILE.read_text())
+            t = data.get("theme", "")
+            if t in THEMES:
+                theme = t
+                theme_colors = dict(THEMES[t])
+                return
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+    theme = "red"
+    theme_colors = dict(THEMES["red"])
+
+
+_reload_saved_theme()
