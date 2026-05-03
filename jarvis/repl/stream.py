@@ -74,10 +74,9 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
             idle = time.monotonic() - last_progress[0]
             if idle >= 35:
                 report_turn_phase(
-                    f"Jarvis: still no text tokens ({int(idle)}s) — "
-                    "API queue/throttle (often on OpenRouter :free); Esc cancels"
+                    f"No text ({int(idle)}s) — API queue/throttle; Esc=cancel"
                 )
-
+           
     watcher = threading.Thread(target=_idle_watch, daemon=True)
     watcher.start()
     try:
@@ -104,7 +103,7 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
 
 
 def call_claude_stream():
-    report_turn_phase("Jarvis: choosing tools & building request…")
+    report_turn_phase("Jarvis: building request…")
     tools = select_tools(state.messages)
     if state.show_internal:
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
@@ -122,16 +121,16 @@ def call_claude_stream():
     panel_title = f"Jarvis [{assistant_model_label()}]"
     for attempt in range(len(delays) + 1):
         try:
-            report_turn_phase("Jarvis: waiting for model response…")
+            report_turn_phase("Jarvis: API waiting...")
             with state.client.messages.stream(**kwargs) as stream:
                 _current_stream = stream
                 try:
                     if state.stream_reply_live:
-                        report_turn_phase("Jarvis: streaming reply text…")
+                        report_turn_phase("Jarvis: API streaming...")
                         _consume_live_text_stream(stream, panel_title)
                     else:
                         report_turn_phase("Jarvis: buffering full reply (stream off)…")
-                    report_turn_phase("Jarvis: finalizing response…")
+                    report_turn_phase("Jarvis: finalizing...")
                     final = stream.get_final_message()
                 finally:
                     _current_stream = None

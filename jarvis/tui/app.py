@@ -913,4 +913,12 @@ def run():
     if state.client is None:
         state.client = make_client()
 
-    JarvisTUI().run(mouse=False)
+    from .mouse_toggle import reset_mouse_fully
+
+    app = JarvisTUI()
+    try:
+        app.run(mouse=False)
+    finally:
+        # Restore terminal mouse state even if the app crashes or is killed
+        # while a modal (which enables mouse tracking) was displayed.
+        reset_mouse_fully()
