@@ -56,6 +56,11 @@ stream_reply_live: bool = os.getenv("HARNESS_STREAM_REPLY", "1").strip().lower()
 # Set while the TUI live strip is active; cleared on commit/abort.
 _assistant_stream_ui_active: bool = False
 
+# project context file detection (AGENT.md / CLAUDE.md / JARVIS.md)
+project_context_file: str = ""      # filename found, e.g. "AGENT.md"
+project_context_path: str = ""      # full absolute path to the file
+project_context_content: str = ""   # cached file content, re-read each turn
+
 # user context
 pinned_context: str = PIN_FILE.read_text() if PIN_FILE.exists() else ""
 aliases: Dict[str, str] = (
@@ -73,6 +78,26 @@ active_mode: str = MODE_DEFAULT
 
 # Human-readable labels + accent colours per mode (for statusbar / badges)
 MODE_LABELS: dict = {
-    MODE_DEFAULT: ("DEFAULT", "#565f89", "dim"),
-    MODE_CODING:  ("⚡ CODING", "#00d7af", "bold"),
+    MODE_DEFAULT: ("DEFAULT", "#8b949e", "dim"),
+    MODE_CODING:  ("⚡ CODING", "#3fb950", "bold"),
 }
+
+# ── visual theme ────────────────────────────────────────────────────────────
+THEMES = {
+    "red": {
+        "user_border": "green",
+        "asst_border": "magenta",
+        "think_border": "dim",
+        "tool_border": "yellow",
+        "project_border": "cyan",
+    },
+    "purple": {
+        "user_border": "#3fb950",
+        "asst_border": "#bc8cff",
+        "think_border": "#8b949e",
+        "tool_border": "#d29922",
+        "project_border": "#58a6ff",
+    },
+}
+theme: str = "red"
+theme_colors: dict = THEMES["red"]

@@ -71,6 +71,17 @@ class TUIConsole:
             return
         self._flush_streaming_panel()
 
+    # ─── theme helpers (read current state) ──────────────────────────
+    @staticmethod
+    def _asst_border() -> str:
+        from .. import state as _s
+        return _s.theme_colors["asst_border"]
+
+    @staticmethod
+    def _think_border() -> str:
+        from .. import state as _s
+        return _s.theme_colors["think_border"]
+
     def _flush_streaming_panel(self) -> None:
         buf = self._as_buffer
         title = self._as_title
@@ -84,7 +95,7 @@ class TUIConsole:
                     Markdown(body),
                     title=title,
                     title_align="left",
-                    border_style="magenta",
+                    border_style=self._asst_border(),
                     padding=(0, 1),
                 ),
                 scroll_end=True,
@@ -116,7 +127,13 @@ class TUIConsole:
             if thinking_blocks and _state.show_internal:
                 for tb in thinking_blocks:
                     self._log.write(
-                        Panel(Text(tb), title="thinking", border_style="dim", padding=(0, 1)),
+                        Panel(
+                            Text(tb, style="dim"),
+                            title="thinking",
+                            title_align="left",
+                            border_style=self._think_border(),
+                            padding=(0, 1),
+                        ),
                         scroll_end=True,
                     )
             if re.search(r"\S", text):
@@ -125,7 +142,7 @@ class TUIConsole:
                         Markdown(text),
                         title=title,
                         title_align="left",
-                        border_style="magenta",
+                        border_style=self._asst_border(),
                         padding=(0, 1),
                     ),
                     scroll_end=True,

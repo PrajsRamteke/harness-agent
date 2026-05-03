@@ -15,12 +15,14 @@ WELCOME_ART = r"""
 
 
 def welcome_banner(compact: bool = False):
+    asst = state.theme_colors["asst_border"]
+    link = state.theme_colors["project_border"]
     if not compact:
-        console.print(f"[bold magenta]{WELCOME_ART}[/]")
+        console.print(f"[{asst}]{WELCOME_ART}[/]")
     console.print(Panel(
-        "[bold]Jarvis[/] — chat, code, and control your Mac.\n"
-        "[dim][cyan]/help[/] commands • [cyan]F2[/]/[cyan]/verbose[/] internals • [cyan]/exit[/] quit[/]",
-        border_style="magenta", padding=(0, 2),
+        f"[{asst}]Jarvis[/] — chat, code, and control your Mac.\n"
+        f"[dim][{link}]/help[/] commands · [{link}]F2[/]/[{link}]/verbose[/] internals · [{link}]/exit[/] quit[/]",
+        border_style=asst, padding=(0, 2),
     ))
 
 
@@ -37,27 +39,35 @@ def header_panel(compact: bool = False):
     import pathlib
     cwd = pathlib.Path.cwd()
     cwd_text = escape(str(cwd))
-    pinned_flag = "[yellow]pinned[/]" if state.pinned_context.strip() else "[dim]no pin[/]"
+    pinned_flag = "[#d29922]pinned[/]" if state.pinned_context.strip() else "[dim]no pin[/]"
+    asst = state.theme_colors["asst_border"]
+    hl = state.theme_colors["project_border"]
+    on_hl = f"[{hl}]on[/]"
+    verbose = f"[{hl}]verbose[/]"
+    auto_hl = f"[{hl}]auto[/]"
+    off = "[dim]off[/]"
+    quiet = "[dim]quiet[/]"
+    ask = "[dim]ask[/]"
     if compact:
         flags = "  ".join([
-            f"[bold magenta]{state.MODEL}[/]",
+            f"[{asst}]{state.MODEL}[/]",
             f"mode:{_mode_flag()}",
-            f"think:{'[green]on[/]' if state.think_mode else '[dim]off[/]'}",
-            f"tools:{'[green]verbose[/]' if state.show_internal else '[dim]quiet[/]'}",
-            f"project:[dim]{cwd_text}[/]",
+            f"think:{on_hl if state.think_mode else off}",
+            f"tools:{verbose if state.show_internal else quiet}",
+            f"[dim]{cwd_text}[/]",
         ])
         console.print(f"[dim]{flags}[/]")
         return
     flags = " • ".join([
-        f"[bold magenta]{state.MODEL}[/]",
+        f"[{asst}]{state.MODEL}[/]",
         f"mode {_mode_flag()}",
-        f"think {'[green]on[/]' if state.think_mode else '[dim]off[/]'}",
-        f"bash {'[green]auto[/]' if state.auto_approve else '[dim]ask[/]'}",
-        f"tools {'[green]verbose[/]' if state.show_internal else '[dim]quiet[/]'}",
+        f"think {on_hl if state.think_mode else off}",
+        f"bash {auto_hl if state.auto_approve else ask}",
+        f"tools {verbose if state.show_internal else quiet}",
         f"pin {pinned_flag}",
         f"msgs {len(state.messages)}",
-        f"project [dim]{cwd_text}[/]",
+        f"[dim]{cwd_text}[/]",
         f"provider [dim]{state.provider}[/]",
         f"auth [dim]{state.auth_mode if state.provider == 'anthropic' else 'api_key'}[/]",
     ])
-    console.print(Panel(flags, border_style="green", padding=(0, 1)))
+    console.print(Panel(flags, border_style=hl, padding=(0, 1)))

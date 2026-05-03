@@ -23,9 +23,9 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         + """
     ModelPickerScreen #modal {
         width: 80%;
-        max-width: 110;
+        max-width: 120;
         max-height: 80%;
-        padding: 1 2;
+        padding: 2 3;
     }
     ModelPickerScreen OptionList {
         height: 22;

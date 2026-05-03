@@ -26,6 +26,7 @@ _cached_mem_key: str = ""
 _cached_sk_key: str = ""
 _cached_pinned: str = ""
 _cached_cwd_branch: str = ""
+_cached_ctx_key: str = ""
 
 
 def _get_git_branch(cwd: str) -> str | None:
@@ -64,7 +65,7 @@ def _is_coding_request(messages: list) -> bool:
 
 def _build_static_body() -> str:
     """Everything except the date/time line and coding addon. Cached between turns."""
-    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_pinned, _cached_cwd_branch
+    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
 
     mem_block = as_prompt_block()
     sk_block = skills_prompt_block()
@@ -79,6 +80,7 @@ def _build_static_body() -> str:
             and sk_block == _cached_sk_key
             and pinned == _cached_pinned
             and cwd_branch_key == _cached_cwd_branch
+            and state.project_context_content == _cached_ctx_key
             and _cached_body):
         return _cached_body
 
@@ -100,11 +102,22 @@ def _build_static_body() -> str:
         "- Can propose edits to own codebase for repetitive tasks — show diff, get OK first."
     )
 
+    # ── Project context file ─────────────────────────────────────────
+    if state.project_context_content and state.project_context_file:
+        body += (
+            "\n\nPROJECT CONTEXT (" + state.project_context_file + "):\n"
+            "The project folder contains a " + state.project_context_file
+            + " file with project-specific instructions. "
+            "Use it for context on every task.\n\n"
+            + state.project_context_content
+        )
+
     _cached_body = body
     _cached_mem_key = mem_block
     _cached_sk_key = sk_block
     _cached_pinned = pinned
     _cached_cwd_branch = cwd_branch_key
+    _cached_ctx_key = state.project_context_content
     return body
 
 

@@ -52,6 +52,10 @@ COMMANDS = [
     ("/mode", "show current mode"),
     ("/mode coding", "switch to coding mode"),
     ("/mode default", "switch back to default mode"),
+    # Theme
+    ("/theme", "show current visual theme"),
+    ("/theme red", "switch to red (original green+magenta) theme"),
+    ("/theme purple", "switch to purple (soft) theme"),
     # Scan
     ("/scan me", "[one-time] AI-powered deep scan: identity, docs, projects → memory"),
     ("/scan", "show /scan me usage (one-time LLM-driven system scan)"),

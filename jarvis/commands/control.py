@@ -78,6 +78,9 @@ def handle_control(c: str, arg: str):
     if c == "/model":
         _handle_model(arg)
         return True, None
+    if c == "/theme":
+        _handle_theme(arg)
+        return True, None
     if c == "/key" and arg == "reset":
         KEY_FILE.unlink(missing_ok=True)
         console.print("[green]key deleted — restart the agent[/]")
@@ -356,4 +359,35 @@ def _handle_mode(arg: str) -> None:
     state.active_mode = target
     lbl, col, _s = state.MODE_LABELS.get(target, (target, "#ffffff", ""))
     console.print(f"[{col}]✓ mode switched to {lbl}[/]")
+    header_panel(compact=True)
+
+
+def _handle_theme(arg: str) -> None:
+    """/theme [red|purple] — switch visual theme."""
+    target = arg.strip().lower()
+    valid = list(state.THEMES.keys())
+    if not target:
+        cur = state.theme
+        lines = [
+            f"current theme: [bold]{cur}[/]\n",
+            "available themes:",
+        ]
+        for t in valid:
+            marker = " ← active" if t == cur else ""
+            lines.append(f"  [cyan]{t}[/]{marker}")
+        lines.append("\nusage: [dim]/theme red[/]  or  [dim]/theme purple[/]")
+        console.print(Panel("\n".join(lines), title="🎨 theme", border_style="cyan"))
+        return
+
+    if target not in valid:
+        console.print(f"[red]unknown theme: {target}[/]  valid: {', '.join(valid)}")
+        return
+
+    if target == state.theme:
+        console.print(f"[dim]already on {target} theme[/]")
+        return
+
+    state.theme = target
+    state.theme_colors = state.THEMES[target]
+    console.print(f"[green]✓ switched to [bold]{target}[/] theme[/]")
     header_panel(compact=True)

@@ -23,20 +23,11 @@ class TextInputScreen(TuiModalScreen[str | None]):
     TextInputScreen #modal {
         width: 80%;
         max-width: 120;
-        padding: 1 2;
+        padding: 2 3;
     }
     TextInputScreen #modal_body {
-        color: #c0caf5;
+        color: #c9d1d9;
         margin-bottom: 1;
-    }
-    TextInputScreen Input {
-        background: #0f1216;
-        color: #e6e6e6;
-        border: tall #2b3340;
-        margin-top: 1;
-    }
-    TextInputScreen Input:focus {
-        border: tall #7aa2f7;
     }
     """
     )
