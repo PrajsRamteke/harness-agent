@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/jarvis-logo.png" alt="Jarvis" width="120"/>
+  <img src="assets/jarvis-logo.png" alt="Jarvis" width="220"/>
   <h1>Harness — Jarvis Terminal Agent</h1>
   <p>
     <strong>AI coding agent for your terminal.</strong><br/>
