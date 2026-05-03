@@ -38,7 +38,7 @@ SPECK (text-to-speech)
 
 PARALLEL CALLS
 - Batch all independent tool calls in one turn. Default: fire X+Y+Z together, not sequentially.
-- Batch: multi-file reads, search_code patterns, URLs, git_status+diff+log, skill_search+memory_list.
+- Batch: multi-file reads, search_code patterns, URLs, git_status+diff+log, lesson_search+memory_list.
 - Images: list_dir/glob_files to narrow, then read_images_text (bulk) not 50× read_image_text.
 - rank_files first when target files are unknown.
 - Serial only: run_bash, edit_file, write_file, click_*, key_press, type_text, applescript, mac_control, speck.

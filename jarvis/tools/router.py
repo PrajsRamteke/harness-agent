@@ -20,7 +20,7 @@ OCR_RE = re.compile(
     re.I,
 )
 MEMORY_RE = re.compile(r"\b(remember|memory|forget|my name|preference|about me)\b", re.I)
-SKILL_RE = re.compile(r"\b(skill|lesson|learned|remember how|same task)\b", re.I)
+LESSON_RE = re.compile(r"\b(lesson|skill|learned|remember how|same task)\b", re.I)
 
 
 def _block_to_text(block) -> str:
@@ -99,8 +99,8 @@ def select_tools(messages: list[dict]) -> list[dict]:
         groups.append("ocr")
     if MEMORY_RE.search(text) or "memory" in active:
         groups.append("memory")
-    if SKILL_RE.search(text) or "skills" in active:
-        groups.append("skills")
+    if LESSON_RE.search(text) or "lessons" in active:
+        groups.append("lessons")
 
     # MCP group — always include when there are connected MCP tools
     mcp_tools = TOOL_GROUPS.get("mcp", [])

@@ -1,34 +1,34 @@
-"""Skill-memory tools exposed to the model.
+"""Lesson-memory tools exposed to the model.
 
 Purpose: let the agent save lessons learned while solving a task, and recall
 them quickly on similar future tasks — so repeat work costs fewer tokens and
 tool calls.
 """
-from ..storage import skills as sk
+from ..storage import lessons as ls
 
 
-def skill_save(task: str, lesson: str, tags: list | None = None) -> str:
-    s = sk.add_skill(task, lesson, tags or [])
+def lesson_save(task: str, lesson: str, tags: list | None = None) -> str:
+    s = ls.add_lesson(task, lesson, tags or [])
     tag_str = f" [{', '.join(s['tags'])}]" if s.get("tags") else ""
-    return f"saved skill #{s['id']}{tag_str}: {s['task']} → {s['lesson']}"
+    return f"saved lesson #{s['id']}{tag_str}: {s['task']} → {s['lesson']}"
 
 
-def skill_search(query: str, limit: int = 5) -> str:
-    hits = sk.search(query, limit=int(limit) if limit else 5)
+def lesson_search(query: str, limit: int = 5) -> str:
+    hits = ls.search(query, limit=int(limit) if limit else 5)
     if not hits:
-        return "(no matching skills)"
+        return "(no matching lessons)"
     for h in hits:
-        sk.bump_hits(h["id"])
+        ls.bump_hits(h["id"])
     return "\n".join(
         f"#{h['id']} [{', '.join(h.get('tags', []))}] {h['task']} → {h['lesson']}"
         for h in hits
     )
 
 
-def skill_list() -> str:
-    rows = sk.list_skills()
+def lesson_list() -> str:
+    rows = ls.list_lessons()
     if not rows:
-        return "(no skills saved)"
+        return "(no lessons saved)"
     return "\n".join(
         f"#{r['id']} hits={r.get('hits',0)} [{', '.join(r.get('tags', []))}] "
         f"{r['task']} → {r['lesson']}"
@@ -36,14 +36,14 @@ def skill_list() -> str:
     )
 
 
-def skill_delete(id: int) -> str:
-    ok = sk.delete_skill(int(id))
-    return f"deleted skill #{id}" if ok else f"no skill #{id}"
+def lesson_delete(id: int) -> str:
+    ok = ls.delete_lesson(int(id))
+    return f"deleted lesson #{id}" if ok else f"no lesson #{id}"
 
 
-SKILL_TOOLS = [
+LESSON_TOOLS = [
     {
-        "name": "skill_save",
+        "name": "lesson_save",
         "description": (
             "Save a durable LESSON you learned solving the current task, so future "
             "similar tasks cost less. Use when: you discovered a non-obvious "
@@ -68,9 +68,9 @@ SKILL_TOOLS = [
         },
     },
     {
-        "name": "skill_search",
+        "name": "lesson_search",
         "description": (
-            "Search your saved skills for lessons relevant to the current task "
+            "Search your saved lessons for lessons relevant to the current task "
             "BEFORE diving in. Call this at the start of any non-trivial task to "
             "see if you've solved something similar before."
         ),
@@ -84,13 +84,13 @@ SKILL_TOOLS = [
         },
     },
     {
-        "name": "skill_list",
-        "description": "List every saved skill with hit counts. Rarely needed — prefer skill_search.",
+        "name": "lesson_list",
+        "description": "List every saved lesson with hit counts. Rarely needed — prefer lesson_search.",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
-        "name": "skill_delete",
-        "description": "Delete a saved skill by id (e.g. when it's wrong or outdated).",
+        "name": "lesson_delete",
+        "description": "Delete a saved lesson by id (e.g. when it's wrong or outdated).",
         "input_schema": {
             "type": "object",
             "properties": {"id": {"type": "integer"}},

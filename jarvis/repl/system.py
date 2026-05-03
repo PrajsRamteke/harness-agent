@@ -17,7 +17,7 @@ from ..constants import (
 )
 from ..constants.system_prompt import build_base_system
 from ..storage.memory import as_prompt_block
-from ..storage.skills import as_prompt_block as skills_prompt_block
+from ..storage.lessons import as_prompt_block as lessons_prompt_block
 from .. import state
 
 # ── cache state ────────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ def _build_static_body() -> str:
     global _cached_body, _cached_mem_key, _cached_sk_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
 
     mem_block = as_prompt_block()
-    sk_block = skills_prompt_block()
+    sk_block = lessons_prompt_block()
     pinned = state.pinned_context.strip()
     from pathlib import Path
     cwd = str(Path.cwd())
@@ -96,9 +96,9 @@ def _build_static_body() -> str:
     if sk_block:
         body += "\n\n" + sk_block
     body += (
-        "\n\nSKILLS: skill_search/skill_save/skill_list/skill_delete.\n"
-        "- START of non-trivial task → skill_search for past lessons.\n"
-        "- END of task → skill_save if you learned something non-obvious (pattern+lesson+tags).\n"
+        "\n\nLESSONS: lesson_search/lesson_save/lesson_list/lesson_delete.\n"
+        "- START of non-trivial task → lesson_search for past lessons.\n"
+        "- END of task → lesson_save if you learned something non-obvious (pattern+lesson+tags).\n"
         "- Can propose edits to own codebase for repetitive tasks — show diff, get OK first."
     )
 

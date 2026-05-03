@@ -93,14 +93,14 @@ def describe_tool_activity(name: str, raw_input) -> str:
         return "Listing saved memory"
     if name == "memory_delete":
         return f"Deleting memory #{d.get('id', '')}"
-    if name == "skill_save":
-        return f"Saving skill: {c(d.get('task', ''))}"
-    if name == "skill_search":
-        return f"Searching skills: {c(d.get('query', ''))}"
-    if name == "skill_list":
-        return "Listing skills"
-    if name == "skill_delete":
-        return f"Deleting skill #{d.get('id', '')}"
+    if name == "lesson_save":
+        return f"Saving lesson: {c(d.get('task', ''))}"
+    if name == "lesson_search":
+        return f"Searching lessons: {c(d.get('query', ''))}"
+    if name == "lesson_list":
+        return "Listing lessons"
+    if name == "lesson_delete":
+        return f"Deleting lesson #{d.get('id', '')}"
     if name == "launch_app":
         return f"Launch app: {c(d.get('name', ''))}"
     if name == "focus_app":

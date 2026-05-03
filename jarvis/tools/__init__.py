@@ -16,21 +16,21 @@ from .mac import (
 from .web import web_search, fetch_url, verified_search
 from .ocr import read_image_text, read_images_text
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
-from .skills import skill_save, skill_search, skill_list, skill_delete, SKILL_TOOLS
+from .lessons import lesson_save, lesson_search, lesson_list, lesson_delete, LESSON_TOOLS
 from .schemas_core import CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
 # MCP group starts empty — populated dynamically by the MCP registry
 # when servers connect. Import is deferred to avoid circular imports.
 MCP_TOOLS: list[dict] = []
-TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + SKILL_TOOLS + OCR_TOOLS + MCP_TOOLS
+TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + LESSON_TOOLS + OCR_TOOLS + MCP_TOOLS
 TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
     "context": CONTEXT_TOOLS,
     "mac": MAC_TOOLS,
     "internet": INTERNET_TOOLS,
     "memory": MEMORY_TOOLS,
-    "skills": SKILL_TOOLS,
+    "lessons": LESSON_TOOLS,
     "ocr": OCR_TOOLS,
     "mcp": MCP_TOOLS,
 }
@@ -68,8 +68,8 @@ FUNC = {
     "memory_save": memory_save, "memory_list": memory_list,
     "memory_delete": memory_delete,
     # skills (agent self-learning)
-    "skill_save": skill_save, "skill_search": skill_search,
-    "skill_list": skill_list, "skill_delete": skill_delete,
+    "lesson_save": lesson_save, "lesson_search": lesson_search,
+    "lesson_list": lesson_list, "lesson_delete": lesson_delete,
     # ocr
     "read_image_text": read_image_text,
     "read_images_text": read_images_text,
