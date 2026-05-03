@@ -102,4 +102,12 @@ def select_tools(messages: list[dict]) -> list[dict]:
     if SKILL_RE.search(text) or "skills" in active:
         groups.append("skills")
 
+    # MCP group — always include when there are connected MCP tools
+    mcp_tools = TOOL_GROUPS.get("mcp", [])
+    if mcp_tools:
+        groups.append("mcp")
+        # Also consider MCP group active if there was a recent MCP tool_use
+        if "mcp" in active:
+            pass  # already in the list
+
     return _dedupe_tools(groups)

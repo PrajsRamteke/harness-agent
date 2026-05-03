@@ -5,6 +5,7 @@ from .dirs import list_dir, glob_files, rank_files, fast_find
 from .shell import run_bash
 from .search import search_code
 from .git import git_status, git_diff, git_log
+from .context import resolve_context, read_bundle
 from .mac import (
     applescript, launch_app, focus_app, quit_app, list_apps, frontmost_app,
     read_ui, click_element, wait, check_permissions,
@@ -16,19 +17,24 @@ from .web import web_search, fetch_url, verified_search
 from .ocr import read_image_text, read_images_text
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .skills import skill_save, skill_search, skill_list, skill_delete, SKILL_TOOLS
-from .schemas_core import CORE_TOOLS, INTERNET_TOOLS, OCR_TOOLS
+from .schemas_core import CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
-TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + SKILL_TOOLS + OCR_TOOLS
-TOOL_GROUPS = {
+# MCP group starts empty — populated dynamically by the MCP registry
+# when servers connect. Import is deferred to avoid circular imports.
+MCP_TOOLS: list[dict] = []
+TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + SKILL_TOOLS + OCR_TOOLS + MCP_TOOLS
+TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
+    "context": CONTEXT_TOOLS,
     "mac": MAC_TOOLS,
     "internet": INTERNET_TOOLS,
     "memory": MEMORY_TOOLS,
     "skills": SKILL_TOOLS,
     "ocr": OCR_TOOLS,
+    "mcp": MCP_TOOLS,
 }
-TOOL_NAME_TO_GROUP = {
+TOOL_NAME_TO_GROUP: dict[str, str] = {
     tool["name"]: group
     for group, tools in TOOL_GROUPS.items()
     for tool in tools
@@ -41,6 +47,9 @@ FUNC = {
     "fast_find": fast_find,
     "git_status": git_status, "git_diff": git_diff,
     "git_log": git_log,
+    # context (connected context pack — replaces 5-20 reads with 1 call)
+    "resolve_context": resolve_context,
+    "read_bundle": read_bundle,
     # mac
     "launch_app": launch_app, "focus_app": focus_app, "quit_app": quit_app,
     "list_apps": list_apps, "frontmost_app": frontmost_app,
@@ -65,3 +74,20 @@ FUNC = {
     "read_image_text": read_image_text,
     "read_images_text": read_images_text,
 }
+
+# ── MCP registry integration ─────────────────────────────────────────────
+# Wire the MCP registry into Jarvis's tool dictionaries so connected MCP
+# servers dynamically add/remove their tools.
+from ..mcp.registry import mcp_registry as _mcp_registry
+
+_mcp_registry.init_jarvis(
+    func_dict=FUNC,
+    tool_groups=TOOL_GROUPS,
+    tools_list=TOOLS,
+    tool_name_to_group=TOOL_NAME_TO_GROUP,
+)
+
+# Re-export for convenience
+from ..mcp.registry import mcp_registry
+from ..mcp.config import get_config, MCPConfig
+from ..mcp import handle_mcp_command

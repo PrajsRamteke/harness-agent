@@ -63,6 +63,15 @@ def cmd_help():
             ("/coding", "toggle coding mode ON/OFF (adds large-codebase rules)"),
             ("/mode", "show current mode / switch mode (e.g. /mode coding)"),
         ]),
+        ("MCP (Model Context Protocol)", [
+            ("/mcp", "manage MCP servers: list, add, connect, disconnect, reload"),
+            ("/mcp list", "show configured & connected servers"),
+            ("/mcp add <name> --command <cmd>", "add a stdio MCP server"),
+            ("/mcp add <name> --url <url>", "add an SSE MCP server"),
+            ("/mcp connect <name>", "connect a configured server"),
+            ("/mcp disconnect <name>", "disconnect a server"),
+            ("/mcp remove <name>", "remove a server config"),
+        ]),
         ("Control", [
             ("/think", "toggle extended thinking"),
             ("/verbose", "toggle internal tool trace (thinking panels only with /think on)"),

@@ -32,6 +32,10 @@ def main():
     db_init()
     state.current_session_id = db_create_session(state.MODEL)
 
+    # Auto-connect MCP servers from config
+    from .mcp.registry import auto_connect_servers
+    auto_connect_servers(console_print=console.print)
+
     while True:
         try:
             now_str = datetime.now().strftime("%H:%M")

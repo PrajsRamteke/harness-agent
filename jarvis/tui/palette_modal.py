@@ -21,18 +21,13 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
         TUI_MODAL_CHROME_CSS
         + """
     CommandPaletteScreen #modal {
-        width: 70%;
-        max-width: 90;
+        width: 75%;
+        max-width: 100;
         max-height: 70%;
-        padding: 1 1;
+        padding: 2 2;
     }
     CommandPaletteScreen #modal_title {
         padding: 0 1 1 1;
-    }
-    CommandPaletteScreen Input {
-        background: #0f1216;
-        color: #e6e6e6;
-        border: tall #2b3340;
     }
     CommandPaletteScreen OptionList {
         height: 18;

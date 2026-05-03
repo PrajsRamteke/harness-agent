@@ -18,23 +18,23 @@ class ShellApprovalScreen(ModalScreen[str]):
     DEFAULT_CSS = """
     ShellApprovalScreen {
         align: center middle;
-        background: rgba(0, 0, 0, 0.55);
+        background: rgba(0, 0, 0, 0.60);
     }
     ShellApprovalScreen > #sh_modal {
         width: 90%;
-        max-width: 100;
+        max-width: 110;
         height: auto;
-        background: #12151a;
-        border: tall #f5a623;
-        padding: 1 1;
+        background: #161b22;
+        border: tall #d29922;
+        padding: 2 2;
     }
     ShellApprovalScreen #sh_title {
-        color: #f5a623;
+        color: #d29922;
         text-style: bold;
         padding: 0 1 1 1;
     }
     ShellApprovalScreen #sh_hint {
-        color: #7aa2f7;
+        color: #8b949e;
         padding-top: 1;
     }
     """

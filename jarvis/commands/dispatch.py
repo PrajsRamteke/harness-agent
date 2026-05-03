@@ -14,6 +14,7 @@ from .history import handle_history
 from .control import handle_control
 from .memory import handle_memory
 from .skill import handle_skill
+from .scan import handle_scan
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/retry", "/paste", "/multi"}
@@ -31,12 +32,25 @@ def handle_slash(inp: str):
     if c in ("/session", "/sessions"):
         cmd_session(arg); return ("ok", False, inp)
 
+    if c == "/mcp":
+        from ..mcp.manager import handle_mcp_command
+        result = handle_mcp_command(arg)
+        if result:
+            console.print(result)
+        return ("ok", False, inp)
+
     handled, _ = handle_memory(c, arg)
     if handled:
         return ("ok", False, inp)
 
     handled, _ = handle_skill(c, arg)
     if handled:
+        return ("ok", False, inp)
+
+    handled, scan_inp = handle_scan(c, arg)
+    if handled:
+        if scan_inp:
+            return ("ok", True, scan_inp)
         return ("ok", False, inp)
 
     # grouped handlers

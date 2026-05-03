@@ -2,7 +2,9 @@
 TOOL_ICONS = {
     "read_file": "📄", "read_document": "📑", "write_file": "✍️ ", "edit_file": "✏️ ",
     "list_dir": "📁", "run_bash": "⚡", "search_code": "🔎",
-    "glob_files": "🔭", "rank_files": "🎯", "git_status": "🌿", "git_diff": "🌿",
+    "glob_files": "🔭", "rank_files": "🎯",
+    "resolve_context": "🎯", "read_bundle": "📚",
+    "git_status": "🌿", "git_diff": "🌿",
     "git_log": "🌿",
     "launch_app": "🚀", "focus_app": "🎯", "quit_app": "💤",
     "list_apps": "📋", "frontmost_app": "👁️ ", "applescript": "🍎",

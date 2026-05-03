@@ -45,7 +45,12 @@ def export_markdown(path: str) -> str:
                     body = bd.get("content", "")
                     if isinstance(body, list):
                         body = "".join(x.get("text", "") for x in body if isinstance(x, dict))
-                    lines.append(f"```\n{str(body)[:2000]}\n```")
+                    # Show context pack results in full; cap other tool results at 2000.
+                    body_str = str(body)
+                    if body_str.startswith("=== Connected Context Pack ==="):
+                        lines.append(f"```\n{body_str}\n```")
+                    else:
+                        lines.append(f"```\n{body_str[:2000]}\n```")
         lines.append("")
     pathlib.Path(path).write_text("\n".join(lines))
     return path

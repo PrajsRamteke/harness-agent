@@ -23,10 +23,10 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         TUI_MODAL_CHROME_CSS
         + """
     SessionPickerScreen #modal {
-        width: 80%;
-        max-width: 110;
+        width: 85%;
+        max-width: 120;
         max-height: 80%;
-        padding: 1 2;
+        padding: 2 3;
     }
     SessionPickerScreen OptionList {
         height: 20;

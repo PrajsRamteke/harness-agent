@@ -23,7 +23,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.message import Message
-from textual.widgets import Header, RichLog, Static, TextArea
+from textual.widgets import RichLog, Static, TextArea
 from textual import work
 
 from rich.markdown import Markdown
@@ -34,6 +34,7 @@ from .console_shim import TUIConsole
 from .session_modal import SessionPickerScreen, resume_session_into_state
 from .palette_modal import CommandPaletteScreen
 from .model_modal import ModelPickerScreen
+from .. import state
 
 
 def _is_bare_model_command(text: str) -> bool:
@@ -97,8 +98,9 @@ def _swap_console_everywhere(tui_console):
 class JarvisTUI(App):
     ENABLE_COMMAND_PALETTE = False
     CSS = """
+    /* ── GitHub Dark-inspired theme ────────────────────────── */
     Screen {
-        background: #0b0d10;
+        background: #0d1117;
         layers: base overlay;
     }
     #main {
@@ -106,65 +108,74 @@ class JarvisTUI(App):
         width: 100%;
         min-width: 0;
     }
+
+    /* ── Transcript ─────────────────────────────────────── */
     #transcript {
-        background: #0b0d10;
-        color: #e6e6e6;
+        background: #0d1117;
+        color: #e6edf3;
         padding: 0 1;
         border: none;
         height: 1fr;
         min-height: 0;
         min-width: 0;
-        overflow-y: scroll;
-        scrollbar-gutter: stable;
-        scrollbar-color: #2b3340;
-        scrollbar-background: #0b0d10;
+        overflow-y: auto;
+        scrollbar-color: transparent transparent;
+        scrollbar-size-vertical: 0;
+    }
+
+    /* ── Prompt input ───────────────────────────────────── */
+    #prompt_row {
+        height: auto;
+        margin: 0 1 1 1;
+        background: #161b22;
+        border: tall #30363d;
+        min-width: 0;
+    }
+    #prompt_row:focus-within {
+        border: tall #58a6ff;
+    }
+    #prompt_prefix {
+        width: auto;
+        padding: 0 0 0 1;
+        color: #58a6ff;
+        text-style: bold;
+        dock: left;
+        background: #161b22;
     }
     #prompt {
         height: auto;
-        min-height: 3;
+        min-height: 1;
         max-height: 12;
-        margin: 0 1 1 1;
-        background: #0f1216;
-        border: tall #2b3340;
-        padding: 0 1;
+        background: #161b22;
+        border: none;
+        padding: 0 2 0 1;
         min-width: 0;
     }
-    #activity_row {
-        height: auto;
-        background: #141820;
-        margin: 0 1 0 1;
-        padding: 0 1;
-        min-width: 0;
+    #prompt:focus {
+        border: none;
     }
-    #activity_phase {
-        width: 1fr;
-        min-width: 0;
-        color: #c0caf5;
-    }
-    #activity_clock {
-        width: auto;
-        min-width: 0;
-        color: #565f89;
-    }
+
+    /* ── Status bar (also shows spinner + timing when busy) ─── */
     #statusbar {
         height: auto;
         max-height: 6;
-        background: #12151a;
-        color: #7aa2f7;
+        background: #161b22;
+        color: #8b949e;
         padding: 0 1;
         margin: 0 1 0 1;
         min-width: 0;
+        border: tall #30363d;
+        scrollbar-size-vertical: 0;
+        scrollbar-color: transparent transparent;
     }
+
+    /* ── Shared widget defaults ─────────────────────────── */
     Input, TextArea {
-        background: #0f1216;
-        color: #e6e6e6;
+        background: #161b22;
+        color: #e6edf3;
     }
     TextArea > .text-area--cursor-line {
-        background: #0f1216;
-    }
-    Header {
-        background: #12151a;
-        color: #bb9af7;
+        background: #161b22;
     }
     """
 
@@ -222,11 +233,10 @@ class JarvisTUI(App):
     def compose(self) -> ComposeResult:
         with Vertical(id="main"):
             yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
-            with Horizontal(id="activity_row"):
-                yield Static("", id="activity_phase", markup=True)
-                yield Static("", id="activity_clock", markup=True)
             yield RichLog(id="statusbar", wrap=True, highlight=True, markup=True, auto_scroll=False, max_lines=6)
-            yield PromptArea(id="prompt")
+            with Horizontal(id="prompt_row"):
+                yield Static("❯", id="prompt_prefix", markup=False)
+                yield PromptArea(id="prompt")
 
     # ─── lifecycle ─────────────────────────────────────────────────────
     def on_mount(self):
@@ -260,6 +270,40 @@ class JarvisTUI(App):
         self._set_status("ready")
         self._sync_activity_phase("")
 
+        # Auto-connect MCP servers from config
+        from ..mcp.registry import auto_connect_servers
+        auto_connect_servers(console_print=self._tui_console.print)
+
+        # ── Detect project context file (AGENT.md / CLAUDE.md / JARVIS.md) ──
+        import pathlib as _pl
+        _proj_cwd = _pl.Path.cwd()
+        for _fname in ("AGENT.md", "CLAUDE.md", "JARVIS.md"):
+            _fp = _proj_cwd / _fname
+            if _fp.is_file():
+                state.project_context_file = _fname
+                state.project_context_path = str(_fp)
+                try:
+                    state.project_context_content = _fp.read_text(errors="ignore")
+                except Exception:
+                    state.project_context_content = ""
+                break
+
+        if state.project_context_file:
+            log.write(
+                Panel(
+                    Text.from_markup(
+                        f"📄 [bold #58a6ff]{state.project_context_file}[/] found — "
+                        f"[#58a6ff]loaded for project context[/] "
+                        f"[dim]({len(state.project_context_content)} chars)[/]",
+                    ),
+                    title="Project Context",
+                    title_align="left",
+                    border_style=state.theme_colors["project_border"],
+                    padding=(0, 1),
+                )
+            )
+            self._set_status("ready")
+
         self.query_one("#prompt", PromptArea).focus()
 
     def _sync_activity_phase(self, label: str) -> None:
@@ -274,33 +318,56 @@ class JarvisTUI(App):
             self._refresh_activity_widgets()
 
     def _refresh_activity_widgets(self) -> None:
+        """Prepend spinner + phase to status bar, append turn timing."""
         from datetime import datetime
 
-        try:
-            ph = self.query_one("#activity_phase", Static)
-            clk = self.query_one("#activity_clock", Static)
-        except Exception:
-            return
         label = self._activity_label
-        if not label and not self._busy:
-            ph.update("")
-            clk.update("")
+        if not label or not self._busy:
             return
+
         frames = self._spinner_frames
         i = self._activity_spinner_i % len(frames)
-        sp = frames[i] if (self._busy and label) else " "
+        sp = frames[i]
         step_elapsed = max(0.0, time.monotonic() - self._activity_t0)
-        wall = datetime.now().strftime("%H:%M:%S")
-        ph.update(
-            f"[cyan]{sp}[/] [b]{label}[/] [dim]· this step {step_elapsed:.1f}s[/]"
-        )
-        if self._busy and self._turn_t0:
-            turn_elapsed = max(0.0, time.monotonic() - self._turn_t0)
-            clk.update(
-                f"[dim]{wall}  · turn {turn_elapsed:.1f}s  · step {step_elapsed:.1f}s[/]"
+        turn_elapsed = max(0.0, time.monotonic() - self._turn_t0) if self._turn_t0 else 0.0
+
+        spinner_prefix = f"[#58a6ff]{sp}[/] [b]{label}[/] [dim]{step_elapsed:.1f}s[/]"
+        clock_suffix = f"[dim][{turn_elapsed:.0f}s][/]"
+
+        try:
+            # Build the same status bar info as _set_status
+            from .. import state
+            trace = "shown" if state.show_internal else "hidden"
+            lbl, col, _s = state.MODE_LABELS.get(
+                state.active_mode, (state.active_mode, "#8b949e", "dim")
             )
-        else:
-            clk.update(f"[dim]{wall}  · step {step_elapsed:.1f}s[/]")
+            mode_part = (
+                f"[bold {col}]{lbl}[/]"
+                if state.active_mode != "default"
+                else f"[dim {col}]{lbl}[/]"
+            )
+            left = [f"{mode_part}", f"[#58a6ff]{state.MODEL}[/]"]
+            if state.current_session_id is not None:
+                left.append(f"[dim]#{state.current_session_id}[/]")
+
+            right = []
+            right.append(f"💬 [dim]{len(state.messages)}[/]")
+            right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
+            if state.think_mode:
+                right.append("[#3fb950]think:on[/]")
+            else:
+                right.append("[dim]think:off[/]")
+            if state.project_context_file:
+                right.append(f"[#bc8cff]{state.project_context_file}[/]")
+            right.append(f"[dim]int:{trace}[/]")
+
+            bar = self.query_one("#statusbar", RichLog)
+            bar.clear()
+            # prepend spinner · status info · clock
+            parts = [spinner_prefix] + left + [""] + right + [clock_suffix]
+            bar.write(Text.from_markup("  ·  ".join(parts)))
+        except Exception:
+            pass
 
     def _start_activity_pulse(self) -> None:
         self._stop_activity_pulse()
@@ -313,9 +380,7 @@ class JarvisTUI(App):
 
     # ─── palette (centered modal) ──────────────────────────────────────
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        """Open palette only when '/' is TYPED into an empty prompt — not when
-        arriving at '/' by deleting the rest of a previously-selected command.
-        """
+        """Open palette instantly when '/' is typed in an empty prompt."""
         if event.text_area.id != "prompt":
             return
         val = event.text_area.text or ""
@@ -397,13 +462,13 @@ class JarvisTUI(App):
                     Text(text),
                     title="you",
                     title_align="left",
-                    border_style="green",
+                    border_style=state.theme_colors["user_border"],
                     padding=(0, 1),
                 )
             )
             self._busy = True
             self._turn_t0 = time.monotonic()
-            self._sync_activity_phase("Starting your request…")
+            self._sync_activity_phase("Thinking…")
             self._start_activity_pulse()
             self._set_status("thinking…")
             self._run_turn(text)
@@ -420,13 +485,13 @@ class JarvisTUI(App):
                     Text(new_inp),
                     title="you",
                     title_align="left",
-                    border_style="green",
+                    border_style=state.theme_colors["user_border"],
                     padding=(0, 1),
                 )
             )
             self._busy = True
             self._turn_t0 = time.monotonic()
-            self._sync_activity_phase("Starting your request…")
+            self._sync_activity_phase("Thinking…")
             self._start_activity_pulse()
             self._set_status("thinking…")
             self._run_turn(new_inp)
@@ -463,7 +528,7 @@ class JarvisTUI(App):
 
         log = self.query_one("#transcript", RichLog)
         log.write(Panel(Text(text), title="you", title_align="left",
-                        border_style="green", padding=(0, 1)))
+                        border_style=state.theme_colors["user_border"], padding=(0, 1)))
 
         # /exit shortcut
         if text.strip() in ("/exit", "/quit"):
@@ -478,7 +543,7 @@ class JarvisTUI(App):
 
         self._busy = True
         self._turn_t0 = time.monotonic()
-        self._sync_activity_phase("Starting your request…")
+        self._sync_activity_phase("Thinking…")
         self._start_activity_pulse()
         self._set_status("thinking…")
         self._run_turn(text)
@@ -523,21 +588,24 @@ class JarvisTUI(App):
                     continue
                 body = data.get("thinking", "")
                 if body:
-                    log.write(Panel(Text(body), title="thinking", border_style="dim", padding=(0, 1)))
+                    log.write(Panel(Text(body, style="dim"), title="thinking", title_align="left",
+                                    border_style=state.theme_colors["think_border"], padding=(0, 1)))
                 continue
             if not state.show_internal:
                 continue
             if kind == "tool_use":
                 name = data.get("name", "tool")
                 args = str(data.get("input", ""))[:800]
-                log.write(Panel(Text(args), title=f"tool: {name}", border_style="yellow", padding=(0, 1)))
+                log.write(Panel(Text(args), title=f"tool: {name}", title_align="left",
+                                border_style=state.theme_colors["tool_border"], padding=(0, 1)))
             elif kind == "tool_result":
                 body = data.get("content", "")
                 if isinstance(body, list):
                     body = "\n".join(
                         item.get("text", "") for item in body if isinstance(item, dict)
                     )
-                log.write(Panel(Text(str(body)[:2000]), title="tool result", border_style="dim", padding=(0, 1)))
+                log.write(Panel(Text(str(body)[:2000], style="dim"), title="tool result", title_align="left",
+                                border_style=state.theme_colors["think_border"], padding=(0, 1)))
 
     def _render_loaded_session(self) -> None:
         from .. import state
@@ -557,13 +625,13 @@ class JarvisTUI(App):
             if role == "user":
                 if text:
                     log.write(Panel(Text(text), title="you", title_align="left",
-                                    border_style="green", padding=(0, 1)))
+                                    border_style=state.theme_colors["user_border"], padding=(0, 1)))
                 self._render_internal_blocks(content)
             elif role == "assistant":
                 self._render_internal_blocks(content)
                 if text:
                     log.write(Panel(Markdown(text), title="Jarvis", title_align="left",
-                                    border_style="magenta", padding=(0, 1)))
+                                    border_style=state.theme_colors["asst_border"], padding=(0, 1)))
         self._set_status("session loaded")
 
     @work(thread=True, exclusive=True)
@@ -572,8 +640,24 @@ class JarvisTUI(App):
         from ..commands.dispatch import handle_slash
         from ..repl.stream import call_claude_stream
         from ..repl.render import render_assistant
+        from ..repl.turn_progress import report_turn_phase
         from ..storage.sessions import db_append_message, db_set_title_if_empty
         from .. import state
+
+        # ── Re-read project context file each turn ──────────────────────────
+        if state.project_context_path:
+            import pathlib as _pl
+            _ctx_path = _pl.Path(state.project_context_path)
+            if _ctx_path.exists():
+                try:
+                    state.project_context_content = _ctx_path.read_text(errors="ignore")
+                except Exception:
+                    pass
+                if state.project_context_content:
+                    report_turn_phase(
+                        f"📄 {state.project_context_file} "
+                        f"({len(state.project_context_content)} chars)"
+                    )
 
         try:
             # alias expansion
@@ -618,13 +702,13 @@ class JarvisTUI(App):
 
             if _explicit_mode:
                 lbl, col, _s = state.MODE_LABELS.get(
-                    state.active_mode, (state.active_mode, "#00d7af", "bold")
+                    state.active_mode, (state.active_mode, "#3fb950", "bold")
                 )
                 def _show_explicit_badge(label=lbl, colour=col):
                     try:
                         log = self.query_one("#transcript", RichLog)
                         badge = Text()
-                        badge.append(f" {label} ", style=f"bold #0d0d0d on {colour}")
+                        badge.append(f" {label} ", style=f"bold #0a0a0a on {colour}")
                         badge.append("  addon rules active", style=colour)
                         log.write(badge)
                     except Exception:
@@ -636,8 +720,8 @@ class JarvisTUI(App):
                     try:
                         log = self.query_one("#transcript", RichLog)
                         badge = Text()
-                        badge.append(" ⚡ CODING ", style="bold #0d0d0d on #00af87")
-                        badge.append("  auto-detected · /coding to stay in mode", style="dim #00af87")
+                        badge.append(" ⚡ CODING ", style="bold #0a0a0a on #3fb950")
+                        badge.append("  auto-detected · /coding to stay in mode", style="dim #3fb950")
                         log.write(badge)
                     except Exception:
                         pass
@@ -678,29 +762,39 @@ class JarvisTUI(App):
             from .. import state
             trace = "shown" if state.show_internal else "hidden"
             lbl, col, _s = state.MODE_LABELS.get(
-                state.active_mode, (state.active_mode, "#565f89", "dim")
+                state.active_mode, (state.active_mode, "#8b949e", "dim")
             )
             mode_part = (
                 f"[bold {col}]{lbl}[/]"
                 if state.active_mode != "default"
-                else f"[dim]{lbl}[/]"
+                else f"[dim {col}]{lbl}[/]"
             )
-            parts = []
+            # Build a cleaner status line — grouped by category, no pipe noise
+            left = []
             if msg:
-                parts.append(f"[b]{msg}[/]")
-            parts.append(f"🎛 {mode_part}")
-            parts.append(f"🤖 {state.MODEL}")
+                left.append(f"[#e6edf3]{msg}[/]")
+            left.append(f"{mode_part}")
+            left.append(f"[#58a6ff]{state.MODEL}[/]")
             if state.current_session_id is not None:
-                parts.append(f"#{state.current_session_id}")
-            parts.append(f"📁 {_escape(str(pathlib.Path.cwd()))}")
-            parts.append(f"💬 {len(state.messages)}")
-            parts.append(f"🔧 {state.tool_calls_count}")
-            parts.append(f"⇅ {state.total_in}/{state.total_out} = {state.total_in + state.total_out}")
-            think_flag = f"[green]think:on[/]" if state.think_mode else f"[dim]think:off[/]"
-            parts.append(think_flag)
-            parts.append(f"internals:{trace}")
+                left.append(f"[dim]#{state.current_session_id}[/]")
+
+            right = []
+            right.append(f"💬 [dim]{len(state.messages)}[/]")
+            right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
+            if state.think_mode:
+                right.append("[#3fb950]think:on[/]")
+            else:
+                right.append("[dim]think:off[/]")
+            if state.project_context_file:
+                right.append(f"[#bc8cff]{state.project_context_file}[/]")
+            right.append(f"[dim]int:{trace}[/]")
+
+            sep = "  ·  "
+            all_parts = left + [""] + right
             self.query_one("#statusbar", RichLog).clear()
-            self.query_one("#statusbar", RichLog).write(" | ".join(parts))
+            self.query_one("#statusbar", RichLog).write(
+                Text.from_markup(sep.join(all_parts))
+            )
         except Exception:
             pass
 
@@ -723,15 +817,15 @@ class JarvisTUI(App):
         next_mode = modes[(current_idx + 1) % len(modes)]
         state.active_mode = next_mode
 
-        lbl, col, _s = state.MODE_LABELS.get(next_mode, (next_mode, "#ffffff", ""))
+        lbl, col, _s = state.MODE_LABELS.get(next_mode, (next_mode, "#58a6ff", ""))
         try:
             log = self.query_one("#transcript", RichLog)
             badge = Text()
             if next_mode == "default":
-                badge.append(" DEFAULT MODE ", style="bold #e6e6e6 on #2b3340")
-                badge.append("  coding addon off", style="#565f89")
+                badge.append(" DEFAULT MODE ", style="bold #e6edf3 on #30363d")
+                badge.append("  standard", style="#8b949e")
             else:
-                badge.append(f" {lbl} ", style=f"bold #0d0d0d on {col}")
+                badge.append(f" {lbl} ", style=f"bold #0a0a0a on {col}")
                 badge.append("  addon rules active", style=col)
             log.write(badge)
         except Exception:
