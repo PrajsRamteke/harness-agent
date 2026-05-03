@@ -113,7 +113,7 @@ class JarvisTUI(App):
     #transcript {
         background: #0d1117;
         color: #e6edf3;
-        padding: 0 2;
+        padding: 0 1;
         border: none;
         height: 1fr;
         min-height: 0;
@@ -126,7 +126,7 @@ class JarvisTUI(App):
     /* ── Prompt input ───────────────────────────────────── */
     #prompt_row {
         height: auto;
-        margin: 0 2 2 2;
+        margin: 0 1 1 1;
         background: #161b22;
         border: tall #30363d;
         min-width: 0;
@@ -136,7 +136,7 @@ class JarvisTUI(App):
     }
     #prompt_prefix {
         width: auto;
-        padding: 0 0 0 2;
+        padding: 0 0 0 1;
         color: #58a6ff;
         text-style: bold;
         dock: left;
@@ -155,41 +155,14 @@ class JarvisTUI(App):
         border: none;
     }
 
-    /* ── Activity row (spinner + clock) ─────────────────── */
-    #activity_row {
-        height: auto;
-        background: #161b22;
-        margin: 0 2 0 2;
-        padding: 0 2;
-        min-width: 0;
-        border-left: tall #30363d;
-        border-right: tall #30363d;
-        display: none;
-    }
-    #activity_row.-visible {
-        display: block;
-    }
-    #activity_phase {
-        width: 1fr;
-        min-width: 0;
-        color: #c9d1d9;
-        padding: 0 0;
-    }
-    #activity_clock {
-        width: auto;
-        min-width: 0;
-        color: #8b949e;
-        padding: 0 0;
-    }
-
-    /* ── Status bar ─────────────────────────────────────── */
+    /* ── Status bar (also shows spinner + timing when busy) ─── */
     #statusbar {
         height: auto;
         max-height: 6;
         background: #161b22;
         color: #8b949e;
-        padding: 0 2;
-        margin: 0 2 0 2;
+        padding: 0 1;
+        margin: 0 1 0 1;
         min-width: 0;
         border: tall #30363d;
         scrollbar-size-vertical: 0;
@@ -260,9 +233,6 @@ class JarvisTUI(App):
     def compose(self) -> ComposeResult:
         with Vertical(id="main"):
             yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
-            with Horizontal(id="activity_row"):
-                yield Static("", id="activity_phase", markup=True)
-                yield Static("", id="activity_clock", markup=True)
             yield RichLog(id="statusbar", wrap=True, highlight=True, markup=True, auto_scroll=False, max_lines=6)
             with Horizontal(id="prompt_row"):
                 yield Static("❯", id="prompt_prefix", markup=False)
@@ -340,15 +310,6 @@ class JarvisTUI(App):
         self._activity_label = (label or "").strip()
         self._activity_t0 = time.monotonic()
         self._activity_spinner_i = 0
-        # Show activity row when there's an active phase, hide otherwise
-        try:
-            row = self.query_one("#activity_row")
-            if self._activity_label:
-                row.add_class("-visible")
-            else:
-                row.remove_class("-visible")
-        except Exception:
-            pass
         self._refresh_activity_widgets()
 
     def _tick_activity_spinner(self) -> None:
@@ -357,33 +318,56 @@ class JarvisTUI(App):
             self._refresh_activity_widgets()
 
     def _refresh_activity_widgets(self) -> None:
+        """Prepend spinner + phase to status bar, append turn timing."""
         from datetime import datetime
 
-        try:
-            ph = self.query_one("#activity_phase", Static)
-            clk = self.query_one("#activity_clock", Static)
-        except Exception:
-            return
         label = self._activity_label
-        if not label and not self._busy:
-            ph.update("")
-            clk.update("")
+        if not label or not self._busy:
             return
+
         frames = self._spinner_frames
         i = self._activity_spinner_i % len(frames)
-        sp = frames[i] if (self._busy and label) else " "
+        sp = frames[i]
         step_elapsed = max(0.0, time.monotonic() - self._activity_t0)
-        wall = datetime.now().strftime("%H:%M:%S")
-        ph.update(
-            f"[#58a6ff]{sp}[/] [b]{label}[/] [dim]{step_elapsed:.1f}s[/]"
-        )
-        if self._busy and self._turn_t0:
-            turn_elapsed = max(0.0, time.monotonic() - self._turn_t0)
-            clk.update(
-                f"[dim]{wall}  [{turn_elapsed:.0f}s][/]"
+        turn_elapsed = max(0.0, time.monotonic() - self._turn_t0) if self._turn_t0 else 0.0
+
+        spinner_prefix = f"[#58a6ff]{sp}[/] [b]{label}[/] [dim]{step_elapsed:.1f}s[/]"
+        clock_suffix = f"[dim][{turn_elapsed:.0f}s][/]"
+
+        try:
+            # Build the same status bar info as _set_status
+            from .. import state
+            trace = "shown" if state.show_internal else "hidden"
+            lbl, col, _s = state.MODE_LABELS.get(
+                state.active_mode, (state.active_mode, "#8b949e", "dim")
             )
-        else:
-            clk.update(f"[dim]{wall}  [{step_elapsed:.0f}s][/]")
+            mode_part = (
+                f"[bold {col}]{lbl}[/]"
+                if state.active_mode != "default"
+                else f"[dim {col}]{lbl}[/]"
+            )
+            left = [f"{mode_part}", f"[#58a6ff]{state.MODEL}[/]"]
+            if state.current_session_id is not None:
+                left.append(f"[dim]#{state.current_session_id}[/]")
+
+            right = []
+            right.append(f"💬 [dim]{len(state.messages)}[/]")
+            right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
+            if state.think_mode:
+                right.append("[#3fb950]think:on[/]")
+            else:
+                right.append("[dim]think:off[/]")
+            if state.project_context_file:
+                right.append(f"[#bc8cff]{state.project_context_file}[/]")
+            right.append(f"[dim]int:{trace}[/]")
+
+            bar = self.query_one("#statusbar", RichLog)
+            bar.clear()
+            # prepend spinner · status info · clock
+            parts = [spinner_prefix] + left + [""] + right + [clock_suffix]
+            bar.write(Text.from_markup("  ·  ".join(parts)))
+        except Exception:
+            pass
 
     def _start_activity_pulse(self) -> None:
         self._stop_activity_pulse()
@@ -805,7 +789,6 @@ class JarvisTUI(App):
                 right.append(f"[#bc8cff]{state.project_context_file}[/]")
             right.append(f"[dim]int:{trace}[/]")
 
-            # Pad left group to push right group to the edge visually
             sep = "  ·  "
             all_parts = left + [""] + right
             self.query_one("#statusbar", RichLog).clear()
