@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 from .constants import (
     PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE, LAST_THEME_FILE,
+    SKILLS_CONFIG_FILE,
     PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING,
 )
 
@@ -60,6 +61,9 @@ _assistant_stream_ui_active: bool = False
 project_context_file: str = ""      # filename found, e.g. "AGENT.md"
 project_context_path: str = ""      # full absolute path to the file
 project_context_content: str = ""   # cached file content, re-read each turn
+
+# skills
+global_skills: bool = False         # if True, include skills from ~/.config/*/skills/
 
 # user context
 pinned_context: str = PIN_FILE.read_text() if PIN_FILE.exists() else ""
@@ -120,4 +124,29 @@ def _reload_saved_theme() -> None:
     theme_colors = dict(THEMES["red"])
 
 
+def save_skills_config() -> None:
+    """Persist global_skills toggle to disk."""
+    try:
+        SKILLS_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SKILLS_CONFIG_FILE.write_text(
+            json.dumps({"global_skills": global_skills}, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _reload_saved_skills() -> None:
+    """Restore global_skills from last session."""
+    global global_skills
+    if SKILLS_CONFIG_FILE.exists():
+        try:
+            data = json.loads(SKILLS_CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(data.get("global_skills"), bool):
+                global_skills = data["global_skills"]
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+
+
 _reload_saved_theme()
+_reload_saved_skills()

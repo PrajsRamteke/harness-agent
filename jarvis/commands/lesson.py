@@ -24,7 +24,7 @@ def handle_lesson(cmd: str, arg: str):
        /lesson del <id>              → delete
        /lesson clear                 → wipe all (confirm)
     """
-    if cmd not in ("/lesson", "/lessons", "/skill", "/skills"):
+    if cmd not in ("/lesson", "/lessons"):
         return False, None
 
     parts = arg.split(maxsplit=1)

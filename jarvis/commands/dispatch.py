@@ -14,6 +14,7 @@ from .history import handle_history
 from .control import handle_control
 from .memory import handle_memory
 from .lesson import handle_lesson
+from .skill import handle_skill
 from .scan import handle_scan
 
 # commands that set `inp` for sending
@@ -44,6 +45,10 @@ def handle_slash(inp: str):
         return ("ok", False, inp)
 
     handled, _ = handle_lesson(c, arg)
+    if handled:
+        return ("ok", False, inp)
+
+    handled, _ = handle_skill(c, arg)
     if handled:
         return ("ok", False, inp)
 

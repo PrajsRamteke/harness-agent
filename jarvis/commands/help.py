@@ -37,12 +37,17 @@ def cmd_help():
             ("/memory del <id>", "delete a fact by id"),
             ("/memory clear", "wipe all memory"),
         ]),
-        ("Skills (agent self-learning)", [
-            ("/skill", "list saved skills (lessons agent learned)"),
-            ("/skill search <q>", "find relevant skills for a task"),
-            ("/skill add <task> :: <lesson> [:: tags]", "save a skill"),
-            ("/skill del <id>", "delete a skill"),
-            ("/skill clear", "wipe all skills"),
+        ("Skills (Lessons — agent self-learning)", [
+            ("/lesson", "list saved lessons (what agent learned)"),
+            ("/lesson search <q>", "find relevant lessons for a task"),
+            ("/lesson add <task> :: <lesson> [:: tags]", "save a lesson"),
+            ("/lesson del <id>", "delete a lesson"),
+            ("/lesson clear", "wipe all lessons"),
+        ]),
+        ("Skills (Project-base — SKILL.md)", [
+            ("/skill", "list available project-base skills (headers only)"),
+            ("/skill <name>", "load and show full skill content"),
+            ("/skill refresh", "re-scan for new/changed skills"),
         ]),
         ("Files & Shell", [
             ("/ls [path]", "list directory"),

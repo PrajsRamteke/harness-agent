@@ -29,12 +29,19 @@ COMMANDS = [
     ("/memory add ", "save a personal fact"),
     ("/memory del ", "delete a fact by id"),
     ("/memory clear", "wipe all memory"),
-    # Skills
+    # Lessons (agent self-learning)
     ("/lesson", "list saved lessons"),
     ("/lesson search ", "find relevant lessons for a task"),
     ("/lesson add ", "save a lesson"),
     ("/lesson del ", "delete a lesson"),
     ("/lesson clear", "wipe all lessons"),
+    # Skills (project-base)
+    ("/skill", "list available project-base skills"),
+    ("/skill <name>", "load and show full skill content"),
+    ("/skill refresh", "re-scan for new/changed skills"),
+    ("/skill global", "show current global skill setting"),
+    ("/skill global on", "enable global skill visibility"),
+    ("/skill global off", "switch to project-only skills"),
     # Files & Shell
     ("/ls", "list directory"),
     ("/cd ", "change working dir"),

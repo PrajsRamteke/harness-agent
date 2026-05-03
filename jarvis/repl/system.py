@@ -18,12 +18,14 @@ from ..constants import (
 from ..constants.system_prompt import build_base_system
 from ..storage.memory import as_prompt_block
 from ..storage.lessons import as_prompt_block as lessons_prompt_block
+from ..storage.skills import as_prompt_block as skills_prompt_block
 from .. import state
 
 # ── cache state ────────────────────────────────────────────────────────────────
 _cached_body: str = ""
 _cached_mem_key: str = ""
 _cached_sk_key: str = ""
+_cached_skills_key: str = ""
 _cached_pinned: str = ""
 _cached_cwd_branch: str = ""
 _cached_ctx_key: str = ""
@@ -65,10 +67,11 @@ def _is_coding_request(messages: list) -> bool:
 
 def _build_static_body() -> str:
     """Everything except the date/time line and coding addon. Cached between turns."""
-    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
+    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
 
     mem_block = as_prompt_block()
     sk_block = lessons_prompt_block()
+    skills_block = skills_prompt_block()
     pinned = state.pinned_context.strip()
     from pathlib import Path
     cwd = str(Path.cwd())
@@ -78,6 +81,7 @@ def _build_static_body() -> str:
     # Use content as cache key — only rebuild when something actually changed.
     if (mem_block == _cached_mem_key
             and sk_block == _cached_sk_key
+            and skills_block == _cached_skills_key
             and pinned == _cached_pinned
             and cwd_branch_key == _cached_cwd_branch
             and state.project_context_content == _cached_ctx_key
@@ -102,6 +106,15 @@ def _build_static_body() -> str:
         "- Can propose edits to own codebase for repetitive tasks — show diff, get OK first."
     )
 
+    # ── Available skills ────────────────────────────────────────────
+    if skills_block:
+        body += "\n\n" + skills_block
+        body += (
+            "\n\nPROJECT SKILLS: skill_list/skill_load.\n"
+            "- Call skill_list() to see available skills (headers only).\n"
+            "- Call skill_load('<name>') to get full instructions when a task matches.\n"
+        )
+
     # ── Project context file ─────────────────────────────────────────
     if state.project_context_content and state.project_context_file:
         body += (
@@ -115,6 +128,7 @@ def _build_static_body() -> str:
     _cached_body = body
     _cached_mem_key = mem_block
     _cached_sk_key = sk_block
+    _cached_skills_key = skills_block
     _cached_pinned = pinned
     _cached_cwd_branch = cwd_branch_key
     _cached_ctx_key = state.project_context_content

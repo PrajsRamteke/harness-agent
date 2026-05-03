@@ -304,6 +304,24 @@ class JarvisTUI(App):
             )
             self._set_status("ready")
 
+        # ── Detect project-base skills (.skills/) ────────────────────────────
+        from ..storage import skills as _skills
+        _sk_count = _skills.skill_count()
+        if _sk_count > 0:
+            log.write(
+                Panel(
+                    Text.from_markup(
+                        f"🧠 [bold #58a6ff]{_sk_count} skill{'s' if _sk_count != 1 else ''}[/] available — "
+                        f"[#58a6ff]headers in system prompt[/], "
+                        f"[dim]use /skill to list or skill_load() to load[/]",
+                    ),
+                    title="Project Skills",
+                    title_align="left",
+                    border_style=state.theme_colors["project_border"],
+                    padding=(0, 1),
+                )
+            )
+
         self.query_one("#prompt", PromptArea).focus()
 
     def _sync_activity_phase(self, label: str) -> None:
