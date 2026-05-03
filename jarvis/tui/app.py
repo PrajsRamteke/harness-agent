@@ -459,7 +459,7 @@ class JarvisTUI(App):
             log = self.query_one("#transcript", RichLog)
             log.write(
                 Panel(
-                    Text(text),
+                    Markdown(text),
                     title="you",
                     title_align="left",
                     border_style=state.theme_colors["user_border"],
@@ -482,7 +482,7 @@ class JarvisTUI(App):
             log = self.query_one("#transcript", RichLog)
             log.write(
                 Panel(
-                    Text(new_inp),
+                    Markdown(new_inp),
                     title="you",
                     title_align="left",
                     border_style=state.theme_colors["user_border"],
@@ -527,7 +527,7 @@ class JarvisTUI(App):
             return
 
         log = self.query_one("#transcript", RichLog)
-        log.write(Panel(Text(text), title="you", title_align="left",
+        log.write(Panel(Markdown(text), title="you", title_align="left",
                         border_style=state.theme_colors["user_border"], padding=(0, 1)))
 
         # /exit shortcut
@@ -624,7 +624,7 @@ class JarvisTUI(App):
             text = self._content_text(content).strip()
             if role == "user":
                 if text:
-                    log.write(Panel(Text(text), title="you", title_align="left",
+                    log.write(Panel(Markdown(text), title="you", title_align="left",
                                     border_style=state.theme_colors["user_border"], padding=(0, 1)))
                 self._render_internal_blocks(content)
             elif role == "assistant":
