@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Project Context
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding assistants when working with code in this repository.
 
 ## Commands
 
@@ -26,9 +26,9 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 ## Environment Variables
 
 - `ANTHROPIC_API_KEY` — bypass auth prompt
-- `CLAUDE_MODEL` — override default model (default: `claude-sonnet-4-6`)
+- `CLAUDE_MODEL` — override default model (default: `sonnet-4-6`)
 - `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent tool workers (default/cap: 64)
-- `HARNESS_HTTP_READ_TIMEOUT` — streaming response timeout in seconds (default: 240 OpenRouter, 600 Anthropic)
+- `HARNESS_HTTP_READ_TIMEOUT` — streaming response timeout in seconds (default: 240 OpenRouter, 600 direct)
 - `HARNESS_HTTP_CONNECT_TIMEOUT` — connection timeout (default: 30)
 - `HARNESS_STREAM_REPLY` — set to `0` to disable live streaming of assistant text
 
@@ -61,7 +61,7 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 - **Tool execution**: Tools in `repl/render.py` run concurrently via `ThreadPoolExecutor` except for tools in `_SERIAL_TOOLS` (shell, file edits, macOS UI control, MCP tools) which run single-threaded.
 - **Persistence**: Sessions stored in SQLite at `~/.config/claude-agent/sessions.db`. Pinned context from `~/.config/claude-agent/pin`. Aliases from `~/.config/claude-agent/aliases.json`.
 - **Auth**: `auth/client.py:make_client()` checks for `ANTHROPIC_API_KEY`, then stored key/OAuth tokens, then prompts interactively. Sets `state.provider` and `state.auth_mode`.
-- **Project context**: On startup, detects `AGENT.md`, `CLAUDE.md`, or `JARVIS.md` in CWD and loads it into `state.project_context_*` globals, injected into the system prompt each turn.
+- **Project context**: On startup, detects `JARVIS.md`, `CLAUDE.md`, or `AGENT.md` in CWD and loads it into `state.project_context_*` globals, injected into the system prompt each turn.
 
 ### Adding a new tool
 

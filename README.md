@@ -10,7 +10,7 @@
     <img src="https://img.shields.io/badge/python-≥3.10-blue?logo=python&logoColor=white" alt="Python">
     <img src="https://img.shields.io/badge/macOS-supported-brightgreen?logo=apple" alt="macOS">
     <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="License">
-    <img src="https://img.shields.io/badge/model-claude--sonnet--4--6-8A2BE2" alt="Model">
+    <img src="https://img.shields.io/badge/model-sonnet--4--6-8A2BE2" alt="Model">
   </p>
 </div>
 
@@ -18,7 +18,7 @@
 
 ## ✨ Overview
 
-Harness is a **terminal-native AI agent** powered by Anthropic's Claude. You talk to it, it uses tools — reads/writes files, runs shell commands, searches code, uses git, controls macOS apps, OCRs images, browses the web — and gets work done right where your code lives.
+Harness is a **terminal-native AI agent** that lives in your terminal. You talk to it, it uses tools — reads/writes files, runs shell commands, searches code, uses git, controls macOS apps, OCRs images, browses the web — and gets work done right where your code lives.
 
 > **No web UI, no daemon.** Just `jarvis` in your project folder.
 
@@ -69,7 +69,7 @@ That's it. You'll be prompted to pick an auth method on first run.
     </td>
     <td width="50%">
       <h4>🔐 Dual Auth</h4>
-      <p>Use an <strong>Anthropic API key</strong> (sk-ant-…) or sign in with <strong>Claude Pro/Max OAuth</strong> via PKCE.</p>
+      <p>Use an <strong>API key</strong> (sk-ant-…) or sign in with <strong>OAuth</strong> via PKCE.</p>
     </td>
   </tr>
   <tr>
@@ -130,7 +130,7 @@ That's it. You'll be prompted to pick an auth method on first run.
   brew install python@3.11
   ```
 - **macOS** — required for macOS control features. Core agent works on any platform.
-- **Anthropic API key** or a **Claude Pro/Max subscription**
+- **API key** (sk-ant-…) or a **Pro/Max subscription**
 
 ---
 
@@ -196,14 +196,14 @@ On first launch, you'll pick how to authenticate:
 | Option | How it works |
 |---|---|
 | **API key** | Paste an `sk-ant-…` key. Saved at `~/.config/claude-agent/key` (permissions: 600) |
-| **OAuth** | Opens your browser to sign in with your Claude Pro/Max account via PKCE |
+| **OAuth** | Opens your browser to sign in with your Pro/Max account via PKCE |
 
 ### ⌨️ Slash Commands
 
 | Command | What it does |
 |---|---|
 | `/help` | List all commands |
-| `/model <name>` | Switch models (e.g. `claude-opus-4-7`, `claude-haiku-4-5`) |
+| `/model <name>` | Switch models (e.g. `opus-4-7`, `haiku-4-5`) |
 | `/verbose` / `F2` | Toggle internal thinking and tool traces (shown by default) |
 | `/cost` | Show token usage + estimated USD cost |
 | `/clear` | Reset the conversation |
@@ -217,9 +217,9 @@ On first launch, you'll pick how to authenticate:
 | Variable | What it does | Default |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Use this key instead of the stored one | — |
-| `CLAUDE_MODEL` | Override the default model | `claude-sonnet-4-6` |
+| `CLAUDE_MODEL` | Override default model | `sonnet-4-6` |
 | `HARNESS_MAX_PARALLEL_TOOLS` | Max concurrent tool workers | `64` (capped) |
-| `HARNESS_HTTP_READ_TIMEOUT` | Streaming response timeout (s) | `240` (OpenRouter), `600` (Anthropic) |
+| `HARNESS_HTTP_READ_TIMEOUT` | Streaming response timeout (s) | `240` (OpenRouter), `600` (direct) |
 | `HARNESS_HTTP_CONNECT_TIMEOUT` | Connection timeout (s) | `30` |
 | `HARNESS_STREAM_REPLY` | Set to `0` to disable live streaming | `1` |
 
@@ -232,7 +232,7 @@ harness/
 ├── agent.py                # Entry point (routes to TUI or REPL)
 ├── pyproject.toml          # Package config
 ├── requirements.txt
-├── CLAUDE.md               # Context for AI coding assistants
+├── CLAUDE.md               # Context file for AI assistants
 ├── JARVIS.md
 │
 ├── jarvis/                 # Main package
@@ -294,7 +294,7 @@ harness/
 - **macOS permissions** — UI control tools need **Accessibility** and **Automation** permissions. Enable them in: System Settings → Privacy & Security → Accessibility / Automation.
 - **Credentials** — All config, keys, and history live under `~/.config/claude-agent/`.
 - **Tool selection is dynamic** — Harness only sends the schemas for tools it thinks you'll need, keeping context lean. Core file/code tools are always included; macOS, web, OCR tools are loaded on demand.
-- **Project context** — Drop a `CLAUDE.md` or `JARVIS.md` in your project root, and the agent reads it automatically for project-specific instructions.
+- **Project context** — Drop a `JARVIS.md` (or `CLAUDE.md`) in your project root, and the agent reads it automatically for project-specific instructions.
 
 ---
 
