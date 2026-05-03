@@ -30,11 +30,11 @@ COMMANDS = [
     ("/memory del ", "delete a fact by id"),
     ("/memory clear", "wipe all memory"),
     # Skills
-    ("/skill", "list saved skills"),
-    ("/skill search ", "find relevant skills for a task"),
-    ("/skill add ", "save a skill"),
-    ("/skill del ", "delete a skill"),
-    ("/skill clear", "wipe all skills"),
+    ("/lesson", "list saved lessons"),
+    ("/lesson search ", "find relevant lessons for a task"),
+    ("/lesson add ", "save a lesson"),
+    ("/lesson del ", "delete a lesson"),
+    ("/lesson clear", "wipe all lessons"),
     # Files & Shell
     ("/ls", "list directory"),
     ("/cd ", "change working dir"),
