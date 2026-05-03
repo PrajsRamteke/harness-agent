@@ -260,6 +260,10 @@ class JarvisTUI(App):
         self._set_status("ready")
         self._sync_activity_phase("")
 
+        # Auto-connect MCP servers from config
+        from ..mcp.registry import auto_connect_servers
+        auto_connect_servers(console_print=self._tui_console.print)
+
         self.query_one("#prompt", PromptArea).focus()
 
     def _sync_activity_phase(self, label: str) -> None:

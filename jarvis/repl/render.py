@@ -35,6 +35,9 @@ _SERIAL_TOOLS = {
     "resolve_context", "read_bundle",
 }
 
+# All MCP-prefixed tools are treated as serial (stateful) too.
+from ..mcp.registry import is_mcp_tool
+
 # Context tools get a much higher output limit since they bundle many files at once.
 _CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle"}
 
@@ -153,7 +156,7 @@ def render_assistant(resp) -> bool:
         parallel_batch = []
 
         for b in tool_uses:
-            if b.name in _SERIAL_TOOLS:
+            if b.name in _SERIAL_TOOLS or is_mcp_tool(b.name):
                 _run_parallel_batch(parallel_batch, outputs)
                 parallel_batch = []
                 _, icon, ap, out_str = _run_tool(b)

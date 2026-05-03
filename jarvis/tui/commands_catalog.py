@@ -55,6 +55,14 @@ COMMANDS = [
     # Scan
     ("/scan me", "[one-time] AI-powered deep scan: identity, docs, projects → memory"),
     ("/scan", "show /scan me usage (one-time LLM-driven system scan)"),
+    # MCP (Model Context Protocol)
+    ("/mcp", "manage MCP servers: list, add, connect, disconnect, reload"),
+    ("/mcp list", "show configured & connected MCP servers"),
+    ("/mcp add ", "add an MCP server (--command <cmd> or --url <url>)"),
+    ("/mcp connect ", "connect a configured MCP server"),
+    ("/mcp disconnect ", "disconnect an MCP server"),
+    ("/mcp remove ", "remove an MCP server config"),
+    ("/mcp reload", "reload MCP config from file"),
     # Control
     ("/think", "toggle extended thinking"),
     ("/verbose", "toggle internal tool trace (thinking UI needs /think)"),

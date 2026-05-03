@@ -32,6 +32,13 @@ def handle_slash(inp: str):
     if c in ("/session", "/sessions"):
         cmd_session(arg); return ("ok", False, inp)
 
+    if c == "/mcp":
+        from ..mcp.manager import handle_mcp_command
+        result = handle_mcp_command(arg)
+        if result:
+            console.print(result)
+        return ("ok", False, inp)
+
     handled, _ = handle_memory(c, arg)
     if handled:
         return ("ok", False, inp)

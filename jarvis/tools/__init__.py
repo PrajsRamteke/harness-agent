@@ -20,8 +20,11 @@ from .skills import skill_save, skill_search, skill_list, skill_delete, SKILL_TO
 from .schemas_core import CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
-TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + SKILL_TOOLS + OCR_TOOLS
-TOOL_GROUPS = {
+# MCP group starts empty — populated dynamically by the MCP registry
+# when servers connect. Import is deferred to avoid circular imports.
+MCP_TOOLS: list[dict] = []
+TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + SKILL_TOOLS + OCR_TOOLS + MCP_TOOLS
+TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
     "context": CONTEXT_TOOLS,
     "mac": MAC_TOOLS,
@@ -29,8 +32,9 @@ TOOL_GROUPS = {
     "memory": MEMORY_TOOLS,
     "skills": SKILL_TOOLS,
     "ocr": OCR_TOOLS,
+    "mcp": MCP_TOOLS,
 }
-TOOL_NAME_TO_GROUP = {
+TOOL_NAME_TO_GROUP: dict[str, str] = {
     tool["name"]: group
     for group, tools in TOOL_GROUPS.items()
     for tool in tools
@@ -70,3 +74,20 @@ FUNC = {
     "read_image_text": read_image_text,
     "read_images_text": read_images_text,
 }
+
+# ── MCP registry integration ─────────────────────────────────────────────
+# Wire the MCP registry into Jarvis's tool dictionaries so connected MCP
+# servers dynamically add/remove their tools.
+from ..mcp.registry import mcp_registry as _mcp_registry
+
+_mcp_registry.init_jarvis(
+    func_dict=FUNC,
+    tool_groups=TOOL_GROUPS,
+    tools_list=TOOLS,
+    tool_name_to_group=TOOL_NAME_TO_GROUP,
+)
+
+# Re-export for convenience
+from ..mcp.registry import mcp_registry
+from ..mcp.config import get_config, MCPConfig
+from ..mcp import handle_mcp_command
