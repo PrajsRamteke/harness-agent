@@ -43,6 +43,9 @@ think_mode: bool = False
 show_internal: bool = True
 total_in: int = 0
 total_out: int = 0
+
+# prompt queue — prompts received while busy are queued and auto-processed when the current turn finishes
+prompt_queue: list[str] = []
 auto_approve: bool = False
 session_start: float = time.time()
 tool_calls_count: int = 0

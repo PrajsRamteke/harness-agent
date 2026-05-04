@@ -38,11 +38,20 @@ def main():
 
     while True:
         try:
-            now_str = datetime.now().strftime("%H:%M")
-            console.rule(style="grey37")
-            inp = console.input(
-                f"[bold yellow]▎[/][dim] {now_str} [/][bold bright_yellow]you[/] [bold yellow]❯[/] "
-            ).strip()
+            # Process queued prompts (from TUI /script injection) before fresh input
+            if state.prompt_queue:
+                inp = state.prompt_queue.pop(0)
+                remaining = len(state.prompt_queue)
+                console.print(
+                    f"[bold #58a6ff]⏭ from queue ({remaining} remaining)[/]"
+                    if remaining else "[bold #58a6ff]⏭ from queue[/]"
+                )
+            else:
+                now_str = datetime.now().strftime("%H:%M")
+                console.rule(style="grey37")
+                inp = console.input(
+                    f"[bold yellow]▎[/][dim] {now_str} [/][bold bright_yellow]you[/] [bold yellow]❯[/] "
+                ).strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[magenta]bye 👋[/]"); break
         if not inp:

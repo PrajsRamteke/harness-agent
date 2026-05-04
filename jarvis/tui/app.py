@@ -377,6 +377,8 @@ class JarvisTUI(App):
                 right.append("[dim]think:off[/]")
             if state.project_context_file:
                 right.append(f"[#bc8cff]{state.project_context_file}[/]")
+            if state.prompt_queue:
+                right.append(f"[#d29922]📋 {len(state.prompt_queue)}[/]")
             right.append(f"[dim]int:{trace}[/]")
 
             bar = self.query_one("#statusbar", RichLog)
@@ -454,8 +456,6 @@ class JarvisTUI(App):
 
     def _dispatch_palette_slash(self, inp: str):
         """Run a slash command picked from the palette (no second Enter)."""
-        if self._busy:
-            return
         from ..commands.dispatch import handle_slash
         from .. import state
 
@@ -469,6 +469,14 @@ class JarvisTUI(App):
         if head[1:] in state.aliases:
             rest = text[len(head) :]
             text = state.aliases[head[1:]] + rest
+
+        # If busy, queue the command as a prompt to be processed after current turn
+        if self._busy:
+            state.prompt_queue.append(text)
+            idx = len(state.prompt_queue)
+            self._show_queue_panel(text, idx=idx)
+            self._set_status(f"queued #{idx} ({len(state.prompt_queue)} waiting)")
+            return
 
         # Commands that need stdin (OAuth token paste, key entry) must run in
         # the worker thread so the TUIConsole can show a blocking input modal.
@@ -527,10 +535,39 @@ class JarvisTUI(App):
                 # also calls it from finally.
                 self._turn_done()
 
+    # ─── prompt queue helpers ──────────────────────────────────────────
+    def _show_queue_panel(self, text: str, idx: int = 0) -> None:
+        """Write a 'queued' panel to the transcript."""
+        preview = text[:100].replace("\n", " ")
+        if len(text) > 100:
+            preview += "…"
+        tag = f"#{idx}" if idx else ""
+        log = self.query_one("#transcript", RichLog)
+        log.write(
+            Panel(
+                Text.from_markup(f"[#8b949e]{preview}[/]"),
+                title=f"⏳ queued {tag}",
+                title_align="left",
+                border_style="dim",
+                padding=(0, 1),
+            )
+        )
+
+    def _show_dequeue_panel(self, text: str, remaining: int) -> None:
+        """Write a 'dequeue' panel to the transcript."""
+        log = self.query_one("#transcript", RichLog)
+        log.write(
+            Panel(
+                Text.from_markup(f"[#e6edf3]{text}[/]"),
+                title=f"⏭ from queue ({remaining} remaining)" if remaining else "⏭ from queue",
+                title_align="left",
+                border_style="#58a6ff",
+                padding=(0, 1),
+            )
+        )
+
     # ─── input handling ────────────────────────────────────────────────
     def on_prompt_area_submitted(self, event: "PromptArea.Submitted") -> None:
-        if self._busy:
-            return
         raw = event.value or ""
         text = raw.strip()
         inp = self.query_one("#prompt", PromptArea)
@@ -544,27 +581,38 @@ class JarvisTUI(App):
             self._open_model_picker()
             return
 
-        log = self.query_one("#transcript", RichLog)
-        log.write(Panel(Markdown(text), title="you", title_align="left",
-                        border_style=state.theme_colors["user_border"], padding=(0, 1)))
-
-        # /exit shortcut
-        if text.strip() in ("/exit", "/quit"):
-            self.exit()
-            return
-
         # /session (bare) or /session list/ls → modal picker
         stripped = text.strip()
         if stripped in ("/session", "/sessions", "/session list", "/session ls"):
             self._open_session_picker()
             return
 
+        # /exit shortcut
+        if stripped in ("/exit", "/quit"):
+            self.exit()
+            return
+
+        # ── If busy → queue the prompt instead of discarding ──────────────
+        if self._busy:
+            state.prompt_queue.append(text)
+            idx = len(state.prompt_queue)
+            self._show_queue_panel(text, idx=idx)
+            self._set_status(f"queued #{idx} ({len(state.prompt_queue)} waiting)")
+            return
+
+        self._begin_turn(text)
+
+    def _begin_turn(self, inp: str) -> None:
+        """Start a new turn. Called from on_prompt_area_submitted or _turn_done."""
+        log = self.query_one("#transcript", RichLog)
+        log.write(Panel(Markdown(inp), title="you", title_align="left",
+                        border_style=state.theme_colors["user_border"], padding=(0, 1)))
         self._busy = True
         self._turn_t0 = time.monotonic()
         self._sync_activity_phase("Thinking…")
         self._start_activity_pulse()
         self._set_status("thinking…")
-        self._run_turn(text)
+        self._run_turn(inp)
 
     # ─── session picker ────────────────────────────────────────────────
     def _open_session_picker(self):
@@ -771,6 +819,15 @@ class JarvisTUI(App):
         self._turn_t0 = 0.0
         self._stop_activity_pulse()
         self._sync_activity_phase("")
+
+        # Check the prompt queue — auto-process next if any
+        if state.prompt_queue:
+            next_prompt = state.prompt_queue.pop(0)
+            remaining = len(state.prompt_queue)
+            self._show_dequeue_panel(next_prompt, remaining)
+            self._begin_turn(next_prompt)
+            return
+
         self._set_status("ready")
         self.query_one("#prompt", PromptArea).focus()
 
@@ -805,6 +862,8 @@ class JarvisTUI(App):
                 right.append("[dim]think:off[/]")
             if state.project_context_file:
                 right.append(f"[#bc8cff]{state.project_context_file}[/]")
+            if state.prompt_queue:
+                right.append(f"[#d29922]📋 {len(state.prompt_queue)}[/]")
             right.append(f"[dim]int:{trace}[/]")
 
             sep = "  ·  "
