@@ -20,7 +20,7 @@ from .models import (
     OCR_CHARS_PER_IMAGE, OCR_CHARS_PER_IMAGE_CAP,
     OCR_SCAN_CHARS, OCR_WORKER_MIN,
     GIT_LOG_DEFAULT_COUNT, SEARCH_DEFAULT_MAX_RESULTS, SEARCH_MATCH_CAP,
-    MODE_DEFAULT, MODE_CODING,
+    MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
 )
 from .providers import (
     PROVIDERS, PROVIDER_LABELS, ANTHROPIC_MODELS, OPENROUTER_FREE_MODELS,
@@ -36,4 +36,4 @@ from .oauth import (
     OAUTH_IDENTITY,
 )
 from .icons import TOOL_ICONS
-from .system_prompt import SYSTEM, CODING_ADDON, build_base_system
+from .system_prompt import SYSTEM, CODING_ADDON, REVERSE_ENG_ADDON, build_base_system

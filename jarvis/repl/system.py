@@ -12,8 +12,8 @@ from datetime import datetime
 from typing import Union, List, Dict
 
 from ..constants import (
-    CODING_ADDON, OAUTH_IDENTITY,
-    AUTH_OAUTH, MODE_CODING,
+    CODING_ADDON, REVERSE_ENG_ADDON, OAUTH_IDENTITY,
+    AUTH_OAUTH, MODE_CODING, MODE_REVERSE_ENG,
 )
 from ..constants.system_prompt import build_base_system
 from ..storage.memory import as_prompt_block
@@ -63,6 +63,12 @@ def _is_coding_request(messages: list) -> bool:
     """
     del messages
     return state.active_mode == MODE_CODING
+
+
+def _is_reverse_eng_request(messages: list) -> bool:
+    """Return True when the reverse engineering addon should be active."""
+    del messages
+    return state.active_mode == MODE_REVERSE_ENG
 
 
 def _build_static_body() -> str:
@@ -154,9 +160,11 @@ def build_system() -> Union[str, List[Dict]]:
 
     body = _build_static_body()
 
-    # Append coding addon only for coding turns
+    # Append addons based on active mode
     if _is_coding_request(state.messages):
         body += CODING_ADDON
+    elif _is_reverse_eng_request(state.messages):
+        body += REVERSE_ENG_ADDON
 
     body += date_line
 

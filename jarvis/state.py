@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from .constants import (
     PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE, LAST_THEME_FILE,
     SKILLS_CONFIG_FILE,
-    PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING,
+    PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
 )
 
 # auth / client
@@ -85,8 +85,9 @@ active_mode: str = MODE_DEFAULT
 
 # Human-readable labels + accent colours per mode (for statusbar / badges)
 MODE_LABELS: dict = {
-    MODE_DEFAULT: ("DEFAULT", "#8b949e", "dim"),
-    MODE_CODING:  ("⚡ CODING", "#3fb950", "bold"),
+    MODE_DEFAULT:     ("DEFAULT", "#8b949e", "dim"),
+    MODE_CODING:      ("⚡ CODING", "#3fb950", "bold"),
+    MODE_REVERSE_ENG: ("🔐 REVERSE ENG", "#d29922", "bold"),
 }
 
 # ── visual theme ────────────────────────────────────────────────────────────

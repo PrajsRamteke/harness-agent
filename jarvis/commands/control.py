@@ -7,7 +7,7 @@ from ..constants import (
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDER_LABELS, LAST_THEME_FILE,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, models_for,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
-    AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING,
+    AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
 )
 from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
 from ..utils.io import _secure_write
@@ -307,7 +307,7 @@ def _handle_provider(arg: str):
 
 # ── mode helpers ───────────────────────────────────────────────────────────────
 
-_VALID_MODES = (MODE_DEFAULT, MODE_CODING)
+_VALID_MODES = (MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG)
 
 
 def _toggle_coding_mode() -> None:
