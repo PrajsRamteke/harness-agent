@@ -33,7 +33,35 @@ CONTEXT_TOOLS = [
      }, "required": ["paths"]}},
 ]
 
-CORE_TOOLS = CONTEXT_TOOLS + [
+SUBAGENT_TOOL = [
+    {"name":"spawn_subagent","description":(
+        "Spawn an ISOLATED sub-agent to complete an independent task in PARALLEL. "
+        "The sub-agent runs its own full agent loop with its own tools — it can "
+        "read files, search code, execute shell commands, etc. Returns the "
+        "completed result as text.\n\n"
+        "Use this when: the user asks for multiple independent things at once, "
+        "or a single task has clearly separated sub-tasks that can be worked on "
+        "independently (e.g. 'update the API endpoint AND add tests', 'check "
+        "both website A and website B').\n\n"
+        "IMPORTANT:\n"
+        "- The sub-agent is fully independent — it can make mistakes too. "
+        "Always verify the result before presenting to the user.\n"
+        "- For cheap sub-tasks, pass model='deepseek-v4-flash' to save tokens.\n"
+        "- Pass context= with file contents/data you already have so the "
+        "subagent doesn't re-read files unnecessarily.\n"
+        "- Use tools= to restrict capabilities (e.g. tools='read_file,run_bash' "
+        "for safety on untrusted tasks)."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "task":{"type":"string","description":"The specific task/instruction for the sub-agent. Be clear and specific."},
+        "context":{"type":"string","description":"Background context the sub-agent needs (file contents, data, previous results, instructions)."},
+        "tools":{"type":"string","description":"Optional: comma-separated tool names allowed (e.g. 'read_file,run_bash,search_code,write_file'). Empty = all tools."},
+        "model":{"type":"string","description":"Optional: model override (e.g. 'claude-haiku-4-5' for cheap sub-tasks). Defaults to parent model."},
+        "max_turns":{"type":"integer","description":"Max tool-call turns before forcing a result (default 15, max 30)."},
+     },"required":["task"]}},
+]
+
+CORE_TOOLS = CONTEXT_TOOLS + SUBAGENT_TOOL + [
     {"name":"read_file","description":(
         "Read a text file. Refuses node_modules/.venv/build/dist/caches, binary "
         "files (images, archives, compiled), files > 2MB, and outside-project "

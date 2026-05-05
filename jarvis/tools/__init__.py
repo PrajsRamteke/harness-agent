@@ -18,6 +18,7 @@ from .ocr import read_image_text, read_images_text
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .lessons import lesson_save, lesson_search, lesson_list, lesson_delete, LESSON_TOOLS
 from .skills import skill_list, skill_load, SKILL_TOOLS
+from .subagent import spawn_subagent
 from .schemas_core import CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
@@ -52,6 +53,8 @@ FUNC = {
     # context (connected context pack — replaces 5-20 reads with 1 call)
     "resolve_context": resolve_context,
     "read_bundle": read_bundle,
+    # subagent (delegation — spawn independent agent instances)
+    "spawn_subagent": spawn_subagent,
     # mac
     "launch_app": launch_app, "focus_app": focus_app, "quit_app": quit_app,
     "list_apps": list_apps, "frontmost_app": frontmost_app,
