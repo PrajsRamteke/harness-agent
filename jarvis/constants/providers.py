@@ -41,6 +41,7 @@ OPENROUTER_FREE_MODELS = [
     ("z-ai/glm-4.5-air:free",                         "GLM 4.5 Air"),
     ("google/gemma-3-27b-it:free",                    "Gemma 3 27B Instruct"),
     ("nousresearch/hermes-3-llama-3.1-405b:free",     "Hermes 3 Llama 405B"),
+    ("openrouter/owl-alpha",                          "Owl Alpha"),
 ]
 
 OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m2.5:free"

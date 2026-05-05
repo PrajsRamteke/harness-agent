@@ -41,6 +41,7 @@ PRICING = {
     "z-ai/glm-4.5-air:free":                         (0.0, 0.0),
     "google/gemma-3-27b-it:free":                    (0.0, 0.0),
     "nousresearch/hermes-3-llama-3.1-405b:free":     (0.0, 0.0),
+    "openrouter/owl-alpha":                          (0.0, 0.0),
 
     # ── OpenCode Go models (real pricing, help.apiyi) ──────────────────────────
     "glm-5.1":          (1.40,   4.40),    # Zhipu GLM-5.1 (help.apiyi)
