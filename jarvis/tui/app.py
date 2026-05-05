@@ -240,7 +240,8 @@ class JarvisTUI(App):
 
     # ─── lifecycle ─────────────────────────────────────────────────────
     def on_mount(self):
-        self.title = "Jarvis"
+        from ..constants import VERSION
+        self.title = f"Jarvis v{VERSION}"
         self.sub_title = "The better agent"
 
         log = self.query_one("#transcript", RichLog)
@@ -354,6 +355,7 @@ class JarvisTUI(App):
 
         try:
             # Build the same status bar info as _set_status
+            from ..constants import VERSION
             from .. import state
             trace = "shown" if state.show_internal else "hidden"
             lbl, col, _s = state.MODE_LABELS.get(
@@ -369,6 +371,7 @@ class JarvisTUI(App):
                 left.append(f"[dim]#{state.current_session_id}[/]")
 
             right = []
+            right.append(f"[dim]v{VERSION}[/]")
             right.append(f"💬 [dim]{len(state.messages)}[/]")
             right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
             if state.think_mode:
@@ -834,6 +837,7 @@ class JarvisTUI(App):
     def _set_status(self, msg: str):
         try:
             import pathlib
+            from ..constants import VERSION
             from .. import state
             trace = "shown" if state.show_internal else "hidden"
             lbl, col, _s = state.MODE_LABELS.get(
@@ -854,6 +858,7 @@ class JarvisTUI(App):
                 left.append(f"[dim]#{state.current_session_id}[/]")
 
             right = []
+            right.append(f"[dim]v{VERSION}[/]")
             right.append(f"💬 [dim]{len(state.messages)}[/]")
             right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
             if state.think_mode:

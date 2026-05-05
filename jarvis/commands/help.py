@@ -78,6 +78,7 @@ def cmd_help():
             ("/mcp remove <name>", "remove a server config"),
         ]),
         ("Control", [
+            ("/version", "show Jarvis version"),
             ("/think", "toggle extended thinking"),
             ("/verbose", "toggle internal tool trace (thinking panels only with /think on)"),
             ("/auto", "toggle auto-approve bash"),

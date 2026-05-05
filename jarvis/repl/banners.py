@@ -15,12 +15,14 @@ WELCOME_ART = r"""
 
 
 def welcome_banner(compact: bool = False):
+    from ..constants import VERSION
+
     asst = state.theme_colors["asst_border"]
     link = state.theme_colors["project_border"]
     if not compact:
         console.print(f"[{asst}]{WELCOME_ART}[/]")
     console.print(Panel(
-        f"[{asst}]Jarvis[/] — chat, code, and control your Mac.\n"
+        f"[{asst}]Jarvis[/] [dim]v{VERSION}[/] — chat, code, and control your Mac.\n"
         f"[dim][{link}]/help[/] commands · [{link}]F2[/]/[{link}]/verbose[/] internals · [{link}]/exit[/] quit[/]",
         border_style=asst, padding=(0, 2),
     ))
@@ -37,6 +39,8 @@ def _mode_flag() -> str:
 def header_panel(compact: bool = False):
     # Use live cwd so /cd and launch location are reflected immediately.
     import pathlib
+    from ..constants import VERSION
+
     cwd = pathlib.Path.cwd()
     cwd_text = escape(str(cwd))
     pinned_flag = "[#d29922]pinned[/]" if state.pinned_context.strip() else "[dim]no pin[/]"
@@ -54,12 +58,14 @@ def header_panel(compact: bool = False):
             f"mode:{_mode_flag()}",
             f"think:{on_hl if state.think_mode else off}",
             f"tools:{verbose if state.show_internal else quiet}",
+            f"v{VERSION}",
             f"[dim]{cwd_text}[/]",
         ])
         console.print(f"[dim]{flags}[/]")
         return
     flags = " • ".join([
         f"[{asst}]{state.MODEL}[/]",
+        f"v{VERSION}",
         f"mode {_mode_flag()}",
         f"think {on_hl if state.think_mode else off}",
         f"bash {auto_hl if state.auto_approve else ask}",

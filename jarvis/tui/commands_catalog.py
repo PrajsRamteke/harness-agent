@@ -75,6 +75,8 @@ COMMANDS = [
     ("/mcp disconnect ", "disconnect an MCP server"),
     ("/mcp remove ", "remove an MCP server config"),
     ("/mcp reload", "reload MCP config from file"),
+    # Version
+    ("/version", "show Jarvis version"),
     # Control
     ("/think", "toggle extended thinking"),
     ("/verbose", "toggle internal tool trace (thinking UI needs /think)"),

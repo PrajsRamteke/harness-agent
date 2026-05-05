@@ -62,6 +62,17 @@ def handle_control(c: str, arg: str):
         console.print(f"[green]≈ ${estimated_cost():.4f}[/] "
                       f"[dim]({state.total_in} in + {state.total_out} out @ {state.MODEL})[/]")
         return True, None
+    if c == "/version":
+        from ..constants import VERSION
+        console.print(
+            Panel(
+                f"[bold #58a6ff]Jarvis[/] [dim]v[/][bold]{VERSION}[/]\n"
+                f"[dim]{state.MODEL} · {state.provider} · mode: {state.active_mode}[/]",
+                border_style="magenta",
+                padding=(0, 2),
+            )
+        )
+        return True, None
     if c == "/stats":
         import pathlib
         t = Table(show_header=False, box=None, padding=(0, 2))
