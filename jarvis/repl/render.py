@@ -33,6 +33,10 @@ _SERIAL_TOOLS = {
     "clipboard_set", "mac_control", "speck",
     # context — builds/shared state
     "resolve_context", "read_bundle",
+    # JSON-backed storage — file-level read/write races when run in parallel
+    "memory_save", "memory_delete",
+    "lesson_save", "lesson_delete",
+    "skill_list", "skill_load",
 }
 
 # All MCP-prefixed tools are treated as serial (stateful) too.

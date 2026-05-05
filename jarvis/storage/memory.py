@@ -4,10 +4,14 @@ Shape on disk:
     {"facts": [{"id": 1, "text": "name: Prajwal", "ts": 1710000000}, ...],
      "next_id": 2}
 """
-import json, os, time
+import json, os, threading, time
 from typing import List, Dict, Optional
 
 from ..constants import MEMORY_FILE, CONFIG_DIR, FILE_PERMISSION
+
+# Thread-level lock so concurrent tool calls (from ThreadPoolExecutor in
+# render.py) don't race on read/write of the JSON file.
+_file_lock = threading.Lock()
 
 
 def _load() -> Dict:
@@ -30,40 +34,44 @@ def _save(data: Dict) -> None:
 
 
 def list_facts() -> List[Dict]:
-    return _load()["facts"]
+    with _file_lock:
+        return _load()["facts"]
 
 
 def add_fact(text: str) -> Dict:
     text = (text or "").strip()
     if not text:
         raise ValueError("empty fact")
-    data = _load()
-    # dedupe on case-insensitive exact text
-    for f in data["facts"]:
-        if f["text"].lower() == text.lower():
-            return f
-    fact = {"id": data["next_id"], "text": text, "ts": int(time.time())}
-    data["facts"].append(fact)
-    data["next_id"] += 1
-    _save(data)
+    with _file_lock:
+        data = _load()
+        # dedupe on case-insensitive exact text
+        for f in data["facts"]:
+            if f["text"].lower() == text.lower():
+                return f
+        fact = {"id": data["next_id"], "text": text, "ts": int(time.time())}
+        data["facts"].append(fact)
+        data["next_id"] += 1
+        _save(data)
     return fact
 
 
 def delete_fact(fact_id: int) -> bool:
-    data = _load()
-    before = len(data["facts"])
-    data["facts"] = [f for f in data["facts"] if f["id"] != fact_id]
-    if len(data["facts"]) == before:
-        return False
-    _save(data)
+    with _file_lock:
+        data = _load()
+        before = len(data["facts"])
+        data["facts"] = [f for f in data["facts"] if f["id"] != fact_id]
+        if len(data["facts"]) == before:
+            return False
+        _save(data)
     return True
 
 
 def clear_all() -> int:
-    data = _load()
-    n = len(data["facts"])
-    data["facts"] = []
-    _save(data)
+    with _file_lock:
+        data = _load()
+        n = len(data["facts"])
+        data["facts"] = []
+        _save(data)
     return n
 
 
