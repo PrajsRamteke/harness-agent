@@ -93,7 +93,7 @@ Use: `fast_find` with appropriate queries and ext filters, then `read_document` 
 ### Phase 3 — Projects & Work
 1. Find git repos: `fast_find` query=".git" kind="folder" path="~/Desktop" — look for project roots
 2. For each significant repo: check origin remote, main language, purpose
-3. Check known work paths like `~/Desktop/habuild-app/`, `~/Desktop/Prajs/Personal Project/`
+3. Check known work paths like `~/Desktop`
 4. `read_file` on `package.json`, `README.md`, `pyproject.toml`, `Cargo.toml` for project metadata
 5. `memory_save` project summaries (name, git origin, purpose)
 
@@ -107,7 +107,7 @@ Save only what's unusual or distinctive — NOT common tools everyone has.
 
 ### Phase 5 — Interests & Personal
 1. Look at Desktop folders, personal project names for hobby signals
-2. Check if there's a `~/Desktop/Prajs/` or similar personal folder
+2. Check if there's a `~/Desktop` or similar personal folder
 3. Any anime, gaming, music, photography, or other interest signals in folder names, notes, wallpaper files
 4. `fast_find` query="anime" or "attack" or "aot" in Desktop/Downloads
 5. `memory_save` any interesting personal facts
