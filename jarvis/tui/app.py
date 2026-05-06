@@ -53,8 +53,14 @@ def _is_session_picker_command(text: str) -> bool:
 class PromptArea(TextArea):
     """Multi-line prompt input.
 
-    Enter submits. Shift+Enter / Alt+Enter / Ctrl+J insert a newline.
-    Pasting multi-line text is supported natively by TextArea.
+    - Enter submits.
+    - Ctrl+J / Alt+Enter / Ctrl+Enter / Shift+Enter / Ctrl+N insert a newline.
+      Many terminals cannot distinguish Shift+Enter from plain Enter; Ctrl+J
+      is the most portable newline key (it's the literal LF byte).
+    - Trailing backslash before Enter inserts a newline (bash-style continuation).
+    - Ctrl+D / Ctrl+C bubble up to the App so the global Quit / Cancel
+      bindings still fire while the input is focused (TextArea normally
+      swallows Ctrl+D as "delete-forward").
     """
 
     class Submitted(Message):
@@ -64,15 +70,43 @@ class PromptArea(TextArea):
 
     async def _on_key(self, event):  # type: ignore[override]
         key = event.key
-        if key == "enter":
-            event.stop()
-            event.prevent_default()
-            self.post_message(self.Submitted(self.text))
-            return
-        if key in ("shift+enter", "alt+enter", "ctrl+j"):
+        if key in ("shift+enter", "alt+enter", "ctrl+j", "ctrl+enter", "ctrl+n"):
             event.stop()
             event.prevent_default()
             self.insert("\n")
+            return
+        if key == "enter":
+            event.stop()
+            event.prevent_default()
+            buf = self.text or ""
+            n = 0
+            for ch in reversed(buf):
+                if ch == "\\":
+                    n += 1
+                else:
+                    break
+            if n % 2 == 1:
+                self.text = buf[:-1] + "\n"
+                try:
+                    last_line = self.text.count("\n")
+                    self.move_cursor((last_line, 0))
+                except Exception:
+                    pass
+                return
+            self.post_message(self.Submitted(buf))
+            return
+        if key == "ctrl+d":
+            event.stop()
+            event.prevent_default()
+            self.app.exit()
+            return
+        if key == "ctrl+c":
+            event.stop()
+            event.prevent_default()
+            try:
+                self.app.action_cancel_or_quit()
+            except Exception:
+                self.app.exit()
             return
 
 
@@ -229,6 +263,39 @@ class JarvisTUI(App):
         self._turn_t0 = 0.0
         self._activity_spinner_i = 0
         self._spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠏"
+        # Toggled from Ctrl+C to disambiguate cancel → quit when there is no
+        # selection and no in-flight turn. Reset on any next keypress.
+        self._last_ctrl_c_t = 0.0
+        # When True, the next key press is logged to the transcript instead
+        # of being dispatched. Toggled by /keytest so users can see exactly
+        # what their terminal sends for keys like Shift+Enter / Cmd+Enter.
+        self._key_debug = False
+
+    async def _on_key(self, event):  # type: ignore[override]
+        if self._key_debug:
+            self._key_debug = False
+            try:
+                key = getattr(event, "key", "?")
+                name = getattr(event, "name", "?")
+                char = getattr(event, "character", None)
+                aliases = list(getattr(event, "key_aliases", []) or [])
+                char_repr = repr(char) if char is not None else "<none>"
+                self._tui_console.print(
+                    f"[#3fb950]🔑 keytest:[/] [bold]{key}[/]  "
+                    f"[dim](name={name}, char={char_repr}, aliases={aliases})[/]"
+                )
+                if key == "enter" and name == "enter":
+                    self._tui_console.print(
+                        "[dim]→ your terminal sent bare Enter — it doesn't "
+                        "distinguish Shift+Enter from Enter. Use Ctrl+N / Ctrl+J / "
+                        "Alt+Enter / \\\\+Enter, or enable the Kitty keyboard "
+                        "protocol in your terminal.[/]"
+                    )
+            except Exception:
+                pass
+            event.stop()
+            event.prevent_default()
+            return
 
     def compose(self) -> ComposeResult:
         with Vertical(id="main"):
@@ -595,6 +662,16 @@ class JarvisTUI(App):
             self.exit()
             return
 
+        # /keytest — capture and log the next keypress so users can see what
+        # their terminal sends for keys like Shift+Enter, Cmd+Enter, etc.
+        if stripped == "/keytest":
+            self._key_debug = True
+            self._tui_console.print(
+                "[#d29922]🔑 keytest armed —[/] press any key to see what your "
+                "terminal sent (one shot)."
+            )
+            return
+
         # ── If busy → queue the prompt instead of discarding ──────────────
         if self._busy:
             state.prompt_queue.append(text)
@@ -930,6 +1007,47 @@ class JarvisTUI(App):
             except Exception:
                 pass
 
+    def _copy_to_system_clipboard(self, text: str) -> bool:
+        """Best-effort cross-platform clipboard copy.
+
+        Tries pyperclip first, then platform-native CLIs (pbcopy / clip /
+        wl-copy / xclip / xsel). Returns True on success.
+        """
+        if not text:
+            return False
+        try:
+            import pyperclip  # type: ignore
+            pyperclip.copy(text)
+            return True
+        except Exception:
+            pass
+
+        import platform
+        import shutil
+        import subprocess
+
+        sysname = platform.system()
+        candidates: list[list[str]] = []
+        if sysname == "Darwin":
+            candidates.append(["pbcopy"])
+        elif sysname == "Windows":
+            candidates.append(["clip"])
+        else:
+            if shutil.which("wl-copy"):
+                candidates.append(["wl-copy"])
+            if shutil.which("xclip"):
+                candidates.append(["xclip", "-selection", "clipboard"])
+            if shutil.which("xsel"):
+                candidates.append(["xsel", "--clipboard", "--input"])
+
+        for cmd in candidates:
+            try:
+                subprocess.run(cmd, input=text.encode("utf-8"), check=True, timeout=2)
+                return True
+            except Exception:
+                continue
+        return False
+
     def action_cancel_or_quit(self):
         # If the user has a text selection in the transcript, Ctrl+C should
         # copy it (matching normal terminal expectations) instead of
@@ -939,14 +1057,16 @@ class JarvisTUI(App):
         except Exception:
             selected = None
         if selected:
-            self.copy_to_clipboard(selected)
             try:
-                import subprocess
-                subprocess.run(["pbcopy"], input=selected.encode(), check=False)
+                self.copy_to_clipboard(selected)
             except Exception:
                 pass
-            self.screen.clear_selection()
-            self._set_status("copied")
+            sys_ok = self._copy_to_system_clipboard(selected)
+            try:
+                self.screen.clear_selection()
+            except Exception:
+                pass
+            self._set_status("copied" if sys_ok else "copied (terminal)")
             return
         if self._busy:
             from ..repl.stream import cancel_current_stream
@@ -956,8 +1076,15 @@ class JarvisTUI(App):
                 self._turn_done()
             else:
                 self._set_status("cancelling…")
-        else:
+            return
+
+        # Idle Ctrl+C: require a confirmation press within 2s before quitting.
+        now = time.monotonic()
+        if now - self._last_ctrl_c_t < 2.0:
             self.exit()
+            return
+        self._last_ctrl_c_t = now
+        self._set_status("press Ctrl+C again to quit (or Ctrl+D)")
 
 
 def _escape(s: str) -> str:

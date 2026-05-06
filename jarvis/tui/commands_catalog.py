@@ -3,6 +3,7 @@
 COMMANDS = [
     # Session
     ("/help", "show command reference"),
+    ("/help ", "search help for a keyword (e.g. /help session)"),
     ("/new", "start a fresh conversation (keeps pinned context)"),
     ("/reset", "clear conversation"),
     ("/retry", "re-send last user message"),
@@ -16,6 +17,7 @@ COMMANDS = [
     # /new does the same thing — /session new removed as duplicate
     ("/session delete ", "delete a stored session"),
     ("/clear", "clear the terminal screen"),
+    ("/keytest", "show what key your terminal sends (Shift+Enter debug)"),
     ("/exit", "quit"),
     # Context
     ("/pin ", "pin context injected into every system prompt"),

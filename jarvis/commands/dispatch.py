@@ -29,7 +29,7 @@ def handle_slash(inp: str):
     if c == "/exit":
         return ("exit", False, inp)
     if c == "/help":
-        cmd_help(); return ("ok", False, inp)
+        cmd_help(arg); return ("ok", False, inp)
     if c in ("/session", "/sessions"):
         cmd_session(arg); return ("ok", False, inp)
 
