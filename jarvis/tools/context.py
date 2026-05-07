@@ -98,16 +98,31 @@ def _rel_path(p: pathlib.Path) -> str:
 
 
 def _scan_source_files(root: pathlib.Path) -> List[pathlib.Path]:
-    """Walk root and return all code/ config/ test files, skipping undesirables."""
+    """Walk root and return all code/ config/ test files, skipping undesirables.
+
+    Uses Path.walk() (Python 3.12+) instead of rglob so we can PRUNE
+    hidden/skip dirs at traversal time instead of iterating every file inside them.
+    """
     files = []
-    for p in root.rglob("*"):
-        if not p.is_file() or _should_skip(p):
-            continue
-        ext = p.suffix.lower()
-        if ext in _CODE_EXTS:
-            files.append(p)
-        elif _CONFIG_FILE_PATTERNS.search(p.name):
-            files.append(p)
+    for root_dir, dirs, file_names in root.walk():
+        # Prune skip dirs in-place so walk() never descends into them
+        # (must match _SKIP_DIR_NAMES and SKIP_DIRS from dirs.py)
+        pruned = []
+        for d in dirs:
+            if d in _SKIP_DIR_NAMES:
+                continue
+            pruned.append(d)
+        dirs[:] = pruned
+
+        for name in file_names:
+            p = root_dir / name
+            ext = p.suffix.lower()
+            if ext in _SKIP_EXTS:
+                continue
+            if ext in _CODE_EXTS:
+                files.append(p)
+            elif _CONFIG_FILE_PATTERNS.search(name):
+                files.append(p)
     return files
 
 
@@ -373,26 +388,48 @@ def _extract_content_keywords(source: str, max_words: int = 30) -> List[str]:
     return [w for w in words if w.lower() not in stopwords and len(w) > 1][:max_words]
 
 
-def build_graph(root: Optional[pathlib.Path] = None) -> FileGraph:
+def build_graph(
+    root: Optional[pathlib.Path] = None,
+    source_files: Optional[List[pathlib.Path]] = None,
+    mtimes: Optional[Dict[FileRel, float]] = None,
+) -> FileGraph:
     """Build (or rebuild) the repo graph by scanning all source files.
 
-    Results are cached globally. Call with force=True to rebuild.
+    Results are cached globally.
+    Pass pre-scanned ``source_files`` and ``mtimes`` to avoid a redundant
+    re-scan when the caller already has them (e.g. from _get_or_build_graph).
     """
     global _graph, _graph_mtimes, _graph_root_mtime
 
     root = root or CWD
     graph: FileGraph = {}
 
-    # Track mtimes for cache invalidation
-    mtimes: Dict[FileRel, float] = {}
-    all_files = _scan_source_files(root)
+    if source_files is not None:
+        all_files = source_files
+    else:
+        all_files = _scan_source_files(root)
+
+    if mtimes is not None:
+        _mtimes = mtimes
+    else:
+        _mtimes = {}
+        for f in all_files:
+            rel = _rel_path(f)
+            try:
+                _mtimes[rel] = f.stat().st_mtime
+            except OSError:
+                _mtimes[rel] = 0.0
 
     for f in all_files:
         rel = _rel_path(f)
-        try:
-            mtimes[rel] = f.stat().st_mtime
-        except OSError:
-            mtimes[rel] = 0.0
+        # If mtimes was passed in, skip re-stat (already done by caller)
+        if mtimes is not None and rel in _mtimes:
+            pass
+        elif rel not in _mtimes:
+            try:
+                _mtimes[rel] = f.stat().st_mtime
+            except OSError:
+                _mtimes[rel] = 0.0
 
         ext = f.suffix.lower()
         graph[rel] = {
@@ -451,35 +488,38 @@ def build_graph(root: Optional[pathlib.Path] = None) -> FileGraph:
             graph[rel]["configs"] = [rel]
 
     _graph = graph
-    _graph_mtimes = mtimes
+    _graph_mtimes = _mtimes
     _graph_root_mtime = time.time()
     return graph
 
 
-def _graph_needs_rebuild(root: pathlib.Path) -> bool:
-    """Check if any source files have changed since last graph build."""
-    global _graph_mtimes
-    if _graph is None:
-        return True
+def _get_or_build_graph() -> FileGraph:
+    """Return cached graph, rebuilding if stale (single scan even on rebuild)."""
+    global _graph, _graph_mtimes
 
-    # Quick check: scan dirs and compare mtimes
-    for f in _scan_source_files(root):
+    if _graph is None:
+        return build_graph()
+
+    # Scan once. If mtimes match, reuse cache. Otherwise rebuild from same scan.
+    files = _scan_source_files(CWD)
+    mtimes: Dict[FileRel, float] = {}
+    stale = False
+    for f in files:
         rel = _rel_path(f)
         try:
             cur = f.stat().st_mtime
         except OSError:
             continue
+        mtimes[rel] = cur
         prev = _graph_mtimes.get(rel)
         if prev is None or abs(cur - prev) > 0.001:
-            return True
-    return False
+            stale = True
 
+    if not stale:
+        return _graph  # type: ignore
 
-def _get_or_build_graph() -> FileGraph:
-    """Return cached graph, rebuilding if stale."""
-    if _graph_needs_rebuild(CWD):
-        return build_graph()
-    return _graph  # type: ignore
+    # Rebuild from already-scanned file list (avoids a second scan)
+    return build_graph(source_files=files, mtimes=mtimes)
 
 
 # =============================================================================
