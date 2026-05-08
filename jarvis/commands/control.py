@@ -286,7 +286,7 @@ def _handle_provider(arg: str):
             title="🌐 provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1/2/3/4, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
                           "[cyan]/provider openrouter[/], [cyan]/provider opencode[/], "

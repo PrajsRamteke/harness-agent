@@ -17,7 +17,7 @@ def _choose_provider() -> str:
     ))
     while True:
         try:
-            ch = console.input("choice [1/2/3/4]: ").strip().lower()
+            ch = console.input("choice [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen]: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[yellow]cancelled[/]"); sys.exit(1)
         if ch in ("1", "anthropic", "a"):          return PROVIDER_ANTHROPIC
