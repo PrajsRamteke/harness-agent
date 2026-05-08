@@ -1,6 +1,6 @@
-# Project Context
+# CLAUDE.md
 
-This file provides guidance to AI coding assistants when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Commands
 
@@ -25,7 +25,11 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 
 ## Environment Variables
 
-- `ANTHROPIC_API_KEY` — bypass auth prompt
+- `ANTHROPIC_API_KEY` — bypass auth prompt (pins provider to Anthropic)
+- `OPENROUTER_API_KEY` — OpenRouter key (pins provider to OpenRouter if no Anthropic state exists)
+- `OPENCODE_API_KEY` — OpenCode Go key
+- `OPENCODE_ZEN_API_KEY` — OpenCode Zen key
+- `HARNESS_PROVIDER` — pin provider explicitly: `anthropic`, `openrouter`, `opencode`, or `opencode_zen`
 - `CLAUDE_MODEL` — override default model (default: `sonnet-4-6`)
 - `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent tool workers (default/cap: 64)
 - `HARNESS_HTTP_READ_TIMEOUT` — streaming response timeout in seconds (default: 240 OpenRouter, 600 direct)
@@ -51,6 +55,7 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 | `commands/` | Slash command handlers dispatched from `dispatch.py` |
 | `storage/` | SQLite session history (`sessions.py`), user memory (`memory.py`), skills (`skills.py`), prefs (`prefs.py`) |
 | `mcp/` | MCP server management: config (`config.py`), registry (`registry.py`), manager (`manager.py`) |
+| `utils/` | Shared helpers: `io.py` (secure file writes), `http.py`, `html_clean.py`, `serialize.py`, `time_fmt.py` |
 | `state.py` | **Module-level mutable globals** shared across the package (client, messages, model, flags, theme, mode) — mutate via `jarvis.state.<name> = ...` |
 | `constants/` | Paths (`~/.config/claude-agent/`), model names, OAuth endpoints, system prompt, provider identifiers |
 
@@ -69,9 +74,9 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 2. Add its JSON schema to `schemas_core.py` (always available) or a new group dict.
 3. Register the group in `jarvis/tools/__init__.py` (`TOOL_GROUPS`, `TOOL_NAME_TO_GROUP`, `FUNC`).
 4. If specialized, add a regex trigger in `tools/router.py:select_tools()`.
-5. Wire the tool name → handler in `repl/render.py` (dispatches `tool_use` blocks) — actually `FUNC` dict in `tools/__init__.py` handles this automatically.
+5. Wire the tool name → handler by adding it to the `FUNC` dict in `tools/__init__.py` — this is what `repl/render.py` uses to dispatch `tool_use` blocks.
 
 ### Theme and mode system
 
 - Two built-in themes (`"red"`, `"purple"`) stored in `state.THEMES`; persisted to `~/.config/claude-agent/last_theme.json`.
-- Two modes (`"default"`, `"coding"`) control which system prompt addons are active; defined in `constants/` and applied in `repl/system.py`.
+- Three modes (`"default"`, `"coding"`, `"reverse_eng"`) control which system prompt addons are active; defined in `constants/` and applied in `repl/system.py`.
