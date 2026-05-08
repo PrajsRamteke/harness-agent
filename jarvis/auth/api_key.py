@@ -1,6 +1,5 @@
 """API key prompt / load."""
 import os, sys
-from getpass import getpass
 
 from ..console import console, Panel
 from ..constants import KEY_FILE
@@ -17,7 +16,7 @@ def prompt_for_key(reason: str = "") -> str:
         f"Saved to: [dim]{KEY_FILE}[/] (chmod 600)",
         title="Setup · API key", border_style="yellow"
     ))
-    key = getpass("Paste sk-ant- key (hidden): ").strip()
+    key = console.input("Paste sk-ant- key: ").strip()
     if not key.startswith("sk-ant-"):
         console.print("[red]Key must start with sk-ant-[/]"); sys.exit(1)
     _secure_write(KEY_FILE, key)

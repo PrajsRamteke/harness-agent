@@ -1,6 +1,5 @@
 """OpenCode Go API key prompt / load."""
 import os, sys
-from getpass import getpass
 
 from ..console import console, Panel
 from ..constants import OPENCODE_KEY_FILE
@@ -17,7 +16,7 @@ def prompt_for_opencode_key(reason: str = "") -> str:
         f"Saved to: [dim]{OPENCODE_KEY_FILE}[/] (chmod 600)",
         title="Setup · OpenCode Go key", border_style="yellow"
     ))
-    key = getpass("Paste OpenCode Go key (hidden): ").strip()
+    key = console.input("Paste OpenCode Go key: ").strip()
     if not key:
         console.print("[red]Key cannot be empty[/]"); sys.exit(1)
     _secure_write(OPENCODE_KEY_FILE, key)

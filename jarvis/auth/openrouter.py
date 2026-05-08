@@ -1,6 +1,5 @@
 """OpenRouter API key prompt / load. Mirrors api_key.py but for OpenRouter."""
 import os, sys
-from getpass import getpass
 
 from ..console import console, Panel
 from ..constants import OPENROUTER_KEY_FILE
@@ -17,7 +16,7 @@ def prompt_for_openrouter_key(reason: str = "") -> str:
         f"Saved to: [dim]{OPENROUTER_KEY_FILE}[/] (chmod 600)",
         title="Setup · OpenRouter key", border_style="yellow"
     ))
-    key = getpass("Paste sk-or- key (hidden): ").strip()
+    key = console.input("Paste sk-or- key: ").strip()
     if not key.startswith("sk-or-"):
         console.print("[red]Key must start with sk-or-[/]"); sys.exit(1)
     _secure_write(OPENROUTER_KEY_FILE, key)
