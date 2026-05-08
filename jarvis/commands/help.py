@@ -80,7 +80,7 @@ _SECTIONS = [
         ("/auto", "toggle auto-approve bash"),
         ("/multi", "enter a multiline message (end with ';;' line)"),
         ("/model <name>", "switch model"),
-        ("/provider <name>", "switch provider (anthropic/openrouter)"),
+        ("/provider <name>", "switch provider (anthropic/openrouter/opencode/opencode_zen)"),
         ("/tokens", "usage so far"),
         ("/cost", "estimated USD cost of session"),
         ("/stats", "session stats (time, msgs, tools, tokens)"),

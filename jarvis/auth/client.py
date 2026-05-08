@@ -11,10 +11,11 @@ import httpx
 
 from ..console import console, Anthropic, APIStatusError, APIConnectionError
 from ..constants import (
-    KEY_FILE, OPENROUTER_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
+    KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_ZEN_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
     OAUTH_BETA_HEADER, OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL,
+    OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
     MODEL as _DEFAULT_ANTHROPIC_MODEL,
-    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
+    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
 )
 from ..utils.io import _secure_write
@@ -22,6 +23,7 @@ from .. import state
 from .api_key import load_key, prompt_for_key
 from .openrouter import load_openrouter_key, prompt_for_openrouter_key
 from .opencode import load_opencode_key, prompt_for_opencode_key
+from .opencode_zen import load_opencode_zen_key, prompt_for_opencode_zen_key
 from .opencode_client import OpenCodeClient
 from .oauth_tokens import (
     load_oauth_tokens, clear_oauth_tokens, oauth_refresh, get_fresh_oauth_token,
@@ -89,7 +91,7 @@ def _build_client_from_mode(mode: str) -> Anthropic:
 def _resolve_provider() -> str:
     """Decide provider from env → stored → prompt, preserving legacy behavior."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
-    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE):
+    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
         return env_provider
     # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -98,9 +100,11 @@ def _resolve_provider() -> str:
         return PROVIDER_OPENROUTER
     if os.getenv("OPENCODE_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
         return PROVIDER_OPENCODE
+    if os.getenv("OPENCODE_ZEN_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
+        return PROVIDER_OPENCODE_ZEN
     if PROVIDER_FILE.exists():
         stored = PROVIDER_FILE.read_text().strip()
-        if stored in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE):
+        if stored in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
             return stored
     # Legacy: any existing Anthropic state means Anthropic (preserves old flow).
     if AUTH_MODE_FILE.exists() or KEY_FILE.exists() or load_oauth_tokens():
@@ -111,6 +115,11 @@ def _resolve_provider() -> str:
 def _build_opencode_client() -> OpenCodeClient:
     key = load_opencode_key()
     return OpenCodeClient(api_key=key)
+
+
+def _build_opencode_zen_client() -> OpenCodeClient:
+    key = load_opencode_zen_key()
+    return OpenCodeClient(api_key=key, base_url=f"{OPENCODE_ZEN_BASE_URL}/")
 
 
 def make_client():
@@ -136,6 +145,24 @@ def make_client():
                     continue
                 raise
         console.print("[red]Too many OpenCode auth failures[/]"); sys.exit(1)
+
+    if state.provider == PROVIDER_OPENCODE_ZEN:
+        from ..constants import OPENCODE_ZEN_DEFAULT_MODEL
+        if not state.MODEL or state.MODEL.startswith("claude-") or "/" in state.MODEL:
+            state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
+        for attempt in range(DEFAULT_RETRIES):
+            try:
+                c = _build_opencode_zen_client()
+                return c
+            except Exception as e:
+                if "401" in str(e) or "unauthorized" in str(e).lower():
+                    OPENCODE_ZEN_KEY_FILE.unlink(missing_ok=True)
+                    prompt_for_opencode_zen_key(
+                        reason="Stored OpenCode Zen key rejected. Please re-enter."
+                    )
+                    continue
+                raise
+        console.print("[red]Too many OpenCode Zen auth failures[/]"); sys.exit(1)
 
     if state.provider == PROVIDER_OPENROUTER:
         if "/" not in state.MODEL:

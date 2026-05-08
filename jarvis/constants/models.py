@@ -59,6 +59,11 @@ PRICING = {
     "minimax-m2.5":     (0.30,   1.20),    # MiniMax M2.5 (help.apiyi)
     "qwen3.6-plus":     (0.50,   3.00),    # Qwen 3.6 Plus (help.apiyi)
     "qwen3.5-plus":     (0.20,   1.20),    # Qwen 3.5 Plus (help.apiyi)
+
+    # ── OpenCode Zen models (free tier) ─────────────────────────────────────────
+    "minimax-m2.5-free":       (0.0, 0.0),
+    "hy3-preview-free":        (0.0, 0.0),
+    "nemotron-3-super-free":   (0.0, 0.0),
 }
 
 # ── Numeric / behavior constants ───────────────────────────────────────────────

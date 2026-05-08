@@ -196,7 +196,7 @@ def _openai_response_to_anthropic(response) -> _FakeMessage:
     msg = choice.message
     content: list = []
 
-    reasoning_content = getattr(msg, "reasoning_content", None)
+    reasoning_content = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
     if reasoning_content:
         content.append(_ContentBlock(type="thinking", thinking=reasoning_content))
     if msg.content:
@@ -272,7 +272,7 @@ class _OpenCodeStream:
         if hasattr(chunk, "usage") and chunk.usage is not None:
             self._usage_obj = chunk.usage
         text = None
-        reasoning_content = getattr(delta, "reasoning_content", None)
+        reasoning_content = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
         if reasoning_content:
             self._collected_reasoning.append(reasoning_content)
         if delta.content:
@@ -469,12 +469,15 @@ class _OpenCodeMessages:
 # ---------------------------------------------------------------------------
 
 class OpenCodeClient:
-    """Drop-in Anthropic client replacement for OpenCode Go provider."""
+    """Drop-in Anthropic client replacement for OpenAI-compatible providers.
 
-    def __init__(self, api_key: str):
+    Supports both OpenCode Go (default) and OpenCode Zen (via base_url override).
+    """
+
+    def __init__(self, api_key: str, base_url: str | None = None):
         self._oai = OpenAI(
             api_key=api_key,
-            base_url=f"{OPENCODE_BASE_URL}/",
+            base_url=base_url or f"{OPENCODE_BASE_URL}/",
         )
         self.messages = _OpenCodeMessages(self._oai)
 

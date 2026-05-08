@@ -6,10 +6,11 @@ OpenRouter slug manually at the prompt.
 """
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
-PROVIDERS = ("anthropic", "openrouter", "opencode")
+PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
+PROVIDER_OPENCODE_ZEN = "opencode_zen"
 
 # ── Auth mode identifiers ─────────────────────────────────────────────────────
 AUTH_API_KEY = "api_key"
@@ -19,6 +20,7 @@ PROVIDER_LABELS = {
     PROVIDER_ANTHROPIC: "Anthropic",
     PROVIDER_OPENROUTER: "OpenRouter",
     PROVIDER_OPENCODE: "OpenCode Go",
+    PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
 }
 
 ANTHROPIC_MODELS = [
@@ -49,8 +51,10 @@ OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m2.5:free"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
 OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
+OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 
 OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
+OPENCODE_ZEN_DEFAULT_MODEL = "minimax-m2.5-free"
 
 OPENCODE_MODELS = [
     ("glm-5.1",         "GLM-5.1 — latest GLM model"),
@@ -69,10 +73,67 @@ OPENCODE_MODELS = [
     ("qwen3.5-plus",    "Qwen3.5 Plus"),
 ]
 
+OPENCODE_ZEN_MODELS = [
+    ("minimax-m2.5-free",      "MiniMax M2.5 Free — default"),
+    ("hy3-preview-free",       "HY3 Preview Free"),
+    ("nemotron-3-super-free",  "Nemotron 3 Super Free"),
+]
+
+
+def connected_providers() -> set[str]:
+    """Return set of provider identifiers that have configured API keys (file or env).
+
+    If no provider has any configured key, returns all providers (first-run fallback)
+    so the model picker isn't an empty list.
+    """
+    import os
+    connected: set[str] = set()
+
+    # ── Environment variables (fast, no file I/O) ──────────────────────────
+    if os.getenv("ANTHROPIC_API_KEY"):
+        connected.add(PROVIDER_ANTHROPIC)
+    if os.getenv("OPENROUTER_API_KEY"):
+        connected.add(PROVIDER_OPENROUTER)
+    if os.getenv("OPENCODE_API_KEY"):
+        connected.add(PROVIDER_OPENCODE)
+    if os.getenv("OPENCODE_ZEN_API_KEY"):
+        connected.add(PROVIDER_OPENCODE_ZEN)
+
+    # ── Key files on disk ──────────────────────────────────────────────────
+    # Lazy import to avoid circular dependency (paths → no providers imports)
+    from .paths import (
+        KEY_FILE, OAUTH_FILE, OPENROUTER_KEY_FILE,
+        OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
+    )
+
+    def _has_content(p) -> bool:
+        try:
+            return p.exists() and bool(p.read_text().strip())
+        except OSError:
+            return False
+
+    if _has_content(KEY_FILE):
+        connected.add(PROVIDER_ANTHROPIC)
+    if OAUTH_FILE.exists():
+        connected.add(PROVIDER_ANTHROPIC)
+    if _has_content(OPENROUTER_KEY_FILE):
+        connected.add(PROVIDER_OPENROUTER)
+    if _has_content(OPENCODE_KEY_FILE):
+        connected.add(PROVIDER_OPENCODE)
+    if _has_content(OPENCODE_ZEN_KEY_FILE):
+        connected.add(PROVIDER_OPENCODE_ZEN)
+
+    # First run — no keys at all → show everything so user can see options
+    if not connected:
+        return set(PROVIDERS)
+    return connected
+
 
 def models_for(provider: str):
     if provider == PROVIDER_OPENROUTER:
         return OPENROUTER_FREE_MODELS
     if provider == PROVIDER_OPENCODE:
         return OPENCODE_MODELS
+    if provider == PROVIDER_OPENCODE_ZEN:
+        return OPENCODE_ZEN_MODELS
     return ANTHROPIC_MODELS

@@ -2,27 +2,29 @@
 import sys
 
 from ..console import console, Panel
-from ..constants import PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, AUTH_API_KEY, AUTH_OAUTH
+from ..constants import PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, AUTH_API_KEY, AUTH_OAUTH
 
 
 def _choose_provider() -> str:
-    """Pick Anthropic, OpenRouter, or OpenCode Go."""
+    """Pick Anthropic, OpenRouter, OpenCode Go, or OpenCode Zen."""
     console.print(Panel(
         "[bold]Which provider would you like to use?[/]\n\n"
-        "  [cyan]1[/]  Anthropic     [dim](Claude models — API key or Pro/Max login)[/]\n"
-        "  [cyan]2[/]  OpenRouter    [dim](free & paid models from many providers)[/]\n"
-        "  [cyan]3[/]  OpenCode Go   [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n",
+        "  [cyan]1[/]  Anthropic          [dim](Claude models — API key or Pro/Max login)[/]\n"
+        "  [cyan]2[/]  OpenRouter         [dim](free & paid models from many providers)[/]\n"
+        "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
+        "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax M2.5 Free, HY3, Nemotron)[/]\n",
         title="🌐 Provider", border_style="cyan",
     ))
     while True:
         try:
-            ch = console.input("choice [1/2/3]: ").strip().lower()
+            ch = console.input("choice [1/2/3/4]: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[yellow]cancelled[/]"); sys.exit(1)
         if ch in ("1", "anthropic", "a"):          return PROVIDER_ANTHROPIC
         if ch in ("2", "openrouter", "or"):        return PROVIDER_OPENROUTER
         if ch in ("3", "opencode", "oc", "go"):    return PROVIDER_OPENCODE
-        console.print("[red]enter 1, 2, or 3[/]")
+        if ch in ("4", "opencode_zen", "zen", "z"): return PROVIDER_OPENCODE_ZEN
+        console.print("[red]enter 1, 2, 3, or 4[/]")
 
 
 def _choose_auth_mode() -> str:

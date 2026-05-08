@@ -3,10 +3,12 @@ import os, time
 
 from ..console import console, Panel, Table
 from ..constants import (
-    AVAILABLE_MODELS, KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE,
-    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDER_LABELS, LAST_THEME_FILE,
-    OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, models_for,
-    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
+    AVAILABLE_MODELS, KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
+    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, LAST_THEME_FILE,
+    OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
+    OPENCODE_ZEN_MODELS,
+    models_for,
+    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
 )
 from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
@@ -16,7 +18,8 @@ from ..auth.oauth_tokens import load_oauth_tokens, clear_oauth_tokens
 from ..auth.oauth_flow import oauth_login
 from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
 from ..auth.opencode import prompt_for_opencode_key, load_opencode_key
-from ..auth.client import _build_client_from_mode, _build_opencode_client
+from ..auth.opencode_zen import prompt_for_opencode_zen_key, load_opencode_zen_key
+from ..auth.client import _build_client_from_mode, _build_opencode_client, _build_opencode_zen_client
 from ..repl.banners import header_panel
 from ..repl.stats import estimated_cost
 from ..storage.prefs import save_last_model
@@ -131,20 +134,27 @@ def handle_control(c: str, arg: str):
 
 
 def _all_models():
-    """Combined list: [(provider, model_id, description), ...]."""
-    rows = [(PROVIDER_ANTHROPIC, m, d) for m, d in models_for(PROVIDER_ANTHROPIC)]
-    rows += [(PROVIDER_OPENROUTER, m, d) for m, d in models_for(PROVIDER_OPENROUTER)]
-    rows += [(PROVIDER_OPENCODE, m, d) for m, d in models_for(PROVIDER_OPENCODE)]
+    """Combined list: [(provider, model_id, description), ...] — only shows
+    providers whose API keys are configured (file or env)."""
+    from ..constants import connected_providers, models_for
+    providers = connected_providers()
+    rows = []
+    for prov in PROVIDERS:  # keep display order
+        if prov in providers:
+            rows += [(prov, m, d) for m, d in models_for(prov)]
     return rows
 
 
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
+_OPENCODE_ZEN_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE_ZEN)}
 
 
 def _provider_for_model(model: str) -> str:
     """Determine provider from model id."""
     if model in _OPENCODE_MODEL_IDS:
         return PROVIDER_OPENCODE
+    if model in _OPENCODE_ZEN_MODEL_IDS:
+        return PROVIDER_OPENCODE_ZEN
     if "/" in model:
         return PROVIDER_OPENROUTER
     return PROVIDER_ANTHROPIC
@@ -235,6 +245,14 @@ def _handle_auth():
             k = OPENCODE_KEY_FILE.read_text().strip()
             lines.append(f"key: …{k[-6:]}")
         lines.append(f"model: [cyan]{state.MODEL}[/]")
+    elif state.provider == PROVIDER_OPENCODE_ZEN:
+        has_env = bool(os.getenv("OPENCODE_ZEN_API_KEY"))
+        lines.append("auth: [bold]API key[/]")
+        lines.append("source: " + ("env OPENCODE_ZEN_API_KEY" if has_env else f"{OPENCODE_ZEN_KEY_FILE}"))
+        if not has_env and OPENCODE_ZEN_KEY_FILE.exists():
+            k = OPENCODE_ZEN_KEY_FILE.read_text().strip()
+            lines.append(f"key: …{k[-6:]}")
+        lines.append(f"model: [cyan]{state.MODEL}[/]")
     else:
         lines.append(f"auth: [bold]{state.auth_mode}[/]")
         if state.auth_mode == AUTH_OAUTH:
@@ -259,23 +277,27 @@ def _handle_provider(arg: str):
     if not target:
         console.print(Panel(
             f"current provider: [bold cyan]{PROVIDER_LABELS.get(state.provider, state.provider)}[/]\n\n"
-            "  [cyan]1[/]  Anthropic     [dim](Claude models)[/]\n"
-            "  [cyan]2[/]  OpenRouter    [dim](free & paid)[/]\n"
-            "  [cyan]3[/]  OpenCode Go   [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n\n"
-            "usage: [dim]/provider anthropic[/] or [dim]/provider openrouter[/] or [dim]/provider opencode[/]",
+            "  [cyan]1[/]  Anthropic          [dim](Claude models)[/]\n"
+            "  [cyan]2[/]  OpenRouter         [dim](free & paid)[/]\n"
+            "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
+            "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n\n"
+            "usage: [dim]/provider anthropic[/], [dim]/provider openrouter[/], "
+            "[dim]/provider opencode[/], or [dim]/provider opencode_zen[/]",
             title="🌐 provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1/2/3, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1/2/3/4, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
-                          "[cyan]/provider openrouter[/], or [cyan]/provider opencode[/] to switch.[/]")
+                          "[cyan]/provider openrouter[/], [cyan]/provider opencode[/], "
+                          "or [cyan]/provider opencode_zen[/] to switch.[/]")
             return
-        if sel in ("1", "anthropic", "a"):       target = PROVIDER_ANTHROPIC
-        elif sel in ("2", "openrouter", "or"):   target = PROVIDER_OPENROUTER
-        elif sel in ("3", "opencode", "oc"):     target = PROVIDER_OPENCODE
+        if sel in ("1", "anthropic", "a"):             target = PROVIDER_ANTHROPIC
+        elif sel in ("2", "openrouter", "or"):         target = PROVIDER_OPENROUTER
+        elif sel in ("3", "opencode", "oc"):           target = PROVIDER_OPENCODE
+        elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
         else: return
-    if target not in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE):
+    if target not in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
         console.print(f"[red]unknown provider: {target}[/]"); return
     if target == state.provider:
         console.print(f"[dim]already on {PROVIDER_LABELS[target]}[/]"); return
@@ -295,6 +317,11 @@ def _handle_provider(arg: str):
             state.MODEL = OPENCODE_DEFAULT_MODEL
         if not os.getenv("OPENCODE_API_KEY") and not OPENCODE_KEY_FILE.exists():
             prompt_for_opencode_key()
+    elif target == PROVIDER_OPENCODE_ZEN:
+        if state.MODEL not in _OPENCODE_ZEN_MODEL_IDS:
+            state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
+        if not os.getenv("OPENCODE_ZEN_API_KEY") and not OPENCODE_ZEN_KEY_FILE.exists():
+            prompt_for_opencode_zen_key()
     else:
         if "/" in state.MODEL or state.MODEL in _OPENCODE_MODEL_IDS:
             state.MODEL = _DEFAULT_ANTHROPIC_MODEL
@@ -302,6 +329,8 @@ def _handle_provider(arg: str):
     try:
         if target == PROVIDER_OPENCODE:
             state.client = _build_opencode_client()
+        elif target == PROVIDER_OPENCODE_ZEN:
+            state.client = _build_opencode_zen_client()
         else:
             state.client = _build_client_from_mode(
                 PROVIDER_OPENROUTER if target == PROVIDER_OPENROUTER else state.auth_mode

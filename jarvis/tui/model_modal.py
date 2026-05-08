@@ -72,11 +72,12 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         q = query.strip().lower()
         opts = self.query_one("#model_list", OptionList)
         opts.clear_options()
-        rows = (
-            [("anthropic", m, d) for m, d in models_for("anthropic")]
-            + [("openrouter", m, d) for m, d in models_for("openrouter")]
-            + [("opencode", m, d) for m, d in models_for("opencode")]
-        )
+        from ..constants import connected_providers, models_for, PROVIDERS, PROVIDER_LABELS
+        providers = connected_providers()
+        rows = []
+        for prov in PROVIDERS:
+            if prov in providers:
+                rows += [(prov, m, d) for m, d in models_for(prov)]
         matched = 0
         for prov, m, desc in rows:
             if q and q not in m.lower() and q not in desc.lower() and q not in PROVIDER_LABELS.get(prov, prov).lower():
