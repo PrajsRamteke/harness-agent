@@ -432,10 +432,16 @@ class _OpenCodeMessages:
             "stream": True,
         }
         # Pass thinking/reasoning mode (used by DeepSeek V4, etc.)
-        if thinking and thinking.get("type") == "enabled":
-            kwargs["reasoning_effort"] = "max"  # agent-grade reasoning
-            kwargs.setdefault("extra_body", {})
-            kwargs["extra_body"]["thinking"] = {"type": "enabled"}
+        if thinking:
+            if thinking.get("type") == "enabled":
+                kwargs["reasoning_effort"] = "max"  # agent-grade reasoning
+                kwargs.setdefault("extra_body", {})
+                kwargs["extra_body"]["thinking"] = {"type": "enabled"}
+            elif thinking.get("type") == "disabled":
+                # Explicitly disable thinking — required by some providers
+                # to override model default.
+                kwargs.setdefault("extra_body", {})
+                kwargs["extra_body"]["thinking"] = {"type": "disabled"}
 
         oai_tools = _anthropic_tools_to_openai(tools) if tools else []
         if oai_tools:

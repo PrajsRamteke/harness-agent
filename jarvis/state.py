@@ -39,7 +39,7 @@ MODEL: str = _compute_initial_model()
 # conversation
 backups: List[tuple] = []    # [(path, prev_content), ...] stack for /undo
 messages: List[Dict] = []
-think_mode: bool = False
+think_mode: bool = True
 show_internal: bool = True
 total_in: int = 0
 total_out: int = 0
