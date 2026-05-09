@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from .constants import (
     VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE, LAST_THEME_FILE,
-    SKILLS_CONFIG_FILE,
+    SKILLS_CONFIG_FILE, THINK_CONFIG_FILE,
     PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
 )
 
@@ -152,5 +152,33 @@ def _reload_saved_skills() -> None:
             pass
 
 
+# ── think_mode persistence ──────────────────────────────────────────────────
+
+
+def save_think_config() -> None:
+    """Persist think_mode toggle to disk."""
+    try:
+        THINK_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        THINK_CONFIG_FILE.write_text(
+            json.dumps({"think_mode": think_mode}, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _reload_saved_think() -> None:
+    """Restore think_mode from last session."""
+    global think_mode
+    if THINK_CONFIG_FILE.exists():
+        try:
+            data = json.loads(THINK_CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(data.get("think_mode"), bool):
+                think_mode = data["think_mode"]
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+
+
 _reload_saved_theme()
 _reload_saved_skills()
+_reload_saved_think()

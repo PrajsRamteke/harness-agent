@@ -49,7 +49,10 @@ def handle_control(c: str, arg: str):
             console.print("[dim]empty[/]"); return True, None
         return True, inp
     if c == "/think":
-        state.think_mode = not state.think_mode; header_panel(); return True, None
+        state.think_mode = not state.think_mode
+        state.save_think_config()
+        header_panel()
+        return True, None
     if c == "/auto":
         state.auto_approve = not state.auto_approve; header_panel(); return True, None
     if c in ("/verbose", "/debug"):
