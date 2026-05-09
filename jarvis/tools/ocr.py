@@ -11,6 +11,14 @@ from ..constants import (
 from ..path_resolve import robust_resolve
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".heic", ".tif", ".tiff", ".bmp"}
+
+# ── dedup guard ───────────────────────────────────────────────────────────
+# Prevents read_images_text from re-scanning a directory that was already
+# scanned in the same session. The model should use read_image_text(path)
+# for individual files if it needs more detail.
+_scanned_directories: set = set()
+# ──────────────────────────────────────────────────────────────────────────
+
 IMPORTANT_TEXT_HINTS = (
     "aadhaar", "aadhar", "voter", "election", "identity", "identification",
     "driving", "driver", "license", "licence", "passport", "pan", "ssn",
@@ -125,6 +133,23 @@ def read_images_text(
     if not images:
         return "No image files found. Supported: PNG, JPG, JPEG, HEIC, TIFF, BMP."
 
+    # ── dedup guard ─────────────────────────────────────────────────────
+    # If this directory (+ pattern) was already scanned, refuse to re-scan.
+    # The model should use read_image_text() for individual files instead.
+    if not paths and directory not in ("", ".", "./"):
+        scan_key = str(_resolve_path(directory)) + "::" + pattern
+        if scan_key in _scanned_directories:
+            file_list = "\n".join(f"  • {_display_path(p)}" for p in images[:10])
+            more = f"  … and {len(images) - 10} more" if len(images) > 10 else ""
+            return (
+                f"[DEDUP — already scanned] All {len(images)} images in "
+                f"{directory} were already processed in a previous call.\n"
+                f"Use read_image_text('<path>') for individual files if you "
+                f"need full text.\n"
+                f"Previously scanned files:\n{file_list}{more}"
+            )
+    # ────────────────────────────────────────────────────────────────────
+
     total = len(images)
     lock = threading.Lock()
     prog = {"done": 0}
@@ -162,4 +187,10 @@ def read_images_text(
         + (f" Prioritized {important} likely important result(s)." if important else "")
         + (f" Suppressed {skipped} empty/no-text result(s)." if skipped else "")
     )
-    return header + ("\n\n" + "\n\n".join(row for _, _, row in rows) if rows else "\nNo text detected in scanned images.")
+    result = header + ("\n\n" + "\n\n".join(row for _, _, row in rows) if rows else "\nNo text detected in scanned images.")
+
+    # Record directory+pattern as scanned for dedup guard
+    if not paths and directory not in ("", ".", "./"):
+        _scanned_directories.add(str(_resolve_path(directory)) + "::" + pattern)
+
+    return result

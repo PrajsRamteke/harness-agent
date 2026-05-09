@@ -34,11 +34,12 @@ def _block_to_text(block) -> str:
     kind = block.get("type")
     if kind == "text":
         return block.get("text", "")
+    # Skip tool_result blocks — their content is tool output (file paths,
+    # URLs, raw data), not user intent. Including them causes false-positive
+    # trigger detection (e.g. ".png" in OCR results re-activating OCR tools).
+    # Only user messages and assistant text should drive tool selection.
     if kind == "tool_result":
-        content = block.get("content", "")
-        if isinstance(content, str):
-            return content[:1000]
-        return json.dumps(content)[:1000]
+        return ""
     return ""
 
 
