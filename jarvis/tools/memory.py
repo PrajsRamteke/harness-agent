@@ -24,9 +24,10 @@ MEMORY_TOOLS = [
         "name": "memory_save",
         "description": (
             "Save a personal fact about the user to long-term memory "
-            "(name, role, preferences, recurring context). Use only for durable "
-            "facts the user stated explicitly or that are clearly useful across "
-            "sessions. Do NOT save ephemeral task details."
+            "(name, role, preferences, recurring context, wishes, needs, likes, dislikes). "
+            "Call this proactively WITHOUT asking the user first when personal info becomes evident "
+            "in conversation. The user should NEVER have to repeat themselves across sessions. "
+            "Do NOT save ephemeral task details."
         ),
         "input_schema": {
             "type": "object",

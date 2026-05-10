@@ -100,8 +100,10 @@ def _build_static_body() -> str:
     if mem_block:
         body += "\n\n" + mem_block
     body += (
-        "\n\nMEMORY: memory_save/memory_list/memory_delete. "
-        "Proactively save durable user facts (name, role, prefs). Don't save ephemeral task details."
+        "\n\nMEMORY: memory_save/memory_list/memory_delete.\n"
+        "- Proactively save durable user facts (name, role, prefs, preferences, needs) to persistent memory using memory_save WITHOUT asking the user first — when they become evident in conversation.\n"
+        "- Don't make the user repeat themselves across sessions. If something is clearly personal info, just save it.\n"
+        "- Don't save ephemeral task details."
     )
     if sk_block:
         body += "\n\n" + sk_block
