@@ -64,6 +64,7 @@ PRICING = {
     "minimax-m2.5-free":       (0.0, 0.0),
     "hy3-preview-free":        (0.0, 0.0),
     "nemotron-3-super-free":   (0.0, 0.0),
+    "ring-2.6-1t-free":   (0.0, 0.0),
 }
 
 # ── Numeric / behavior constants ───────────────────────────────────────────────

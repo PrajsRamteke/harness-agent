@@ -77,6 +77,7 @@ OPENCODE_ZEN_MODELS = [
     ("minimax-m2.5-free",      "MiniMax M2.5 Free — default"),
     ("hy3-preview-free",       "HY3 Preview Free"),
     ("nemotron-3-super-free",  "Nemotron 3 Super Free"),
+    ("ring-2.6-1t-free",       "Ring 2.6 1T Free"),
 ]
 
 
