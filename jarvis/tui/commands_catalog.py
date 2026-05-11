@@ -77,6 +77,9 @@ COMMANDS = [
     ("/mcp disconnect ", "disconnect an MCP server"),
     ("/mcp remove ", "remove an MCP server config"),
     ("/mcp reload", "reload MCP config from file"),
+    # Upgrade
+    ("/upgrade", "update Jarvis to the latest version via git pull"),
+    ("/upgrade check", "check if a newer version is available without upgrading"),
     # Version
     ("/version", "show Jarvis version"),
     # Control

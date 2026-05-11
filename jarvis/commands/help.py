@@ -74,6 +74,8 @@ _SECTIONS = [
         ("/mcp remove <name>", "remove a server config"),
     ]),
     ("Control", [
+        ("/upgrade", "update Jarvis to the latest version (git pull + pip install)"),
+        ("/upgrade check", "check version status without upgrading"),
         ("/version", "show Jarvis version"),
         ("/think", "toggle extended thinking"),
         ("/verbose", "toggle internal tool trace (thinking panels only with /think on)"),

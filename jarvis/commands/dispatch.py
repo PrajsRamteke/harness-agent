@@ -16,6 +16,7 @@ from .memory import handle_memory
 from .lesson import handle_lesson
 from .skill import handle_skill
 from .scan import handle_scan
+from .upgrade import cmd_upgrade
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/retry", "/paste", "/multi"}
@@ -38,6 +39,10 @@ def handle_slash(inp: str):
         result = handle_mcp_command(arg)
         if result:
             console.print(result)
+        return ("ok", False, inp)
+
+    if c == "/upgrade":
+        cmd_upgrade(arg)
         return ("ok", False, inp)
 
     handled, _ = handle_memory(c, arg)
