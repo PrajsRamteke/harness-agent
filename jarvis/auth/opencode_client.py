@@ -431,17 +431,31 @@ class _OpenCodeMessages:
             "max_tokens": max_tokens,
             "stream": True,
         }
-        # Pass thinking/reasoning mode (used by DeepSeek V4, etc.)
+        # Detect Minimax models — they use different reasoning_effort values.
+        # The free endpoints (minimax-m2.5-free) MANDATE reasoning — it cannot
+        # be disabled.  Paid minimax-m2.5 respects "none".
+        _is_minimax = "minimax" in model.lower()
+        _is_minimax_free = "minimax" in model.lower() and "free" in model.lower()
+
+        # Pass thinking/reasoning mode (used by DeepSeek V4, Kimi, MiniMax, etc.)
         if thinking:
             if thinking.get("type") == "enabled":
-                kwargs["reasoning_effort"] = "max"  # agent-grade reasoning
+                if _is_minimax:
+                    kwargs["reasoning_effort"] = "high"
+                else:
+                    kwargs["reasoning_effort"] = "max"
                 kwargs.setdefault("extra_body", {})
                 kwargs["extra_body"]["thinking"] = {"type": "enabled"}
             elif thinking.get("type") == "disabled":
-                # Explicitly disable thinking — required by some providers
-                # to override model default.
-                kwargs.setdefault("extra_body", {})
-                kwargs["extra_body"]["thinking"] = {"type": "disabled"}
+                # Minimax free: reasoning is mandatory — ignore "disabled" and
+                # let the API use its default reasoning level.
+                if _is_minimax_free:
+                    kwargs["reasoning_effort"] = "medium"
+                else:
+                    kwargs.setdefault("extra_body", {})
+                    kwargs["extra_body"]["thinking"] = {"type": "disabled"}
+                    if _is_minimax:
+                        kwargs["reasoning_effort"] = "none"
 
         oai_tools = _anthropic_tools_to_openai(tools) if tools else []
         if oai_tools:
