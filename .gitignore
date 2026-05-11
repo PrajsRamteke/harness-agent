@@ -42,6 +42,9 @@ htmlcov/
 .claude/settings.local.json
 .claude/
 
+# Project skills (local config, not repo-level)
+.skills/
+
 # Editors / OS
 .idea/
 .vscode/
