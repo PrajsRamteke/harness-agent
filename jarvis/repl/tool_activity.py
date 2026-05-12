@@ -88,7 +88,7 @@ def describe_tool_activity(name: str, raw_input) -> str:
             f"pattern {c(d.get('pattern', '**/*'), 24)}"
         ).strip()
     if name == "memory_save":
-        return f"Saving memory: {c(d.get('text', ''))}"
+        return f"Saving memory: {c(d.get('text') or d.get('fact', ''))}"
     if name == "memory_list":
         return "Listing saved memory"
     if name == "memory_delete":

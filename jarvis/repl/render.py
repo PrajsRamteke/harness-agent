@@ -43,7 +43,7 @@ _SERIAL_TOOLS = {
 from ..mcp.registry import is_mcp_tool
 
 # Context tools get a much higher output limit since they bundle many files at once.
-_CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle"}
+_CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle", "lesson_list", "lesson_search"}
 
 def _run_tool(b):
     icon = TOOL_ICONS.get(b.name, "🔧")

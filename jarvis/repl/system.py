@@ -85,53 +85,55 @@ def _build_static_body() -> str:
     cwd_branch_key = cwd + "|" + (branch or "")
 
     # Use content as cache key — only rebuild when something actually changed.
+    # We use the summary blocks themselves as cache keys since they're now
+    # tiny (counts/tag-clouds) and change rarely.
     if (mem_block == _cached_mem_key
             and sk_block == _cached_sk_key
             and skills_block == _cached_skills_key
             and pinned == _cached_pinned
             and cwd_branch_key == _cached_cwd_branch
-            and state.project_context_content == _cached_ctx_key
+            and state.project_context_path == _cached_ctx_key
             and _cached_body):
         return _cached_body
 
     body = build_base_system(Path(cwd), git_branch=branch)
-    if pinned:
-        body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned
+
+    # ── Lazy-load system prompt section ──────────────────────────────────
+    # Memory, lessons, skills, and project context are NOT injected with full
+    # content. Only summaries/counts are included. The agent must use the
+    # corresponding tools (memory_list, lesson_search, skill_load, read_file)
+    # to load details on demand. This saves ~12-14K chars per turn.
+    body += (
+        "\n\nLAZY-LOAD SECTIONS (summaries only — full content loaded on demand):\n"
+        "To save tokens, the following are NOT injected with full content:"
+        "\n- MEMORY: use memory_list() to view stored facts"
+        "\n- LESSONS: use lesson_search('<topic>') before non-trivial tasks"
+        "\n- SKILLS: use skill_list() to see headers, skill_load('<name>') for full content"
+        "\n- PROJECT CONTEXT: use read_file('<project_context_file>') when you need instructions"
+    )
+
     if mem_block:
-        body += "\n\n" + mem_block
+        body += "\n" + mem_block
+    if sk_block:
+        body += "\n" + sk_block
+    if skills_block:
+        body += "\n" + skills_block
+    if state.project_context_file:
+        body += "\n" + f"- PROJECT CONTEXT: {state.project_context_file} exists. Use read_file() to load when needed."
+
+    # Tool instructions (always present, ~200 chars)
     body += (
         "\n\nMEMORY: memory_save/memory_list/memory_delete.\n"
-        "- Proactively save durable user facts (name, role, prefs, preferences, needs) to persistent memory using memory_save WITHOUT asking the user first — when they become evident in conversation.\n"
-        "- Don't make the user repeat themselves across sessions. If something is clearly personal info, just save it.\n"
-        "- Don't save ephemeral task details."
+        "- Proactively save durable user facts using memory_save WITHOUT asking — when they become evident.\n"
+        "- View full memory with memory_list() when relevant."
     )
-    if sk_block:
-        body += "\n\n" + sk_block
+
     body += (
         "\n\nLESSONS: lesson_search/lesson_save/lesson_list/lesson_delete.\n"
         "- START of non-trivial task → lesson_search for past lessons.\n"
-        "- END of task → lesson_save if you learned something non-obvious (pattern+lesson+tags).\n"
-        "- Can propose edits to own codebase for repetitive tasks — show diff, get OK first."
+        "- END of task → lesson_save if you learned something non-obvious.\n"
+        "- Use lesson_search('<topic>') to match relevant lessons — the system prompt only shows a topic tag cloud."
     )
-
-    # ── Available skills ────────────────────────────────────────────
-    if skills_block:
-        body += "\n\n" + skills_block
-        body += (
-            "\n\nPROJECT SKILLS: skill_list/skill_load.\n"
-            "- Call skill_list() to see available skills (headers only).\n"
-            "- Call skill_load('<name>') to get full instructions when a task matches.\n"
-        )
-
-    # ── Project context file ─────────────────────────────────────────
-    if state.project_context_content and state.project_context_file:
-        body += (
-            "\n\nPROJECT CONTEXT (" + state.project_context_file + "):\n"
-            "The project folder contains a " + state.project_context_file
-            + " file with project-specific instructions. "
-            "Use it for context on every task.\n\n"
-            + state.project_context_content
-        )
 
     _cached_body = body
     _cached_mem_key = mem_block
@@ -139,7 +141,7 @@ def _build_static_body() -> str:
     _cached_skills_key = skills_block
     _cached_pinned = pinned
     _cached_cwd_branch = cwd_branch_key
-    _cached_ctx_key = state.project_context_content
+    _cached_ctx_key = state.project_context_path
     return body
 
 

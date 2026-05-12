@@ -76,9 +76,17 @@ def clear_all() -> int:
 
 
 def as_prompt_block() -> str:
-    """Render current memory as a short block for injection into the system prompt."""
+    """Render current memory as a short block for injection into the system prompt.
+
+    Only includes a count summary — not the full facts. The full facts are
+    loaded on demand when the agent calls memory_list(). This saves ~2-4K
+    chars per turn when many facts are stored.
+    """
     facts = list_facts()
     if not facts:
         return ""
-    lines = [f"- {f['text']}" for f in facts]
-    return "WHAT YOU REMEMBER ABOUT THE USER (use when relevant, do not recite unless asked):\n" + "\n".join(lines)
+    n = len(facts)
+    return (
+        f"WHAT YOU REMEMBER ABOUT THE USER: {n} fact{'s' if n != 1 else ''} stored. "
+        f"Use memory_list() to view all when relevant — summaries are not injected here to save tokens."
+    )

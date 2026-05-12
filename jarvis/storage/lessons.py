@@ -111,7 +111,7 @@ def _tokens(text: str) -> set:
     return set(_WORD.findall(text.lower()))
 
 
-def search(query: str, limit: int = 5) -> List[Dict]:
+def search(query: str, limit: int = 15) -> List[Dict]:
     q = _tokens(query)
     if not q:
         return []
@@ -138,21 +138,28 @@ def bump_hits(lesson_id: int) -> None:
 
 
 def as_prompt_block() -> str:
-    """Render top lessons as a compact system-prompt block."""
+    """Render top lessons as a compact system-prompt block.
+
+    Only includes a count + tag clouds — not the full lesson text. Full
+    lessons are loaded on demand via lesson_search(). This saves ~3-5K
+    chars per turn (the full text of top 8 lessons).
+    """
     with _file_lock:
         data = _load()
-        lessons = sorted(
+        total = len(data["lessons"])
+        top = sorted(
             data["lessons"],
             key=lambda s: (s.get("hits", 0), s.get("ts", 0)),
             reverse=True,
         )[:MAX_INJECT]
-    if not lessons:
+    if total == 0:
         return ""
-    lines = []
-    for s in lessons:
-        tag_str = f" [{', '.join(s['tags'])}]" if s.get("tags") else ""
-        lines.append(f"- #{s['id']}{tag_str} when: {s['task']} → {s['lesson']}")
+    # Build a compact tag cloud from top lessons
+    all_tags: set[str] = set()
+    for s in top:
+        all_tags.update(s.get("tags", []))
+    tag_cloud = ", ".join(sorted(all_tags)) if all_tags else "general"
     return (
-        "PAST LESSONS (lessons you've learned on earlier tasks — apply when relevant, "
-        "call lesson_search for more):\n" + "\n".join(lines)
+        f"PAST LESSONS: {total} total (topics: {tag_cloud}). "
+        f"Call lesson_list() to see all headers, lesson_search('<topic>') to load relevant ones."
     )
