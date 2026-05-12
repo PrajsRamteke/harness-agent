@@ -107,7 +107,7 @@ def render_assistant(resp) -> bool:
             else:
                 text, was_flagged = _scrub_hallucinations(raw.strip())
             if was_flagged:
-                console.print("[dim red]⚠ hallucination guard triggered — sentence(s) removed[/]")
+                console.print("[dim red]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
             if not re.search(r"\S", text):
                 if state.stream_reply_live and state._assistant_stream_ui_active:
                     ab = getattr(console, "assistant_stream_abort", None)
