@@ -138,6 +138,12 @@ def _handle_think(arg: str = "") -> None:
     value = (arg or "").strip().lower()
     if not value:
         state.think_mode = not state.think_mode
+    elif value in ("mode", "modes", "select"):
+        console.print(
+            "[cyan]thinking efforts:[/] xhigh, high, medium, low, minimal, none\n"
+            "[dim]In the TUI, /think mode opens a picker.[/]"
+        )
+        return
     elif value in ("on", "true", "yes"):
         state.think_mode = True
         if state.think_effort == "none":

@@ -34,6 +34,7 @@ from .console_shim import TUIConsole
 from .session_modal import SessionPickerScreen, resume_session_into_state
 from .palette_modal import CommandPaletteScreen
 from .model_modal import ModelPickerScreen
+from .think_modal import ThinkPickerScreen
 from .. import state
 
 
@@ -48,6 +49,11 @@ def _is_bare_model_command(text: str) -> bool:
 def _is_session_picker_command(text: str) -> bool:
     s = (text or "").strip()
     return s in ("/session", "/sessions", "/session list", "/session ls")
+
+
+def _is_think_picker_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s in ("/think mode", "/think modes", "/think select")
 
 
 class PromptArea(TextArea):
@@ -484,6 +490,10 @@ class JarvisTUI(App):
                 self._open_model_picker()
                 inp.focus()
                 return
+            if _is_think_picker_command(cmd):
+                self._open_think_picker()
+                inp.focus()
+                return
             if cmd.endswith(" "):
                 inp.text = cmd
                 inp.move_cursor((0, len(cmd)))
@@ -512,6 +522,18 @@ class JarvisTUI(App):
             self._set_status("ready")
 
         self.push_screen(ModelPickerScreen(), after)
+
+    def _open_think_picker(self):
+        def after(effort: str | None):
+            if not effort:
+                self._tui_console.print("[dim]thinking picker cancelled[/]")
+                return
+            from ..commands.control import _handle_think
+
+            _handle_think(effort)
+            self._set_status("ready")
+
+        self.push_screen(ThinkPickerScreen(), after)
 
     def _dispatch_palette_slash(self, inp: str):
         """Run a slash command picked from the palette (no second Enter)."""
@@ -638,6 +660,11 @@ class JarvisTUI(App):
         # /model (no argument) → modal picker (no stdin)
         if _is_bare_model_command(text):
             self._open_model_picker()
+            return
+
+        # /think mode → modal picker
+        if _is_think_picker_command(text):
+            self._open_think_picker()
             return
 
         # /session (bare) or /session list/ls → modal picker

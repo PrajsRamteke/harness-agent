@@ -6,6 +6,7 @@ from unittest import mock
 from jarvis import state
 from jarvis.auth.opencode_client import _opencode_reasoning_options
 from jarvis.commands.control import _handle_think
+from jarvis.tui.app import _is_think_picker_command
 
 
 class OpenCodeThinkingOptionsTests(unittest.TestCase):
@@ -58,6 +59,29 @@ class OpenCodeThinkingOptionsTests(unittest.TestCase):
         finally:
             state.think_mode = old_mode
             state.think_effort = old_effort
+
+    def test_think_mode_command_is_picker_alias_without_state_change(self):
+        old_mode = state.think_mode
+        old_effort = state.think_effort
+        try:
+            state.think_mode = True
+            state.think_effort = "medium"
+            with mock.patch("jarvis.commands.control.console.print") as mocked_print, \
+                    mock.patch("jarvis.commands.control.header_panel"), \
+                    mock.patch.object(state, "save_think_config"):
+                _handle_think("mode")
+
+            mocked_print.assert_called_once()
+            self.assertTrue(state.think_mode)
+            self.assertEqual(state.think_effort, "medium")
+        finally:
+            state.think_mode = old_mode
+            state.think_effort = old_effort
+
+    def test_tui_detects_think_picker_command(self):
+        self.assertTrue(_is_think_picker_command("/think mode"))
+        self.assertTrue(_is_think_picker_command("/think select"))
+        self.assertFalse(_is_think_picker_command("/think high"))
 
     def test_think_config_persists_effort(self):
         old_mode = state.think_mode
