@@ -63,7 +63,7 @@ _assistant_stream_ui_active: bool = False
 # project context file detection (AGENT.md / CLAUDE.md / JARVIS.md)
 project_context_file: str = ""      # filename found, e.g. "AGENT.md"
 project_context_path: str = ""      # full absolute path to the file
-project_context_content: str = ""   # cached file content, re-read each turn
+project_context_content: str = ""   # deprecated: project files are read on demand
 
 # skills
 global_skills: bool = False         # if True, include skills from ~/.config/*/skills/

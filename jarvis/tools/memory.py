@@ -50,12 +50,17 @@ MEMORY_TOOLS = [
                     "description": "Backward-compatible alias for text. Prefer text for new calls.",
                 },
             },
-            "required": ["text"],
+            "anyOf": [{"required": ["text"]}, {"required": ["fact"]}],
         },
     },
     {
         "name": "memory_list",
-        "description": "List every stored personal fact about the user. Call this at the start of any conversation to refresh what you know about the user. The system prompt only shows the count — use this tool to see the actual facts.",
+        "description": (
+            "List every stored personal fact about the user. Use when the current "
+            "task or conversation needs personal context, preferences, or saved "
+            "details. The system prompt only shows a count, so call this to see "
+            "the actual facts when relevant."
+        ),
         "input_schema": {"type": "object", "properties": {}},
     },
     {

@@ -342,27 +342,16 @@ class JarvisTUI(App):
         from ..mcp.registry import auto_connect_servers
         auto_connect_servers(console_print=self._tui_console.print)
 
-        # ── Detect project context file (AGENT.md / CLAUDE.md / JARVIS.md) ──
-        import pathlib as _pl
-        _proj_cwd = _pl.Path.cwd()
-        for _fname in ("AGENT.md", "CLAUDE.md", "JARVIS.md"):
-            _fp = _proj_cwd / _fname
-            if _fp.is_file():
-                state.project_context_file = _fname
-                state.project_context_path = str(_fp)
-                try:
-                    state.project_context_content = _fp.read_text(errors="ignore")
-                except Exception:
-                    state.project_context_content = ""
-                break
+        # ── Detect project context file without reading full content ───────
+        from ..project_context import detect_project_context
+        detect_project_context()
 
         if state.project_context_file:
             log.write(
                 Panel(
                     Text.from_markup(
                         f"📄 [bold #58a6ff]{state.project_context_file}[/] found — "
-                        f"[#58a6ff]loaded for project context[/] "
-                        f"[dim]({len(state.project_context_content)} chars)[/]",
+                        f"[#58a6ff]available on demand via read_file[/]",
                     ),
                     title="Project Context",
                     title_align="left",
@@ -786,24 +775,8 @@ class JarvisTUI(App):
         from ..commands.dispatch import handle_slash
         from ..repl.stream import call_claude_stream
         from ..repl.render import render_assistant
-        from ..repl.turn_progress import report_turn_phase
         from ..storage.sessions import db_append_message, db_set_title_if_empty
         from .. import state
-
-        # ── Re-read project context file each turn ──────────────────────────
-        if state.project_context_path:
-            import pathlib as _pl
-            _ctx_path = _pl.Path(state.project_context_path)
-            if _ctx_path.exists():
-                try:
-                    state.project_context_content = _ctx_path.read_text(errors="ignore")
-                except Exception:
-                    pass
-                if state.project_context_content:
-                    report_turn_phase(
-                        f"📄 {state.project_context_file} "
-                        f"({len(state.project_context_content)} chars)"
-                    )
 
         try:
             # alias expansion

@@ -161,5 +161,5 @@ def as_prompt_block() -> str:
     tag_cloud = ", ".join(sorted(all_tags)) if all_tags else "general"
     return (
         f"PAST LESSONS: {total} total (topics: {tag_cloud}). "
-        f"Call lesson_list() to see all headers, lesson_search('<topic>') to load relevant ones."
+        f"Use lesson_search('<topic>') only when prior experience could help the current task."
     )

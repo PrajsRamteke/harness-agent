@@ -307,35 +307,27 @@ def global_count() -> int:
 
 
 def as_prompt_block() -> str:
-    """Format discovered skills as a compact system-prompt block.
+    """Format discovered skills as a tiny system-prompt summary.
 
-    Only shows name + description (headers), never full content.
-    The agent must use skill_load() to read the full skill content.
+    Only shows counts, never names, descriptions, or full content. The agent
+    must call skill_list() when a task looks like it might match a reusable
+    skill, then skill_load() for the chosen skill.
 
     Returns empty string if no skills found.
     """
     skills = discover_skills()
     if not skills:
         return ""
-    
-    scope_tag = "global" if state.global_skills else "project"
-    lines = []
-    for skill in skills:
-        desc = skill["description"]
-        tag = f" [{skill['scope']}]" if skill["scope"] == "global" else ""
-        lines.append(f"- {skill['name']}{tag}: {desc}")
-    
-    header = (
-        "AVAILABLE SKILLS (defined in .skills/ or global skills/ directories):\n"
-        f"Scope: [{'global (project + global)' if state.global_skills else 'project-only (.skills/ directories)'}]\n"
-        "These are reusable instructions you can load on demand. "
-        "Only headers are shown below — use skill_load('<name>') to read "
-        "the full skill content when a task matches a skill's purpose.\n\n"
-    )
-    
+
+    project_count = sum(1 for skill in skills if skill.get("scope") == "project")
+    global_count_value = sum(1 for skill in skills if skill.get("scope") == "global")
+    scope = "project + global" if state.global_skills else "project-only"
+    counts = f"{project_count} project"
+    if state.global_skills:
+        counts += f", {global_count_value} global"
+
     return (
-        header
-        + "\n".join(lines)
-        + f"\n\nUse skill_list() to refresh, skill_load('<name>') to read full content. "
-          f"Toggle global skills with /skills global on|off."
+        f"SKILLS: {len(skills)} available ({counts}; scope: {scope}). "
+        "Use skill_list() only when the task may match reusable instructions, "
+        "then skill_load('<name>') for the selected skill. Full skill content is not injected."
     )

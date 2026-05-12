@@ -36,6 +36,10 @@ def main():
     from .mcp.registry import auto_connect_servers
     auto_connect_servers(console_print=console.print)
 
+    # Detect project instructions without injecting or reading their content.
+    from .project_context import detect_project_context
+    detect_project_context()
+
     while True:
         try:
             # Process queued prompts (from TUI /script injection) before fresh input

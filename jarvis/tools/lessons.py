@@ -71,8 +71,8 @@ LESSON_TOOLS = [
         "name": "lesson_search",
         "description": (
             "Search your saved lessons for lessons relevant to the current task "
-            "BEFORE diving in. Call this at the start of any non-trivial task to "
-            "see if you've solved something similar before."
+            "when prior experience could save work, avoid a known gotcha, or guide "
+            "a non-obvious workflow. Do not call for trivial or unrelated tasks."
         ),
         "input_schema": {
             "type": "object",

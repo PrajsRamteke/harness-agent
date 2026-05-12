@@ -66,7 +66,7 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 - **Tool execution**: Tools in `repl/render.py` run concurrently via `ThreadPoolExecutor` except for tools in `_SERIAL_TOOLS` (shell, file edits, macOS UI control, MCP tools) which run single-threaded.
 - **Persistence**: Sessions stored in SQLite at `~/.config/claude-agent/sessions.db`. Pinned context from `~/.config/claude-agent/pin`. Aliases from `~/.config/claude-agent/aliases.json`.
 - **Auth**: `auth/client.py:make_client()` checks for `ANTHROPIC_API_KEY`, then stored key/OAuth tokens, then prompts interactively. Sets `state.provider` and `state.auth_mode`.
-- **Project context**: On startup, detects `JARVIS.md`, `CLAUDE.md`, or `AGENT.md` in CWD and loads it into `state.project_context_*` globals, injected into the system prompt each turn.
+- **Project context**: On startup, detects `AGENT.md`, `CLAUDE.md`, or `JARVIS.md` in CWD and stores only the path in `state.project_context_*`; file content is loaded on demand via `read_file()`.
 
 ### Adding a new tool
 

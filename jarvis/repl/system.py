@@ -97,19 +97,21 @@ def _build_static_body() -> str:
         return _cached_body
 
     body = build_base_system(Path(cwd), git_branch=branch)
+    if pinned:
+        body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned
 
     # ── Lazy-load system prompt section ──────────────────────────────────
     # Memory, lessons, skills, and project context are NOT injected with full
     # content. Only summaries/counts are included. The agent must use the
-    # corresponding tools (memory_list, lesson_search, skill_load, read_file)
-    # to load details on demand. This saves ~12-14K chars per turn.
+    # corresponding tools (memory_list, lesson_search, skill_list/skill_load,
+    # read_file) to load details on demand.
     body += (
-        "\n\nLAZY-LOAD SECTIONS (summaries only — full content loaded on demand):\n"
+        "\n\nLAZY-LOAD CONTEXT (summaries only — full content loaded on demand):\n"
         "To save tokens, the following are NOT injected with full content:"
-        "\n- MEMORY: use memory_list() to view stored facts"
-        "\n- LESSONS: use lesson_search('<topic>') before non-trivial tasks"
-        "\n- SKILLS: use skill_list() to see headers, skill_load('<name>') for full content"
-        "\n- PROJECT CONTEXT: use read_file('<project_context_file>') when you need instructions"
+        "\n- MEMORY: use memory_list() only when saved user facts/preferences matter"
+        "\n- LESSONS: use lesson_search('<topic>') only when prior experience could help"
+        "\n- SKILLS: use skill_list() only when a reusable skill may match, then skill_load('<name>')"
+        "\n- PROJECT CONTEXT: use read_file('<project_context_file>') only when repository instructions matter"
     )
 
     if mem_block:
@@ -119,20 +121,20 @@ def _build_static_body() -> str:
     if skills_block:
         body += "\n" + skills_block
     if state.project_context_file:
-        body += "\n" + f"- PROJECT CONTEXT: {state.project_context_file} exists. Use read_file() to load when needed."
+        body += "\n" + f"PROJECT CONTEXT: {state.project_context_file} exists. Use read_file('{state.project_context_file}') only when needed."
 
     # Tool instructions (always present, ~200 chars)
     body += (
         "\n\nMEMORY: memory_save/memory_list/memory_delete.\n"
         "- Proactively save durable user facts using memory_save WITHOUT asking — when they become evident.\n"
-        "- View full memory with memory_list() when relevant."
+        "- View full memory with memory_list() only when relevant."
     )
 
     body += (
         "\n\nLESSONS: lesson_search/lesson_save/lesson_list/lesson_delete.\n"
-        "- START of non-trivial task → lesson_search for past lessons.\n"
+        "- Use lesson_search when a similar past lesson could help the task.\n"
         "- END of task → lesson_save if you learned something non-obvious.\n"
-        "- Use lesson_search('<topic>') to match relevant lessons — the system prompt only shows a topic tag cloud."
+        "- The system prompt only shows a lesson count/topic cloud."
     )
 
     _cached_body = body

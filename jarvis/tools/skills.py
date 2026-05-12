@@ -55,8 +55,8 @@ SKILL_TOOLS = [
             "List all available project-base skills with their names and descriptions. "
             "These are reusable instructions defined in .skills/<name>/SKILL.md files. "
             "Each entry shows only the header (name + description). "
-            "Use skill_load('<name>') to read the full skill content when a task "
-            "matches a skill's purpose."
+            "Use this only when the current task may match a reusable skill, then "
+            "use skill_load('<name>') to read the full skill content for the match."
         ),
         "input_schema": {
             "type": "object",
@@ -69,8 +69,7 @@ SKILL_TOOLS = [
         "description": (
             "Load the full content of a skill by its name. "
             "This returns the entire SKILL.md including frontmatter and body. "
-            "Call skill_list() first to see available skills, then load the one "
-            "that matches the current task."
+            "Call after skill_list() identifies a skill that matches the current task."
         ),
         "input_schema": {
             "type": "object",
