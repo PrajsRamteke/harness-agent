@@ -10,6 +10,7 @@ from .constants import (
     VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE, LAST_THEME_FILE,
     SKILLS_CONFIG_FILE, THINK_CONFIG_FILE,
     PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
+    THINK_EFFORTS, DEFAULT_THINK_EFFORT,
 )
 
 # auth / client
@@ -40,6 +41,7 @@ MODEL: str = _compute_initial_model()
 backups: List[tuple] = []    # [(path, prev_content), ...] stack for /undo
 messages: List[Dict] = []
 think_mode: bool = True
+think_effort: str = DEFAULT_THINK_EFFORT
 show_internal: bool = True
 total_in: int = 0
 total_out: int = 0
@@ -156,11 +158,11 @@ def _reload_saved_skills() -> None:
 
 
 def save_think_config() -> None:
-    """Persist think_mode toggle to disk."""
+    """Persist think_mode toggle and effort to disk."""
     try:
         THINK_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         THINK_CONFIG_FILE.write_text(
-            json.dumps({"think_mode": think_mode}, indent=2),
+            json.dumps({"think_mode": think_mode, "think_effort": think_effort}, indent=2),
             encoding="utf-8",
         )
     except OSError:
@@ -168,13 +170,17 @@ def save_think_config() -> None:
 
 
 def _reload_saved_think() -> None:
-    """Restore think_mode from last session."""
-    global think_mode
+    """Restore think_mode and effort from last session."""
+    global think_mode, think_effort
     if THINK_CONFIG_FILE.exists():
         try:
             data = json.loads(THINK_CONFIG_FILE.read_text(encoding="utf-8"))
             if isinstance(data.get("think_mode"), bool):
                 think_mode = data["think_mode"]
+            if data.get("think_effort") in THINK_EFFORTS:
+                think_effort = data["think_effort"]
+            if think_mode and think_effort == "none":
+                think_effort = DEFAULT_THINK_EFFORT
         except (OSError, json.JSONDecodeError, TypeError):
             pass
 

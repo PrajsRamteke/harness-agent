@@ -113,7 +113,12 @@ def call_claude_stream():
         messages=trim_messages(state.messages), tools=tools,
     )
     if state.think_mode:
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": THINKING_BUDGET_TOKENS}
+        kwargs["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": THINKING_BUDGET_TOKENS,
+        }
+        if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+            kwargs["thinking"]["effort"] = state.think_effort
     elif state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
         # OpenCode (DeepSeek, etc.) needs explicit {"type": "disabled"} to turn off thinking
         kwargs["thinking"] = {"type": "disabled"}

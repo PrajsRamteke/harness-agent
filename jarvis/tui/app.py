@@ -431,7 +431,7 @@ class JarvisTUI(App):
             right.append(f"💬 [dim]{len(state.messages)}[/]")
             right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
             if state.think_mode:
-                right.append("[#3fb950]think:on[/]")
+                right.append(f"[#3fb950]think:{state.think_effort}[/]")
             else:
                 right.append("[dim]think:off[/]")
             if state.project_context_file:
@@ -912,7 +912,7 @@ class JarvisTUI(App):
             right.append(f"💬 [dim]{len(state.messages)}[/]")
             right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
             if state.think_mode:
-                right.append("[#3fb950]think:on[/]")
+                right.append(f"[#3fb950]think:{state.think_effort}[/]")
             else:
                 right.append("[dim]think:off[/]")
             if state.project_context_file:

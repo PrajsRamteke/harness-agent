@@ -6,7 +6,7 @@ from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, LAST_THEME_FILE,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
-    OPENCODE_ZEN_MODELS,
+    OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
@@ -49,9 +49,7 @@ def handle_control(c: str, arg: str):
             console.print("[dim]empty[/]"); return True, None
         return True, inp
     if c == "/think":
-        state.think_mode = not state.think_mode
-        state.save_think_config()
-        header_panel()
+        _handle_think(arg)
         return True, None
     if c == "/auto":
         state.auto_approve = not state.auto_approve; header_panel(); return True, None
@@ -134,6 +132,29 @@ def handle_control(c: str, arg: str):
         _handle_provider(arg)
         return True, None
     return False, None
+
+
+def _handle_think(arg: str = "") -> None:
+    value = (arg or "").strip().lower()
+    if not value:
+        state.think_mode = not state.think_mode
+    elif value in ("on", "true", "yes"):
+        state.think_mode = True
+        if state.think_effort == "none":
+            state.think_effort = DEFAULT_THINK_EFFORT
+    elif value in ("off", "false", "no"):
+        state.think_mode = False
+    elif value in THINK_EFFORTS:
+        state.think_mode = value != "none"
+        state.think_effort = value
+    else:
+        console.print(
+            "[red]usage:[/] /think [on|off|xhigh|high|medium|low|minimal|none]"
+        )
+        return
+
+    state.save_think_config()
+    header_panel()
 
 
 def _all_models():

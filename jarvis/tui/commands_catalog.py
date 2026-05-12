@@ -84,6 +84,12 @@ COMMANDS = [
     ("/version", "show Jarvis version"),
     # Control
     ("/think", "toggle extended thinking"),
+    ("/think xhigh", "set thinking effort to xhigh"),
+    ("/think high", "set thinking effort to high"),
+    ("/think medium", "set thinking effort to medium"),
+    ("/think low", "set thinking effort to low"),
+    ("/think minimal", "set thinking effort to minimal"),
+    ("/think none", "disable thinking"),
     ("/verbose", "toggle internal tool trace (thinking UI needs /think)"),
     ("/auto", "toggle auto-approve bash"),
     ("/multi", "enter a multiline message"),

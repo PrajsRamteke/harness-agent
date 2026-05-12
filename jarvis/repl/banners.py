@@ -46,7 +46,7 @@ def header_panel(compact: bool = False):
     pinned_flag = "[#d29922]pinned[/]" if state.pinned_context.strip() else "[dim]no pin[/]"
     asst = state.theme_colors["asst_border"]
     hl = state.theme_colors["project_border"]
-    on_hl = f"[{hl}]on[/]"
+    think_hl = f"[{hl}]{state.think_effort}[/]"
     verbose = f"[{hl}]verbose[/]"
     auto_hl = f"[{hl}]auto[/]"
     off = "[dim]off[/]"
@@ -56,7 +56,7 @@ def header_panel(compact: bool = False):
         flags = "  ".join([
             f"[{asst}]{state.MODEL}[/]",
             f"mode:{_mode_flag()}",
-            f"think:{on_hl if state.think_mode else off}",
+            f"think:{think_hl if state.think_mode else off}",
             f"tools:{verbose if state.show_internal else quiet}",
             f"v{VERSION}",
             f"[dim]{cwd_text}[/]",
@@ -67,7 +67,7 @@ def header_panel(compact: bool = False):
         f"[{asst}]{state.MODEL}[/]",
         f"v{VERSION}",
         f"mode {_mode_flag()}",
-        f"think {on_hl if state.think_mode else off}",
+        f"think {think_hl if state.think_mode else off}",
         f"bash {auto_hl if state.auto_approve else ask}",
         f"tools {verbose if state.show_internal else quiet}",
         f"pin {pinned_flag}",
