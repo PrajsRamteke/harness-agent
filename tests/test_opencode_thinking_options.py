@@ -29,7 +29,7 @@ class OpenCodeThinkingOptionsTests(unittest.TestCase):
         self.assertEqual(options["reasoning_effort"], "high")
 
     def test_think_off_disables_reasoning_for_go_and_zen_models(self):
-        for model in ("kimi-k2.6", "deepseek-v4-flash", "minimax-m2.5-free"):
+        for model in ("kimi-k2.6", "deepseek-v4-flash", "minimax-m2.5-free", "deepseek-v4-flash-free"):
             with self.subTest(model=model):
                 options = _opencode_reasoning_options(model, {"type": "disabled"})
 
