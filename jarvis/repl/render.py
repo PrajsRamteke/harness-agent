@@ -106,8 +106,6 @@ def render_assistant(resp) -> bool:
                 text, was_flagged = raw.strip(), False
             else:
                 text, was_flagged = _scrub_hallucinations(raw.strip())
-            if was_flagged:
-                console.print("[dim red]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
             if not re.search(r"\S", text):
                 if state.stream_reply_live and state._assistant_stream_ui_active:
                     ab = getattr(console, "assistant_stream_abort", None)
@@ -120,6 +118,8 @@ def render_assistant(resp) -> bool:
                 commit(text, panel_title, was_flagged, thinking_blocks=thinking_blocks)
                 state._assistant_stream_ui_active = False
                 thinking_blocks = []  # already rendered inside commit; don't re-render
+                if was_flagged:
+                    console.print("[dim red]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
                 continue
             console.print(Panel(
                 Markdown(text),
@@ -127,6 +127,8 @@ def render_assistant(resp) -> bool:
                 border_style="magenta",
                 padding=(0, 1),
             ))
+            if was_flagged:
+                console.print("[dim red]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
 
         # ── thinking block — collect, render after text commit ───────
         elif b.type == "thinking":
