@@ -59,12 +59,19 @@ def _run_tool(b):
 def _run_parallel_batch(batch, outputs):
     if not batch:
         return
+    # Honour cancel flag before starting the batch
+    if state.cancel_requested.is_set():
+        return
     if len(batch) > 1:
         workers = min(MAX_PARALLEL_TOOLS, len(batch))
         if state.show_internal:
             console.print(f"[cyan]⚡ running {len(batch)} tools in parallel (max {workers} workers)[/]")
         with ThreadPoolExecutor(max_workers=workers) as ex:
             for b, icon, ap, out_str in ex.map(_run_tool, batch):
+                # Check cancel after each parallel tool completes
+                if state.cancel_requested.is_set():
+                    # Don't bother storing results — we're aborting
+                    break
                 outputs[b.id] = (icon, ap, out_str)
     else:
         b, icon, ap, out_str = _run_tool(batch[0])
@@ -162,6 +169,12 @@ def render_assistant(resp) -> bool:
         parallel_batch = []
 
         for b in tool_uses:
+            # Check cancel flag before each tool — allows Escape to abort
+            # even during a multi-tool batch.
+            if state.cancel_requested.is_set():
+                # Skip remaining tools: the turn is being cancelled.
+                break
+
             if b.name in _SERIAL_TOOLS or is_mcp_tool(b.name):
                 _run_parallel_batch(parallel_batch, outputs)
                 parallel_batch = []
@@ -187,6 +200,9 @@ def render_assistant(resp) -> bool:
                 # output — no truncation. Everything else gets the standard cap.
                 "content": out_str if b.name in _CONTEXT_TOOL_NAMES else out_str[:MAX_TOOL_OUTPUT],
             })
+
+    if state.cancel_requested.is_set():
+        return False
 
     if tool_results:
         state.messages.append({"role": "user", "content": tool_results})

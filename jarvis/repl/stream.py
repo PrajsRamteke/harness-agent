@@ -41,17 +41,23 @@ def _raise_in_thread(tid: int, exc_type) -> bool:
 
 
 def cancel_current_stream():
-    """Close the active stream and interrupt the worker thread. Safe to call from any thread."""
+    """Cancel the current turn from any thread.
+
+    Sets the persistent cancel flag so every phase (tool execution, next stream
+    start, render_assistant) knows to abort. Also closes the active stream and
+    injects KeyboardInterrupt into the worker thread for immediate unblocking.
+    Safe to call from any thread, including the TUI event loop.
+    """
+    from .. import state as _state
+    _state.cancel_requested.set()
+
     global _current_stream
     s = _current_stream
-    if s is None:
-        return False
-    try:
-        s.close()
-    except Exception:
-        pass
-    # Also raise KeyboardInterrupt directly in the worker thread so it unblocks
-    # immediately regardless of what the stream is waiting on.
+    if s is not None:
+        try:
+            s.close()
+        except Exception:
+            pass
     _raise_in_thread(_worker_thread_id, KeyboardInterrupt)
     return True
 
@@ -104,6 +110,11 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
 
 
 def call_claude_stream():
+    # Check cancel flag before starting a new stream — allows Escape to
+    # prevent the next stream from even starting after tool results.
+    if state.cancel_requested.is_set():
+        raise KeyboardInterrupt()
+
     report_turn_phase("Jarvis: building request…")
     tools = select_tools(state.messages)
     if state.show_internal:

@@ -606,15 +606,22 @@ class JarvisTUI(App):
         self._set_status("ready")
 
     def action_escape_action(self):
-        """Esc when no modal is open: cancel any in-flight AI turn."""
+        """Esc: cancel any in-flight AI turn — works across all phases.
+
+        Always sets the cancel flag so tool execution, stream start, and
+        every other checkpoint aborts. Safe to call even when idle.
+        """
+        from ..repl.stream import cancel_current_stream
+
+        cancel_current_stream()  # Always sets state.cancel_requested + closes stream
+        self._sync_activity_phase("Cancelling…")
+
         if self._busy:
-            from ..repl.stream import cancel_current_stream
-            if cancel_current_stream():
-                self._tui_console.print("[yellow]⏹ cancelled by user[/]")
-                # Worker may still be blocked on finalize after close(); reset UI now
-                # so the prompt accepts new input. _turn_done is safe if the worker
-                # also calls it from finally.
-                self._turn_done()
+            self._tui_console.print("[yellow]⏹ cancelled by user[/]")
+            # Worker may still be blocked on finalize after close(); reset UI now
+            # so the prompt accepts new input. _turn_done is safe if the worker
+            # also calls it from finally.
+            self._turn_done()
 
     # ─── prompt queue helpers ──────────────────────────────────────────
     def _show_queue_panel(self, text: str, idx: int = 0) -> None:
@@ -700,6 +707,8 @@ class JarvisTUI(App):
 
     def _begin_turn(self, inp: str) -> None:
         """Start a new turn. Called from on_prompt_area_submitted or _turn_done."""
+        state.cancel_requested.clear()  # Reset cancel flag for the new turn
+
         log = self.query_one("#transcript", RichLog)
         log.write(Panel(Markdown(inp), title="you", title_align="left",
                         border_style=state.theme_colors["user_border"], padding=(0, 1)))
@@ -875,6 +884,8 @@ class JarvisTUI(App):
             # ──────────────────────────────────────────────────────────────────
 
             while True:
+                if state.cancel_requested.is_set():
+                    raise KeyboardInterrupt()
                 resp = call_claude_stream()
                 asst_msg = {"role": "assistant", "content": resp.content}
                 state.messages.append(asst_msg)
@@ -883,6 +894,10 @@ class JarvisTUI(App):
                 more = render_assistant(resp)
                 if resp.stop_reason == "end_turn" or not more:
                     break
+                # Check cancel after tool execution — if set during
+                # render_assistant tool calls, break out cleanly
+                if state.cancel_requested.is_set():
+                    raise KeyboardInterrupt()
                 if state.current_session_id and state.messages and state.messages[-1] is not asst_msg:
                     db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
         except KeyboardInterrupt:
@@ -895,6 +910,7 @@ class JarvisTUI(App):
             self.call_from_thread(self._turn_done)
 
     def _turn_done(self):
+        state.cancel_requested.clear()  # Allow new turns
         self._busy = False
         self._turn_t0 = 0.0
         self._stop_activity_pulse()
@@ -1071,11 +1087,9 @@ class JarvisTUI(App):
         if self._busy:
             from ..repl.stream import cancel_current_stream
             self._sync_activity_phase("Cancelling…")
-            if cancel_current_stream():
-                self._tui_console.print("[yellow]⏹ cancelled by user[/]")
-                self._turn_done()
-            else:
-                self._set_status("cancelling…")
+            cancel_current_stream()  # Always sets the persistent flag
+            self._tui_console.print("[yellow]⏹ cancelled by user[/]")
+            self._turn_done()
             return
 
         # Idle Ctrl+C: require a confirmation press within 2s before quitting.

@@ -3,7 +3,7 @@
 Using `jarvis.state.<name> = ...` preserves original global-mutation semantics
 without threading plumbing through every function.
 """
-import json, os, time
+import json, os, threading, time
 from typing import Dict, List, Optional
 
 from .constants import (
@@ -45,6 +45,11 @@ think_effort: str = DEFAULT_THINK_EFFORT
 show_internal: bool = True
 total_in: int = 0
 total_out: int = 0
+
+# Cancel processing flag — set when user presses Escape, checked at every
+# checkpoint (stream start, tool execution, between turn iterations).
+# Persists across all phases so Escape works even when no stream is active.
+cancel_requested = threading.Event()
 
 # prompt queue — prompts received while busy are queued and auto-processed when the current turn finishes
 prompt_queue: list[str] = []

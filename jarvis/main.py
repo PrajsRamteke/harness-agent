@@ -117,6 +117,8 @@ def _send_and_loop(inp: str):
         db_set_title_if_empty(state.current_session_id, inp)
     try:
         while True:
+            if state.cancel_requested.is_set():
+                raise KeyboardInterrupt()
             with console.status("[dim]thinking…[/]", spinner="dots"):
                 resp = call_claude_stream()
             asst_msg = {"role": "assistant", "content": resp.content}
@@ -126,6 +128,10 @@ def _send_and_loop(inp: str):
             more = render_assistant(resp)
             if resp.stop_reason == "end_turn" or not more:
                 break
+            # Check cancel after tool execution too — if set during
+            # render_assistant tool calls, break out cleanly
+            if state.cancel_requested.is_set():
+                raise KeyboardInterrupt()
             # tool results get appended inside render_assistant via messages — persist the latest
             if state.current_session_id and state.messages and state.messages[-1] is not asst_msg:
                 db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
