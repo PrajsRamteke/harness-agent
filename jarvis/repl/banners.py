@@ -27,6 +27,25 @@ def welcome_banner(compact: bool = False):
         border_style=asst, padding=(0, 2),
     ))
 
+    if state.update_result:
+        info = state.update_result
+        count = info.get("count", 0)
+        commits = info.get("commits", [])
+        noun = "commit" if count == 1 else "commits"
+        lines = [f"[bold {link}]✓ {count} new {noun} pulled[/]"]
+        for c in commits[:5]:
+            lines.append(f"[dim]  · {escape(c)}[/]")
+        if len(commits) > 5:
+            lines.append(f"[dim]  … and {len(commits) - 5} more[/]")
+        lines.append(f"\n[dim]Restart Jarvis to run the updated code.[/]")
+        console.print(Panel(
+            "\n".join(lines),
+            title="[bold]Updated[/]",
+            title_align="left",
+            border_style=link,
+            padding=(0, 2),
+        ))
+
 
 def _mode_flag() -> str:
     """Compact rich-markup mode indicator for header panels."""

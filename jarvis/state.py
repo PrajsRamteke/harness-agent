@@ -72,6 +72,9 @@ project_context_file: str = ""      # filename found, e.g. "AGENT.md"
 project_context_path: str = ""      # full absolute path to the file
 project_context_content: str = ""   # deprecated: project files are read on demand
 
+# auto-update result (set by updater.py at startup when new commits are pulled)
+update_result: dict | None = None
+
 # skills
 global_skills: bool = False         # if True, include skills from ~/.config/*/skills/
 
