@@ -27,7 +27,13 @@ OAUTH_EXPIRY_BUFFER = 60      # seconds before expiry to trigger refresh
 OAUTH_DEFAULT_EXPIRY = 3600   # fallback when expires_in missing
 DEFAULT_BASH_TIMEOUT = 60
 DEFAULT_RETRIES = 3
-API_MAX_TOKENS = 8192
+# Hard cap on a single API response. The old 8192 default routinely truncated
+# tool-call arguments mid-stream when the model wrote large files (HTML, JSON,
+# big code), producing "Unterminated string" / "missing required argument"
+# errors. Claude 4.x supports up to 64K output tokens; most OpenAI-compatible
+# providers accept 32K. Override with HARNESS_API_MAX_TOKENS if a specific
+# provider rejects this value.
+API_MAX_TOKENS = _env_int("HARNESS_API_MAX_TOKENS", 32000, 1024, 200_000)
 THINKING_BUDGET_TOKENS = 4000
 THINK_EFFORTS = ("xhigh", "high", "medium", "low", "minimal", "none")
 DEFAULT_THINK_EFFORT = "high"

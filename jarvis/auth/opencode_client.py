@@ -17,6 +17,57 @@ import contextlib
 from dataclasses import dataclass, field
 from typing import Any, Generator, Optional
 
+
+def _repair_truncated_json(raw: str) -> Optional[dict]:
+    """Best-effort recovery of a JSON object whose stream was cut mid-flight.
+
+    Streaming tool-call arguments occasionally get truncated when a provider
+    hits its output-token cap mid-string (typical when writing a large file).
+    The accumulated buffer looks like::
+
+        {"path": "index.html", "content": "<!DOCTYPE html><html...
+
+    — a valid prefix with an unterminated string and unclosed braces. This
+    function walks the buffer tracking string/brace state, then appends the
+    minimum suffix needed to make it parseable. Returns the parsed dict if
+    repair succeeds, or None otherwise.
+    """
+    if not raw or not raw.lstrip().startswith("{"):
+        return None
+    in_string = False
+    escape = False
+    stack: list[str] = []  # tracks '{' / '[' nesting
+    for ch in raw:
+        if escape:
+            escape = False
+            continue
+        if in_string:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]" and stack:
+            stack.pop()
+    repaired = raw
+    if in_string:
+        # Drop a trailing backslash that would re-open the escape state, then close the string.
+        if repaired.endswith("\\"):
+            repaired = repaired[:-1]
+        repaired += '"'
+    # Close any open arrays/objects, innermost first.
+    for opener in reversed(stack):
+        repaired += "}" if opener == "{" else "]"
+    try:
+        parsed = json.loads(repaired)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
 # _ContentBlock replaces the old @dataclass approach so blocks support
 # both attribute access (render.py) and .get()/.model_dump() (trim.py / JSON).
 
@@ -227,10 +278,31 @@ def _openai_response_to_anthropic(response) -> _FakeMessage:
 
     if msg.tool_calls:
         for tc in msg.tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
+            raw_args = tc.function.arguments or ""
+            if not raw_args.strip():
+                args = {"__stream_error__": (
+                    f"Provider returned the {tc.function.name or 'tool'} call with EMPTY "
+                    f"arguments. Retry the same tool with all required arguments populated."
+                )}
+            else:
+                try:
+                    args = json.loads(raw_args)
+                    if not isinstance(args, dict):
+                        args = {"__stream_error__": (
+                            f"Tool arguments parsed to {type(args).__name__}, not a JSON object. "
+                            f"Raw: {raw_args[:300]}. Retry with a valid JSON object."
+                        )}
+                except json.JSONDecodeError as e:
+                    repaired = _repair_truncated_json(raw_args)
+                    if repaired is not None:
+                        args = repaired
+                    else:
+                        args = {"__stream_error__": (
+                            f"Provider returned invalid JSON arguments "
+                            f"({e.msg} at pos {e.pos}); auto-repair also failed. "
+                            f"Likely cause: response hit the output-token cap mid-write. "
+                            f"For large files, write a skeleton first then edit_file to append."
+                        )}
             content.append(_ToolUseBlock(
                 type="tool_use",
                 id=tc.id,
@@ -322,10 +394,33 @@ class _OpenCodeStream:
             content.append(_TextBlock(type="text", text="".join(self._collected_text)))
         for idx in sorted(self._collected_tool_calls):
             tc = self._collected_tool_calls[idx]
-            try:
-                args = json.loads(tc["arguments"] or "{}")
-            except json.JSONDecodeError:
-                args = {}
+            raw_args = tc["arguments"] or ""
+            if not raw_args.strip():
+                args = {"__stream_error__": (
+                    f"Provider streamed the {tc.get('name') or 'tool'} call with EMPTY "
+                    f"arguments — none of the required parameters arrived. Retry the "
+                    f"same tool with all required arguments populated."
+                )}
+            else:
+                try:
+                    args = json.loads(raw_args)
+                    if not isinstance(args, dict):
+                        args = {"__stream_error__": (
+                            f"Tool arguments parsed to {type(args).__name__}, not a JSON object. "
+                            f"Raw: {raw_args[:300]}. Retry with a valid JSON object."
+                        )}
+                except json.JSONDecodeError as e:
+                    repaired = _repair_truncated_json(raw_args)
+                    if repaired is not None:
+                        args = repaired
+                    else:
+                        args = {"__stream_error__": (
+                            f"Provider streamed truncated/invalid JSON arguments "
+                            f"({e.msg} at pos {e.pos}); auto-repair also failed. "
+                            f"Likely cause: response hit the output-token cap mid-write. "
+                            f"For large files, write in chunks: create a small skeleton "
+                            f"first, then use edit_file to append sections."
+                        )}
             content.append(_ToolUseBlock(type="tool_use", id=tc["id"], name=tc["name"], input=args))
         usage = _Usage(
             input_tokens=getattr(self._usage_obj, "prompt_tokens", 0) if self._usage_obj else 0,

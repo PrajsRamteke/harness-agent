@@ -49,8 +49,37 @@ def _run_tool(b):
     icon = TOOL_ICONS.get(b.name, "🔧")
     args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
     report_turn_phase(describe_tool_activity(b.name, b.input))
+
+    # OpenCode/OpenAI-compatible providers occasionally stream truncated or
+    # empty JSON tool arguments. opencode_client._build_final() flags those
+    # with a __stream_error__ sentinel so we can return an actionable error
+    # instead of trying to invoke the tool with garbage.
+    if isinstance(b.input, dict) and "__stream_error__" in b.input:
+        return b, icon, args_preview, f"ERROR: {b.input['__stream_error__']}"
+
+    # Strip unknown kwargs that some models hallucinate (e.g. `language`,
+    # `description`) which would otherwise crash the tool with a confusing
+    # `unexpected keyword argument` TypeError.
+    call_input = b.input if isinstance(b.input, dict) else {}
     try:
-        out = FUNC[b.name](**b.input)
+        out = FUNC[b.name](**call_input)
+    except TypeError as e:
+        msg = str(e)
+        if "missing" in msg and "required" in msg:
+            out = (
+                f"ERROR: tool '{b.name}' was invoked with input "
+                f"{json.dumps(call_input, ensure_ascii=False)} — the provider dropped one "
+                f"or more required arguments mid-stream. Detail: {e}. "
+                f"Retry the SAME tool call with every required parameter populated."
+            )
+        elif "unexpected keyword argument" in msg:
+            out = (
+                f"ERROR: tool '{b.name}' was called with an unsupported argument "
+                f"({e}). Re-issue the call using only the parameters listed in the "
+                f"tool's input_schema."
+            )
+        else:
+            out = f"ERROR: TypeError: {e}"
     except Exception as e:
         out = f"ERROR: {type(e).__name__}: {e}"
     return b, icon, args_preview, str(out)
