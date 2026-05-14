@@ -27,6 +27,8 @@ from ..constants import OPENCODE_BASE_URL
 
 OPENCODE_THINK_OFF_EFFORT = "none"
 OPENCODE_ALLOWED_THINK_EFFORTS = {"xhigh", "high", "medium", "low", "minimal", "none"}
+# Map Jarvis-internal effort labels to values the provider API actually accepts.
+_EFFORT_API_MAP = {"xhigh": "high", "minimal": "low"}
 
 
 def _opencode_reasoning_options(_model: str, thinking: dict | None) -> dict[str, Any]:
@@ -39,15 +41,10 @@ def _opencode_reasoning_options(_model: str, thinking: dict | None) -> dict[str,
         effort = str(thinking.get("effort") or "high").lower()
         if effort not in OPENCODE_ALLOWED_THINK_EFFORTS or effort == "none":
             effort = "high"
-        return {
-            "reasoning_effort": effort,
-            "extra_body": {"thinking": {"type": "enabled"}},
-        }
+        effort = _EFFORT_API_MAP.get(effort, effort)
+        return {"reasoning_effort": effort}
     if mode == "disabled":
-        return {
-            "reasoning_effort": OPENCODE_THINK_OFF_EFFORT,
-            "extra_body": {"thinking": {"type": "disabled"}},
-        }
+        return {"reasoning_effort": OPENCODE_THINK_OFF_EFFORT}
     return {}
 
 
@@ -457,10 +454,7 @@ class _OpenCodeMessages:
         # xhigh, high, medium, low, minimal, none.
         reasoning_options = _opencode_reasoning_options(model, thinking)
         if reasoning_options:
-            extra_body = reasoning_options.pop("extra_body", None)
             kwargs.update(reasoning_options)
-            if extra_body:
-                kwargs.setdefault("extra_body", {}).update(extra_body)
 
         oai_tools = _anthropic_tools_to_openai(tools) if tools else []
         if oai_tools:

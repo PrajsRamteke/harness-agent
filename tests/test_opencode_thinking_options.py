@@ -14,14 +14,16 @@ class OpenCodeThinkingOptionsTests(unittest.TestCase):
         options = _opencode_reasoning_options("kimi-k2.6", {"type": "enabled", "effort": "high"})
 
         self.assertEqual(options["reasoning_effort"], "high")
-        self.assertEqual(options["extra_body"], {"thinking": {"type": "enabled"}})
+        self.assertNotIn("extra_body", options)
 
     def test_think_on_uses_selected_effort(self):
-        for effort in ("xhigh", "high", "medium", "low", "minimal"):
+        # xhigh/minimal are Jarvis-internal labels clamped to valid API values.
+        expected = {"xhigh": "high", "high": "high", "medium": "medium", "low": "low", "minimal": "low"}
+        for effort, want in expected.items():
             with self.subTest(effort=effort):
                 options = _opencode_reasoning_options("kimi-k2.6", {"type": "enabled", "effort": effort})
 
-                self.assertEqual(options["reasoning_effort"], effort)
+                self.assertEqual(options["reasoning_effort"], want)
 
     def test_invalid_enabled_effort_falls_back_to_high(self):
         options = _opencode_reasoning_options("kimi-k2.6", {"type": "enabled", "effort": "max"})
@@ -34,7 +36,7 @@ class OpenCodeThinkingOptionsTests(unittest.TestCase):
                 options = _opencode_reasoning_options(model, {"type": "disabled"})
 
                 self.assertEqual(options["reasoning_effort"], "none")
-                self.assertEqual(options["extra_body"], {"thinking": {"type": "disabled"}})
+                self.assertNotIn("extra_body", options)
 
     def test_missing_thinking_does_not_add_reasoning_options(self):
         self.assertEqual(_opencode_reasoning_options("kimi-k2.6", None), {})
