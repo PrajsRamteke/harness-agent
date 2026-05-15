@@ -72,6 +72,9 @@ _SECTIONS = [
         ("/mcp connect <name>", "connect a configured server"),
         ("/mcp disconnect <name>", "disconnect a server"),
         ("/mcp remove <name>", "remove a server config"),
+        ("/mcp global on", "enable global MCPs (Claude Code / OpenCode / Cursor / …)"),
+        ("/mcp global off", "disable global MCPs — project .mcp.json only"),
+        ("/mcp paths", "show all MCP config file locations"),
     ]),
     ("Control", [
         ("/upgrade", "update Jarvis to the latest version (git pull + pip install)"),

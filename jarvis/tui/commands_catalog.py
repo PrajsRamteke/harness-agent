@@ -77,6 +77,10 @@ COMMANDS = [
     ("/mcp disconnect ", "disconnect an MCP server"),
     ("/mcp remove ", "remove an MCP server config"),
     ("/mcp reload", "reload MCP config from file"),
+    ("/mcp paths", "show MCP config file locations (project + global sources)"),
+    ("/mcp global", "show current MCP scope (project-only vs project+global)"),
+    ("/mcp global on", "enable global MCPs from Claude Code, OpenCode, Cursor, etc."),
+    ("/mcp global off", "disable global MCPs — project .mcp.json only"),
     # Upgrade
     ("/upgrade", "update Jarvis to the latest version via git pull"),
     ("/upgrade check", "check if a newer version is available without upgrading"),

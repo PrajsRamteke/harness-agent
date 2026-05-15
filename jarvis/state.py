@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from .constants import (
     VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE, LAST_THEME_FILE,
-    SKILLS_CONFIG_FILE, THINK_CONFIG_FILE,
+    SKILLS_CONFIG_FILE, THINK_CONFIG_FILE, MCP_PREFS_FILE,
     PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
 )
@@ -77,6 +77,11 @@ update_result: dict | None = None
 
 # skills
 global_skills: bool = False         # if True, include skills from ~/.config/*/skills/
+
+# MCP
+global_mcp: bool = False            # if True, include MCP servers from global config files
+                                    # (Jarvis, Claude Code, OpenCode, Cursor). When False
+                                    # only project .mcp.json is loaded.
 
 # user context
 pinned_context: str = PIN_FILE.read_text() if PIN_FILE.exists() else ""
@@ -162,6 +167,30 @@ def _reload_saved_skills() -> None:
             pass
 
 
+def save_mcp_config() -> None:
+    """Persist global_mcp toggle to disk."""
+    try:
+        MCP_PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        MCP_PREFS_FILE.write_text(
+            json.dumps({"global_mcp": global_mcp}, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _reload_saved_mcp() -> None:
+    """Restore global_mcp from last session."""
+    global global_mcp
+    if MCP_PREFS_FILE.exists():
+        try:
+            data = json.loads(MCP_PREFS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data.get("global_mcp"), bool):
+                global_mcp = data["global_mcp"]
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+
+
 # ── think_mode persistence ──────────────────────────────────────────────────
 
 
@@ -196,3 +225,4 @@ def _reload_saved_think() -> None:
 _reload_saved_theme()
 _reload_saved_skills()
 _reload_saved_think()
+_reload_saved_mcp()
