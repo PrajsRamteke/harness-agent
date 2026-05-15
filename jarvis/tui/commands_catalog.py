@@ -71,18 +71,8 @@ COMMANDS = [
     # Scan
     ("/scan me", "[one-time] AI-powered deep scan: identity, docs, projects → memory"),
     ("/scan", "show /scan me usage (one-time LLM-driven system scan)"),
-    # MCP (Model Context Protocol)
-    ("/mcp", "manage MCP servers: list, add, connect, disconnect, reload"),
-    ("/mcp list", "show configured & connected MCP servers"),
-    ("/mcp add ", "add an MCP server (--command <cmd> or --url <url>)"),
-    ("/mcp connect ", "connect a configured MCP server"),
-    ("/mcp disconnect ", "disconnect an MCP server"),
-    ("/mcp remove ", "remove an MCP server config"),
-    ("/mcp reload", "reload MCP config from file"),
-    ("/mcp paths", "show MCP config file locations (project + global sources)"),
-    ("/mcp global", "show current MCP scope (project-only vs project+global)"),
-    ("/mcp global on", "enable global MCPs from Claude Code, OpenCode, Cursor, etc."),
-    ("/mcp global off", "disable global MCPs — project .mcp.json only"),
+    # MCP (Model Context Protocol) — single entry; opens a modal in the TUI
+    ("/mcp", "MCP control panel — list, toggle, import JSON, manage scope"),
     # Settings
     ("/settings", "show all preferences from ~/.config/harness-agent/settings.json"),
     ("/settings get ", "show one preference value"),

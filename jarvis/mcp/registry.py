@@ -431,17 +431,35 @@ class MCPRegistry:
                 pass
 
     def disconnect(self, server_name: str) -> str | None:
-        """Disconnect an MCP server and unregister its tools."""
-        with self._lock:
-            state = self._servers.get(server_name)
-            if state is None:
-                return f"Server '{server_name}' not found"
-            if not state.connected and state.error is None:
-                return f"Server '{server_name}' is not connected"
+        """Disconnect an MCP server and unregister its tools.
 
-            tools = state.tools
-            state.cleanup()
+        Safe to call from any thread — the keep-alive task lives on the
+        MCP event-loop thread and is cancelled via ``call_soon_threadsafe``.
+        """
+        with self._lock:
+            srv = self._servers.get(server_name)
+            if srv is None:
+                return f"Server '{server_name}' not found"
+            tools = list(srv.tools)
+            keep_alive = srv._keep_alive_task
+            cleanup_fns = list(srv._cleanup_fns)
+            srv._cleanup_fns.clear()
             del self._servers[server_name]
+
+        # Cancel the keep-alive task on its own loop (cross-thread safe).
+        if keep_alive is not None and not keep_alive.done():
+            try:
+                loop_obj = _get_loop()
+                loop_obj.loop.call_soon_threadsafe(keep_alive.cancel)
+            except Exception as e:
+                self._log(f"keep-alive cancel failed for '{server_name}': {e}", "warn")
+
+        # Run any cleanup functions outside the lock.
+        for fn in cleanup_fns:
+            try:
+                fn()
+            except Exception:
+                pass
 
         self._unregister_tools(server_name, tools)
         self._log(f"disconnected '{server_name}'", "info")

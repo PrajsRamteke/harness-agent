@@ -66,16 +66,7 @@ _SECTIONS = [
         ("/mode", "show current mode / switch mode (e.g. /mode coding, /mode setup)"),
     ]),
     ("MCP (Model Context Protocol)", [
-        ("/mcp", "manage MCP servers: list, add, connect, disconnect, reload"),
-        ("/mcp list", "show configured & connected servers"),
-        ("/mcp add <name> --command <cmd>", "add a stdio MCP server"),
-        ("/mcp add <name> --url <url>", "add an SSE MCP server"),
-        ("/mcp connect <name>", "connect a configured server"),
-        ("/mcp disconnect <name>", "disconnect a server"),
-        ("/mcp remove <name>", "remove a server config"),
-        ("/mcp global on", "enable global MCPs (Claude Code / OpenCode / Cursor / …)"),
-        ("/mcp global off", "disable global MCPs — project .mcp.json only"),
-        ("/mcp paths", "show all MCP config file locations"),
+        ("/mcp", "open the MCP control modal — list, toggle, import JSON, scope"),
     ]),
     ("Settings", [
         ("/settings", "show all preferences (single settings.json)"),

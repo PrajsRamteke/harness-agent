@@ -35,6 +35,7 @@ from .session_modal import SessionPickerScreen, resume_session_into_state
 from .palette_modal import CommandPaletteScreen
 from .model_modal import ModelPickerScreen
 from .think_modal import ThinkPickerScreen
+from .mcp_modal import MCPModalScreen
 from .. import state
 
 
@@ -54,6 +55,12 @@ def _is_session_picker_command(text: str) -> bool:
 def _is_think_picker_command(text: str) -> bool:
     s = (text or "").strip().lower()
     return s in ("/think mode", "/think modes", "/think select")
+
+
+def _is_mcp_modal_command(text: str) -> bool:
+    """Bare ``/mcp`` (no subcommand) opens the modal in the TUI."""
+    s = (text or "").strip().lower()
+    return s in ("/mcp", "/mcps")
 
 
 class PromptArea(TextArea):
@@ -494,6 +501,10 @@ class JarvisTUI(App):
                 self._open_think_picker()
                 inp.focus()
                 return
+            if _is_mcp_modal_command(cmd):
+                self._open_mcp_modal()
+                inp.focus()
+                return
             if cmd.endswith(" "):
                 inp.text = cmd
                 inp.move_cursor((0, len(cmd)))
@@ -534,6 +545,13 @@ class JarvisTUI(App):
             self._set_status("ready")
 
         self.push_screen(ThinkPickerScreen(), after)
+
+    def _open_mcp_modal(self):
+        """Open the single-pane MCP modal (list/toggle/import in one place)."""
+        def after(_: object) -> None:
+            self._set_status("ready")
+
+        self.push_screen(MCPModalScreen(), after)
 
     def _dispatch_palette_slash(self, inp: str):
         """Run a slash command picked from the palette (no second Enter)."""
@@ -672,6 +690,11 @@ class JarvisTUI(App):
         # /think mode → modal picker
         if _is_think_picker_command(text):
             self._open_think_picker()
+            return
+
+        # /mcp (bare) → MCP modal in the TUI
+        if _is_mcp_modal_command(text):
+            self._open_mcp_modal()
             return
 
         # /session (bare) or /session list/ls → modal picker
