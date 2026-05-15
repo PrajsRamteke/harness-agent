@@ -9,7 +9,7 @@ from ..constants import (
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
+    AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG, MODE_SETUP,
 )
 from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
 from ..utils.io import _secure_write
@@ -31,6 +31,9 @@ def handle_control(c: str, arg: str):
     # ── mode switching ─────────────────────────────────────────────────────────
     if c == "/coding":
         _toggle_coding_mode()
+        return True, None
+    if c == "/setup":
+        _toggle_setup_mode()
         return True, None
     if c == "/mode":
         _handle_mode(arg)
@@ -377,7 +380,7 @@ def _handle_provider(arg: str):
 
 # ── mode helpers ───────────────────────────────────────────────────────────────
 
-_VALID_MODES = (MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG)
+_VALID_MODES = (MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG, MODE_SETUP)
 
 
 def _toggle_coding_mode() -> None:
@@ -391,6 +394,27 @@ def _toggle_coding_mode() -> None:
         state.active_mode = MODE_CODING
         console.print(
             "[bold #00d7af]⚡ Coding mode ON[/] [dim]— CODING_ADDON rules are now active.[/]"
+        )
+    header_panel(compact=True)
+
+
+def _toggle_setup_mode() -> None:
+    """/setup — toggle the Jarvis-config setup mode.
+
+    When active, the agent receives the config-location playbook so it knows
+    exactly which file to edit when the user asks it to install an MCP,
+    create a skill, or change a preference.
+    """
+    if state.active_mode == MODE_SETUP:
+        state.active_mode = MODE_DEFAULT
+        console.print(
+            "[dim]🔘 Setup mode [red]OFF[/] — back to default system prompt.[/]"
+        )
+    else:
+        state.active_mode = MODE_SETUP
+        console.print(
+            "[bold #58a6ff]🛠  Setup mode ON[/] [dim]— agent now knows where Jarvis configs live "
+            "(MCP, skills, settings).[/]"
         )
     header_panel(compact=True)
 

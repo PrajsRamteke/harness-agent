@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from .constants import (
     VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL,
-    PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
+    PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG, MODE_SETUP,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
 )
 
@@ -102,6 +102,7 @@ MODE_LABELS: dict = {
     MODE_DEFAULT:     ("DEFAULT", "#8b949e", "dim"),
     MODE_CODING:      ("⚡ CODING", "#3fb950", "bold"),
     MODE_REVERSE_ENG: ("🔐 REVERSE ENG", "#d29922", "bold"),
+    MODE_SETUP:       ("🛠  SETUP", "#58a6ff", "bold"),
 }
 
 # ── visual theme ────────────────────────────────────────────────────────────

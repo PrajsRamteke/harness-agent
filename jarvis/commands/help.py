@@ -62,7 +62,8 @@ _SECTIONS = [
     ]),
     ("Modes", [
         ("/coding", "toggle coding mode ON/OFF (adds large-codebase rules)"),
-        ("/mode", "show current mode / switch mode (e.g. /mode coding)"),
+        ("/setup", "toggle setup mode ON/OFF (teaches agent where Jarvis configs live)"),
+        ("/mode", "show current mode / switch mode (e.g. /mode coding, /mode setup)"),
     ]),
     ("MCP (Model Context Protocol)", [
         ("/mcp", "manage MCP servers: list, add, connect, disconnect, reload"),

@@ -162,6 +162,63 @@ OUTPUT FORMAT FOR CODE TASKS
 """
 
 
+SETUP_ADDON = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🛠  SETUP MODE — Jarvis config layout
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Active when the user wants you to configure Jarvis itself — add an MCP server, create a
+skill, change a preference. Use these exact files and schemas. Do NOT improvise paths.
+
+SCOPE DECISION (do this first)
+- "this project" / "this repo" / "locally" / no qualifier   → project scope
+- "globally" / "for every project" / "user-wide" / "everywhere" → global scope
+- Credentialed servers (API keys, tokens)                    → global only (never commit)
+
+SETTINGS — toggleable preferences (single source of truth)
+  File: ~/.config/harness-agent/settings.json
+  Keys: model, theme, skills.global, mcp.global, think.mode, think.effort
+  Apply with `/settings set <key> <value>` (validates + reloads live) OR edit the file
+  then `/settings reload`. Use `/settings` to see the current view and defaults.
+
+MCP SERVERS (Model Context Protocol)
+  Project file: <cwd>/.mcp.json  (Claude Code compatible — survives in git)
+    Schema: {"mcpServers": {"<name>": {"command": "<bin>", "args": [...], "env": {...}}}}
+  Global file:  ~/.config/harness-agent/mcp.json  (Jarvis-managed)
+    Schema: {"servers": {"<name>": {"type": "stdio", "command": "<bin>", "args": [...], "env": {...}}},
+             "auto_connect": ["<name>"]}
+  Other tools' MCP configs Jarvis aggregates in global mode (READ-ONLY here — never edit):
+    Claude Code   ~/.claude.json                   Cursor       ~/.cursor/mcp.json
+    OpenCode      ~/.config/opencode/opencode.json Windsurf     ~/.codeium/windsurf/mcp_config.json
+                  ~/.config/opencode/mcp.json      VS Code      ~/.vscode/mcp.json
+  Activation: `/mcp reload` (or `/mcp connect <name>` for one). Inspect with `/mcp list`.
+
+SKILLS (instruction packs loaded on demand)
+  Project (primary):  <cwd>/.skills/<name>/SKILL.md
+  Project (compat):   <cwd>/.opencode/skills/<name>/SKILL.md
+                      <cwd>/.claude/skills/<name>/SKILL.md
+                      <cwd>/.agents/skills/<name>/SKILL.md
+  Global:             ~/.config/harness-agent/skills/<name>/SKILL.md
+                      (only visible when settings key `skills.global` is true)
+  The directory name MUST equal the `name:` in frontmatter.
+  Required SKILL.md template:
+    ---
+    name: <lowercase-kebab-case>
+    description: <one paragraph — when to trigger this skill (1–1024 chars)>
+    ---
+
+    <skill body in markdown>
+  Activation: `/skill refresh`. Inspect with `/skill list`.
+
+PLAYBOOK
+  1. Confirm scope from the user's wording. Default to project. Ask only if truly ambiguous.
+  2. read_file the target file first. Preserve every existing entry — merge, never clobber.
+  3. Write with edit_file (surgical merge) or write_file (new file) using the exact schema above.
+  4. Report what changed and the one-line activation command (`/mcp reload`, `/skill refresh`,
+     `/settings reload`). If the user has $EDITOR set, they can also use `/settings edit`.
+"""
+
+
 REVERSE_ENG_ADDON = """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔐 REVERSE ENGINEERING — EXPERT MODE

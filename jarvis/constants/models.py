@@ -74,3 +74,4 @@ CONTEXT_BUNDLE_MAX_CHARS = 120000
 MODE_DEFAULT = "default"
 MODE_CODING = "coding"
 MODE_REVERSE_ENG = "reverse_eng"
+MODE_SETUP = "setup"
