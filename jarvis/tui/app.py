@@ -37,6 +37,7 @@ from .model_modal import ModelPickerScreen
 from .think_modal import ThinkPickerScreen
 from .mcp_modal import MCPModalScreen
 from .mode_modal import ModePickerScreen
+from .login_modal import LoginModalScreen
 from .. import state
 
 
@@ -68,6 +69,12 @@ def _is_mode_picker_command(text: str) -> bool:
     """Bare ``/mode`` / ``/modes`` opens the mode picker in the TUI."""
     s = (text or "").strip().lower()
     return s in ("/mode", "/modes")
+
+
+def _is_login_command(text: str) -> bool:
+    """Bare ``/login`` opens the Anthropic OAuth modal in the TUI."""
+    s = (text or "").strip().lower()
+    return s in ("/login", "/signin", "/sign-in")
 
 
 class PromptArea(TextArea):
@@ -516,6 +523,10 @@ class JarvisTUI(App):
                 self._open_mode_picker()
                 inp.focus()
                 return
+            if _is_login_command(cmd):
+                self._open_login_modal()
+                inp.focus()
+                return
             if cmd.endswith(" "):
                 inp.text = cmd
                 inp.move_cursor((0, len(cmd)))
@@ -576,6 +587,25 @@ class JarvisTUI(App):
             self._set_status("ready")
 
         self.push_screen(ModePickerScreen(), after)
+
+    def _open_login_modal(self):
+        """Open the Anthropic Pro/Max OAuth login modal."""
+        def after(ok: bool | None) -> None:
+            if ok:
+                self._tui_console.print(
+                    "[green]✓[/] [bold]Signed in with Anthropic[/] — provider: Anthropic · auth: OAuth"
+                )
+                # Refresh header so model label / provider chip updates.
+                if hasattr(self, "_render_header"):
+                    try:
+                        self._render_header()
+                    except Exception:
+                        pass
+            else:
+                self._tui_console.print("[dim]login cancelled[/]")
+            self._set_status("ready")
+
+        self.push_screen(LoginModalScreen(), after)
 
     def _dispatch_palette_slash(self, inp: str):
         """Run a slash command picked from the palette (no second Enter)."""
@@ -724,6 +754,11 @@ class JarvisTUI(App):
         # /mode (bare) → mode picker modal in the TUI
         if _is_mode_picker_command(text):
             self._open_mode_picker()
+            return
+
+        # /login → Anthropic Pro/Max OAuth modal
+        if _is_login_command(text):
+            self._open_login_modal()
             return
 
         # /session (bare) or /session list/ls → modal picker
