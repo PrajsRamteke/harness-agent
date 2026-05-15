@@ -7,8 +7,7 @@ import json, os, threading, time
 from typing import Dict, List, Optional
 
 from .constants import (
-    VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL, LAST_MODEL_FILE, LAST_THEME_FILE,
-    SKILLS_CONFIG_FILE, THINK_CONFIG_FILE, MCP_PREFS_FILE,
+    VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL,
     PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
 )
@@ -20,17 +19,17 @@ client = None                       # Anthropic client, set by make_client()
 
 
 def _compute_initial_model() -> str:
-    """Env `CLAUDE_MODEL` wins; else last saved pick from a prior run; else default."""
+    """Env `CLAUDE_MODEL` wins; else settings.json model; else legacy file; else default."""
     if os.environ.get("CLAUDE_MODEL"):
         return _INITIAL_MODEL
-    if LAST_MODEL_FILE.exists():
-        try:
-            data = json.loads(LAST_MODEL_FILE.read_text())
-            m = data.get("model")
-            if isinstance(m, str) and m.strip():
-                return m.strip()
-        except (OSError, json.JSONDecodeError, TypeError):
-            pass
+    # Unified settings.json (also migrates legacy last_model.json on first read).
+    try:
+        from .storage.settings import get_settings
+        m = get_settings().get("model")
+        if isinstance(m, str) and m.strip():
+            return m.strip()
+    except Exception:
+        pass
     return _INITIAL_MODEL
 
 
@@ -127,99 +126,117 @@ theme_colors: dict = THEMES["red"]
 
 
 def _reload_saved_theme() -> None:
-    """Restore theme from last session, falling back to default."""
+    """Restore theme from the unified settings file (migrates legacy on first read)."""
     global theme, theme_colors
-    if LAST_THEME_FILE.exists():
-        try:
-            data = json.loads(LAST_THEME_FILE.read_text())
-            t = data.get("theme", "")
-            if t in THEMES:
-                theme = t
-                theme_colors = dict(THEMES[t])
-                return
-        except (OSError, json.JSONDecodeError, TypeError):
-            pass
+    try:
+        from .storage.settings import get_settings
+        t = get_settings().get("theme")
+        if t in THEMES:
+            theme = t
+            theme_colors = dict(THEMES[t])
+            return
+    except Exception:
+        pass
     theme = "red"
     theme_colors = dict(THEMES["red"])
 
 
+# ── unified persistence — all writes go through settings.json ─────────────
+
+
 def save_skills_config() -> None:
-    """Persist global_skills toggle to disk."""
+    """Persist ``skills.global`` to settings.json."""
     try:
-        SKILLS_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        SKILLS_CONFIG_FILE.write_text(
-            json.dumps({"global_skills": global_skills}, indent=2),
-            encoding="utf-8",
-        )
-    except OSError:
+        from .storage.settings import get_settings
+        get_settings().set("skills.global", global_skills)
+    except Exception:
         pass
 
 
 def _reload_saved_skills() -> None:
-    """Restore global_skills from last session."""
+    """Restore ``skills.global`` from settings.json."""
     global global_skills
-    if SKILLS_CONFIG_FILE.exists():
-        try:
-            data = json.loads(SKILLS_CONFIG_FILE.read_text(encoding="utf-8"))
-            if isinstance(data.get("global_skills"), bool):
-                global_skills = data["global_skills"]
-        except (OSError, json.JSONDecodeError, TypeError):
-            pass
+    try:
+        from .storage.settings import get_settings
+        v = get_settings().get("skills.global")
+        if isinstance(v, bool):
+            global_skills = v
+    except Exception:
+        pass
 
 
 def save_mcp_config() -> None:
-    """Persist global_mcp toggle to disk."""
+    """Persist ``mcp.global`` to settings.json."""
     try:
-        MCP_PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        MCP_PREFS_FILE.write_text(
-            json.dumps({"global_mcp": global_mcp}, indent=2),
-            encoding="utf-8",
-        )
-    except OSError:
+        from .storage.settings import get_settings
+        get_settings().set("mcp.global", global_mcp)
+    except Exception:
         pass
 
 
 def _reload_saved_mcp() -> None:
-    """Restore global_mcp from last session."""
+    """Restore ``mcp.global`` from settings.json."""
     global global_mcp
-    if MCP_PREFS_FILE.exists():
-        try:
-            data = json.loads(MCP_PREFS_FILE.read_text(encoding="utf-8"))
-            if isinstance(data.get("global_mcp"), bool):
-                global_mcp = data["global_mcp"]
-        except (OSError, json.JSONDecodeError, TypeError):
-            pass
+    try:
+        from .storage.settings import get_settings
+        v = get_settings().get("mcp.global")
+        if isinstance(v, bool):
+            global_mcp = v
+    except Exception:
+        pass
 
 
 # ── think_mode persistence ──────────────────────────────────────────────────
 
 
 def save_think_config() -> None:
-    """Persist think_mode toggle and effort to disk."""
+    """Persist think.mode + think.effort to settings.json."""
     try:
-        THINK_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        THINK_CONFIG_FILE.write_text(
-            json.dumps({"think_mode": think_mode, "think_effort": think_effort}, indent=2),
-            encoding="utf-8",
-        )
-    except OSError:
+        from .storage.settings import get_settings
+        s = get_settings()
+        s.set("think.mode", think_mode)
+        if think_effort in THINK_EFFORTS:
+            s.set("think.effort", think_effort)
+    except Exception:
         pass
 
 
 def _reload_saved_think() -> None:
-    """Restore think_mode and effort from last session."""
+    """Restore think.mode + think.effort from settings.json."""
     global think_mode, think_effort
-    if THINK_CONFIG_FILE.exists():
-        try:
-            data = json.loads(THINK_CONFIG_FILE.read_text(encoding="utf-8"))
-            if isinstance(data.get("think_mode"), bool):
-                think_mode = data["think_mode"]
-            if data.get("think_effort") in THINK_EFFORTS:
-                think_effort = data["think_effort"]
-            if think_mode and think_effort == "none":
-                think_effort = DEFAULT_THINK_EFFORT
-        except (OSError, json.JSONDecodeError, TypeError):
-            pass
+    try:
+        from .storage.settings import get_settings
+        s = get_settings()
+        mode = s.get("think.mode")
+        if isinstance(mode, bool):
+            think_mode = mode
+        eff = s.get("think.effort")
+        if eff in THINK_EFFORTS:
+            think_effort = eff
+        if think_mode and think_effort == "none":
+            think_effort = DEFAULT_THINK_EFFORT
+    except Exception:
+        pass
+
+
+def apply_settings_to_state() -> None:
+    """Re-apply persisted settings onto the in-process state module.
+
+    Call this after the user edits settings.json (or via ``/settings reload``)
+    so the running session picks up the new values without a restart.
+    """
+    global MODEL
+    _reload_saved_theme()
+    _reload_saved_skills()
+    _reload_saved_mcp()
+    _reload_saved_think()
+    try:
+        from .storage.settings import get_settings
+        m = get_settings().get("model")
+        if isinstance(m, str) and m.strip():
+            MODEL = m.strip()
+    except Exception:
+        pass
 
 
 _reload_saved_theme()

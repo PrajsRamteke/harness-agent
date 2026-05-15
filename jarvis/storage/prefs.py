@@ -1,7 +1,7 @@
 """Pinned context + aliases persistence, and markdown export."""
 import json, pathlib, time
 
-from ..constants import CONFIG_DIR, PIN_FILE, ALIAS_FILE, LAST_MODEL_FILE
+from ..constants import CONFIG_DIR, PIN_FILE, ALIAS_FILE
 from .. import state
 
 
@@ -16,10 +16,15 @@ def save_aliases():
 
 
 def save_last_model(model: str | None = None) -> None:
-    """Persist the active model so the next process start can restore it."""
+    """Persist the active model into the unified settings file."""
     m = (model if model is not None else state.MODEL).strip()
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    LAST_MODEL_FILE.write_text(json.dumps({"model": m}, indent=2))
+    if not m:
+        return
+    try:
+        from .settings import get_settings
+        get_settings().set("model", m)
+    except Exception:
+        pass
 
 
 def export_markdown(path: str) -> str:

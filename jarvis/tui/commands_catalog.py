@@ -81,6 +81,14 @@ COMMANDS = [
     ("/mcp global", "show current MCP scope (project-only vs project+global)"),
     ("/mcp global on", "enable global MCPs from Claude Code, OpenCode, Cursor, etc."),
     ("/mcp global off", "disable global MCPs — project .mcp.json only"),
+    # Settings
+    ("/settings", "show all preferences from ~/.config/harness-agent/settings.json"),
+    ("/settings get ", "show one preference value"),
+    ("/settings set ", "set a preference (key value) — auto-saves + applies"),
+    ("/settings reset ", "restore a preference to its default"),
+    ("/settings reload", "re-read settings.json from disk"),
+    ("/settings edit", "open settings.json in $EDITOR"),
+    ("/settings path", "show settings.json file location"),
     # Upgrade
     ("/upgrade", "update Jarvis to the latest version via git pull"),
     ("/upgrade check", "check if a newer version is available without upgrading"),

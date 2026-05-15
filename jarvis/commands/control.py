@@ -4,7 +4,7 @@ import os, time
 from ..console import console, Panel, Table
 from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
-    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, LAST_THEME_FILE,
+    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for,
@@ -459,8 +459,11 @@ def _handle_theme(arg: str) -> None:
 
     state.theme = target
     state.theme_colors = state.THEMES[target]
-    # Persist so it survives restarts
-    import json
-    LAST_THEME_FILE.write_text(json.dumps({"theme": target}))
+    # Persist so it survives restarts (unified settings.json).
+    try:
+        from ..storage.settings import get_settings
+        get_settings().set("theme", target)
+    except Exception:
+        pass
     console.print(f"[green]✓ switched to [bold]{target}[/] theme[/]")
     header_panel(compact=True)

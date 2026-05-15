@@ -76,6 +76,15 @@ _SECTIONS = [
         ("/mcp global off", "disable global MCPs — project .mcp.json only"),
         ("/mcp paths", "show all MCP config file locations"),
     ]),
+    ("Settings", [
+        ("/settings", "show all preferences (single settings.json)"),
+        ("/settings get <key>", "show one preference value"),
+        ("/settings set <key> <value>", "change a preference — auto-saves + applies"),
+        ("/settings reset <key>", "restore a preference to its default"),
+        ("/settings reload", "re-read settings.json from disk"),
+        ("/settings edit", "open settings.json in $EDITOR"),
+        ("/settings path", "print settings.json file path"),
+    ]),
     ("Control", [
         ("/upgrade", "update Jarvis to the latest version (git pull + pip install)"),
         ("/upgrade check", "check version status without upgrading"),
