@@ -125,16 +125,9 @@ def _mcp_tool_to_schema(tool: Tool) -> dict[str, Any]:
     }
 
 
-def _normalize_input_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(schema, dict):
-        return {"type": "object", "properties": {}}
-    if "type" not in schema:
-        schema["type"] = "object"
-    if schema.get("type") == "object" and "properties" not in schema:
-        schema["properties"] = {}
-    if "required" not in schema:
-        schema["required"] = []
-    return schema
+# Schema sanitisation lives in jarvis.utils.schema so the API-boundary
+# layer (tools.router) and this registration path use the same logic.
+from ..utils.schema import normalize_input_schema as _normalize_input_schema
 
 
 # ── registry singleton ────────────────────────────────────────────────────

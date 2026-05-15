@@ -6,6 +6,7 @@ import re
 from typing import Iterable
 
 from . import TOOL_GROUPS, TOOL_NAME_TO_GROUP
+from ..utils.schema import sanitize_tools
 
 WEB_RE = re.compile(
     r"\b(web|internet|search online|look up|latest|today|news|price|weather|url|https?://|docs?|documentation)\b",
@@ -114,4 +115,9 @@ def select_tools(messages: list[dict]) -> list[dict]:
         if "mcp" in active:
             pass  # already in the list
 
-    return _dedupe_tools(groups)
+    # Defense in depth: sanitize every tool schema right before it leaves
+    # the process. Anthropic rejects top-level oneOf/anyOf/allOf, and some
+    # MCP servers (ClickUp, GitHub, TestSprite, …) ship those. Doing it here
+    # means a stale TOOL_GROUPS entry from an older registration cycle can't
+    # leak the broken shape into the API call.
+    return sanitize_tools(_dedupe_tools(groups))
