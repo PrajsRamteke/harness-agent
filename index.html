@@ -1,1054 +1,2068 @@
 <!doctype html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Harness — The Jarvis Agent</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Harness — The Jarvis Agent</title>
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide-static@0.453.0/font/lucide.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lucide-static@0.453.0/font/lucide.css">
 
-<style>
-  :root{
-    --bg:#FAF8F4;
-    --bg-2:#F2EEE5;
-    --ink:#1A1814;
-    --ink-soft:#3A3631;
-    --muted:#7A746A;
-    --line:#E5DFD2;
-    --line-2:#D6CFBE;
-    --accent:#C2410C;          /* burnt orange */
-    --accent-soft:#F4D9C2;
-    --good:#0F766E;
-    --warn:#B45309;
-    --paper:#FFFFFF;
+  <style>
+    :root {
+      --bg: #FAF8F4;
+      --bg-2: #F2EEE5;
+      --ink: #1A1814;
+      --ink-soft: #3A3631;
+      --muted: #7A746A;
+      --line: #E5DFD2;
+      --line-2: #D6CFBE;
+      --accent: #C2410C;
+      /* burnt orange */
+      --accent-soft: #F4D9C2;
+      --good: #0F766E;
+      --warn: #B45309;
+      --paper: #FFFFFF;
 
-    --display:"Fraunces", "Times New Roman", serif;
-    --sans:"Inter Tight", system-ui, sans-serif;
-    --mono:"JetBrains Mono", ui-monospace, monospace;
+      --display: "Fraunces", "Times New Roman", serif;
+      --sans: "Inter Tight", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
 
-    --slide-pad: clamp(48px, 6vw, 96px);
-  }
+      --slide-pad: clamp(48px, 6vw, 96px);
+    }
 
-  *{box-sizing:border-box}
-  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
-  html,body{overflow:hidden;height:100vh;width:100vw}
+    * {
+      box-sizing: border-box
+    }
 
-  /* ---------- Layout ---------- */
-  .deck{
-    height:100vh;width:100vw;
-    display:flex;flex-direction:row;
-    overflow-x:auto;overflow-y:hidden;
-    scroll-snap-type:x mandatory;
-    scroll-behavior:smooth;
-    scrollbar-width:none;
-  }
-  .deck::-webkit-scrollbar{display:none}
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased
+    }
 
-  .slide{
-    flex:0 0 100vw;height:100vh;
-    scroll-snap-align:start;scroll-snap-stop:always;
-    padding:var(--slide-pad);
-    position:relative;
-    display:flex;flex-direction:column;
-    overflow:hidden;
-  }
+    html,
+    body {
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw
+    }
 
-  /* paper grain on every slide */
-  .slide::before{
-    content:"";position:absolute;inset:0;pointer-events:none;
-    background-image:radial-gradient(rgba(0,0,0,.025) 1px, transparent 1px);
-    background-size:3px 3px;
-    mix-blend-mode:multiply;opacity:.6;
-  }
+    /* ---------- Layout ---------- */
+    .deck {
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      flex-direction: row;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-snap-type: x mandatory;
+      scroll-behavior: smooth;
+      scrollbar-width: none;
+    }
 
-  /* ---------- Top bar ---------- */
-  .topbar{
-    position:fixed;top:0;left:0;right:0;height:54px;
-    display:flex;align-items:center;justify-content:space-between;
-    padding:0 28px;z-index:50;
-    background:rgba(250,248,244,.85);backdrop-filter:blur(12px);
-    border-bottom:1px solid var(--line);
-    font-size:13px;
-  }
-  .topbar .brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:-.01em}
-  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
-  .topbar nav{display:flex;gap:22px;color:var(--muted)}
-  .topbar nav a{color:inherit;text-decoration:none;cursor:pointer}
-  .topbar nav a.active{color:var(--ink)}
-  .progress{position:absolute;bottom:-1px;left:0;height:2px;background:var(--accent);width:0;transition:width .35s ease}
+    .deck::-webkit-scrollbar {
+      display: none
+    }
 
-  /* ---------- Slide eyebrow + heading ---------- */
-  .eyebrow{
-    display:flex;align-items:center;gap:14px;
-    font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;
-    color:var(--muted);margin-top:54px;
-  }
-  .eyebrow .num{color:var(--ink);font-weight:500}
-  .eyebrow .line{flex:1;max-width:120px;height:1px;background:var(--line-2)}
+    .slide {
+      flex: 0 0 100vw;
+      height: 100vh;
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+      padding: var(--slide-pad);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
 
-  h1.title{
-    font-family:var(--display);font-weight:400;
-    font-size:clamp(48px,7vw,108px);
-    line-height:.95;letter-spacing:-.035em;
-    margin:18px 0 0;color:var(--ink);
-  }
-  h1.title em{font-style:italic;color:var(--accent);font-weight:500}
-  h2.section{
-    font-family:var(--display);font-weight:400;
-    font-size:clamp(36px,4.5vw,68px);
-    line-height:1;letter-spacing:-.03em;
-    margin:14px 0 0;
-  }
-  h2.section em{font-style:italic;color:var(--accent)}
-  .lede{
-    font-family:var(--display);font-weight:300;font-size:clamp(18px,1.6vw,24px);
-    line-height:1.4;color:var(--ink-soft);max-width:780px;margin-top:22px;
-  }
+    /* paper grain on every slide */
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image: radial-gradient(rgba(0, 0, 0, .025) 1px, transparent 1px);
+      background-size: 3px 3px;
+      mix-blend-mode: multiply;
+      opacity: .6;
+    }
 
-  /* ---------- Reusable bits ---------- */
-  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;
-    text-transform:uppercase;padding:5px 10px;border:1px solid var(--line-2);border-radius:999px;color:var(--ink-soft);background:var(--paper)}
-  .pill.accent{background:var(--accent);color:#fff;border-color:var(--accent)}
-  .pill .i{font-size:13px}
+    /* ---------- Top bar ---------- */
+    .topbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      z-index: 50;
+      background: rgba(250, 248, 244, .85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
 
-  .grid{display:grid;gap:18px}
-  .card{
-    background:var(--paper);border:1px solid var(--line);border-radius:14px;
-    padding:22px 24px;position:relative;transition:transform .25s, border-color .25s;
-  }
-  .card:hover{transform:translateY(-2px);border-color:var(--line-2)}
-  .card h3{font-family:var(--display);font-weight:500;font-size:22px;letter-spacing:-.01em;margin:0 0 6px}
-  .card p{font-size:14.5px;line-height:1.55;color:var(--ink-soft);margin:0}
-  .card .icon{
-    width:36px;height:36px;border-radius:10px;background:var(--bg-2);
-    display:flex;align-items:center;justify-content:center;color:var(--accent);
-    margin-bottom:14px;font-size:18px;
-  }
-  .card .tag{position:absolute;top:18px;right:18px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+    .topbar .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--display);
+      font-weight: 600;
+      font-size: 16px;
+      letter-spacing: -.01em
+    }
 
-  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+    .brand .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-soft)
+    }
 
-  /* ---------- Nav buttons ---------- */
-  .nav-btn{
-    position:fixed;bottom:28px;z-index:60;
-    width:44px;height:44px;border-radius:50%;
-    border:1px solid var(--line-2);background:var(--paper);
-    display:flex;align-items:center;justify-content:center;
-    cursor:pointer;color:var(--ink);font-size:18px;
-    box-shadow:0 8px 24px -10px rgba(26,24,20,.18);
-    transition:transform .2s, background .2s;
-  }
-  .nav-btn:hover{background:var(--ink);color:var(--paper);transform:translateY(-2px)}
-  .nav-btn.prev{right:84px}
-  .nav-btn.next{right:28px}
-  .nav-counter{
-    position:fixed;bottom:34px;left:28px;z-index:60;
-    font-family:var(--mono);font-size:12px;letter-spacing:.15em;color:var(--muted);
-  }
-  .nav-counter b{color:var(--ink);font-weight:600}
+    .topbar nav {
+      display: flex;
+      gap: 22px;
+      color: var(--muted)
+    }
 
-  /* ---------- COVER ---------- */
-  .cover{padding:0;display:grid;grid-template-columns:1.15fr .85fr}
-  .cover .left{padding:var(--slide-pad);display:flex;flex-direction:column;justify-content:space-between;border-right:1px solid var(--line)}
-  .cover .right{background:var(--ink);color:#F4EFE3;padding:var(--slide-pad);display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}
-  .cover .right::after{
-    content:"";position:absolute;inset:0;
-    background:radial-gradient(circle at 20% 20%, rgba(194,65,12,.35), transparent 55%);
-    pointer-events:none;
-  }
-  .cover h1{font-family:var(--display);font-weight:300;font-size:clamp(64px,8.5vw,140px);line-height:.9;letter-spacing:-.04em;margin:0}
-  .cover h1 em{font-style:italic;color:var(--accent);font-weight:500}
-  .cover .sub{font-family:var(--display);font-weight:300;font-style:italic;font-size:clamp(20px,1.8vw,28px);color:var(--ink-soft);margin-top:18px;max-width:540px;line-height:1.35}
-  .cover .meta{display:flex;gap:14px;flex-wrap:wrap;margin-top:32px}
-  .cover .right h2{font-family:var(--display);font-weight:300;font-size:42px;letter-spacing:-.02em;margin:0;color:#F4EFE3}
-  .cover .right h2 em{font-style:italic;color:#F4B183}
-  .cover .right p{color:#C9C0B0;line-height:1.5;font-size:15px;max-width:380px}
-  .cover .stat{display:flex;align-items:baseline;gap:14px;padding:18px 0;border-top:1px solid #2c2924}
-  .cover .stat .n{font-family:var(--display);font-size:52px;font-weight:400;line-height:1;color:#F4EFE3}
-  .cover .stat .l{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#7A746A}
-  .cover .stat .d{margin-left:auto;color:#C9C0B0;font-size:13px;max-width:180px;text-align:right;line-height:1.3}
+    .topbar nav a {
+      color: inherit;
+      text-decoration: none;
+      cursor: pointer
+    }
 
-  /* ---------- Skills slide ---------- */
-  .skills-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:42px;flex:1;align-content:start}
+    .topbar nav a.active {
+      color: var(--ink)
+    }
 
-  /* ---------- Comparison slide ---------- */
-  .vs{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:42px;flex:1;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--paper)}
-  .vs > div{padding:32px 36px}
-  .vs .col-them{background:var(--bg-2);border-right:1px solid var(--line);position:relative}
-  .vs .col-me{background:var(--paper);position:relative}
-  .vs h3{font-family:var(--display);font-weight:500;font-size:28px;margin:0 0 4px;letter-spacing:-.015em}
-  .vs .col-them h3{color:var(--ink-soft)}
-  .vs .col-me h3{color:var(--accent)}
-  .vs .col-them .label{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
-  .vs .col-me .label{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
-  .vs ul{list-style:none;padding:0;margin:24px 0 0}
-  .vs li{display:flex;gap:12px;padding:14px 0;border-bottom:1px dashed var(--line);font-size:14.5px;line-height:1.45}
-  .vs li:last-child{border-bottom:0}
-  .vs li .i{font-size:15px;margin-top:2px;flex:0 0 auto}
-  .vs .col-them li .i{color:#9b8d75}
-  .vs .col-me li .i{color:var(--accent)}
-  .vs li b{font-weight:600;color:var(--ink)}
+    .progress {
+      position: absolute;
+      bottom: -1px;
+      left: 0;
+      height: 2px;
+      background: var(--accent);
+      width: 0;
+      transition: width .35s ease
+    }
 
-  /* ---------- Pricing slide ---------- */
-  .price-row{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:42px;flex:1;align-content:start}
-  .price-card{
-    background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:30px 28px;position:relative;
-    display:flex;flex-direction:column;gap:8px;
-  }
-  .price-card.hero{background:var(--ink);color:#F4EFE3;border-color:var(--ink)}
-  .price-card.hero .name{color:#F4B183}
-  .price-card.hero .price{color:#fff}
-  .price-card.hero .per{color:#9b8d75}
-  .price-card.hero .bar{background:#2c2924}
-  .price-card.hero .bar-fill{background:var(--accent)}
-  .price-card .name{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
-  .price-card h3{font-family:var(--display);font-weight:500;font-size:30px;letter-spacing:-.015em;margin:4px 0 0}
-  .price-card .price{font-family:var(--display);font-weight:400;font-size:64px;line-height:1;letter-spacing:-.03em;margin-top:14px}
-  .price-card .per{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-top:6px}
-  .price-card .bar{height:6px;border-radius:3px;background:var(--bg-2);margin-top:18px;overflow:hidden}
-  .price-card .bar-fill{height:100%;border-radius:3px;background:var(--accent);transition:width 1s}
-  .price-card ul{list-style:none;padding:0;margin:18px 0 0;font-size:13.5px;color:inherit}
-  .price-card li{display:flex;gap:10px;padding:6px 0;line-height:1.4}
-  .price-card li .i{color:var(--accent)}
-  .price-card.hero li .i{color:#F4B183}
-  .ribbon{position:absolute;top:18px;right:18px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;background:var(--accent);color:#fff;padding:5px 9px;border-radius:6px}
+    /* ---------- Slide eyebrow + heading ---------- */
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 54px;
+    }
 
-  /* ---------- Two-column ---------- */
-  .two-col{display:grid;grid-template-columns:1.1fr .9fr;gap:48px;margin-top:36px;flex:1}
-  .two-col .right{display:flex;flex-direction:column;gap:14px}
+    .eyebrow .num {
+      color: var(--ink);
+      font-weight: 500
+    }
 
-  /* ---------- Work slide / case studies ---------- */
-  .cases{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:42px;flex:1;align-content:start}
-  .case{
-    border:1px solid var(--line);border-radius:16px;background:var(--paper);padding:26px 24px;position:relative;
-    display:flex;flex-direction:column;gap:14px;
-  }
-  .case .head{display:flex;align-items:center;gap:10px}
-  .case .num{font-family:var(--display);font-weight:400;font-style:italic;font-size:42px;color:var(--accent);line-height:1}
-  .case h3{font-family:var(--display);font-weight:500;font-size:22px;letter-spacing:-.01em;margin:0;line-height:1.15}
-  .case p{font-size:14px;line-height:1.55;color:var(--ink-soft);margin:0}
-  .case .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
-  .case .tags span{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 8px;border:1px solid var(--line-2);border-radius:6px;color:var(--muted);background:var(--bg)}
+    .eyebrow .line {
+      flex: 1;
+      max-width: 120px;
+      height: 1px;
+      background: var(--line-2)
+    }
 
-  /* ---------- Tools slide ---------- */
-  .tools-wrap{display:grid;grid-template-columns:1fr 1fr;gap:42px;margin-top:36px;flex:1;align-content:start}
-  .tool-block h4{font-family:var(--display);font-weight:500;font-size:24px;letter-spacing:-.01em;margin:0 0 12px}
-  .tool-block .chip-grid{display:flex;flex-wrap:wrap;gap:8px}
-  .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
-  .chip .i{font-size:13px;color:var(--accent)}
+    h1.title {
+      font-family: var(--display);
+      font-weight: 400;
+      font-size: clamp(48px, 7vw, 108px);
+      line-height: .95;
+      letter-spacing: -.035em;
+      margin: 18px 0 0;
+      color: var(--ink);
+    }
 
-  /* ---------- Install slide ---------- */
-  .install{display:grid;grid-template-columns:1fr 1fr;gap:36px;margin-top:36px;flex:1;align-content:start}
-  .code-block{
-    background:var(--ink);color:#F4EFE3;border-radius:16px;padding:24px 26px;font-family:var(--mono);font-size:13.5px;line-height:1.7;
-    position:relative;overflow:hidden;
-  }
-  .code-block .label{
-    position:absolute;top:14px;right:18px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#7A746A
-  }
-  .code-block .c{color:#9b8d75}
-  .code-block .k{color:#F4B183}
-  .code-block .s{color:#A7D9A0}
-  .code-block .v{color:#E8C170}
-  .step{padding:18px 22px;border:1px solid var(--line);border-radius:14px;background:var(--paper);display:flex;gap:14px;align-items:flex-start}
-  .step .n{font-family:var(--display);font-weight:500;font-style:italic;font-size:32px;color:var(--accent);line-height:1;min-width:36px}
-  .step h4{font-family:var(--display);font-weight:500;font-size:20px;margin:0 0 4px;letter-spacing:-.01em}
-  .step p{margin:0;font-size:13.5px;color:var(--ink-soft);line-height:1.5}
+    h1.title em {
+      font-style: italic;
+      color: var(--accent);
+      font-weight: 500
+    }
 
-  /* ---------- Comparison table slide ---------- */
-  .cmp-table{
-    margin-top:36px;flex:1;overflow:hidden;
-    background:var(--paper);border:1px solid var(--line);border-radius:18px;
-    display:flex;flex-direction:column;
-  }
-  .cmp-row{
-    display:grid;grid-template-columns:1.1fr 1.3fr 1.3fr;
-    border-bottom:1px solid var(--line);
-  }
-  .cmp-row:last-child{border-bottom:0}
-  .cmp-row > div{padding:14px 22px;font-size:13.5px;line-height:1.45;color:var(--ink-soft);display:flex;align-items:flex-start;gap:10px}
-  .cmp-row .cap{font-family:var(--display);font-weight:500;font-size:15px;color:var(--ink);letter-spacing:-.005em;border-right:1px solid var(--line);background:var(--bg-2)}
-  .cmp-row .me{background:#FFF8F0;border-right:1px solid var(--line);position:relative}
-  .cmp-row .me::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
-  .cmp-row .them{background:var(--paper)}
-  .cmp-row.head > div{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);padding:14px 22px;font-weight:600;background:var(--bg)}
-  .cmp-row.head .me{color:var(--accent);background:var(--bg)}
-  .cmp-row .i{font-size:13px;color:var(--accent);margin-top:3px;flex:0 0 auto}
-  .cmp-row .them .i{color:#b8a98e}
+    h2.section {
+      font-family: var(--display);
+      font-weight: 400;
+      font-size: clamp(36px, 4.5vw, 68px);
+      line-height: 1;
+      letter-spacing: -.03em;
+      margin: 14px 0 0;
+    }
 
-  /* ---------- Closing ---------- */
-  .closing{background:var(--ink);color:#F4EFE3;justify-content:center;align-items:center;text-align:center}
-  .closing::before{opacity:.15}
-  .closing h1{font-family:var(--display);font-weight:300;font-size:clamp(64px,9vw,140px);line-height:.95;letter-spacing:-.035em;margin:0;color:#F4EFE3}
-  .closing h1 em{font-style:italic;color:#F4B183;font-weight:400}
-  .closing p{font-family:var(--display);font-weight:300;font-style:italic;font-size:24px;color:#C9C0B0;margin-top:18px;max-width:680px}
-  .closing .links{margin-top:36px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
-  .closing .link{padding:12px 20px;border:1px solid #2c2924;border-radius:999px;color:#F4EFE3;text-decoration:none;font-size:13px;font-family:var(--mono);letter-spacing:.1em;text-transform:uppercase;background:#1F1C18}
-  .closing .link.accent{background:var(--accent);border-color:var(--accent);color:#fff}
+    h2.section em {
+      font-style: italic;
+      color: var(--accent)
+    }
 
-  /* ---------- Hint ---------- */
-  .hint{
-    position:fixed;bottom:36px;left:50%;transform:translateX(-50%);z-index:55;
-    font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);
-    display:flex;align-items:center;gap:10px;
-    background:var(--paper);padding:8px 14px;border-radius:999px;border:1px solid var(--line-2);
-    transition:opacity .4s;
-  }
-  .hint.hidden{opacity:0;pointer-events:none}
-  .hint kbd{font-family:var(--mono);background:var(--bg-2);border:1px solid var(--line-2);border-radius:4px;padding:1px 6px;font-size:10px;color:var(--ink)}
+    .lede {
+      font-family: var(--display);
+      font-weight: 300;
+      font-size: clamp(18px, 1.6vw, 24px);
+      line-height: 1.4;
+      color: var(--ink-soft);
+      max-width: 780px;
+      margin-top: 22px;
+    }
 
-  /* fade-in */
-  .slide > *{opacity:0;transform:translateY(12px);transition:opacity .5s ease, transform .5s ease}
-  .slide.active > *{opacity:1;transform:translateY(0)}
-  .slide.active > *:nth-child(2){transition-delay:.08s}
-  .slide.active > *:nth-child(3){transition-delay:.16s}
-  .slide.active > *:nth-child(4){transition-delay:.24s}
-  .slide.active > *:nth-child(5){transition-delay:.32s}
-  .slide.active > *:nth-child(6){transition-delay:.40s}
+    /* ---------- Reusable bits ---------- */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: 5px 10px;
+      border: 1px solid var(--line-2);
+      border-radius: 999px;
+      color: var(--ink-soft);
+      background: var(--paper)
+    }
 
-  /* responsive guard */
-  @media (max-width:900px){
-    .cover{grid-template-columns:1fr}
-    .cover .left{border-right:0;border-bottom:1px solid var(--line)}
-    .skills-grid{grid-template-columns:repeat(2,1fr)}
-    .price-row,.cases,.tools-wrap,.install,.two-col{grid-template-columns:1fr}
-    .vs{grid-template-columns:1fr}
-  }
-</style>
+    .pill.accent {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent)
+    }
+
+    .pill .i {
+      font-size: 13px
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px
+    }
+
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 22px 24px;
+      position: relative;
+      transition: transform .25s, border-color .25s;
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--line-2)
+    }
+
+    .card h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 22px;
+      letter-spacing: -.01em;
+      margin: 0 0 6px
+    }
+
+    .card p {
+      font-size: 14.5px;
+      line-height: 1.55;
+      color: var(--ink-soft);
+      margin: 0
+    }
+
+    .card .icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: var(--bg-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      margin-bottom: 14px;
+      font-size: 18px;
+    }
+
+    .card .tag {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .14em;
+      color: var(--muted);
+      text-transform: uppercase
+    }
+
+    .kicker {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .18em;
+      color: var(--muted);
+      text-transform: uppercase
+    }
+
+    /* ---------- Nav buttons ---------- */
+    .nav-btn {
+      position: fixed;
+      bottom: 28px;
+      z-index: 60;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 1px solid var(--line-2);
+      background: var(--paper);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--ink);
+      font-size: 18px;
+      box-shadow: 0 8px 24px -10px rgba(26, 24, 20, .18);
+      transition: transform .2s, background .2s;
+    }
+
+    .nav-btn:hover {
+      background: var(--ink);
+      color: var(--paper);
+      transform: translateY(-2px)
+    }
+
+    .nav-btn.prev {
+      right: 84px
+    }
+
+    .nav-btn.next {
+      right: 28px
+    }
+
+    .nav-counter {
+      position: fixed;
+      bottom: 34px;
+      left: 28px;
+      z-index: 60;
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: .15em;
+      color: var(--muted);
+    }
+
+    .nav-counter b {
+      color: var(--ink);
+      font-weight: 600
+    }
+
+    /* ---------- COVER ---------- */
+    .cover {
+      padding: 0;
+      display: grid;
+      grid-template-columns: 1.15fr .85fr
+    }
+
+    .cover .left {
+      padding: var(--slide-pad);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-right: 1px solid var(--line)
+    }
+
+    .cover .right {
+      background: var(--ink);
+      color: #F4EFE3;
+      padding: var(--slide-pad);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden
+    }
+
+    .cover .right::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 20% 20%, rgba(194, 65, 12, .35), transparent 55%);
+      pointer-events: none;
+    }
+
+    .cover h1 {
+      font-family: var(--display);
+      font-weight: 300;
+      font-size: clamp(64px, 8.5vw, 140px);
+      line-height: .9;
+      letter-spacing: -.04em;
+      margin: 0
+    }
+
+    .cover h1 em {
+      font-style: italic;
+      color: var(--accent);
+      font-weight: 500
+    }
+
+    .cover .sub {
+      font-family: var(--display);
+      font-weight: 300;
+      font-style: italic;
+      font-size: clamp(20px, 1.8vw, 28px);
+      color: var(--ink-soft);
+      margin-top: 18px;
+      max-width: 540px;
+      line-height: 1.35
+    }
+
+    .cover .meta {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-top: 32px
+    }
+
+    .cover .right h2 {
+      font-family: var(--display);
+      font-weight: 300;
+      font-size: 42px;
+      letter-spacing: -.02em;
+      margin: 0;
+      color: #F4EFE3
+    }
+
+    .cover .right h2 em {
+      font-style: italic;
+      color: #F4B183
+    }
+
+    .cover .right p {
+      color: #C9C0B0;
+      line-height: 1.5;
+      font-size: 15px;
+      max-width: 380px
+    }
+
+    .cover .stat {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      padding: 18px 0;
+      border-top: 1px solid #2c2924
+    }
+
+    .cover .stat .n {
+      font-family: var(--display);
+      font-size: 52px;
+      font-weight: 400;
+      line-height: 1;
+      color: #F4EFE3
+    }
+
+    .cover .stat .l {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: #7A746A
+    }
+
+    .cover .stat .d {
+      margin-left: auto;
+      color: #C9C0B0;
+      font-size: 13px;
+      max-width: 180px;
+      text-align: right;
+      line-height: 1.3
+    }
+
+    /* ---------- Skills slide ---------- */
+    .skills-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      margin-top: 42px;
+      flex: 1;
+      align-content: start
+    }
+
+    /* ---------- Comparison slide ---------- */
+    .vs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      margin-top: 42px;
+      flex: 1;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      overflow: hidden;
+      background: var(--paper)
+    }
+
+    .vs>div {
+      padding: 32px 36px
+    }
+
+    .vs .col-them {
+      background: var(--bg-2);
+      border-right: 1px solid var(--line);
+      position: relative
+    }
+
+    .vs .col-me {
+      background: var(--paper);
+      position: relative
+    }
+
+    .vs h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 28px;
+      margin: 0 0 4px;
+      letter-spacing: -.015em
+    }
+
+    .vs .col-them h3 {
+      color: var(--ink-soft)
+    }
+
+    .vs .col-me h3 {
+      color: var(--accent)
+    }
+
+    .vs .col-them .label {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: var(--muted)
+    }
+
+    .vs .col-me .label {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: var(--accent)
+    }
+
+    .vs ul {
+      list-style: none;
+      padding: 0;
+      margin: 24px 0 0
+    }
+
+    .vs li {
+      display: flex;
+      gap: 12px;
+      padding: 14px 0;
+      border-bottom: 1px dashed var(--line);
+      font-size: 14.5px;
+      line-height: 1.45
+    }
+
+    .vs li:last-child {
+      border-bottom: 0
+    }
+
+    .vs li .i {
+      font-size: 15px;
+      margin-top: 2px;
+      flex: 0 0 auto
+    }
+
+    .vs .col-them li .i {
+      color: #9b8d75
+    }
+
+    .vs .col-me li .i {
+      color: var(--accent)
+    }
+
+    .vs li b {
+      font-weight: 600;
+      color: var(--ink)
+    }
+
+    /* ---------- Pricing slide ---------- */
+    .price-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-top: 42px;
+      flex: 1;
+      align-content: start
+    }
+
+    .price-card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 30px 28px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .price-card.hero {
+      background: var(--ink);
+      color: #F4EFE3;
+      border-color: var(--ink)
+    }
+
+    .price-card.hero .name {
+      color: #F4B183
+    }
+
+    .price-card.hero .price {
+      color: #fff
+    }
+
+    .price-card.hero .per {
+      color: #9b8d75
+    }
+
+    .price-card.hero .bar {
+      background: #2c2924
+    }
+
+    .price-card.hero .bar-fill {
+      background: var(--accent)
+    }
+
+    .price-card .name {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--muted)
+    }
+
+    .price-card h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 30px;
+      letter-spacing: -.015em;
+      margin: 4px 0 0
+    }
+
+    .price-card .price {
+      font-family: var(--display);
+      font-weight: 400;
+      font-size: 64px;
+      line-height: 1;
+      letter-spacing: -.03em;
+      margin-top: 14px
+    }
+
+    .price-card .per {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 6px
+    }
+
+    .price-card .bar {
+      height: 6px;
+      border-radius: 3px;
+      background: var(--bg-2);
+      margin-top: 18px;
+      overflow: hidden
+    }
+
+    .price-card .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--accent);
+      transition: width 1s
+    }
+
+    .price-card ul {
+      list-style: none;
+      padding: 0;
+      margin: 18px 0 0;
+      font-size: 13.5px;
+      color: inherit
+    }
+
+    .price-card li {
+      display: flex;
+      gap: 10px;
+      padding: 6px 0;
+      line-height: 1.4
+    }
+
+    .price-card li .i {
+      color: var(--accent)
+    }
+
+    .price-card.hero li .i {
+      color: #F4B183
+    }
+
+    .ribbon {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      background: var(--accent);
+      color: #fff;
+      padding: 5px 9px;
+      border-radius: 6px
+    }
+
+    /* ---------- Two-column ---------- */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 48px;
+      margin-top: 36px;
+      flex: 1
+    }
+
+    .two-col .right {
+      display: flex;
+      flex-direction: column;
+      gap: 14px
+    }
+
+    /* ---------- Work slide / case studies ---------- */
+    .cases {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-top: 42px;
+      flex: 1;
+      align-content: start
+    }
+
+    .case {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--paper);
+      padding: 26px 24px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .case .head {
+      display: flex;
+      align-items: center;
+      gap: 10px
+    }
+
+    .case .num {
+      font-family: var(--display);
+      font-weight: 400;
+      font-style: italic;
+      font-size: 42px;
+      color: var(--accent);
+      line-height: 1
+    }
+
+    .case h3 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 22px;
+      letter-spacing: -.01em;
+      margin: 0;
+      line-height: 1.15
+    }
+
+    .case p {
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--ink-soft);
+      margin: 0
+    }
+
+    .case .tags {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: auto
+    }
+
+    .case .tags span {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      color: var(--muted);
+      background: var(--bg)
+    }
+
+    /* ---------- Tools slide ---------- */
+    .tools-wrap {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 42px;
+      margin-top: 36px;
+      flex: 1;
+      align-content: start
+    }
+
+    .tool-block h4 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 24px;
+      letter-spacing: -.01em;
+      margin: 0 0 12px
+    }
+
+    .tool-block .chip-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--ink-soft)
+    }
+
+    .chip .i {
+      font-size: 13px;
+      color: var(--accent)
+    }
+
+    /* ---------- Install slide ---------- */
+    .install {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 36px;
+      margin-top: 36px;
+      flex: 1;
+      align-content: start
+    }
+
+    .code-block {
+      background: var(--ink);
+      color: #F4EFE3;
+      border-radius: 16px;
+      padding: 24px 26px;
+      font-family: var(--mono);
+      font-size: 13.5px;
+      line-height: 1.7;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .code-block .label {
+      position: absolute;
+      top: 14px;
+      right: 18px;
+      font-size: 10px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: #7A746A
+    }
+
+    .code-block .c {
+      color: #9b8d75
+    }
+
+    .code-block .k {
+      color: #F4B183
+    }
+
+    .code-block .s {
+      color: #A7D9A0
+    }
+
+    .code-block .v {
+      color: #E8C170
+    }
+
+    .step {
+      padding: 18px 22px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--paper);
+      display: flex;
+      gap: 14px;
+      align-items: flex-start
+    }
+
+    .step .n {
+      font-family: var(--display);
+      font-weight: 500;
+      font-style: italic;
+      font-size: 32px;
+      color: var(--accent);
+      line-height: 1;
+      min-width: 36px
+    }
+
+    .step h4 {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 20px;
+      margin: 0 0 4px;
+      letter-spacing: -.01em
+    }
+
+    .step p {
+      margin: 0;
+      font-size: 13.5px;
+      color: var(--ink-soft);
+      line-height: 1.5
+    }
+
+    /* ---------- Comparison table slide ---------- */
+    .cmp-table {
+      margin-top: 28px;
+      flex: 1 1 0;
+      min-height: 0;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 24px 48px -28px rgba(26, 24, 20, .18);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-2) transparent;
+      position: relative;
+    }
+    .cmp-table::-webkit-scrollbar { width: 8px }
+    .cmp-table::-webkit-scrollbar-track { background: transparent }
+    .cmp-table::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px }
+    .cmp-table::-webkit-scrollbar-thumb:hover { background: var(--muted) }
+
+    .cmp-row {
+      display: grid;
+      grid-template-columns: 1.1fr 1.3fr 1.3fr;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .cmp-row:last-child {
+      border-bottom: 0
+    }
+
+    .cmp-row.head {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      border-bottom: 1px solid var(--line-2);
+    }
+
+    .cmp-row>div {
+      padding: 12px 20px;
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--ink-soft);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px
+    }
+
+    .cmp-row .cap {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 15px;
+      color: var(--ink);
+      letter-spacing: -.005em;
+      border-right: 1px solid var(--line);
+      background: var(--bg-2)
+    }
+
+    .cmp-row .me {
+      background: #FFF8F0;
+      border-right: 1px solid var(--line);
+      position: relative
+    }
+
+    .cmp-row .me::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--accent)
+    }
+
+    .cmp-row .them {
+      background: var(--paper)
+    }
+
+    .cmp-row.head>div {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 14px 22px;
+      font-weight: 600;
+      background: var(--bg)
+    }
+
+    .cmp-row.head .me {
+      color: var(--accent);
+      background: var(--bg)
+    }
+
+    .cmp-row .i {
+      font-size: 13px;
+      color: var(--accent);
+      margin-top: 3px;
+      flex: 0 0 auto
+    }
+
+    .cmp-row .them .i {
+      color: #b8a98e
+    }
+
+    /* ---------- Closing ---------- */
+    .closing {
+      background: var(--ink);
+      color: #F4EFE3;
+      justify-content: center;
+      align-items: center;
+      text-align: center
+    }
+
+    .closing::before {
+      opacity: .15
+    }
+
+    .closing h1 {
+      font-family: var(--display);
+      font-weight: 300;
+      font-size: clamp(64px, 9vw, 140px);
+      line-height: .95;
+      letter-spacing: -.035em;
+      margin: 0;
+      color: #F4EFE3
+    }
+
+    .closing h1 em {
+      font-style: italic;
+      color: #F4B183;
+      font-weight: 400
+    }
+
+    .closing p {
+      font-family: var(--display);
+      font-weight: 300;
+      font-style: italic;
+      font-size: 24px;
+      color: #C9C0B0;
+      margin-top: 18px;
+      max-width: 680px
+    }
+
+    .closing .links {
+      margin-top: 36px;
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: center
+    }
+
+    .closing .link {
+      padding: 12px 20px;
+      border: 1px solid #2c2924;
+      border-radius: 999px;
+      color: #F4EFE3;
+      text-decoration: none;
+      font-size: 13px;
+      font-family: var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      background: #1F1C18
+    }
+
+    .closing .link.accent {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff
+    }
+
+    /* ---------- Hint ---------- */
+    .hint {
+      position: fixed;
+      bottom: 36px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 55;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--paper);
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line-2);
+      transition: opacity .4s;
+    }
+
+    .hint.hidden {
+      opacity: 0;
+      pointer-events: none
+    }
+
+    .hint kbd {
+      font-family: var(--mono);
+      background: var(--bg-2);
+      border: 1px solid var(--line-2);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 10px;
+      color: var(--ink)
+    }
+
+    /* fade-in */
+    .slide>* {
+      opacity: 0;
+      transform: translateY(12px);
+      transition: opacity .5s ease, transform .5s ease
+    }
+
+    .slide.active>* {
+      opacity: 1;
+      transform: translateY(0)
+    }
+
+    .slide.active>*:nth-child(2) {
+      transition-delay: .08s
+    }
+
+    .slide.active>*:nth-child(3) {
+      transition-delay: .16s
+    }
+
+    .slide.active>*:nth-child(4) {
+      transition-delay: .24s
+    }
+
+    .slide.active>*:nth-child(5) {
+      transition-delay: .32s
+    }
+
+    .slide.active>*:nth-child(6) {
+      transition-delay: .40s
+    }
+
+    /* responsive guard */
+    @media (max-width:900px) {
+      .cover {
+        grid-template-columns: 1fr
+      }
+
+      .cover .left {
+        border-right: 0;
+        border-bottom: 1px solid var(--line)
+      }
+
+      .skills-grid {
+        grid-template-columns: repeat(2, 1fr)
+      }
+
+      .price-row,
+      .cases,
+      .tools-wrap,
+      .install,
+      .two-col {
+        grid-template-columns: 1fr
+      }
+
+      .vs {
+        grid-template-columns: 1fr
+      }
+    }
+  </style>
 </head>
+
 <body>
 
-<!-- TOP BAR -->
-<header class="topbar">
-  <div class="brand"><span class="dot"></span>Harness <span style="font-weight:400;color:var(--muted);margin-left:6px">/ Jarvis</span></div>
-  <nav id="topnav">
-    <a data-go="0" class="active">Intro</a>
-    <a data-go="1">Skills</a>
-    <a data-go="2">Tools</a>
-    <a data-go="4">vs Claude Code</a>
-    <a data-go="5">Capabilities</a>
-    <a data-go="6">Pricing</a>
-    <a data-go="8">Work</a>
-    <a data-go="10">Install</a>
-  </nav>
-  <div class="progress" id="progress"></div>
-</header>
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="brand"><span class="dot"></span>Harness <span
+        style="font-weight:400;color:var(--muted);margin-left:6px">/ Jarvis</span></div>
+    <nav id="topnav">
+      <a data-go="0" class="active">Intro</a>
+      <a data-go="1">Skills</a>
+      <a data-go="2">Tools</a>
+      <a data-go="4">vs Claude Code</a>
+      <a data-go="5">Pricing</a>
+      <a data-go="7">Work</a>
+      <a data-go="9">Install</a>
+    </nav>
+    <div class="progress" id="progress"></div>
+  </header>
 
-<main class="deck" id="deck">
+  <main class="deck" id="deck">
 
-<!-- ============================================ -->
-<!-- SLIDE 1 — COVER                                -->
-<!-- ============================================ -->
-<section class="slide cover">
-  <div class="left">
-    <div>
-      <span class="pill"><i class="i icon-[lucide--sparkle]">✦</i> A presentation by Prajwal Ramteke</span>
-      <h1>Meet <em>Jarvis</em>.<br/>The agent that lives in your terminal.</h1>
-      <p class="sub">A coding-grade, OS-aware, research-capable autonomous agent — built on the Harness runtime. Not a chatbot. Not a wrapper. A real assistant with hands.</p>
-      <div class="meta">
-        <span class="pill"><i class="i">◐</i> macOS native</span>
-        <span class="pill"><i class="i">↻</i> Python 3.10+</span>
-        <span class="pill"><i class="i">⌘</i> Textual TUI</span>
-        <span class="pill accent"><i class="i">★</i> Free on OpenCode Zen</span>
-      </div>
-    </div>
-    <div style="font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase">
-      vol. I — 2026 edition · 13 chapters · built by Jarvis itself
-    </div>
-  </div>
-
-  <div class="right">
-    <div>
-      <span class="pill" style="background:transparent;color:#C9C0B0;border-color:#2c2924">The pitch in one line</span>
-      <h2 style="margin-top:18px">Anything Claude Code can do, plus <em>everything it refuses to.</em></h2>
-      <p style="margin-top:16px">Coding. Research. Documents. macOS automation. Reverse engineering. Bulk PDF/image analysis. Real OS access. All from one terminal window.</p>
-    </div>
-
-    <div>
-      <div class="stat">
-        <div class="n">64</div>
-        <div class="l">parallel tools</div>
-        <div class="d">Concurrent execution by default</div>
-      </div>
-      <div class="stat">
-        <div class="n">42×</div>
-        <div class="l">cheaper</div>
-        <div class="d">DeepSeek tokens vs Sonnet 4.6</div>
-      </div>
-      <div class="stat">
-        <div class="n">∞</div>
-        <div class="l">on Zen tier</div>
-        <div class="d">Free unlimited via OpenCode Zen</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 2 — WHAT IS JARVIS                       -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">01</span><span class="line"></span><span>The premise</span></div>
-  <h1 class="title">Not a chatbot.<br/>A <em>workshop assistant</em>.</h1>
-  <p class="lede">
-    Jarvis runs <em>inside your terminal</em>, scoped to whatever folder you're in. It reads, writes, edits, executes, clicks, types, scrolls, OCRs, browses, remembers, and cross-checks — all under one streaming tool loop with a hallucination guard on the output.
-  </p>
-
-  <div class="skills-grid" style="margin-top:48px">
-    <div class="card">
-      <div class="icon">⌥</div>
-      <h3>Terminal-native</h3>
-      <p>Textual TUI with markdown, syntax highlighting, streaming responses, command palette, theme switcher, and session history.</p>
-    </div>
-    <div class="card">
-      <div class="icon">⌘</div>
-      <h3>OS-aware</h3>
-      <p>Launches apps, reads accessibility trees, clicks UI elements, runs AppleScript, manages clipboard — first-class macOS citizen.</p>
-    </div>
-    <div class="card">
-      <div class="icon">◈</div>
-      <h3>Multi-provider</h3>
-      <p>Anthropic, OpenRouter, OpenCode, OpenCode Zen. Switch with one env var. No vendor lock-in, no forced upgrades.</p>
-    </div>
-    <div class="card">
-      <div class="icon">∞</div>
-      <h3>Persistent</h3>
-      <p>SQLite-backed sessions, memory, skills, prefs, aliases. Pick up exactly where you left off — even days later.</p>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 3 — TOOLS / FEATURES OVERVIEW            -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">02</span><span class="line"></span><span>The toolbelt</span></div>
-  <h2 class="section">A complete <em>tool surface</em> — routed dynamically per turn.</h2>
-  <p class="lede">A regex-based router inspects the last four messages and includes only the schemas that are likely needed. Core tools are always loaded; specialty groups (web, mac, memory, skills, MCP) attach on demand.</p>
-
-  <div class="tools-wrap">
-    <div class="tool-block">
-      <h4>Files &amp; code</h4>
-      <div class="chip-grid">
-        <span class="chip"><span class="i">›</span>read_file</span>
-        <span class="chip"><span class="i">›</span>write_file</span>
-        <span class="chip"><span class="i">›</span>edit_file</span>
-        <span class="chip"><span class="i">›</span>read_bundle</span>
-        <span class="chip"><span class="i">›</span>read_document</span>
-        <span class="chip"><span class="i">›</span>search_code (ripgrep)</span>
-        <span class="chip"><span class="i">›</span>glob_files</span>
-        <span class="chip"><span class="i">›</span>rank_files</span>
-        <span class="chip"><span class="i">›</span>resolve_context</span>
-        <span class="chip"><span class="i">›</span>list_dir</span>
-        <span class="chip"><span class="i">›</span>run_bash</span>
-        <span class="chip"><span class="i">›</span>git_status / diff / log</span>
-        <span class="chip"><span class="i">›</span>fast_find (Spotlight)</span>
-      </div>
-    </div>
-
-    <div class="tool-block">
-      <h4>Mac control</h4>
-      <div class="chip-grid">
-        <span class="chip"><span class="i">›</span>launch_app</span>
-        <span class="chip"><span class="i">›</span>focus_app / quit_app</span>
-        <span class="chip"><span class="i">›</span>read_ui (a11y tree)</span>
-        <span class="chip"><span class="i">›</span>click_element</span>
-        <span class="chip"><span class="i">›</span>click_at / click_menu</span>
-        <span class="chip"><span class="i">›</span>type_text / key_press</span>
-        <span class="chip"><span class="i">›</span>applescript / shortcut_run</span>
-        <span class="chip"><span class="i">›</span>clipboard_get / set</span>
-        <span class="chip"><span class="i">›</span>notify · open_url</span>
-        <span class="chip"><span class="i">›</span>speck (text-to-speech)</span>
-        <span class="chip"><span class="i">›</span>mac_control</span>
-      </div>
-    </div>
-
-    <div class="tool-block">
-      <h4>Web &amp; research</h4>
-      <div class="chip-grid">
-        <span class="chip"><span class="i">›</span>web_search (DuckDuckGo)</span>
-        <span class="chip"><span class="i">›</span>fetch_url</span>
-        <span class="chip"><span class="i">›</span>verified_search · cross-source claim check</span>
-        <span class="chip"><span class="i">›</span>context7 — live library docs</span>
-      </div>
-    </div>
-
-    <div class="tool-block">
-      <h4>Memory &amp; learning</h4>
-      <div class="chip-grid">
-        <span class="chip"><span class="i">›</span>memory_save / list / delete</span>
-        <span class="chip"><span class="i">›</span>lesson_save / search / list</span>
-        <span class="chip"><span class="i">›</span>skill_list / skill_load</span>
-        <span class="chip"><span class="i">›</span>MCP servers (Model Context Protocol)</span>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 4 — SKILLS / MEMORY / LESSONS / MCP      -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">03</span><span class="line"></span><span>The brain</span></div>
-  <h2 class="section">Skills, lessons, memory — <em>and one global library.</em></h2>
-  <p class="lede">Jarvis doesn't forget. It compounds. Every project keeps its own skills; the global library is reachable from anywhere; lessons accumulate across sessions; MCP plugs in external tools without rebuilding the agent.</p>
-
-  <div class="skills-grid" style="margin-top:42px">
-    <div class="card">
-      <span class="tag">Skills</span>
-      <div class="icon">⚒</div>
-      <h3>Skills</h3>
-      <p>Reusable playbooks defined in <code style="font-family:var(--mono);font-size:12px">.skills/&lt;name&gt;/SKILL.md</code>. Lazy-loaded — only their description is injected; full content loads when the task matches.</p>
-    </div>
-    <div class="card">
-      <span class="tag">Global</span>
-      <div class="icon">◉</div>
-      <h3>Global Skills</h3>
-      <p>A Global mode where every skill — from every project — is reachable simultaneously. Build once, use everywhere. No copy-pasting between repos.</p>
-    </div>
-    <div class="card">
-      <span class="tag">Memory</span>
-      <div class="icon">⚇</div>
-      <h3>Memory</h3>
-      <p>Durable facts about you and your projects. Auto-saved when something matters; SQLite-backed at <code style="font-family:var(--mono);font-size:12px">~/.config/claude-agent/</code>. Survives crashes, restarts, OS updates.</p>
-    </div>
-    <div class="card">
-      <span class="tag">Lessons</span>
-      <div class="icon">✎</div>
-      <h3>Lessons</h3>
-      <p>Post-task notes. After every non-trivial job, Jarvis writes what it learned. Future sessions search lessons before guessing — compounding intelligence per repo.</p>
-    </div>
-    <div class="card">
-      <span class="tag">MCP · project + global</span>
-      <div class="icon">⇄</div>
-      <h3>MCP Servers</h3>
-      <p>Model Context Protocol with <b>two scopes</b>: per-project (<code style="font-family:var(--mono);font-size:12px">.mcp.json</code>) and <b>global</b> — once added, every project sees those servers. No manual wiring, no per-repo setup. Plug Context7, Postgres, Sentry, Linear, Notion in once.</p>
-    </div>
-    <div class="card">
-      <span class="tag">Sessions</span>
-      <div class="icon">↺</div>
-      <h3>Sessions</h3>
-      <p>Every conversation is a resumable session. Search history, fork a thread, pin context, switch models mid-conversation, reload yesterday's debugging at 9 AM tomorrow.</p>
-    </div>
-    <div class="card">
-      <span class="tag">Hallucination guard</span>
-      <div class="icon">◬</div>
-      <h3>Truth filter</h3>
-      <p>Streaming output passes through a hallucination guard. Specific facts (versions, prices, URLs) are checked against the session's actual fetches before display.</p>
-    </div>
-    <div class="card">
-      <span class="tag">Modes</span>
-      <div class="icon">◐</div>
-      <h3>Modes</h3>
-      <p>Default · Coding · Reverse-engineering. Each swaps in a different system prompt and tool routing bias — same agent, different posture.</p>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 5 — VS CLAUDE CODE CLI                   -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">04</span><span class="line"></span><span>Honest comparison</span></div>
-  <h2 class="section">Why <em>Jarvis &gt; Claude Code CLI</em>.</h2>
-  <p class="lede">Same Sonnet under the hood is fine — but Claude Code is a coding-only tool with hard guardrails and a single-folder worldview. Jarvis is wider, cheaper, and refuses far less often.</p>
-
-  <div class="vs">
-    <div class="col-them">
-      <span class="label">Claude Code CLI</span>
-      <h3>Powerful, but boxed-in.</h3>
-      <ul>
-        <li><span class="i">○</span><div>Codebase only. <b>Bulk PDF/screenshot analysis</b> isn't its job — feed it 50 resumes and you'll spend hours scripting workarounds.</div></li>
-        <li><span class="i">○</span><div>Locked to the current project root. <b>Cross-folder context</b> (read here, write there) requires manual --add-dir flags or symlinks.</div></li>
-        <li><span class="i">○</span><div>Conservative refusals — <b>security research, reverse-engineering, content analysis</b> often blocked even when fully legal.</div></li>
-        <li><span class="i">○</span><div>No persistent <b>memory or lessons</b> across sessions. Every project starts cold.</div></li>
-        <li><span class="i">○</span><div>No real <b>macOS control</b> — no UI clicks, no AppleScript, no app automation.</div></li>
-        <li><span class="i">○</span><div>One model, one vendor. Pay Anthropic prices whether you like it or not.</div></li>
-      </ul>
-    </div>
-
-    <div class="col-me">
-      <span class="label">Jarvis (Harness)</span>
-      <h3>Coding tool, plus everything else.</h3>
-      <ul>
-        <li><span class="i">●</span><div><b>50–100 PDFs/screenshots in one call.</b> An HR team can drop a folder of resumes and get summaries, rankings, red-flag reports — in minutes, not days.</div></li>
-        <li><span class="i">●</span><div><b>Any root, any folder.</b> Read from <code style="font-family:var(--mono);font-size:12px">~/Downloads</code>, write to <code style="font-family:var(--mono);font-size:12px">~/Desktop/project</code>, search across <code style="font-family:var(--mono);font-size:12px">~/.config</code> — no walls.</div></li>
-        <li><span class="i">●</span><div><b>No theatrical refusals.</b> Security research, reverse engineering, censored/uncensored content analysis — handled as work, not panic.</div></li>
-        <li><span class="i">●</span><div><b>Memory, lessons, skills</b> — global and per-project. Gets smarter every week you use it.</div></li>
-        <li><span class="i">●</span><div><b>Full macOS automation:</b> launch apps, click UI elements, AppleScript, shortcuts, clipboard, notifications, TTS.</div></li>
-        <li><span class="i">●</span><div><b>4 providers, dozens of models.</b> Free unlimited via OpenCode Zen. Use Sonnet when you want, DeepSeek when you don't.</div></li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 6 — CAPABILITY MATRIX                     -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">05</span><span class="line"></span><span>The capability matrix</span></div>
-  <h2 class="section">Side-by-side, <em>line by line.</em></h2>
-  <p class="lede">Nine capabilities, two agents, no marketing fluff. This is the table you'd actually use in a procurement conversation.</p>
-
-  <div class="cmp-table">
-    <div class="cmp-row head">
-      <div>Capability</div>
-      <div class="me">Jarvis (Harness Agent)</div>
-      <div class="them">Claude Code CLI (Anthropic)</div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">Document processing</div>
-      <div class="me"><span class="i">●</span><div>Read <b>50–100 screenshots or PDFs</b>, extract data, produce summaries and structured reports in one batch.</div></div>
-      <div class="them"><span class="i">○</span><div>No batch document processing. Cannot read images or PDFs efficiently at scale.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">File system scope</div>
-      <div class="me"><span class="i">●</span><div>Access <b>any path</b> on the machine — home directory, system files, any drive.</div></div>
-      <div class="them"><span class="i">○</span><div>Restricted to the current project directory. External files require manual copying.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">Security restrictions</div>
-      <div class="me"><span class="i">●</span><div>No artificial task blocking. <b>Reverse engineering, security research</b>, and legitimate technical analysis are permitted.</div></div>
-      <div class="them"><span class="i">○</span><div>Frequently refuses tasks related to reverse engineering, security research, or content analysis citing policy restrictions.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">macOS GUI control</div>
-      <div class="me"><span class="i">●</span><div>Launch apps, click UI elements, type text, run AppleScript. <b>Full desktop automation.</b></div></div>
-      <div class="them"><span class="i">○</span><div>No GUI control capabilities at all.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">Web research</div>
-      <div class="me"><span class="i">●</span><div><b>Multi-source verified search</b> with claim cross-checking. Fetch and analyze live web content.</div></div>
-      <div class="them"><span class="i">○</span><div>No web search or fetch tools. Cannot research beyond local context.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">Project context</div>
-      <div class="me"><span class="i">●</span><div>Reads <code style="font-family:var(--mono);font-size:12px">CLAUDE.md</code> / <code style="font-family:var(--mono);font-size:12px">AGENT.md</code> / <code style="font-family:var(--mono);font-size:12px">JARVIS.md</code> automatically. Adapts to each project's conventions.</div></div>
-      <div class="them"><span class="i">●</span><div>Also reads <code style="font-family:var(--mono);font-size:12px">CLAUDE.md</code> — comparable here.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">Memory &amp; lessons</div>
-      <div class="me"><span class="i">●</span><div>Built-in <b>persistent memory and lesson system</b>. Learns across sessions.</div></div>
-      <div class="them"><span class="i">○</span><div>No persistent memory or lesson system.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">Skills framework</div>
-      <div class="me"><span class="i">●</span><div>Skills with <b>project and global scope</b>. Skill creator for custom expertise modules.</div></div>
-      <div class="them"><span class="i">○</span><div>Only project-scoped skills from <code style="font-family:var(--mono);font-size:12px">.claude/skills/</code>. No global library.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">MCP integration</div>
-      <div class="me"><span class="i">●</span><div><b>Project + global MCP servers.</b> Add once globally, every project gets the tools. Zero manual wiring per repo.</div></div>
-      <div class="them"><span class="i">○</span><div>Per-project MCP config only. Each new repo means re-adding servers manually.</div></div>
-    </div>
-
-    <div class="cmp-row">
-      <div class="cap">Cost model</div>
-      <div class="me"><span class="i">●</span><div><b>Free via OpenCode Zen.</b> Or use your own API key for any provider.</div></div>
-      <div class="them"><span class="i">○</span><div>Requires paid Anthropic API key. Usage costs accrue at standard API rates.</div></div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 7 — PRICING / COST                        -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">06</span><span class="line"></span><span>Cost reality</span></div>
-  <h2 class="section">The same $1 buys you <em>42× more thinking</em>.</h2>
-  <p class="lede">Jarvis is provider-agnostic. The same agent, the same tools, the same prompts — but you choose how much each turn costs. Or you choose zero.</p>
-
-  <div class="price-row">
-    <div class="price-card hero">
-      <span class="ribbon">Recommended</span>
-      <span class="name">OpenCode Zen</span>
-      <h3>Free, unlimited</h3>
-      <div class="price">$0</div>
-      <div class="per">per month · forever</div>
-      <div class="bar"><div class="bar-fill" style="width:100%"></div></div>
-      <ul>
-        <li><span class="i">●</span> Harness agent is free on Zen</li>
-        <li><span class="i">●</span> Curated open models</li>
-        <li><span class="i">●</span> No card, no credit cap</li>
-        <li><span class="i">●</span> Drop-in replacement for paid keys</li>
-      </ul>
-    </div>
-
-    <div class="price-card">
-      <span class="name">DeepSeek</span>
-      <h3>Cheap and fast</h3>
-      <div class="price">2.38M</div>
-      <div class="per">paired tokens · per $1</div>
-      <div class="bar"><div class="bar-fill" style="width:100%"></div></div>
-      <ul>
-        <li><span class="i">●</span> Strong at reasoning &amp; code</li>
-        <li><span class="i">●</span> Default when speed &gt; pedigree</li>
-        <li><span class="i">●</span> Via OpenRouter</li>
-      </ul>
-    </div>
-
-    <div class="price-card">
-      <span class="name">Claude Sonnet 4.6</span>
-      <h3>Premium tier</h3>
-      <div class="price">2.38M</div>
-      <div class="per">paired tokens · per $42.84</div>
-      <div class="bar"><div class="bar-fill" style="width:2.3%"></div></div>
-      <ul>
-        <li><span class="i">●</span> Best-in-class for hard tasks</li>
-        <li><span class="i">●</span> Use when it actually matters</li>
-        <li><span class="i">●</span> 42× more expensive than DeepSeek</li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 7 — USE CASES (not just coding)          -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">07</span><span class="line"></span><span>Beyond coding</span></div>
-  <h2 class="section">It's not just for <em>developers</em>.</h2>
-  <p class="lede">Jarvis handles whatever a knowledge worker throws at it — code, research, documents, automation, ordinary chores. One agent, many roles.</p>
-
-  <div class="skills-grid" style="margin-top:42px">
-    <div class="card">
-      <div class="icon">◳</div>
-      <h3>HR &amp; recruiting</h3>
-      <p>Drop 50–100 resumes (PDFs or screenshots). Get summaries, skill matrices, red flags, ranked shortlists, comparison tables — all in one prompt.</p>
-    </div>
-    <div class="card">
-      <div class="icon">⌕</div>
-      <h3>Research &amp; analysis</h3>
-      <p>Verified-source search cross-checks 5–10 sites in parallel, scores credibility, flags contested claims. Real citations, no hallucinated stats.</p>
-    </div>
-    <div class="card">
-      <div class="icon">◰</div>
-      <h3>Documents</h3>
-      <p>Parse PDFs, Excel sheets, JSON, HTML, Markdown, CSV, YAML, XML — one tool, the right parser per type.</p>
-    </div>
-    <div class="card">
-      <div class="icon">⌘</div>
-      <h3>macOS automation</h3>
-      <p>"Open Messages, send Mom 'I'll call after gym.'" Done. Calendar, Mail, Reminders, Safari, Finder — scripted natively.</p>
-    </div>
-    <div class="card">
-      <div class="icon">↯</div>
-      <h3>Reverse engineering</h3>
-      <p>Decompile, patch, instrument, repackage. A dedicated <em>reverse_eng</em> mode shifts the system prompt for binary-level work.</p>
-    </div>
-    <div class="card">
-      <div class="icon">∇</div>
-      <h3>Codebase surgery</h3>
-      <p><code style="font-family:var(--mono);font-size:12px">resolve_context</code> bundles every related file (imports + importers + tests + configs) in one call — no more 20-step exploration.</p>
-    </div>
-    <div class="card">
-      <div class="icon">◐</div>
-      <h3>Ordinary chores</h3>
-      <p>Rename 200 files. Find that screenshot from March. Convert this folder of PNGs. Email Aman. Add to grocery list. Cook timer.</p>
-    </div>
-    <div class="card">
-      <div class="icon">⚙</div>
-      <h3>Repo bootstrapping</h3>
-      <p>Storybook setup, lint configs, CI pipelines, feature folder scaffolds — Jarvis writes the boring code the way <em>you</em> would.</p>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 8 — REAL WORK / CASE STUDIES             -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">08</span><span class="line"></span><span>Receipts</span></div>
-  <h2 class="section">Real work, <em>shipped</em>.</h2>
-  <p class="lede">Not hypothetical. These are jobs Jarvis has already completed end-to-end in production projects.</p>
-
-  <div class="cases">
-    <div class="case">
-      <div class="head"><span class="num">01</span></div>
-      <h3>Reverse-engineered the FreeBuf agent — stripped the ads.</h3>
-      <p>Disassembled the upstream binary, located the ad-injection loop, patched it out, repackaged a clean build. No more nag screens, no more banner pulls. Done.</p>
-      <div class="tags"><span>reverse-eng</span><span>binary patching</span><span>shipped</span></div>
-    </div>
-    <div class="case">
-      <div class="head"><span class="num">02</span></div>
-      <h3>Fixed OpenCode's Kimi K2.6 provider bug.</h3>
-      <p>Traced the model-routing failure inside OpenCode, reproduced it, located the malformed request path, patched the provider config, verified the fix. Kimi works again.</p>
-      <div class="tags"><span>reverse-eng</span><span>provider routing</span><span>upstream fix</span></div>
-    </div>
-    <div class="case">
-      <div class="head"><span class="num">03</span></div>
-      <h3>Storybook on the Habuild CRM — with proper stories.</h3>
-      <p>Set up Storybook in <code style="font-family:var(--mono);font-size:12px">crm-fe-remix</code> from zero. Wrote stories for the design system. Code-quality preserved: feature-folder architecture, typed props, no copy-paste.</p>
-      <div class="tags"><span>frontend</span><span>tooling</span><span>quality</span></div>
-    </div>
-    <div class="case">
-      <div class="head"><span class="num">04</span></div>
-      <h3>Built Harness itself.</h3>
-      <p>The agent you're reading about. Python + Textual TUI, multi-provider auth (API key, OAuth PKCE, OpenRouter, OpenCode), 64-worker parallel tool loop, SQLite sessions, MCP — all hand-rolled.</p>
-      <div class="tags"><span>python</span><span>textual</span><span>system design</span></div>
-    </div>
-    <div class="case">
-      <div class="head"><span class="num">05</span></div>
-      <h3>Bulk document workflows.</h3>
-      <p>Resume-batch analysis, invoice extraction, screenshot-to-spreadsheet pipelines — repeatable templates that turn folders of files into structured reports.</p>
-      <div class="tags"><span>documents</span><span>HR</span><span>ops</span></div>
-    </div>
-    <div class="case">
-      <div class="head"><span class="num">06</span></div>
-      <h3>macOS automation pipelines.</h3>
-      <p>"Open WhatsApp, find this contact, send this draft." End-to-end flows that read the accessibility tree, click real UI elements, verify state — no fragile coordinate clicks.</p>
-      <div class="tags"><span>macOS</span><span>automation</span><span>a11y</span></div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 9 — ARCHITECTURE                         -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">09</span><span class="line"></span><span>Under the hood</span></div>
-  <h2 class="section">Engineering choices, <em>visible.</em></h2>
-
-  <div class="two-col" style="margin-top:32px">
-    <div>
-      <p class="lede" style="margin-top:0">Harness is not a wrapper around an SDK. It's a custom streaming tool loop with deliberate tradeoffs at every layer.</p>
-
-      <ul style="list-style:none;padding:0;margin:18px 0 0;max-width:560px">
-        <li style="padding:14px 0;border-bottom:1px dashed var(--line);display:flex;gap:14px">
-          <span style="font-family:var(--display);font-style:italic;font-size:22px;color:var(--accent);min-width:38px">i.</span>
-          <div><b>Dynamic tool routing.</b> Only the schemas likely needed each turn — regex-scans recent messages. Smaller payloads, faster TTFB.</div>
-        </li>
-        <li style="padding:14px 0;border-bottom:1px dashed var(--line);display:flex;gap:14px">
-          <span style="font-family:var(--display);font-style:italic;font-size:22px;color:var(--accent);min-width:38px">ii.</span>
-          <div><b>Parallel by default.</b> Up to 64 concurrent tool workers. Serial only for shell, file edits, UI clicks — where order matters.</div>
-        </li>
-        <li style="padding:14px 0;border-bottom:1px dashed var(--line);display:flex;gap:14px">
-          <span style="font-family:var(--display);font-style:italic;font-size:22px;color:var(--accent);min-width:38px">iii.</span>
-          <div><b>Hallucination guard.</b> Streaming output filtered against actual fetched facts before being shown.</div>
-        </li>
-        <li style="padding:14px 0;display:flex;gap:14px">
-          <span style="font-family:var(--display);font-style:italic;font-size:22px;color:var(--accent);min-width:38px">iv.</span>
-          <div><b>Project-scoped by default.</b> File ops respect the working folder unless you explicitly opt out — predictable blast radius.</div>
-        </li>
-      </ul>
-    </div>
-
-    <div class="right">
-      <div class="card">
-        <span class="kicker">Auth · 4 routes</span>
-        <h3 style="margin-top:8px">API key · OAuth PKCE · OpenRouter · OpenCode</h3>
-        <p>First-run wizard picks the right path. Credentials live in <code style="font-family:var(--mono);font-size:12px">~/.config/claude-agent/</code> with 600 perms.</p>
-      </div>
-      <div class="card">
-        <span class="kicker">Storage</span>
-        <h3 style="margin-top:8px">SQLite, not the cloud</h3>
-        <p>Sessions, memory, skills, prefs, aliases — all local. Your data never leaves your machine unless you point a tool at the network.</p>
-      </div>
-      <div class="card">
-        <span class="kicker">Themes &amp; modes</span>
-        <h3 style="margin-top:8px">Red · Purple · Default · Coding · Reverse-eng</h3>
-        <p>Visual themes for vibes; modes for posture. Switch with one slash command.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 10 — WHY THIS WINS                       -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">10</span><span class="line"></span><span>The summary</span></div>
-  <h2 class="section">Eight reasons it <em>wins.</em></h2>
-
-  <div class="skills-grid" style="margin-top:42px">
-    <div class="card"><div class="icon">①</div><h3>Wider scope</h3><p>Coding, research, documents, automation, ordinary tasks — one agent, not five tools glued together.</p></div>
-    <div class="card"><div class="icon">②</div><h3>Bulk documents</h3><p>50–100 PDFs or screenshots per session, with structured outputs. HR, legal, finance, ops all benefit.</p></div>
-    <div class="card"><div class="icon">③</div><h3>Cross-folder access</h3><p>Read from anywhere, write to anywhere — within sensible defaults and explicit opt-ins.</p></div>
-    <div class="card"><div class="icon">④</div><h3>No theatrical refusals</h3><p>Security research, reverse engineering, mature content analysis — treated as work, not threat.</p></div>
-    <div class="card"><div class="icon">⑤</div><h3>42× cheaper</h3><p>Pick the model that fits the job. Free tier exists. Pay Sonnet prices only when Sonnet earns it.</p></div>
-    <div class="card"><div class="icon">⑥</div><h3>Persistent intelligence</h3><p>Memory + lessons + skills make every week of use better than the last.</p></div>
-    <div class="card"><div class="icon">⑦</div><h3>Real OS hands</h3><p>Not just file edits — actual app launches, clicks, keystrokes, AppleScript, shortcuts.</p></div>
-    <div class="card"><div class="icon">⑧</div><h3>Yours to inspect</h3><p>Python, open source, MIT-friendly architecture. Read the code, fork it, send a PR.</p></div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 11 — INSTALL                             -->
-<!-- ============================================ -->
-<section class="slide">
-  <div class="eyebrow"><span class="num">11</span><span class="line"></span><span>Get it running</span></div>
-  <h2 class="section">Install in <em>thirty seconds</em>. Free forever.</h2>
-  <p class="lede">One curl pipe and you're done. No card. No login. No daemon. Use the Zen provider for unlimited free runs, or bring your own key.</p>
-
-  <div class="install">
-    <div style="display:flex;flex-direction:column;gap:14px">
-      <div class="step">
-        <div class="n">i.</div>
+    <!-- ============================================ -->
+    <!-- SLIDE 1 — COVER                                -->
+    <!-- ============================================ -->
+    <section class="slide cover">
+      <div class="left">
         <div>
-          <h4>Run the installer</h4>
-          <p>One line. Drops <code style="font-family:var(--mono);font-size:12px">jarvis</code> into <code style="font-family:var(--mono);font-size:12px">~/.local/bin</code>.</p>
+          <span class="pill"><i class="i icon-[lucide--sparkle]">✦</i> A presentation by Prajwal Ramteke</span>
+          <h1>Meet <em>Jarvis</em>.<br />The agent that lives in your terminal.</h1>
+          <p class="sub">A coding-grade, OS-aware, research-capable autonomous agent — built on the Harness runtime. Not
+            a chatbot. Not a wrapper. A real assistant with hands.</p>
+          <div class="meta">
+            <span class="pill"><i class="i">◐</i> macOS native</span>
+            <span class="pill"><i class="i">↻</i> Python 3.10+</span>
+            <span class="pill"><i class="i">⌘</i> Textual TUI</span>
+            <span class="pill accent"><i class="i">★</i> Free on OpenCode Zen</span>
+          </div>
+        </div>
+        <div
+          style="font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase">
+          vol. I — 2026 edition · 12 chapters · built by Jarvis itself
         </div>
       </div>
-      <div class="step">
-        <div class="n">ii.</div>
+
+      <div class="right">
         <div>
-          <h4>Open a new terminal</h4>
-          <p>Make sure <code style="font-family:var(--mono);font-size:12px">~/.local/bin</code> is on your PATH (the installer prompts if not).</p>
+          <span class="pill" style="background:transparent;color:#C9C0B0;border-color:#2c2924">The pitch in one
+            line</span>
+          <h2 style="margin-top:18px">Anything Claude Code can do, plus <em>everything it refuses to.</em></h2>
+          <p style="margin-top:16px">Coding. Research. Documents. macOS automation. Reverse engineering. Bulk PDF/image
+            analysis. Real OS access. All from one terminal window.</p>
+        </div>
+
+        <div>
+          <div class="stat">
+            <div class="n">64</div>
+            <div class="l">tools</div>
+            <div class="d">Concurrent execution by default</div>
+          </div>
+          <div class="stat">
+            <div class="n">42×</div>
+            <div class="l">cheaper</div>
+            <div class="d">DeepSeek tokens vs Sonnet 4.6</div>
+          </div>
+          <div class="stat">
+            <div class="n">∞</div>
+            <div class="l">on Zen tier</div>
+            <div class="d">Free unlimited via OpenCode Zen</div>
+          </div>
         </div>
       </div>
-      <div class="step">
-        <div class="n">iii.</div>
-        <div>
-          <h4>Pick "OpenCode Zen" — free</h4>
-          <p>On first run, choose Zen. No payment. No quota. The Harness agent runs free on this provider.</p>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 2 — WHAT IS JARVIS                       -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">01</span><span class="line"></span><span>The premise</span></div>
+      <h1 class="title">Not a chatbot.<br />A <em>workshop assistant</em>.</h1>
+      <p class="lede">
+        Jarvis runs <em>inside your terminal</em>, scoped to whatever folder you're in. It reads, writes, edits,
+        executes, clicks, types, scrolls, OCRs, browses, remembers, and cross-checks — all under one streaming tool loop
+        with a hallucination guard on the output.
+      </p>
+
+      <div class="skills-grid" style="margin-top:48px">
+        <div class="card">
+          <div class="icon">⌥</div>
+          <h3>Terminal-native</h3>
+          <p>Textual TUI with markdown, syntax highlighting, streaming responses, command palette, theme switcher, and
+            session history.</p>
+        </div>
+        <div class="card">
+          <div class="icon">⌘</div>
+          <h3>OS-aware</h3>
+          <p>Launches apps, reads accessibility trees, clicks UI elements, runs AppleScript, manages clipboard —
+            first-class macOS citizen.</p>
+        </div>
+        <div class="card">
+          <div class="icon">◈</div>
+          <h3>Multi-provider</h3>
+          <p>Anthropic, OpenRouter, OpenCode, OpenCode Zen. Switch with one env var. No vendor lock-in, no forced
+            upgrades.</p>
+        </div>
+        <div class="card">
+          <div class="icon">∞</div>
+          <h3>Persistent</h3>
+          <p>SQLite-backed sessions, memory, skills, prefs, aliases. Pick up exactly where you left off — even days
+            later.</p>
         </div>
       </div>
-      <div class="step">
-        <div class="n">iv.</div>
-        <div>
-          <h4>Run <code style="font-family:var(--mono);font-size:13px">jarvis</code> in any folder</h4>
-          <p>That folder becomes the working root. Talk to it like an engineer who never sleeps.</p>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 3 — TOOLS / FEATURES OVERVIEW            -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">02</span><span class="line"></span><span>The toolbelt</span></div>
+      <h2 class="section">A complete <em>tool surface</em> — routed dynamically per turn.</h2>
+      <p class="lede">A regex-based router inspects the last four messages and includes only the schemas that are likely
+        needed. Core tools are always loaded; specialty groups (web, mac, memory, skills, MCP) attach on demand.</p>
+
+      <div class="tools-wrap">
+        <div class="tool-block">
+          <h4>Files &amp; code</h4>
+          <div class="chip-grid">
+            <span class="chip"><span class="i">›</span>read_file</span>
+            <span class="chip"><span class="i">›</span>write_file</span>
+            <span class="chip"><span class="i">›</span>edit_file</span>
+            <span class="chip"><span class="i">›</span>read_bundle</span>
+            <span class="chip"><span class="i">›</span>read_document</span>
+            <span class="chip"><span class="i">›</span>search_code (ripgrep)</span>
+            <span class="chip"><span class="i">›</span>glob_files</span>
+            <span class="chip"><span class="i">›</span>rank_files</span>
+            <span class="chip"><span class="i">›</span>resolve_context</span>
+            <span class="chip"><span class="i">›</span>list_dir</span>
+            <span class="chip"><span class="i">›</span>run_bash</span>
+            <span class="chip"><span class="i">›</span>git_status / diff / log</span>
+            <span class="chip"><span class="i">›</span>fast_find (Spotlight)</span>
+          </div>
+        </div>
+
+        <div class="tool-block">
+          <h4>Mac control</h4>
+          <div class="chip-grid">
+            <span class="chip"><span class="i">›</span>launch_app</span>
+            <span class="chip"><span class="i">›</span>focus_app / quit_app</span>
+            <span class="chip"><span class="i">›</span>read_ui (a11y tree)</span>
+            <span class="chip"><span class="i">›</span>click_element</span>
+            <span class="chip"><span class="i">›</span>click_at / click_menu</span>
+            <span class="chip"><span class="i">›</span>type_text / key_press</span>
+            <span class="chip"><span class="i">›</span>applescript / shortcut_run</span>
+            <span class="chip"><span class="i">›</span>clipboard_get / set</span>
+            <span class="chip"><span class="i">›</span>notify · open_url</span>
+            <span class="chip"><span class="i">›</span>speck (text-to-speech)</span>
+            <span class="chip"><span class="i">›</span>mac_control</span>
+          </div>
+        </div>
+
+        <div class="tool-block">
+          <h4>Web &amp; research</h4>
+          <div class="chip-grid">
+            <span class="chip"><span class="i">›</span>web_search (DuckDuckGo)</span>
+            <span class="chip"><span class="i">›</span>fetch_url</span>
+            <span class="chip"><span class="i">›</span>verified_search · cross-source claim check</span>
+            <span class="chip"><span class="i">›</span>context7 — live library docs</span>
+          </div>
+        </div>
+
+        <div class="tool-block">
+          <h4>Memory &amp; learning</h4>
+          <div class="chip-grid">
+            <span class="chip"><span class="i">›</span>memory_save / list / delete</span>
+            <span class="chip"><span class="i">›</span>lesson_save / search / list</span>
+            <span class="chip"><span class="i">›</span>skill_list / skill_load</span>
+            <span class="chip"><span class="i">›</span>MCP servers (Model Context Protocol)</span>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div style="display:flex;flex-direction:column;gap:14px">
-      <div class="code-block">
-        <span class="label">install</span>
-<span class="c"># one-line installer</span>
-curl <span class="v">-fsSL</span> https://raw.githubusercontent.com/<span class="k">PrajsRamteke</span>/harness-agent/main/scripts/install | bash
+    <!-- ============================================ -->
+    <!-- SLIDE 4 — SKILLS / MEMORY / LESSONS / MCP      -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">03</span><span class="line"></span><span>The brain</span></div>
+      <h2 class="section">Skills, lessons, memory — <em>and one global library.</em></h2>
+      <p class="lede">Jarvis doesn't forget. It compounds. Every project keeps its own skills; the global library is
+        reachable from anywhere; lessons accumulate across sessions; MCP plugs in external tools without rebuilding the
+        agent.</p>
 
-<span class="c"># open a new terminal, then:</span>
-<span class="k">jarvis</span>
+      <div class="skills-grid" style="margin-top:42px">
+        <div class="card">
+          <span class="tag">Skills</span>
+          <div class="icon">⚒</div>
+          <h3>Skills</h3>
+          <p>Reusable playbooks defined in <code
+              style="font-family:var(--mono);font-size:12px">.skills/&lt;name&gt;/SKILL.md</code>. Lazy-loaded — only
+            their description is injected; full content loads when the task matches.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Global</span>
+          <div class="icon">◉</div>
+          <h3>Global Skills</h3>
+          <p>A Global mode where every skill — from every project — is reachable simultaneously. Build once, use
+            everywhere. No copy-pasting between repos.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Memory</span>
+          <div class="icon">⚇</div>
+          <h3>Memory</h3>
+          <p>Durable facts about you and your projects. Auto-saved when something matters; SQLite-backed at <code
+              style="font-family:var(--mono);font-size:12px">~/.config/claude-agent/</code>. Survives crashes, restarts,
+            OS updates.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Lessons</span>
+          <div class="icon">✎</div>
+          <h3>Lessons</h3>
+          <p>Post-task notes. After every non-trivial job, Jarvis writes what it learned. Future sessions search lessons
+            before guessing — compounding intelligence per repo.</p>
+        </div>
+        <div class="card">
+          <span class="tag">MCP · project + global</span>
+          <div class="icon">⇄</div>
+          <h3>MCP Servers</h3>
+          <p>Model Context Protocol with <b>two scopes</b>: per-project (<code
+              style="font-family:var(--mono);font-size:12px">.mcp.json</code>) and <b>global</b> — once added, every
+            project sees those servers. No manual wiring, no per-repo setup. Plug Context7, Postgres, Sentry, Linear,
+            Notion in once.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Sessions</span>
+          <div class="icon">↺</div>
+          <h3>Sessions</h3>
+          <p>Every conversation is a resumable session. Search history, fork a thread, pin context, switch models
+            mid-conversation, reload yesterday's debugging at 9 AM tomorrow.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Hallucination guard</span>
+          <div class="icon">◬</div>
+          <h3>Truth filter</h3>
+          <p>Streaming output passes through a hallucination guard. Specific facts (versions, prices, URLs) are checked
+            against the session's actual fetches before display.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Modes</span>
+          <div class="icon">◐</div>
+          <h3>Modes</h3>
+          <p>Default · Coding · Reverse-engineering. Each swaps in a different system prompt and tool routing bias —
+            same agent, different posture.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 5 — JARVIS vs CLAUDE CODE (merged)        -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">04</span><span class="line"></span><span>Jarvis vs Claude Code CLI</span></div>
+      <h2 class="section">Same Sonnet under the hood — <em>very different agent.</em></h2>
+      <p class="lede">Ten capabilities, side by side. Claude Code is a coding-only tool with hard guardrails and a single-folder worldview. Jarvis is wider, cheaper, and refuses far less often. The table is the argument.</p>
+
+      <div class="cmp-table">
+        <div class="cmp-row head">
+          <div>Capability</div>
+          <div class="me">Jarvis (Harness Agent)</div>
+          <div class="them">Claude Code CLI (Anthropic)</div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">Document processing</div>
+          <div class="me"><span class="i">●</span>
+            <div>Read <b>50–100 screenshots or PDFs</b>, extract data, produce summaries and structured reports in one
+              batch.</div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>No batch document processing. Cannot read images or PDFs efficiently at scale.</div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">File system scope</div>
+          <div class="me"><span class="i">●</span>
+            <div>Access <b>any path</b> on the machine — home directory, system files, any drive.</div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>Restricted to the current project directory. External files require manual copying.</div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">Security restrictions</div>
+          <div class="me"><span class="i">●</span>
+            <div>No artificial task blocking. <b>Reverse engineering, security research</b>, and legitimate technical
+              analysis are permitted.</div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>Frequently refuses tasks related to reverse engineering, security research, or content analysis citing
+              policy restrictions.</div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">macOS GUI control</div>
+          <div class="me"><span class="i">●</span>
+            <div>Launch apps, click UI elements, type text, run AppleScript. <b>Full desktop automation.</b></div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>No GUI control capabilities at all.</div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">Web research</div>
+          <div class="me"><span class="i">●</span>
+            <div><b>Multi-source verified search</b> with claim cross-checking. Fetch and analyze live web content.
+            </div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>No web search or fetch tools. Cannot research beyond local context.</div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">Project context</div>
+          <div class="me"><span class="i">●</span>
+            <div>Reads <code style="font-family:var(--mono);font-size:12px">CLAUDE.md</code> / <code
+                style="font-family:var(--mono);font-size:12px">AGENT.md</code> / <code
+                style="font-family:var(--mono);font-size:12px">JARVIS.md</code> automatically. Adapts to each project's
+              conventions.</div>
+          </div>
+          <div class="them"><span class="i">●</span>
+            <div>Also reads <code style="font-family:var(--mono);font-size:12px">CLAUDE.md</code> — comparable here.
+            </div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">Memory &amp; lessons</div>
+          <div class="me"><span class="i">●</span>
+            <div>Built-in <b>persistent memory and lesson system</b>. Learns across sessions.</div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>No persistent memory or lesson system.</div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">Skills framework</div>
+          <div class="me"><span class="i">●</span>
+            <div>Skills with <b>project and global scope</b>. Skill creator for custom expertise modules.</div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>Only project-scoped skills from <code
+                style="font-family:var(--mono);font-size:12px">.claude/skills/</code>. No global library.</div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">MCP integration</div>
+          <div class="me"><span class="i">●</span>
+            <div><b>Project + global MCP servers.</b> Add once globally, every project gets the tools. Zero manual
+              wiring per repo.</div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>Per-project MCP config only. Each new repo means re-adding servers manually.</div>
+          </div>
+        </div>
+
+        <div class="cmp-row">
+          <div class="cap">Cost model</div>
+          <div class="me"><span class="i">●</span>
+            <div><b>Free via OpenCode Zen.</b> Or use your own API key for any provider.</div>
+          </div>
+          <div class="them"><span class="i">○</span>
+            <div>Requires paid Anthropic API key. Usage costs accrue at standard API rates.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 7 — PRICING / COST                        -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">05</span><span class="line"></span><span>Cost reality</span></div>
+      <h2 class="section">The same $1 buys you <em>42× more thinking</em>.</h2>
+      <p class="lede">Jarvis is provider-agnostic. The same agent, the same tools, the same prompts — but you choose how
+        much each turn costs. Or you choose zero.</p>
+
+      <div class="price-row">
+        <div class="price-card hero">
+          <span class="ribbon">Recommended</span>
+          <span class="name">OpenCode Zen</span>
+          <h3>Free, unlimited</h3>
+          <div class="price">$0</div>
+          <div class="per">per month · forever</div>
+          <div class="bar">
+            <div class="bar-fill" style="width:100%"></div>
+          </div>
+          <ul>
+            <li><span class="i">●</span> Harness agent is free on Zen</li>
+            <li><span class="i">●</span> Curated open models</li>
+            <li><span class="i">●</span> No card, no credit cap</li>
+            <li><span class="i">●</span> Drop-in replacement for paid keys</li>
+          </ul>
+        </div>
+
+        <div class="price-card">
+          <span class="name">DeepSeek</span>
+          <h3>Cheap and fast</h3>
+          <div class="price">2.38M</div>
+          <div class="per">paired tokens · per $1</div>
+          <div class="bar">
+            <div class="bar-fill" style="width:100%"></div>
+          </div>
+          <ul>
+            <li><span class="i">●</span> Strong at reasoning &amp; code</li>
+            <li><span class="i">●</span> Default when speed &gt; pedigree</li>
+            <li><span class="i">●</span> Via OpenRouter</li>
+          </ul>
+        </div>
+
+        <div class="price-card">
+          <span class="name">Claude Sonnet 4.6</span>
+          <h3>Premium tier</h3>
+          <div class="price">2.38M</div>
+          <div class="per">paired tokens · per $42.84</div>
+          <div class="bar">
+            <div class="bar-fill" style="width:2.3%"></div>
+          </div>
+          <ul>
+            <li><span class="i">●</span> Best-in-class for hard tasks</li>
+            <li><span class="i">●</span> Use when it actually matters</li>
+            <li><span class="i">●</span> 42× more expensive than DeepSeek</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 7 — USE CASES (not just coding)          -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">06</span><span class="line"></span><span>Beyond coding</span></div>
+      <h2 class="section">It's not just for <em>developers</em>.</h2>
+      <p class="lede">Jarvis handles whatever a knowledge worker throws at it — code, research, documents, automation,
+        ordinary chores. One agent, many roles.</p>
+
+      <div class="skills-grid" style="margin-top:42px">
+        <div class="card">
+          <div class="icon">◳</div>
+          <h3>HR &amp; recruiting</h3>
+          <p>Drop 50–100 resumes (PDFs or screenshots). Get summaries, skill matrices, red flags, ranked shortlists,
+            comparison tables — all in one prompt.</p>
+        </div>
+        <div class="card">
+          <div class="icon">⌕</div>
+          <h3>Research &amp; analysis</h3>
+          <p>Verified-source search cross-checks 5–10 sites in parallel, scores credibility, flags contested claims.
+            Real citations, no hallucinated stats.</p>
+        </div>
+        <div class="card">
+          <div class="icon">◰</div>
+          <h3>Documents</h3>
+          <p>Parse PDFs, Excel sheets, JSON, HTML, Markdown, CSV, YAML, XML — one tool, the right parser per type.</p>
+        </div>
+        <div class="card">
+          <div class="icon">⌘</div>
+          <h3>macOS automation</h3>
+          <p>"Open Messages, send Mom 'I'll call after gym.'" Done. Calendar, Mail, Reminders, Safari, Finder — scripted
+            natively.</p>
+        </div>
+        <div class="card">
+          <div class="icon">↯</div>
+          <h3>Reverse engineering</h3>
+          <p>Decompile, patch, instrument, repackage. A dedicated <em>reverse_eng</em> mode shifts the system prompt for
+            binary-level work.</p>
+        </div>
+        <div class="card">
+          <div class="icon">∇</div>
+          <h3>Codebase surgery</h3>
+          <p><code style="font-family:var(--mono);font-size:12px">resolve_context</code> bundles every related file
+            (imports + importers + tests + configs) in one call — no more 20-step exploration.</p>
+        </div>
+        <div class="card">
+          <div class="icon">◐</div>
+          <h3>Ordinary chores</h3>
+          <p>Rename 200 files. Find that screenshot from March. Convert this folder of PNGs. Email Aman. Add to grocery
+            list. Cook timer.</p>
+        </div>
+        <div class="card">
+          <div class="icon">⚙</div>
+          <h3>Repo bootstrapping</h3>
+          <p>Storybook setup, lint configs, CI pipelines, feature folder scaffolds — Jarvis writes the boring code the
+            way <em>you</em> would.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 8 — REAL WORK / CASE STUDIES             -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">07</span><span class="line"></span><span>Receipts</span></div>
+      <h2 class="section">Real work, <em>shipped</em>.</h2>
+      <p class="lede">Not hypothetical. These are jobs Jarvis has already completed end-to-end in production projects.
+      </p>
+
+      <div class="cases">
+        <div class="case">
+          <div class="head"><span class="num">01</span></div>
+          <h3>Reverse-engineered the FreeBuf agent — stripped the ads.</h3>
+          <p>Disassembled the upstream binary, located the ad-injection loop, patched it out, repackaged a clean build.
+            No more nag screens, no more banner pulls. Done.</p>
+          <div class="tags"><span>reverse-eng</span><span>binary patching</span><span>shipped</span></div>
+        </div>
+        <div class="case">
+          <div class="head"><span class="num">02</span></div>
+          <h3>Fixed OpenCode's Kimi K2.6 provider bug.</h3>
+          <p>Traced the model-routing failure inside OpenCode, reproduced it, located the malformed request path,
+            patched the provider config, verified the fix. Kimi works again.</p>
+          <div class="tags"><span>reverse-eng</span><span>provider routing</span><span>upstream fix</span></div>
+        </div>
+        <div class="case">
+          <div class="head"><span class="num">03</span></div>
+          <h3>Storybook on the Habuild CRM — with proper stories.</h3>
+          <p>Set up Storybook in <code style="font-family:var(--mono);font-size:12px">crm-fe-remix</code> from zero.
+            Wrote stories for the design system. Code-quality preserved: feature-folder architecture, typed props, no
+            copy-paste.</p>
+          <div class="tags"><span>frontend</span><span>tooling</span><span>quality</span></div>
+        </div>
+        <div class="case">
+          <div class="head"><span class="num">04</span></div>
+          <h3>Built Harness itself.</h3>
+          <p>The agent you're reading about. Python + Textual TUI, multi-provider auth (API key, OAuth PKCE, OpenRouter,
+            OpenCode), 64-worker parallel tool loop, SQLite sessions, MCP — all hand-rolled.</p>
+          <div class="tags"><span>python</span><span>textual</span><span>system design</span></div>
+        </div>
+        <div class="case">
+          <div class="head"><span class="num">05</span></div>
+          <h3>Bulk document workflows.</h3>
+          <p>Resume-batch analysis, invoice extraction, screenshot-to-spreadsheet pipelines — repeatable templates that
+            turn folders of files into structured reports.</p>
+          <div class="tags"><span>documents</span><span>HR</span><span>ops</span></div>
+        </div>
+        <div class="case">
+          <div class="head"><span class="num">06</span></div>
+          <h3>macOS automation pipelines.</h3>
+          <p>"Open WhatsApp, find this contact, send this draft." End-to-end flows that read the accessibility tree,
+            click real UI elements, verify state — no fragile coordinate clicks.</p>
+          <div class="tags"><span>macOS</span><span>automation</span><span>a11y</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 9 — ARCHITECTURE                         -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">08</span><span class="line"></span><span>Under the hood</span></div>
+      <h2 class="section">Engineering choices, <em>visible.</em></h2>
+
+      <div class="two-col" style="margin-top:32px">
+        <div>
+          <p class="lede" style="margin-top:0">Harness is not a wrapper around an SDK. It's a custom streaming tool loop
+            with deliberate tradeoffs at every layer.</p>
+
+          <ul style="list-style:none;padding:0;margin:18px 0 0;max-width:560px">
+            <li style="padding:14px 0;border-bottom:1px dashed var(--line);display:flex;gap:14px">
+              <span
+                style="font-family:var(--display);font-style:italic;font-size:22px;color:var(--accent);min-width:38px">i.</span>
+              <div><b>Dynamic tool routing.</b> Only the schemas likely needed each turn — regex-scans recent messages.
+                Smaller payloads, faster TTFB.</div>
+            </li>
+            <li style="padding:14px 0;border-bottom:1px dashed var(--line);display:flex;gap:14px">
+              <span
+                style="font-family:var(--display);font-style:italic;font-size:22px;color:var(--accent);min-width:38px">ii.</span>
+              <div><b>Parallel by default.</b> Up to 64 concurrent tool workers. Serial only for shell, file edits, UI
+                clicks — where order matters.</div>
+            </li>
+            <li style="padding:14px 0;border-bottom:1px dashed var(--line);display:flex;gap:14px">
+              <span
+                style="font-family:var(--display);font-style:italic;font-size:22px;color:var(--accent);min-width:38px">iii.</span>
+              <div><b>Hallucination guard.</b> Streaming output filtered against actual fetched facts before being
+                shown.</div>
+            </li>
+            <li style="padding:14px 0;display:flex;gap:14px">
+              <span
+                style="font-family:var(--display);font-style:italic;font-size:22px;color:var(--accent);min-width:38px">iv.</span>
+              <div><b>Project-scoped by default.</b> File ops respect the working folder unless you explicitly opt out —
+                predictable blast radius.</div>
+            </li>
+          </ul>
+        </div>
+
+        <div class="right">
+          <div class="card">
+            <span class="kicker">Auth · 4 routes</span>
+            <h3 style="margin-top:8px">API key · OAuth PKCE · OpenRouter · OpenCode</h3>
+            <p>First-run wizard picks the right path. Credentials live in <code
+                style="font-family:var(--mono);font-size:12px">~/.config/claude-agent/</code> with 600 perms.</p>
+          </div>
+          <div class="card">
+            <span class="kicker">Storage</span>
+            <h3 style="margin-top:8px">SQLite, not the cloud</h3>
+            <p>Sessions, memory, skills, prefs, aliases — all local. Your data never leaves your machine unless you
+              point a tool at the network.</p>
+          </div>
+          <div class="card">
+            <span class="kicker">Themes &amp; modes</span>
+            <h3 style="margin-top:8px">Red · Purple · Default · Coding · Reverse-eng</h3>
+            <p>Visual themes for vibes; modes for posture. Switch with one slash command.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 10 — WHY THIS WINS                       -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">09</span><span class="line"></span><span>Who it's for</span></div>
+      <h2 class="section">If any of this sounds like <em>your week</em>, it's for you.</h2>
+      <p class="lede">Jarvis isn't a developer-only tool. It's a terminal-shaped assistant for anyone whose work touches files, the web, the OS, or other software. Concrete profiles below — pick the one that's closest.</p>
+
+      <div class="skills-grid" style="margin-top:42px">
+        <div class="card">
+          <div class="icon">⌘</div>
+          <h3>The solo engineer</h3>
+          <p>Refactors across repos, sets up tooling, debugs production issues at 2 AM. Wants something that learns the codebase, not something that forgets every session.</p>
+        </div>
+        <div class="card">
+          <div class="icon">◳</div>
+          <h3>The recruiter / HR lead</h3>
+          <p>Receives a folder of resumes in the morning. Wants a ranked shortlist with red flags by lunch — without learning Python.</p>
+        </div>
+        <div class="card">
+          <div class="icon">⌕</div>
+          <h3>The researcher / analyst</h3>
+          <p>Needs claims cross-checked across multiple live sources, not one model's training cutoff. Cares about citations and contested facts.</p>
+        </div>
+        <div class="card">
+          <div class="icon">↯</div>
+          <h3>The security researcher</h3>
+          <p>Disassembles, instruments, patches. Tired of being told a CVE writeup is "outside the policy." Treats refusals as bugs.</p>
+        </div>
+        <div class="card">
+          <div class="icon">◰</div>
+          <h3>The ops / finance person</h3>
+          <p>Invoices, statements, spreadsheets. Wants structured extraction over batches, not one-PDF-at-a-time.</p>
+        </div>
+        <div class="card">
+          <div class="icon">◐</div>
+          <h3>The power user</h3>
+          <p>Lives in Raycast, Shortcuts, Alfred. Wants a real CLI agent that drives apps via accessibility — not a chat window in a sandbox.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 11 — INSTALL                             -->
+    <!-- ============================================ -->
+    <section class="slide">
+      <div class="eyebrow"><span class="num">10</span><span class="line"></span><span>Get it running</span></div>
+      <h2 class="section">Install in <em>thirty seconds</em>. Free forever.</h2>
+      <p class="lede">One curl pipe and you're done. No card. No login. No daemon. Use the Zen provider for unlimited
+        free runs, or bring your own key.</p>
+
+      <div class="install">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="step">
+            <div class="n">i.</div>
+            <div>
+              <h4>Run the installer</h4>
+              <p>One line. Drops <code style="font-family:var(--mono);font-size:12px">jarvis</code> into <code
+                  style="font-family:var(--mono);font-size:12px">~/.local/bin</code>.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="n">ii.</div>
+            <div>
+              <h4>Open a new terminal</h4>
+              <p>Make sure <code style="font-family:var(--mono);font-size:12px">~/.local/bin</code> is on your PATH (the
+                installer prompts if not).</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="n">iii.</div>
+            <div>
+              <h4>Pick "OpenCode Zen" — free</h4>
+              <p>On first run, choose Zen. No payment. No quota. The Harness agent runs free on this provider.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="n">iv.</div>
+            <div>
+              <h4>Run <code style="font-family:var(--mono);font-size:13px">jarvis</code> in any folder</h4>
+              <p>That folder becomes the working root. Talk to it like an engineer who never sleeps.</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="code-block">
+            <span class="label">install</span>
+            <span class="c"># one-line installer</span>
+            curl <span class="v">-fsSL</span> https://raw.githubusercontent.com/<span
+              class="k">PrajsRamteke</span>/harness-agent/main/scripts/install | bash
+
+            <span class="c"># open a new terminal, then:</span>
+            <span class="k">jarvis</span>
+          </div>
+
+          <div class="code-block">
+            <span class="label">free unlimited · Zen</span>
+            <span class="c"># pin the free provider</span>
+            export <span class="v">HARNESS_PROVIDER</span>=<span class="s">"opencode_zen"</span>
+
+            <span class="c"># optional: pick a model</span>
+            export <span class="v">CLAUDE_MODEL</span>=<span class="s">"sonnet-4-6"</span>
+
+            <span class="k">jarvis</span>
+          </div>
+
+          <div class="code-block">
+            <span class="label">bring your own key (optional)</span>
+            <span class="c"># Anthropic</span>
+            export <span class="v">ANTHROPIC_API_KEY</span>=<span class="s">"sk-ant-..."</span>
+
+            <span class="c"># OpenRouter (DeepSeek, Kimi, etc.)</span>
+            export <span class="v">OPENROUTER_API_KEY</span>=<span class="s">"sk-or-..."</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- SLIDE 12 — CLOSING                              -->
+    <!-- ============================================ -->
+    <section class="slide closing">
+      <span class="pill" style="background:transparent;color:#C9C0B0;border-color:#2c2924">Fin.</span>
+      <h1>Stop renting <em>limits</em>.<br />Start owning the agent.</h1>
+      <p>Coding, research, analysis, documents, automation, ordinary work — one terminal, one assistant, free if you
+        want it that way.</p>
+      <div class="links">
+        <a class="link accent" href="#" onclick="event.preventDefault()">github.com/PrajsRamteke/harness-agent</a>
+        <a class="link" href="#" onclick="event.preventDefault()">curl · install · jarvis</a>
+        <a class="link" href="#" onclick="event.preventDefault()">Made by Prajwal Ramteke</a>
       </div>
 
-      <div class="code-block">
-        <span class="label">free unlimited · Zen</span>
-<span class="c"># pin the free provider</span>
-export <span class="v">HARNESS_PROVIDER</span>=<span class="s">"opencode_zen"</span>
-
-<span class="c"># optional: pick a model</span>
-export <span class="v">CLAUDE_MODEL</span>=<span class="s">"sonnet-4-6"</span>
-
-<span class="k">jarvis</span>
+      <div style="margin-top:48px;padding-top:28px;border-top:1px solid #2c2924;max-width:680px">
+        <span
+          style="font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:#7A746A">P.S.</span>
+        <p
+          style="font-family:var(--display);font-style:italic;font-weight:300;font-size:18px;color:#C9C0B0;margin-top:10px;line-height:1.5">
+          This entire presentation — every slide, every line of CSS, every animation — was designed and written by <span
+            style="color:#F4B183;font-style:normal;font-weight:500">Jarvis, the Harness agent itself</span>, in a single
+          terminal session. The deck is its own demo.
+        </p>
       </div>
+    </section>
 
-      <div class="code-block">
-        <span class="label">bring your own key (optional)</span>
-<span class="c"># Anthropic</span>
-export <span class="v">ANTHROPIC_API_KEY</span>=<span class="s">"sk-ant-..."</span>
+  </main>
 
-<span class="c"># OpenRouter (DeepSeek, Kimi, etc.)</span>
-export <span class="v">OPENROUTER_API_KEY</span>=<span class="s">"sk-or-..."</span>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================ -->
-<!-- SLIDE 12 — CLOSING                              -->
-<!-- ============================================ -->
-<section class="slide closing">
-  <span class="pill" style="background:transparent;color:#C9C0B0;border-color:#2c2924">Fin.</span>
-  <h1>Stop renting <em>limits</em>.<br/>Start owning the agent.</h1>
-  <p>Coding, research, analysis, documents, automation, ordinary work — one terminal, one assistant, free if you want it that way.</p>
-  <div class="links">
-    <a class="link accent" href="#" onclick="event.preventDefault()">github.com/PrajsRamteke/harness-agent</a>
-    <a class="link" href="#" onclick="event.preventDefault()">curl · install · jarvis</a>
-    <a class="link" href="#" onclick="event.preventDefault()">Made by Prajwal Ramteke</a>
+  <!-- HINT -->
+  <div class="hint" id="hint">
+    <span>Use</span><kbd>←</kbd><kbd>→</kbd><span>or scroll horizontally</span>
   </div>
 
-  <div style="margin-top:48px;padding-top:28px;border-top:1px solid #2c2924;max-width:680px">
-    <span style="font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:#7A746A">P.S.</span>
-    <p style="font-family:var(--display);font-style:italic;font-weight:300;font-size:18px;color:#C9C0B0;margin-top:10px;line-height:1.5">
-      This entire presentation — every slide, every line of CSS, every animation — was designed and written by <span style="color:#F4B183;font-style:normal;font-weight:500">Jarvis, the Harness agent itself</span>, in a single terminal session. The deck is its own demo.
-    </p>
-  </div>
-</section>
+  <!-- COUNTER + NAV -->
+  <div class="nav-counter"><b id="cur">01</b> &nbsp;/&nbsp; <span id="total">12</span></div>
+  <button class="nav-btn prev" id="prev" aria-label="Previous slide">‹</button>
+  <button class="nav-btn next" id="next" aria-label="Next slide">›</button>
 
-</main>
+  <script>
+    const deck = document.getElementById('deck');
+    const slides = [...document.querySelectorAll('.slide')];
+    const total = slides.length;
+    document.getElementById('total').textContent = String(total).padStart(2, '0');
+    const cur = document.getElementById('cur');
+    const progress = document.getElementById('progress');
+    const navLinks = document.querySelectorAll('#topnav a');
+    const hint = document.getElementById('hint');
 
-<!-- HINT -->
-<div class="hint" id="hint">
-  <span>Use</span><kbd>←</kbd><kbd>→</kbd><span>or scroll horizontally</span>
-</div>
-
-<!-- COUNTER + NAV -->
-<div class="nav-counter"><b id="cur">01</b> &nbsp;/&nbsp; <span id="total">12</span></div>
-<button class="nav-btn prev" id="prev" aria-label="Previous slide">‹</button>
-<button class="nav-btn next" id="next" aria-label="Next slide">›</button>
-
-<script>
-  const deck = document.getElementById('deck');
-  const slides = [...document.querySelectorAll('.slide')];
-  const total = slides.length;
-  document.getElementById('total').textContent = String(total).padStart(2,'0');
-  const cur = document.getElementById('cur');
-  const progress = document.getElementById('progress');
-  const navLinks = document.querySelectorAll('#topnav a');
-  const hint = document.getElementById('hint');
-
-  let idx = 0;
-  function go(i){
-    idx = Math.max(0, Math.min(total-1, i));
-    deck.scrollTo({left: idx * window.innerWidth, behavior:'smooth'});
-  }
-
-  function update(){
-    const i = Math.round(deck.scrollLeft / window.innerWidth);
-    if (i !== idx) idx = i;
-    cur.textContent = String(idx+1).padStart(2,'0');
-    progress.style.width = ((idx+1)/total*100) + '%';
-    slides.forEach((s,k)=> s.classList.toggle('active', k===idx));
-    navLinks.forEach(a=>{
-      const g = parseInt(a.dataset.go,10);
-      a.classList.toggle('active', g===idx || (g<idx && g===Math.max(...[...navLinks].map(x=>parseInt(x.dataset.go,10)).filter(v=>v<=idx))));
-    });
-  }
-
-  deck.addEventListener('scroll', () => requestAnimationFrame(update), {passive:true});
-  window.addEventListener('resize', () => go(idx));
-  document.getElementById('prev').onclick = () => go(idx-1);
-  document.getElementById('next').onclick = () => go(idx+1);
-  navLinks.forEach(a => a.onclick = (e)=>{ e.preventDefault(); go(parseInt(a.dataset.go,10)); });
-
-  // wheel: convert vertical scroll to horizontal
-  deck.addEventListener('wheel', (e)=>{
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)){
-      e.preventDefault();
-      deck.scrollLeft += e.deltaY;
+    let idx = 0;
+    function go(i) {
+      idx = Math.max(0, Math.min(total - 1, i));
+      deck.scrollTo({ left: idx * window.innerWidth, behavior: 'smooth' });
     }
-  }, {passive:false});
 
-  document.addEventListener('keydown', (e)=>{
-    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' '){ e.preventDefault(); go(idx+1); }
-    if (e.key === 'ArrowLeft'  || e.key === 'PageUp'){ e.preventDefault(); go(idx-1); }
-    if (e.key === 'Home'){ go(0); }
-    if (e.key === 'End'){ go(total-1); }
-  });
+    function update() {
+      const i = Math.round(deck.scrollLeft / window.innerWidth);
+      if (i !== idx) idx = i;
+      cur.textContent = String(idx + 1).padStart(2, '0');
+      progress.style.width = ((idx + 1) / total * 100) + '%';
+      slides.forEach((s, k) => s.classList.toggle('active', k === idx));
+      navLinks.forEach(a => {
+        const g = parseInt(a.dataset.go, 10);
+        a.classList.toggle('active', g === idx || (g < idx && g === Math.max(...[...navLinks].map(x => parseInt(x.dataset.go, 10)).filter(v => v <= idx))));
+      });
+    }
 
-  // hide hint after first interaction
-  let hinted = false;
-  function hideHint(){ if (hinted) return; hinted = true; hint.classList.add('hidden'); }
-  deck.addEventListener('scroll', hideHint, {once:true});
-  document.addEventListener('keydown', hideHint, {once:true});
-  setTimeout(()=>hint.classList.add('hidden'), 6000);
+    deck.addEventListener('scroll', () => requestAnimationFrame(update), { passive: true });
+    window.addEventListener('resize', () => go(idx));
+    document.getElementById('prev').onclick = () => go(idx - 1);
+    document.getElementById('next').onclick = () => go(idx + 1);
+    navLinks.forEach(a => a.onclick = (e) => { e.preventDefault(); go(parseInt(a.dataset.go, 10)); });
 
-  // initial
-  requestAnimationFrame(update);
-</script>
+    // wheel: convert vertical scroll to horizontal — but only when the event
+    // didn't originate inside an internally-scrollable element (e.g. comparison table)
+    function isInsideScrollable(target, deltaY) {
+      let el = target;
+      while (el && el !== deck) {
+        if (el.nodeType === 1) {
+          const cs = getComputedStyle(el);
+          const oy = cs.overflowY;
+          const canScrollY = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1;
+          if (canScrollY) {
+            // if we can still scroll in the wheel direction inside this element, let it handle natively
+            if (deltaY > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1) return true;
+            if (deltaY < 0 && el.scrollTop > 0) return true;
+          }
+        }
+        el = el.parentElement;
+      }
+      return false;
+    }
+    deck.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        if (isInsideScrollable(e.target, e.deltaY)) return; // let native scroll happen
+        e.preventDefault();
+        deck.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); go(idx + 1); }
+      if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(idx - 1); }
+      if (e.key === 'Home') { go(0); }
+      if (e.key === 'End') { go(total - 1); }
+    });
+
+    // hide hint after first interaction
+    let hinted = false;
+    function hideHint() { if (hinted) return; hinted = true; hint.classList.add('hidden'); }
+    deck.addEventListener('scroll', hideHint, { once: true });
+    document.addEventListener('keydown', hideHint, { once: true });
+    setTimeout(() => hint.classList.add('hidden'), 6000);
+
+    // initial
+    requestAnimationFrame(update);
+  </script>
 
 </body>
+
 </html>
