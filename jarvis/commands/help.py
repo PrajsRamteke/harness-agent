@@ -61,9 +61,7 @@ _SECTIONS = [
         ("plain prompt + image clipboard", "type your prompt normally; a fresh clipboard image is OCR'd and attached"),
     ]),
     ("Modes", [
-        ("/coding", "toggle coding mode ON/OFF (adds large-codebase rules)"),
-        ("/setup", "toggle setup mode ON/OFF (teaches agent where Jarvis configs live)"),
-        ("/mode", "show current mode / switch mode (e.g. /mode coding, /mode setup)"),
+        ("/mode", "open the mode picker (default / coding / reverse_eng / setup)"),
     ]),
     ("MCP (Model Context Protocol)", [
         ("/mcp", "open the MCP control modal — list, toggle, import JSON, scope"),

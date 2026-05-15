@@ -57,13 +57,7 @@ COMMANDS = [
     ("/copy", "copy last assistant response"),
     ("/paste", "send clipboard text / OCR clipboard image"),
     # Modes
-    ("/coding", "toggle coding mode ON/OFF (adds large-codebase rules)"),
-    ("/setup", "toggle setup mode ON/OFF (teaches agent where Jarvis configs live)"),
-    ("/mode", "show current mode"),
-    ("/mode coding", "switch to coding mode"),
-    ("/mode reverse_eng", "switch to reverse engineering / security expert mode"),
-    ("/mode setup", "switch to setup mode — agent learns MCP / skill / settings file paths"),
-    ("/mode default", "switch back to default mode"),
+    ("/mode", "open the mode picker (default / coding / reverse_eng / setup)"),
     # Theme
     ("/theme", "show current visual theme"),
     ("/theme red", "switch to red (original green+magenta) theme"),
