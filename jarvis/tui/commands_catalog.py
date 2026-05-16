@@ -35,16 +35,7 @@ COMMANDS = [
     # Skills — modal browses; LLM auto-invokes by description
     ("/skill", "open the skill browser modal"),
     # Local commands — shell/file/git that run without LLM
-    ("/local", "open the local commands modal (pick and run pwd, ls, cd, git, …)"),
-    # Files & Shell
-    ("/ls", "list directory"),
-    ("/cd ", "change working dir"),
-    ("/pwd", "print working dir"),
-    ("/find ", "glob find files"),
-    ("/run ", "run a shell command"),
-    ("/undo", "restore last file edit"),
-    ("/git", "git status"),
-    ("/diff", "git diff"),
+    ("/local", "open the local commands modal (pick and run ls, pwd, cd, git, find, run, undo, diff)"),
     # Clipboard
     ("/copy", "copy last assistant response"),
     ("/paste", "send clipboard text / OCR clipboard image"),

@@ -36,15 +36,9 @@ _SECTIONS = [
     ("Skills (LLM auto-invokes by description)", [
         ("/skill", "open the skill browser modal · Enter preview · g global · r refresh"),
     ]),
-    ("Files & Shell", [
-        ("/ls [path]", "list directory"),
-        ("/cd <dir>", "change working dir"),
-        ("/pwd", "print working dir"),
-        ("/find <pat>", "glob find files (e.g. **/*.py)"),
-        ("/run <cmd>", "run a shell command (auto-approved)"),
-        ("/undo", "restore last file edit"),
-        ("/git", "git status"),
-        ("/diff [path]", "git diff"),
+    ("Local Commands (shell/file/git — no LLM)", [
+        ("/local", "open the local-commands modal · search, select, and run instantly"),
+        ("  (available: /ls /cd /pwd /find /run /undo /git /diff)", "type or arrow-key to filter"),
     ]),
     ("Clipboard", [
         ("/copy", "copy last assistant response to clipboard"),
