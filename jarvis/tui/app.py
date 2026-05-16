@@ -216,9 +216,9 @@ class JarvisTUI(App):
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=True),
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Quit", show=True),
+        Binding("ctrl+t", "trace or logs", "Logs", show=True),
         Binding("f2", "toggle_internal", "Internals", show=True),
         Binding("tab", "cycle_agent", "Agent", show=True),
-        Binding("ctrl+t", "toggle_internal", show=False),
         Binding("escape", "escape_action", show=False),
         Binding("up", "scroll_transcript('up')", show=False, priority=True),
         Binding("down", "scroll_transcript('down')", show=False, priority=True),
@@ -385,6 +385,7 @@ class JarvisTUI(App):
                 f"[{ui.ACCENT_3}]⇥[/] agent",
                 f"[{ui.ACCENT_3}]esc[/] cancel",
                 f"[{ui.ACCENT_3}]^C[/] copy/cancel",
+                f"[{ui.ACCENT_3}]^T[/] logs",
                 f"[{ui.ACCENT_3}]^D[/] quit",
                 f"[{ui.ACCENT_3}]F2[/] internals",
             ]
@@ -440,7 +441,14 @@ class JarvisTUI(App):
 
         # ── project context file ──────────────────────────────────────
         if state.project_context_file:
-            segs.append(f"[{ui.FG_MUTE}]{state.project_context_file}[/]")
+            _ctx_colors = {
+                "CLAUDE.md": "rgb(189,147,249)",
+                "AGENT.md":  ui.ACCENT,
+                "AGENTS.md": ui.ACCENT,
+                "JARVIS.md": ui.ACCENT_2,
+            }
+            _color = _ctx_colors.get(state.project_context_file, ui.FG_MUTE)
+            segs.append(f"[{_color}]{state.project_context_file}[/]")
 
         # ── prompt queue ──────────────────────────────────────────────
         if state.prompt_queue:
