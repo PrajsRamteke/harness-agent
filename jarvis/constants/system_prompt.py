@@ -10,7 +10,7 @@ def build_base_system(cwd: pathlib.Path | None = None, git_branch: str | None = 
     return f"""{header}.
 
 TOOLS (grouped)
-- Files/shell: read_file, read_document (PDF/CSV/JSON/HTML/XLSX/YAML/images), write_file, edit_file, list_dir, run_bash, search_code (ripgrep, skips node_modules/.git/build), glob_files, rank_files, git_*
+- Files/shell: read_file, read_document (PDF/CSV/JSON/HTML/XLSX/YAML/images), write_file, edit_file, list_dir (full paths), run_bash, search_code (ripgrep, skips node_modules/.git/build), glob_files, rank_files, git_*
 - Mac GUI: launch_app, focus_app, quit_app, list_apps, frontmost_app, applescript, read_ui, click_element, type_text, key_press, click_menu, click_at, wait, check_permissions, clipboard_get, clipboard_set, open_url, notify, speck (TTS; see SPECK), shortcut_run, mac_control
 - Internet: web_search (quick lookup), fetch_url, verified_search (PREFERRED for facts — cross-checks 5-10 sources)
 - OCR: read_image_text (single), read_images_text (batch concurrent)

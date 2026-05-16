@@ -30,7 +30,7 @@ def list_dir(path: str = ".", show_all: bool = False, allow_outside_project: boo
     if not show_all:
         hidden = sum(1 for x in p.iterdir() if x.name in SKIP_DIRS)
     items = items[:300]
-    lines = [f"{'d' if x.is_dir() else 'f'} {x.name}" for x in items]
+    lines = [f"{'d' if x.is_dir() else 'f'} {x}" for x in items]
     if hidden:
         lines.append(f"… ({hidden} entries hidden: node_modules/build/caches — pass show_all=true to include)")
     return "\n".join(lines)

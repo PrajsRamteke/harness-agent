@@ -810,14 +810,9 @@ class JarvisTUI(App):
             return
 
         if head in ("/login", "/logout", "/auth", "/key", "/model", "/session", "/sessions"):
-            log = self.query_one("#transcript", RichLog)
-            log.write(self._user_panel(text))
-            self._busy = True
-            self._turn_t0 = time.monotonic()
-            self._sync_activity_phase("Thinking…")
-            self._start_activity_pulse()
-            self._set_status("thinking…")
-            self._run_turn(text)
+            # Route these to their proper modal/command handler
+            # rather than treating them as "thinking" interactions.
+            self._route_modal_slash(text)
             return
 
         result, should_send, new_inp = handle_slash(text)
@@ -835,6 +830,113 @@ class JarvisTUI(App):
             self._run_turn(new_inp)
             return
         self._set_status("ready")
+
+    # ─── route modal / non-thinking slash commands ───────────────────
+    def _route_modal_slash(self, inp: str) -> None:
+        """Route slash commands that should open modals rather than be
+        dispatched as 'thinking' API interactions.
+
+        Handles: /login, /logout, /auth, /key, /model, /session
+        """
+        text = (inp or "").strip()
+        head = text.split(maxsplit=1)[0]
+
+        if head == "/model":
+            from ..commands.control import _apply_model_selection
+            arg = text[len("/model "):] if " " in text else ""
+            if arg:
+                _apply_model_selection(arg)
+                self._set_status("ready")
+            else:
+                self._open_model_picker()
+            return
+
+        if head == "/session":
+            self._open_session_picker()
+            return
+
+        if head in ("/login",):
+            self._open_login_modal()
+            return
+
+        if head in ("/key", "/auth", "/logout"):
+            # These go through handle_slash which may prompt for input
+            # via TUIConsole.input() — show a neutral status.
+            log = self.query_one("#transcript", RichLog)
+            log.write(self._user_panel(text))
+            self._busy = True
+            self._turn_t0 = time.monotonic()
+            self._sync_activity_phase("Processing…")
+            self._start_activity_pulse()
+            self._set_status("processing…")
+            self._run_turn(text)
+            return
+
+        self._set_status("ready")
+
+    def _handle_queued_command(self, cmd: str) -> None:
+        """Handle a queued slash command that should open a modal or
+        be processed without showing 'thinking…' status.
+
+        This is the queue-aware counterpart of the per-command
+        intercepts in on_prompt_area_submitted.
+        """
+        stripped = cmd.strip()
+
+        # Map head -> handler
+        if stripped in ("/login", "/signin", "/sign-in"):
+            self._open_login_modal()
+            return
+        if stripped in ("/session", "/sessions", "/session list", "/session ls"):
+            self._open_session_picker()
+            return
+        if stripped in ("/model",):
+            self._open_model_picker()
+            return
+        if stripped in ("/think",):
+            self._open_think_picker()
+            return
+        if stripped in ("/mcp",):
+            self._open_mcp_modal()
+            return
+        if stripped in ("/agent",):
+            self._open_agent_picker()
+            return
+        if stripped in ("/skills",):
+            self._open_skill_browser()
+            return
+        if stripped in ("/memory",):
+            self._open_memory_modal()
+            return
+        if stripped in ("/lesson",):
+            self._open_lesson_modal()
+            return
+        if stripped in ("/settings", "/setting"):
+            self._open_settings_modal()
+            return
+        if stripped in ("/theme",):
+            self._open_theme_modal()
+            return
+
+        head = stripped.split(maxsplit=1)[0]
+        if head in ("/key", "/auth", "/logout", "/local"):
+            # Route through _run_turn but with "processing…" label
+            log = self.query_one("#transcript", RichLog)
+            log.write(self._user_panel(stripped))
+            self._busy = True
+            self._turn_t0 = time.monotonic()
+            self._sync_activity_phase("Processing…")
+            self._start_activity_pulse()
+            self._set_status("processing…")
+            self._run_turn(stripped)
+            return
+
+        if head in ("/think",):
+            self._open_think_picker()
+            return
+
+        # Default: treat as a normal turn (will show "thinking…")
+        self._begin_turn(stripped)
 
     # ─── panels (shared user / queue / dequeue renderers) ────────────
     @staticmethod
@@ -1232,9 +1334,22 @@ class JarvisTUI(App):
         self._sync_activity_phase("")
 
         if state.prompt_queue:
-            next_prompt = state.prompt_queue.pop(0)
+            next_prompt = state.prompt_queue.pop(0).strip()
             remaining = len(state.prompt_queue)
             self._show_dequeue_panel(next_prompt, remaining)
+
+            # Route modal-opening commands to their proper handler
+            # instead of sending through _begin_turn → _run_turn
+            # which sets misleading "thinking…" status.
+            if next_prompt.startswith("/"):
+                head = next_prompt.split(maxsplit=1)[0]
+                if head in ("/login", "/model", "/session", "/sessions",
+                            "/logout", "/auth", "/key", "/settings",
+                            "/theme", "/agent", "/skills", "/memory",
+                            "/lesson", "/mcp", "/think", "/local"):
+                    self._handle_queued_command(next_prompt)
+                    return
+
             self._begin_turn(next_prompt)
             return
 

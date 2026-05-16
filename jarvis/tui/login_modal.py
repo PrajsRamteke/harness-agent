@@ -346,6 +346,7 @@ class LoginModalScreen(TuiModalScreen[bool]):
             self._set_status(f"tokens saved but client build failed — {e}", ok=False)
             return
 
+        self._busy = False
         self._set_status(
             "✓ logged in — provider switched to Anthropic, OAuth client active",
             ok=True,

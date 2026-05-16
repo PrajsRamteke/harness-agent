@@ -75,9 +75,9 @@ CORE_TOOLS = CONTEXT_TOOLS + [
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
         "required":["path","old_str","new_str"]}},
     {"name":"list_dir","description":(
-        "List project directory entries. Refuses outside-project paths unless "
-        "allow_outside_project=true. By default hides node_modules/.venv/build/"
-        "dist/caches — pass show_all=true to include them."),
+        "List project directory entries with full paths. Refuses outside-project "
+        "paths unless allow_outside_project=true. By default hides node_modules/"
+        ".venv/build/dist/caches — pass show_all=true to include them."),
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},
         "show_all":{"type":"boolean"},
