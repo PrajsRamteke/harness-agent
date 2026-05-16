@@ -42,6 +42,7 @@ from .lesson_modal import LessonModalScreen
 from .settings_modal import SettingsModalScreen
 from .theme_modal import ThemePickerScreen
 from .login_modal import LoginModalScreen
+from .local_cmd_modal import LocalCmdModalScreen
 from .provider_modal import ProviderPickerScreen
 from . import theme as ui
 from .. import state
@@ -114,6 +115,11 @@ def _is_theme_modal_command(text: str) -> bool:
 def _is_login_command(text: str) -> bool:
     s = (text or "").strip().lower()
     return s in ("/login", "/signin", "/sign-in")
+
+
+def _is_local_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s == "/local" or s.startswith("/local ")
 
 
 # ─── header / status segment builders ────────────────────────────────────
@@ -617,6 +623,11 @@ class JarvisTUI(App):
                 self._open_login_modal()
                 inp.focus()
                 return
+            if _is_local_command(cmd):
+                rest = cmd[len("/local "):] if cmd.startswith("/local ") else ""
+                self._open_local_cmd_modal(initial=rest)
+                inp.focus()
+                return
             if cmd.endswith(" "):
                 inp.text = cmd
                 inp.move_cursor((0, len(cmd)))
@@ -751,6 +762,31 @@ class JarvisTUI(App):
                 self._tui_console.print(f"[{ui.FG_DIM}]login cancelled[/]")
             self._set_status("ready")
         self.push_screen(LoginModalScreen(), after)
+
+    def _open_local_cmd_modal(self, initial: str = "") -> None:
+        def after(cmd: str | None) -> None:
+            inp = self.query_one("#prompt", PromptArea)
+            if not cmd:
+                inp.focus()
+                self._set_status("ready")
+                return
+            # Extract bare command: "/cd <dir>" → "/cd"
+            base = cmd.split(None, 1)[0]
+            has_args = len(cmd.split(None, 1)) > 1
+            if has_args:
+                # Commands with args — put in prompt with trailing space
+                inp.text = base + " "
+                inp.move_cursor((0, len(inp.text)))
+                self._last_input_value = inp.text
+            else:
+                # No-arg commands — dispatch immediately
+                inp.clear()
+                self._last_input_value = ""
+                self._dispatch_palette_slash(base)
+            inp.focus()
+            self._set_status("ready")
+
+        self.push_screen(LocalCmdModalScreen(initial=initial), after)
 
     def _dispatch_palette_slash(self, inp: str):
         from ..commands.dispatch import handle_slash
@@ -893,6 +929,11 @@ class JarvisTUI(App):
             return
         if _is_login_command(text):
             self._open_login_modal()
+            return
+
+        if _is_local_command(text):
+            rest = text[len("/local "):] if text.startswith("/local ") else ""
+            self._open_local_cmd_modal(initial=rest)
             return
 
         stripped = text.strip()

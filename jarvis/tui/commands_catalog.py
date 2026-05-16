@@ -34,6 +34,8 @@ COMMANDS = [
     ("/lesson", "open the lesson modal (list · search · add · delete · clear)"),
     # Skills — modal browses; LLM auto-invokes by description
     ("/skill", "open the skill browser modal"),
+    # Local commands — shell/file/git that run without LLM
+    ("/local", "open the local commands modal (pick and run pwd, ls, cd, git, …)"),
     # Files & Shell
     ("/ls", "list directory"),
     ("/cd ", "change working dir"),
