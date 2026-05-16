@@ -69,12 +69,16 @@ def welcome_banner(compact: bool = False):
     from ..constants import VERSION
 
     # Art uses accent_3 (the "highlight" token) — varies per theme:
-    #   red    → #ffa198 (coral)
-    #   blue   → #79f0ff (cyan)
-    #   purple → #f0b3ff (pink)
-    #   green  → #a3f0bf (mint)
-    #   orange → #fec77d (golden)
-    #   yellow → #f0d272 (pale gold)
+    #   red       → #ffa198 (coral)
+    #   blue      → #79f0ff (cyan)
+    #   purple    → #f0b3ff (pink)
+    #   green     → #a3f0bf (mint)
+    #   orange    → #fec77d (golden)
+    #   yellow    → #f0d272 (pale gold)
+    #   rose      → #ffb3c6 (soft pink)
+    #   slate     → #d0d7de (light gray)
+    #   ocean     → #93c5fd (sky blue)
+    #   cyberpunk → #f0aaff (neon pink)
     console.print(f"[{c['accent_3']}]{WELCOME_ART}[/]")
 
     title = f"[bold {c['accent']}]JARVIS v{VERSION}[/]"

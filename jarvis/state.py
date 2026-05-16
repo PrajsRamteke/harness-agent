@@ -153,6 +153,34 @@ THEMES = {
         "tool_border": "#d29922",
         "project_border": "#f0d272",
     },
+    "rose": {
+        "user_border": "#3fb950",
+        "asst_border": "#f7527a",
+        "think_border": "#8b949e",
+        "tool_border": "#d29922",
+        "project_border": "#ffb3c6",
+    },
+    "slate": {
+        "user_border": "#3fb950",
+        "asst_border": "#8b949e",
+        "think_border": "#6b7684",
+        "tool_border": "#d29922",
+        "project_border": "#b1bac4",
+    },
+    "ocean": {
+        "user_border": "#22c55e",
+        "asst_border": "#60a5fa",
+        "think_border": "#64748b",
+        "tool_border": "#eab308",
+        "project_border": "#3b82f6",
+    },
+    "cyberpunk": {
+        "user_border": "#22d65e",
+        "asst_border": "#d946ef",
+        "think_border": "#7c6a9e",
+        "tool_border": "#facc15",
+        "project_border": "#22d3ee",
+    },
 }
 theme: str = "red"
 theme_colors: dict = THEMES["red"]

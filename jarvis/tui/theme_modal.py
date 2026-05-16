@@ -17,19 +17,23 @@ from . import theme as ui
 
 
 _THEMES = [
-    ("red",    "warm coral tones, soft pink highlights"),
-    ("blue",   "cool blue tones, teal secondary, sky highlights"),
-    ("purple", "soft violet accents, warm amber warnings"),
-    ("green",  "nature green primary, teal secondary, mint highlights"),
-    ("orange", "fiery orange accents, golden highlights"),
-    ("yellow", "gold and amber tones, bright highlights"),
+    ("red",       "warm coral tones, soft pink highlights"),
+    ("blue",      "cool blue tones, teal secondary, sky highlights"),
+    ("purple",    "soft violet accents, warm amber warnings"),
+    ("green",     "nature green primary, teal secondary, mint highlights"),
+    ("orange",    "fiery orange accents, golden highlights"),
+    ("yellow",    "gold and amber tones, bright highlights"),
+    ("rose",      "hot pink accents, magenta borders, romantic"),
+    ("slate",     "neutral grays, no color bias, professional"),
+    ("ocean",     "deep navy backgrounds, ice-blue accents"),
+    ("cyberpunk", "neon cyan + magenta on dark purple, high contrast"),
 ]
 
 
 class ThemePickerScreen(TuiModalScreen[str | None]):
     DEFAULT_CSS = get_modal_chrome_css() + """
     ThemePickerScreen #modal { width: 56%; max-width: 80; max-height: 50%; }
-    ThemePickerScreen OptionList { height: 8; }
+    ThemePickerScreen OptionList { height: 16; }
     """
 
     BINDINGS = [
