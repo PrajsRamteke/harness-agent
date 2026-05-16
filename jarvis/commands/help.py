@@ -28,22 +28,13 @@ _SECTIONS = [
         ("/aliases", "list aliases"),
     ]),
     ("Memory", [
-        ("/memory", "show stored personal facts"),
-        ("/memory add <text>", "save a personal fact"),
-        ("/memory del <id>", "delete a fact by id"),
-        ("/memory clear", "wipe all memory"),
+        ("/memory", "open the memory modal · a add · d delete · c clear · r refresh"),
     ]),
-    ("Skills (Lessons — agent self-learning)", [
-        ("/lesson", "list saved lessons (what agent learned)"),
-        ("/lesson search <q>", "find relevant lessons for a task"),
-        ("/lesson add <task> :: <lesson> [:: tags]", "save a lesson"),
-        ("/lesson del <id>", "delete a lesson"),
-        ("/lesson clear", "wipe all lessons"),
+    ("Lessons (agent self-learning)", [
+        ("/lesson", "open the lesson modal · / search · a add · d delete · c clear · r refresh"),
     ]),
-    ("Skills (Project-base — SKILL.md)", [
-        ("/skill", "list available project-base skills (headers only)"),
-        ("/skill <name>", "load and show full skill content"),
-        ("/skill refresh", "re-scan for new/changed skills"),
+    ("Skills (LLM auto-invokes by description)", [
+        ("/skill", "open the skill browser modal · Enter preview · g global · r refresh"),
     ]),
     ("Files & Shell", [
         ("/ls [path]", "list directory"),
@@ -61,36 +52,17 @@ _SECTIONS = [
         ("plain prompt + image clipboard", "type your prompt normally; a fresh clipboard image is OCR'd and attached"),
     ]),
     ("Agents", [
-        ("/agent", "open the agent picker (project + global)"),
-        ("/agent list", "list all available agents"),
-        ("/agent <name>", "activate an agent by name"),
-        ("/agent off", "deactivate — base system prompt only"),
-        ("/agent new <name>", "scaffold a new agent in .harness/agents/"),
-        ("/agent edit <name>", "open an existing agent in $EDITOR"),
-        ("/agent show <name>", "render an agent's body in the transcript"),
-        ("/agent refresh", "re-scan disk for new/changed agents"),
-        ("/agent global on|off", "toggle global agent discovery (persisted)"),
-        ("/agent scope project|global", "default scope for /agent new"),
+        ("/agent", "open the agent control modal · n new · e edit · p preview · g global · s scope · o default"),
         ("/agent init", "scaffold a .harness/ tree in the current project"),
     ]),
-    ("Skills (LLM auto-invokes)", [
-        ("/skill", "open the skill browser modal"),
-        ("/skill list", "list all available skills"),
-        ("/skill <name>", "load and preview a skill"),
-        ("/skill refresh", "re-scan disk for new/changed skills"),
-        ("/skill global on|off", "toggle global skill discovery (persisted)"),
+    ("Theme", [
+        ("/theme", "open the theme picker (red · purple)"),
     ]),
     ("MCP (Model Context Protocol)", [
         ("/mcp", "open the MCP control modal — list, toggle, import JSON, scope"),
     ]),
     ("Settings", [
-        ("/settings", "show all preferences (single settings.json)"),
-        ("/settings get <key>", "show one preference value"),
-        ("/settings set <key> <value>", "change a preference — auto-saves + applies"),
-        ("/settings reset <key>", "restore a preference to its default"),
-        ("/settings reload", "re-read settings.json from disk"),
-        ("/settings edit", "open settings.json in $EDITOR"),
-        ("/settings path", "print settings.json file path"),
+        ("/settings", "open the settings modal · e edit · r reset · R reload · p path · o $EDITOR"),
     ]),
     ("Control", [
         ("/upgrade", "update Jarvis to the latest version (git pull + pip install)"),

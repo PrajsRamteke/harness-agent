@@ -17,7 +17,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import CenterMiddle, Vertical
-from textual.widgets import OptionList, Static
+from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from rich.text import Text
@@ -44,6 +44,8 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         height: 1fr;
         min-height: 8;
     }
+    SkillBrowserScreen Input { margin: 1 0; }
+    SkillBrowserScreen #modal_status { padding: 0 1; color: #8b949e; }
     """
     )
 
@@ -51,17 +53,20 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         Binding("escape", "dismiss_cancel", "Close", show=True),
         Binding("down", "cursor_down", show=False),
         Binding("up", "cursor_up", show=False),
-        Binding("g", "toggle_global", "Global on/off", show=True),
+        Binding("g", "toggle_global", "Global", show=True),
         Binding("r", "refresh", "Refresh", show=True),
+        Binding("slash", "focus_search", "Search", show=True),
     ]
 
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static("🧰  skills (LLM auto-invokes by description)", id="modal_title")
+                yield Static("", id="modal_status")
+                yield Input(placeholder="search by name or description…", id="skill_search")
                 yield OptionList(id="skill_list")
                 yield Static(
-                    "↑/↓ navigate • Enter preview • g global • r refresh • Esc close",
+                    "↑/↓ navigate • Enter preview • / search • g global • r refresh • Esc close",
                     id="modal_hint",
                 )
 
@@ -89,6 +94,17 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         opts.clear_options()
 
         skills = sk.discover_skills(force=True)
+        # Apply inline filter when the search box has text.
+        try:
+            q = (self.query_one("#skill_search", Input).value or "").strip().lower()
+        except Exception:
+            q = ""
+        if q:
+            skills = [
+                s for s in skills
+                if q in s["name"].lower() or q in s.get("description", "").lower()
+            ]
+
         if not skills:
             opts.add_option(Option(
                 Text("(no skills found — drop SKILL.md files into .harness/skills/<name>/)", style="dim"),
@@ -164,7 +180,20 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         self.dismiss(oid)
 
     def action_dismiss_cancel(self) -> None:
+        # If search has text, Esc clears it; otherwise close.
+        try:
+            sb = self.query_one("#skill_search", Input)
+            if sb.value:
+                sb.value = ""
+                self._populate()
+                self.query_one("#skill_list", OptionList).focus()
+                return
+        except Exception:
+            pass
         self.dismiss(None)
+
+    def action_focus_search(self) -> None:
+        self.query_one("#skill_search", Input).focus()
 
     def action_cursor_down(self) -> None:
         self.query_one("#skill_list", OptionList).action_cursor_down()
@@ -176,9 +205,32 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         state.global_skills = not state.global_skills
         state.save_skills_config()
         self._populate()
+        self._notify(
+            "🌍 global skills shown" if state.global_skills else "📁 project-only skills"
+        )
 
     def action_refresh(self) -> None:
+        try:
+            self.query_one("#skill_search", Input).value = ""
+        except Exception:
+            pass
         self._populate()
+        self._notify("re-scanned disk")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "skill_search":
+            self._populate()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "skill_search":
+            self.query_one("#skill_list", OptionList).focus()
+
+    def _notify(self, msg: str, error: bool = False) -> None:
+        try:
+            color = "#f85149" if error else "#3fb950"
+            self.query_one("#modal_status", Static).update(f"[{color}]{msg}[/]")
+        except Exception:
+            pass
 
 
 def _format_skill_row(skill: dict) -> Text:
