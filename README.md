@@ -204,6 +204,11 @@ On first launch, you'll pick how to authenticate:
 |---|---|
 | `/help` | List all commands |
 | `/model <name>` | Switch models (e.g. `opus-4-7`, `haiku-4-5`) |
+| `/agent` | Open the agent picker — choose a project or global agent |
+| `/agent <name>` | Activate an agent by name (Tab cycles through agents) |
+| `/agent new <name>` | Scaffold a new agent in `.harness/agents/<name>.md` |
+| `/agent init` | Scaffold a `.harness/` tree in the current project |
+| `/skill` | Open the skill browser (LLM auto-invokes skills by description) |
 | `/verbose` / `F2` | Toggle internal thinking and tool traces (shown by default) |
 | `/cost` | Show token usage + estimated USD cost |
 | `/clear` | Reset the conversation |
@@ -222,6 +227,46 @@ On first launch, you'll pick how to authenticate:
 | `HARNESS_HTTP_READ_TIMEOUT` | Streaming response timeout (s) | `240` (OpenRouter), `600` (direct) |
 | `HARNESS_HTTP_CONNECT_TIMEOUT` | Connection timeout (s) | `30` |
 | `HARNESS_STREAM_REPLY` | Set to `0` to disable live streaming | `1` |
+
+---
+
+## 🎛️ Agents & Skills
+
+Harness uses two file-based extension points — **agents** (manual select) and
+**skills** (LLM auto-invoke) — that aggregate from every AI tool's config
+directory (Harness, Claude Code, OpenCode, Cursor, Windsurf, …).
+
+```
+project/
+├── .harness/
+│   ├── agents/                   ← project-local agents
+│   │   ├── coding.md             ← user-creatable .md files with YAML frontmatter
+│   │   ├── reverse_eng.md
+│   │   └── setup.md
+│   ├── skills/                   ← project-local skills
+│   │   ├── debugging/SKILL.md
+│   │   ├── testing/SKILL.md
+│   │   └── security/SKILL.md
+│   └── settings.json             ← (optional) per-project overrides
+│
+├── AGENTS.md  /  CLAUDE.md       ← project context (auto-detected)
+└── …
+
+~/.harness/                       ← user-global counterpart
+├── agents/                       ← bundled coding/reverse_eng/setup seeded on first run
+├── skills/
+└── settings.json
+```
+
+**Agents** — markdown files with frontmatter (`name`, `description`, optional
+`icon`/`color`). The active agent's body is appended to the system prompt.
+One active at a time, shown in the status bar. `/agent` opens the picker;
+`Tab` cycles. Project agents are always available; global ones require
+`agent.global = true` in settings (or `/agent global on`).
+
+**Skills** — `SKILL.md` packs with `name` + `description`. The LLM sees all
+discovered descriptions and decides when to load a skill itself via
+`/skill load <name>`. The `/skill` modal is a read-only browser.
 
 ---
 
@@ -263,16 +308,22 @@ harness/
 │   │   └── trim.py         # Context trimming
 │   │
 │   ├── tui/                # Textual TUI
-│   │   └── app.py          # Terminal UI app
+│   │   ├── app.py          # Terminal UI app
+│   │   ├── agent_modal.py  # Agent picker
+│   │   └── skill_modal.py  # Skill browser (read-only)
 │   │
 │   ├── commands/           # Slash commands
-│   │   └── dispatch.py
+│   │   ├── dispatch.py
+│   │   ├── agent.py        # /agent — pick / new / init / refresh
+│   │   └── skill.py        # /skill — list / load / refresh
 │   │
 │   ├── storage/            # Persistence
 │   │   ├── sessions.py     # SQLite session history
 │   │   ├── memory.py       # User memory
-│   │   ├── skills.py       # Learned skills
-│   │   └── prefs.py        # Preferences
+│   │   ├── agents.py       # Agent discovery & loading
+│   │   ├── skills.py       # Skill discovery & loading
+│   │   ├── settings.py     # Unified settings.json (global + project merge)
+│   │   └── prefs.py        # Legacy preferences
 │   │
 │   ├── mcp/                # MCP server management
 │   │   ├── config.py

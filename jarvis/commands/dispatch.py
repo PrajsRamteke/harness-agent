@@ -15,6 +15,7 @@ from .control import handle_control
 from .memory import handle_memory
 from .lesson import handle_lesson
 from .skill import handle_skill
+from .agent import handle_agent
 from .scan import handle_scan
 from .upgrade import cmd_upgrade
 from .settings import handle_settings
@@ -59,6 +60,10 @@ def handle_slash(inp: str):
         return ("ok", False, inp)
 
     handled, _ = handle_skill(c, arg)
+    if handled:
+        return ("ok", False, inp)
+
+    handled, _ = handle_agent(c, arg)
     if handled:
         return ("ok", False, inp)
 

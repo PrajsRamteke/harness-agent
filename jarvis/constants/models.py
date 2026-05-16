@@ -69,9 +69,3 @@ SEARCH_MATCH_CAP = 50
 
 # Connected Context Pack — max chars for the resolve_context bundle output
 CONTEXT_BUNDLE_MAX_CHARS = 120000
-
-# ── Mode identifiers ──────────────────────────────────────────────────────────
-MODE_DEFAULT = "default"
-MODE_CODING = "coding"
-MODE_REVERSE_ENG = "reverse_eng"
-MODE_SETUP = "setup"

@@ -39,6 +39,7 @@ from ..constants import (
     SKILLS_CONFIG_FILE,
     THINK_CONFIG_FILE,
     MCP_PREFS_FILE,
+    PROJECT_HARNESS_SETTINGS,
 )
 
 
@@ -52,6 +53,7 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 DEFAULTS: dict[str, Any] = {
     "model":  "",            # empty string == fall back to constants.MODEL
     "theme":  "red",
+    "agent":  {"active": "", "global": False},
     "skills": {"global": False},
     "mcp":    {"global": False},
     "think":  {"mode": True, "effort": "medium"},
@@ -133,7 +135,7 @@ def _coerce(path: str, value: Any) -> Any:
         if value not in _VALID_THINK_EFFORTS:
             raise ValueError(f"think.effort must be one of {_VALID_THINK_EFFORTS}")
         return value
-    if path in ("skills.global", "mcp.global", "think.mode"):
+    if path in ("skills.global", "mcp.global", "agent.global", "think.mode"):
         if isinstance(value, str):
             v = value.strip().lower()
             if v in ("true", "1", "yes", "on"):
@@ -148,6 +150,12 @@ def _coerce(path: str, value: Any) -> Any:
         if not isinstance(value, str):
             raise ValueError("model must be a string")
         return value.strip()
+    if path == "agent.active":
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise ValueError("agent.active must be a string")
+        return value.strip().lower()
     return value
 
 
@@ -162,7 +170,13 @@ class Settings:
     # ── load / save ──────────────────────────────────────────────────────
 
     def load(self) -> None:
-        """Read settings.json, then merge in any legacy per-feature files."""
+        """Read settings.json, then merge in any legacy per-feature files.
+
+        Resolution order (highest precedence last so it wins the merge):
+            1. legacy per-feature files (lowest)
+            2. global ~/.config/harness-agent/settings.json
+            3. project .harness/settings.json (highest)
+        """
         on_disk: dict[str, Any] = {}
         if self.path.exists():
             try:
@@ -173,20 +187,21 @@ class Settings:
                 on_disk = {}
 
         legacy = _migrate_legacy()
+        project = _read_project_settings()
 
-        # settings.json values win over legacy.
         merged = _deep_merge(legacy, on_disk)
+        merged = _deep_merge(merged, project)
         self._data = merged
         self._loaded = True
 
-        # If we filled in anything from legacy, persist the merged file once
-        # so subsequent reads stop touching the legacy files.
+        # If we filled in anything from legacy, persist the merged global file
+        # once so subsequent reads stop touching the legacy files. We never
+        # write the project file from here — it's user-managed.
+        write_back = _deep_merge(legacy, on_disk)
         if legacy and not on_disk:
             self.save()
-        elif legacy:
-            # Only save if merged differs from on_disk (i.e. legacy added keys).
-            if merged != on_disk:
-                self.save()
+        elif legacy and write_back != on_disk:
+            self.save()
 
     def save(self) -> None:
         if not self._loaded:
@@ -256,6 +271,33 @@ def _read_json(path: pathlib.Path) -> dict:
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _read_project_settings() -> dict[str, Any]:
+    """Read ``<cwd>/.harness/settings.json`` (if present).
+
+    Honors the project root (git toplevel) for consistent behavior with
+    skill / agent discovery. Walks up from CWD to find the .harness dir.
+    Returns ``{}`` when not found or malformed.
+    """
+    try:
+        cwd = pathlib.Path.cwd().resolve()
+        candidates: list[pathlib.Path] = []
+        for parent in [cwd] + list(cwd.parents):
+            candidates.append(parent / PROJECT_HARNESS_SETTINGS)
+            if (parent / ".git").exists():
+                break
+        for path in candidates:
+            if path.is_file():
+                try:
+                    parsed = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(parsed, dict):
+                        return parsed
+                except (OSError, json.JSONDecodeError):
+                    pass
+    except Exception:
+        pass
+    return {}
 
 
 def _migrate_legacy() -> dict[str, Any]:

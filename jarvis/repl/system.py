@@ -4,21 +4,23 @@ Cache: the expensive memory+skills+body string is rebuilt only when the
 memory/skills content actually changes between turns. The date/time line is
 always fresh but is cheap (~50 tokens) so we splice it in separately.
 
-Coding addon logic:
-  Explicit mode only — if state.active_mode == "coding", inject CODING_ADDON.
-  Default mode always uses the base system prompt only.
+Agent addon logic:
+  When ``state.active_agent`` is set (resolved record from storage.agents),
+  the agent's body markdown is appended as an addon. With no active agent,
+  the base system prompt is used unchanged.
 """
 from datetime import datetime
 from typing import Union, List, Dict
 
-from ..constants import (
-    CODING_ADDON, REVERSE_ENG_ADDON, SETUP_ADDON, OAUTH_IDENTITY,
-    AUTH_OAUTH, MODE_CODING, MODE_REVERSE_ENG, MODE_SETUP,
-)
+from ..constants import OAUTH_IDENTITY, AUTH_OAUTH
 from ..constants.system_prompt import build_base_system
 from ..storage.memory import as_prompt_block
 from ..storage.lessons import as_prompt_block as lessons_prompt_block
 from ..storage.skills import as_prompt_block as skills_prompt_block
+from ..storage.agents import (
+    as_prompt_block as agents_prompt_block,
+    load_agent_body,
+)
 from .. import state
 
 # ── cache state ────────────────────────────────────────────────────────────────
@@ -26,6 +28,7 @@ _cached_body: str = ""
 _cached_mem_key: str = ""
 _cached_sk_key: str = ""
 _cached_skills_key: str = ""
+_cached_agents_key: str = ""
 _cached_pinned: str = ""
 _cached_cwd_branch: str = ""
 _cached_ctx_key: str = ""
@@ -49,53 +52,46 @@ def _get_git_branch(cwd: str) -> str | None:
         pass
     return None
 
-def _keyword_detected(messages: list) -> bool:
-    """Compatibility shim: default mode no longer auto-detects coding turns."""
-    del messages
-    return False
 
+def _agent_addon_block() -> str:
+    """Return the active agent's body as an addon, or ''.
 
-def _is_coding_request(messages: list) -> bool:
-    """Return True when the coding addon should be active for this turn.
-
-    Used by build_system() to decide prompt injection. The add-on is explicit:
-    default mode never infers coding rules from user text.
+    Resolves ``state.active_agent`` lazily — if only the name is set
+    (e.g. just after a settings reload), this triggers the storage lookup.
     """
-    del messages
-    return state.active_mode == MODE_CODING
-
-
-def _is_reverse_eng_request(messages: list) -> bool:
-    """Return True when the reverse engineering addon should be active."""
-    del messages
-    return state.active_mode == MODE_REVERSE_ENG
-
-
-def _is_setup_request(messages: list) -> bool:
-    """Return True when the setup-mode addon should be active."""
-    del messages
-    return state.active_mode == MODE_SETUP
+    rec = state.active_agent
+    if rec is None and state.active_agent_name:
+        rec = state.resolve_active_agent()
+    if not rec:
+        return ""
+    body = load_agent_body(rec["name"])
+    if not body:
+        body = rec.get("_body") or ""
+    body = body.strip()
+    if not body:
+        return ""
+    return "\n\n" + body
 
 
 def _build_static_body() -> str:
-    """Everything except the date/time line and coding addon. Cached between turns."""
-    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
+    """Everything except the date/time line and agent addon. Cached between turns."""
+    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key
+    global _cached_agents_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
 
     mem_block = as_prompt_block()
     sk_block = lessons_prompt_block()
     skills_block = skills_prompt_block()
+    agents_block = agents_prompt_block()
     pinned = state.pinned_context.strip()
     from pathlib import Path
     cwd = str(Path.cwd())
     branch = _get_git_branch(cwd)
     cwd_branch_key = cwd + "|" + (branch or "")
 
-    # Use content as cache key — only rebuild when something actually changed.
-    # We use the summary blocks themselves as cache keys since they're now
-    # tiny (counts/tag-clouds) and change rarely.
     if (mem_block == _cached_mem_key
             and sk_block == _cached_sk_key
             and skills_block == _cached_skills_key
+            and agents_block == _cached_agents_key
             and pinned == _cached_pinned
             and cwd_branch_key == _cached_cwd_branch
             and state.project_context_path == _cached_ctx_key
@@ -107,10 +103,10 @@ def _build_static_body() -> str:
         body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned
 
     # ── Lazy-load system prompt section ──────────────────────────────────
-    # Memory, lessons, skills, and project context are NOT injected with full
-    # content. Only summaries/counts are included. The agent must use the
-    # corresponding tools (memory_list, lesson_search, skill_list/skill_load,
-    # read_file) to load details on demand.
+    # Memory, lessons, skills, agents, and project context are NOT injected
+    # with full content. Only summaries/counts are included. The agent must
+    # use the corresponding tools (memory_list, lesson_search,
+    # skill_list/skill_load, read_file) to load details on demand.
     body += (
         "\n\nLAZY-LOAD CONTEXT (summaries only — full content loaded on demand):\n"
         "To save tokens, the following are NOT injected with full content:"
@@ -126,10 +122,11 @@ def _build_static_body() -> str:
         body += "\n" + sk_block
     if skills_block:
         body += "\n" + skills_block
+    if agents_block:
+        body += "\n" + agents_block
     if state.project_context_file:
         body += "\n" + f"PROJECT CONTEXT: {state.project_context_file} exists. Use read_file('{state.project_context_file}') only when needed."
 
-    # Tool instructions (always present, ~200 chars)
     body += (
         "\n\nMEMORY: memory_save/memory_list/memory_delete.\n"
         "- Proactively save durable user facts using memory_save WITHOUT asking — when they become evident.\n"
@@ -147,6 +144,7 @@ def _build_static_body() -> str:
     _cached_mem_key = mem_block
     _cached_sk_key = sk_block
     _cached_skills_key = skills_block
+    _cached_agents_key = agents_block
     _cached_pinned = pinned
     _cached_cwd_branch = cwd_branch_key
     _cached_ctx_key = state.project_context_path
@@ -154,9 +152,10 @@ def _build_static_body() -> str:
 
 
 def build_system() -> Union[str, List[Dict]]:
-    """System prompt + live date/time + optional coding addon + pinned user context.
+    """System prompt + live date/time + active agent addon + pinned user context.
 
-    Coding addon (~400 tokens) is only appended in explicit coding mode.
+    The active agent's body is appended as an addon when set. Default
+    (no active agent) uses the base prompt only.
 
     When authenticated via OAuth, Anthropic requires the FIRST system block to be
     exactly the OAuth identity string — so we return a 2-block list in that
@@ -171,15 +170,7 @@ def build_system() -> Union[str, List[Dict]]:
     )
 
     body = _build_static_body()
-
-    # Append addons based on active mode
-    if _is_coding_request(state.messages):
-        body += CODING_ADDON
-    elif _is_reverse_eng_request(state.messages):
-        body += REVERSE_ENG_ADDON
-    elif _is_setup_request(state.messages):
-        body += SETUP_ADDON
-
+    body += _agent_addon_block()
     body += date_line
 
     if state.auth_mode == AUTH_OAUTH:

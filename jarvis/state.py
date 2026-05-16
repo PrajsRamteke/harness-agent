@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from .constants import (
     VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL,
-    PROVIDER_ANTHROPIC, AUTH_API_KEY, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG, MODE_SETUP,
+    PROVIDER_ANTHROPIC, AUTH_API_KEY,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
 )
 
@@ -66,7 +66,7 @@ stream_reply_live: bool = os.getenv("HARNESS_STREAM_REPLY", "1").strip().lower()
 # Set while the TUI live strip is active; cleared on commit/abort.
 _assistant_stream_ui_active: bool = False
 
-# project context file detection (AGENT.md / CLAUDE.md / JARVIS.md)
+# project context file detection (AGENT.md / AGENTS.md / CLAUDE.md / JARVIS.md)
 project_context_file: str = ""      # filename found, e.g. "AGENT.md"
 project_context_path: str = ""      # full absolute path to the file
 project_context_content: str = ""   # deprecated: project files are read on demand
@@ -74,7 +74,7 @@ project_context_content: str = ""   # deprecated: project files are read on dema
 # auto-update result (set by updater.py at startup when new commits are pulled)
 update_result: dict | None = None
 
-# skills
+# skills — auto-invoked by the LLM. Modal exists only for browsing.
 global_skills: bool = False         # if True, include skills from ~/.config/*/skills/
 
 # MCP
@@ -91,19 +91,21 @@ aliases: Dict[str, str] = (
 # persistent session
 current_session_id: Optional[int] = None
 
-# ── active mode ────────────────────────────────────────────────────────────────
-# "default"  → base system prompt only
-# "coding"   → base system prompt + CODING_ADDON
-# Future modes can be added here and handled in repl/system.py
-active_mode: str = MODE_DEFAULT
+# ── active agent ───────────────────────────────────────────────────────────────
+# Replaces the legacy mode system. An "agent" is a markdown file with YAML
+# frontmatter discovered by ``jarvis.storage.agents``. When set, the agent's
+# body is appended to the system prompt as an addon.
+#
+#   active_agent_name : the persisted name (or "" when none active).
+#   active_agent      : the resolved record dict (or None until resolved).
+#
+# Persistence is by name only — the dict is re-resolved on startup by
+# ``resolve_active_agent()`` to honor agent file edits without restart.
+active_agent_name: str = ""
+active_agent: Optional[dict] = None
 
-# Human-readable labels + accent colours per mode (for statusbar / badges)
-MODE_LABELS: dict = {
-    MODE_DEFAULT:     ("DEFAULT", "#8b949e", "dim"),
-    MODE_CODING:      ("⚡ CODING", "#3fb950", "bold"),
-    MODE_REVERSE_ENG: ("🔐 REVERSE ENG", "#d29922", "bold"),
-    MODE_SETUP:       ("🛠  SETUP", "#58a6ff", "bold"),
-}
+# Whether to include agents from global directories (~/.harness/agents, etc.)
+global_agents: bool = False
 
 # ── visual theme ────────────────────────────────────────────────────────────
 THEMES = {
@@ -187,6 +189,64 @@ def _reload_saved_mcp() -> None:
         pass
 
 
+# ── agent persistence ──────────────────────────────────────────────────────
+
+
+def save_agent_config() -> None:
+    """Persist ``agent.active`` (name) and ``agent.global`` to settings.json."""
+    try:
+        from .storage.settings import get_settings
+        s = get_settings()
+        s.set("agent.active", active_agent_name)
+        s.set("agent.global", global_agents)
+    except Exception:
+        pass
+
+
+def _reload_saved_agent_name() -> None:
+    """Read agent.active and agent.global from settings.json (name only)."""
+    global active_agent_name, global_agents
+    try:
+        from .storage.settings import get_settings
+        s = get_settings()
+        nm = s.get("agent.active")
+        if isinstance(nm, str):
+            active_agent_name = nm.strip()
+        g = s.get("agent.global")
+        if isinstance(g, bool):
+            global_agents = g
+    except Exception:
+        pass
+
+
+def resolve_active_agent() -> Optional[dict]:
+    """Resolve ``active_agent_name`` to a record from ``storage.agents``.
+
+    Idempotent — safe to call repeatedly. Returns the resolved record (also
+    written to ``state.active_agent``) or None if the name is empty / cannot
+    be resolved. Imported lazily to avoid a circular import at module load.
+    """
+    global active_agent
+    if not active_agent_name:
+        active_agent = None
+        return None
+    try:
+        from .storage.agents import find_agent
+        rec = find_agent(active_agent_name)
+    except Exception:
+        rec = None
+    active_agent = rec
+    return rec
+
+
+def set_active_agent(record: Optional[dict]) -> None:
+    """Set the live agent record (and its persisted name)."""
+    global active_agent, active_agent_name
+    active_agent = record
+    active_agent_name = record["name"] if record else ""
+    save_agent_config()
+
+
 # ── think_mode persistence ──────────────────────────────────────────────────
 
 
@@ -231,11 +291,18 @@ def apply_settings_to_state() -> None:
     _reload_saved_skills()
     _reload_saved_mcp()
     _reload_saved_think()
+    _reload_saved_agent_name()
     try:
         from .storage.settings import get_settings
         m = get_settings().get("model")
         if isinstance(m, str) and m.strip():
             MODEL = m.strip()
+    except Exception:
+        pass
+    # Resolve the agent name → record (safe to call here; storage import is
+    # local inside resolve_active_agent).
+    try:
+        resolve_active_agent()
     except Exception:
         pass
 
@@ -244,3 +311,4 @@ _reload_saved_theme()
 _reload_saved_skills()
 _reload_saved_think()
 _reload_saved_mcp()
+_reload_saved_agent_name()

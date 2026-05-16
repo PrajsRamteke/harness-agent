@@ -33,16 +33,17 @@ import re
 import time
 from typing import Dict, List, Optional, Tuple
 
-from ..constants import CONFIG_DIR
+from ..constants import CONFIG_DIR, HARNESS_SKILLS_DIR, PROJECT_SKILLS_DIRNAME
 from .. import state
 
 # Directories to scan for skills, in priority order (first-found wins for dupes)
 SKILL_DIRS = [
-    # Primary Jarvis format
-    ".skills",
+    # Primary Harness format
+    PROJECT_SKILLS_DIRNAME,   # .harness/skills
+    ".skills",                # legacy compat
     # OpenCode compatibility
     ".opencode/skills",
-    # Claude compatibility  
+    # Claude compatibility
     ".claude/skills",
     # Agent compatibility
     ".agents/skills",
@@ -253,7 +254,8 @@ def discover_skills(force: bool = False, include_global: bool | None = None) -> 
     # 2. Global skills — only when include_global=True
     if include_global:
         global_dirs = [
-            ("global", CONFIG_DIR / "skills"),
+            ("global", HARNESS_SKILLS_DIR),                       # ~/.harness/skills (canonical)
+            ("global", CONFIG_DIR / "skills"),                    # ~/.config/harness-agent/skills (legacy)
             ("global", pathlib.Path.home() / ".config" / "opencode" / "skills"),
             ("global", pathlib.Path.home() / ".claude" / "skills"),
         ]

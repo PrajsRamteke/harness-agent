@@ -51,22 +51,24 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 | `tools/mac/` | macOS control: app launch/focus/quit, AppleScript, JXA scripts, UI reading, clicks, keystrokes, clipboard |
 | `tools/web/` | Web fetch + DuckDuckGo search with verified-source claim checking (`_claims.py`) |
 | `repl/` | Stream handling (`stream.py`), response rendering (`render.py`), hallucination guard (`hallucination.py`), context trimming (`trim.py`) |
-| `tui/` | Textual app (`app.py`), command palette modal, session picker modal, model picker modal |
-| `commands/` | Slash command handlers dispatched from `dispatch.py` |
-| `storage/` | SQLite session history (`sessions.py`), user memory (`memory.py`), skills (`skills.py`), prefs (`prefs.py`) |
+| `tui/` | Textual app (`app.py`), command palette, session/model/agent/skill pickers, MCP modal |
+| `commands/` | Slash command handlers dispatched from `dispatch.py` (`agent.py` activates agents, `skill.py` lists/loads skills) |
+| `storage/` | SQLite sessions (`sessions.py`), user memory (`memory.py`), **agents (`agents.py`)**, **skills (`skills.py`)**, unified settings (`settings.py`), prefs (`prefs.py`) |
 | `mcp/` | MCP server management: config (`config.py`), registry (`registry.py`), manager (`manager.py`) |
 | `utils/` | Shared helpers: `io.py` (secure file writes), `http.py`, `html_clean.py`, `serialize.py`, `time_fmt.py` |
-| `state.py` | **Module-level mutable globals** shared across the package (client, messages, model, flags, theme, mode) — mutate via `jarvis.state.<name> = ...` |
-| `constants/` | Paths (`~/.config/claude-agent/`), model names, OAuth endpoints, system prompt, provider identifiers |
+| `state.py` | **Module-level mutable globals** shared across the package (client, messages, model, flags, theme, **active_agent**) — mutate via `jarvis.state.<name> = ...` |
+| `constants/` | Paths (`~/.config/harness-agent/`, `~/.harness/`), model names, OAuth endpoints, system prompt, provider identifiers, **`default_agents/*.md`** (bundled coding/reverse_eng/setup) |
 
 ### Key data flows
 
 - **Tool routing**: Each API call goes through `tools/router.py:select_tools()`, which regex-scans the last 4 messages and keeps any tool groups already active in the tool-call loop.
 - **Conversation state**: All messages live in `state.messages` (plain dicts). The tool-call loop in `main.py:_send_and_loop()` / `tui/app.py` continues until `stop_reason == "end_turn"`.
 - **Tool execution**: Tools in `repl/render.py` run concurrently via `ThreadPoolExecutor` except for tools in `_SERIAL_TOOLS` (shell, file edits, macOS UI control, MCP tools) which run single-threaded.
-- **Persistence**: Sessions stored in SQLite at `~/.config/claude-agent/sessions.db`. Pinned context from `~/.config/claude-agent/pin`. Aliases from `~/.config/claude-agent/aliases.json`.
+- **Persistence**: Sessions stored in SQLite at `~/.config/harness-agent/sessions.db`. Pinned context from `~/.config/harness-agent/pinned.txt`. Aliases from `~/.config/harness-agent/aliases.json`. Unified preferences in `~/.config/harness-agent/settings.json` (global) merged with `<cwd>/.harness/settings.json` (per-project override).
 - **Auth**: `auth/client.py:make_client()` checks for `ANTHROPIC_API_KEY`, then stored key/OAuth tokens, then prompts interactively. Sets `state.provider` and `state.auth_mode`.
-- **Project context**: On startup, detects `AGENT.md`, `CLAUDE.md`, or `JARVIS.md` in CWD and stores only the path in `state.project_context_*`; file content is loaded on demand via `read_file()`.
+- **Project context**: On startup, detects `AGENTS.md`, `AGENT.md`, `CLAUDE.md`, or `JARVIS.md` in CWD and stores only the path in `state.project_context_*`; file content is loaded on demand via `read_file()`.
+- **Agents**: Markdown files with YAML frontmatter (`storage/agents.py`). Project sources scanned always: `.harness/agents/`, `.claude/agents/`, `.opencode/agents/`, `.agents/`, `.cursor/agents/`. Global (opt-in via `agent.global`): `~/.harness/agents/`, `~/.claude/agents/`, `~/.config/opencode/agents/`. At most one active agent at a time; its body is appended to the system prompt by `repl/system.py:_agent_addon_block()`. Bundled defaults (coding/reverse_eng/setup) seeded into `~/.harness/agents/` on first run.
+- **Skills**: SKILL.md packs auto-invoked by the LLM based on `description:` frontmatter. Project sources: `.harness/skills/`, `.skills/`, `.opencode/skills/`, `.claude/skills/`, `.agents/skills/`. Global (opt-in via `skills.global`): `~/.harness/skills/`, `~/.config/harness-agent/skills/`, `~/.claude/skills/`, `~/.config/opencode/skills/`. The picker modal (`tui/skill_modal.py`) is read-only browsing — no sticky selection.
 
 ### Adding a new tool
 
@@ -76,7 +78,20 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 4. If specialized, add a regex trigger in `tools/router.py:select_tools()`.
 5. Wire the tool name → handler by adding it to the `FUNC` dict in `tools/__init__.py` — this is what `repl/render.py` uses to dispatch `tool_use` blocks.
 
-### Theme and mode system
+### Themes and agents
 
-- Two built-in themes (`"red"`, `"purple"`) stored in `state.THEMES`; persisted to `~/.config/claude-agent/last_theme.json`.
-- Three modes (`"default"`, `"coding"`, `"reverse_eng"`) control which system prompt addons are active; defined in `constants/` and applied in `repl/system.py`.
+- **Themes**: Two built-in (`"red"`, `"purple"`) stored in `state.THEMES`; persisted to `~/.config/harness-agent/settings.json` under `theme`.
+- **Agents** (replaced the legacy mode system): User-creatable markdown files. The active agent's body is appended to the system prompt as an addon. Status bar shows the active agent (icon + name + scope hint). Tab key cycles through discovered agents. `/agent` opens the picker; `/agent init` scaffolds `.harness/`. Active agent persisted by name as `agent.active`.
+
+### Adding a new agent
+
+1. Drop a markdown file in `.harness/agents/<name>.md` (project) or `~/.harness/agents/<name>.md` (global) — or run `/agent new <name>`.
+2. Required frontmatter: `name` (lowercase-kebab, must match filename), `description`. Optional: `icon` (single emoji), `color` (hex/name), `model` (pin a model).
+3. Body markdown below the second `---` is appended to the system prompt when active.
+4. `/agent refresh` to pick up new files. `/agent <name>` to activate.
+
+### Adding a new skill
+
+1. Create `.harness/skills/<name>/SKILL.md` (project) or `~/.harness/skills/<name>/SKILL.md` (global).
+2. Required frontmatter: `name`, `description`. The directory name MUST equal `name`.
+3. Body markdown is the skill content. The LLM auto-invokes via `/skill load <name>` when the description matches the task.

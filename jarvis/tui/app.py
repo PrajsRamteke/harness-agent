@@ -36,7 +36,12 @@ from .palette_modal import CommandPaletteScreen
 from .model_modal import ModelPickerScreen
 from .think_modal import ThinkPickerScreen
 from .mcp_modal import MCPModalScreen
-from .mode_modal import ModePickerScreen
+from .agent_modal import AgentPickerScreen
+from .skill_modal import SkillBrowserScreen
+from .memory_modal import MemoryModalScreen
+from .lesson_modal import LessonModalScreen
+from .settings_modal import SettingsModalScreen
+from .theme_modal import ThemePickerScreen
 from .login_modal import LoginModalScreen
 from .. import state
 
@@ -65,16 +70,61 @@ def _is_mcp_modal_command(text: str) -> bool:
     return s in ("/mcp", "/mcps")
 
 
-def _is_mode_picker_command(text: str) -> bool:
-    """Bare ``/mode`` / ``/modes`` opens the mode picker in the TUI."""
+def _is_agent_picker_command(text: str) -> bool:
+    """Bare ``/agent`` / ``/agents`` opens the agent picker in the TUI."""
     s = (text or "").strip().lower()
-    return s in ("/mode", "/modes")
+    return s in ("/agent", "/agents")
+
+
+def _is_skill_picker_command(text: str) -> bool:
+    """Bare ``/skill`` / ``/skills`` opens the skill browser modal in the TUI."""
+    s = (text or "").strip().lower()
+    return s in ("/skill", "/skills")
+
+
+def _is_memory_modal_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s in ("/memory", "/memories")
+
+
+def _is_lesson_modal_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s in ("/lesson", "/lessons")
+
+
+def _is_settings_modal_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s in ("/settings", "/setting")
+
+
+def _is_theme_modal_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s in ("/theme", "/themes")
 
 
 def _is_login_command(text: str) -> bool:
     """Bare ``/login`` opens the Anthropic OAuth modal in the TUI."""
     s = (text or "").strip().lower()
     return s in ("/login", "/signin", "/sign-in")
+
+
+def _format_agent_status_segment() -> str:
+    """Render the active-agent badge for the status bar.
+
+    Always shows something — "default" when no agent is active so the user
+    can see at a glance which prompt is in effect.
+    """
+    rec = state.active_agent
+    if rec is None and state.active_agent_name:
+        rec = state.resolve_active_agent()
+    if not rec:
+        return "[dim #8b949e]default[/]"
+    icon = (rec.get("icon") or "").strip()
+    color = (rec.get("color") or "").strip() or "#3fb950"
+    label = f"{icon} {rec['name']}".strip() if icon else rec["name"]
+    if rec.get("scope") == "global":
+        return f"[bold {color}]{label}[/] [dim](global)[/]"
+    return f"[bold {color}]{label}[/]"
 
 
 class PromptArea(TextArea):
@@ -244,7 +294,7 @@ class JarvisTUI(App):
         Binding("ctrl+d", "quit", "Quit", show=True),
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Quit", show=True),
         Binding("f2", "toggle_internal", "Internals", show=True),
-        Binding("tab", "cycle_mode", "Mode", show=True),
+        Binding("tab", "cycle_agent", "Agent", show=True),
         Binding("ctrl+t", "toggle_internal", show=False),
         Binding("escape", "escape_action", show=False),
         Binding("up", "scroll_transcript('up')", show=False, priority=True),
@@ -441,15 +491,8 @@ class JarvisTUI(App):
             from ..constants import VERSION
             from .. import state
             trace = "shown" if state.show_internal else "hidden"
-            lbl, col, _s = state.MODE_LABELS.get(
-                state.active_mode, (state.active_mode, "#8b949e", "dim")
-            )
-            mode_part = (
-                f"[bold {col}]{lbl}[/]"
-                if state.active_mode != "default"
-                else f"[dim {col}]{lbl}[/]"
-            )
-            left = [f"{mode_part}", f"[#58a6ff]{state.MODEL}[/]"]
+            agent_part = _format_agent_status_segment()
+            left = [agent_part, f"[#58a6ff]{state.MODEL}[/]"]
             if state.current_session_id is not None:
                 left.append(f"[dim]#{state.current_session_id}[/]")
 
@@ -519,8 +562,28 @@ class JarvisTUI(App):
                 self._open_mcp_modal()
                 inp.focus()
                 return
-            if _is_mode_picker_command(cmd):
-                self._open_mode_picker()
+            if _is_agent_picker_command(cmd):
+                self._open_agent_picker()
+                inp.focus()
+                return
+            if _is_skill_picker_command(cmd):
+                self._open_skill_browser()
+                inp.focus()
+                return
+            if _is_memory_modal_command(cmd):
+                self._open_memory_modal()
+                inp.focus()
+                return
+            if _is_lesson_modal_command(cmd):
+                self._open_lesson_modal()
+                inp.focus()
+                return
+            if _is_settings_modal_command(cmd):
+                self._open_settings_modal()
+                inp.focus()
+                return
+            if _is_theme_modal_command(cmd):
+                self._open_theme_modal()
                 inp.focus()
                 return
             if _is_login_command(cmd):
@@ -575,18 +638,51 @@ class JarvisTUI(App):
 
         self.push_screen(MCPModalScreen(), after)
 
-    def _open_mode_picker(self):
-        """Open the centered mode picker (default / coding / reverse_eng / setup)."""
-        def after(mode_id: str | None) -> None:
-            if not mode_id:
-                self._tui_console.print("[dim]mode picker cancelled[/]")
+    def _open_agent_picker(self):
+        """Open the centered agent picker (project + global, with on/off)."""
+        def after(result: object) -> None:
+            if result is None:
+                self._tui_console.print("[dim]agent picker cancelled[/]")
                 return
-            from ..commands.control import _handle_mode
-
-            _handle_mode(mode_id)
+            if result == "off":
+                state.set_active_agent(None)
+                self._set_status("ready")
+                return
+            if isinstance(result, dict):
+                state.set_active_agent(result)
+                self._set_status("ready")
+                return
             self._set_status("ready")
 
-        self.push_screen(ModePickerScreen(), after)
+        self.push_screen(AgentPickerScreen(), after)
+
+    def _open_skill_browser(self):
+        """Open the skill browser modal (read-only — LLM auto-invokes skills)."""
+        def after(_: object) -> None:
+            self._set_status("ready")
+
+        self.push_screen(SkillBrowserScreen(), after)
+
+    def _open_memory_modal(self):
+        def after(_: object) -> None:
+            self._set_status("ready")
+        self.push_screen(MemoryModalScreen(), after)
+
+    def _open_lesson_modal(self):
+        def after(_: object) -> None:
+            self._set_status("ready")
+        self.push_screen(LessonModalScreen(), after)
+
+    def _open_settings_modal(self):
+        def after(_: object) -> None:
+            self._set_status("ready")
+        self.push_screen(SettingsModalScreen(), after)
+
+    def _open_theme_modal(self):
+        def after(_: object) -> None:
+            # Re-render so the new theme colors take effect everywhere.
+            self._set_status("ready")
+        self.push_screen(ThemePickerScreen(), after)
 
     def _open_login_modal(self):
         """Open the Anthropic Pro/Max OAuth login modal."""
@@ -751,9 +847,30 @@ class JarvisTUI(App):
             self._open_mcp_modal()
             return
 
-        # /mode (bare) → mode picker modal in the TUI
-        if _is_mode_picker_command(text):
-            self._open_mode_picker()
+        # /agent (bare) → agent picker modal in the TUI
+        if _is_agent_picker_command(text):
+            self._open_agent_picker()
+            return
+
+        # /skill (bare) → skill browser modal in the TUI
+        if _is_skill_picker_command(text):
+            self._open_skill_browser()
+            return
+
+        if _is_memory_modal_command(text):
+            self._open_memory_modal()
+            return
+
+        if _is_lesson_modal_command(text):
+            self._open_lesson_modal()
+            return
+
+        if _is_settings_modal_command(text):
+            self._open_settings_modal()
+            return
+
+        if _is_theme_modal_command(text):
+            self._open_theme_modal()
             return
 
         # /login → Anthropic Pro/Max OAuth modal
@@ -934,41 +1051,7 @@ class JarvisTUI(App):
                 db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
                 db_set_title_if_empty(state.current_session_id, inp)
 
-            # ── mode / auto-detect badge ───────────────────────────────────────
-            # Two cases:
-            #   1. Explicit mode (e.g. coding) → solid coloured badge
-            #   2. Default mode but keyword auto-detected → dimmer "auto" badge
-            from ..repl.system import _is_coding_request, _keyword_detected
-            _explicit_mode = state.active_mode != "default"
-            _auto_detected = (not _explicit_mode) and _keyword_detected(state.messages)
-
-            if _explicit_mode:
-                lbl, col, _s = state.MODE_LABELS.get(
-                    state.active_mode, (state.active_mode, "#3fb950", "bold")
-                )
-                def _show_explicit_badge(label=lbl, colour=col):
-                    try:
-                        log = self.query_one("#transcript", RichLog)
-                        badge = Text()
-                        badge.append(f" {label} ", style=f"bold #0a0a0a on {colour}")
-                        badge.append("  addon rules active", style=colour)
-                        log.write(badge)
-                    except Exception:
-                        pass
-                self.call_from_thread(_show_explicit_badge)
-
-            elif _auto_detected:
-                def _show_auto_badge():
-                    try:
-                        log = self.query_one("#transcript", RichLog)
-                        badge = Text()
-                        badge.append(" ⚡ CODING ", style="bold #0a0a0a on #3fb950")
-                        badge.append("  auto-detected · /coding to stay in mode", style="dim #3fb950")
-                        log.write(badge)
-                    except Exception:
-                        pass
-                self.call_from_thread(_show_auto_badge)
-            # ──────────────────────────────────────────────────────────────────
+            # Active agent is already shown in the status bar — no per-turn badge.
 
             while True:
                 if state.cancel_requested.is_set():
@@ -1020,19 +1103,12 @@ class JarvisTUI(App):
             from ..constants import VERSION
             from .. import state
             trace = "shown" if state.show_internal else "hidden"
-            lbl, col, _s = state.MODE_LABELS.get(
-                state.active_mode, (state.active_mode, "#8b949e", "dim")
-            )
-            mode_part = (
-                f"[bold {col}]{lbl}[/]"
-                if state.active_mode != "default"
-                else f"[dim {col}]{lbl}[/]"
-            )
+            agent_part = _format_agent_status_segment()
             # Build a cleaner status line — grouped by category, no pipe noise
             left = []
             if msg:
                 left.append(f"[#e6edf3]{msg}[/]")
-            left.append(f"{mode_part}")
+            left.append(agent_part)
             left.append(f"[#58a6ff]{state.MODEL}[/]")
             if state.current_session_id is not None:
                 left.append(f"[dim]#{state.current_session_id}[/]")
@@ -1060,40 +1136,35 @@ class JarvisTUI(App):
         except Exception:
             pass
 
-    def action_cycle_mode(self) -> None:
-        """Tab — cycle through available modes (default → coding → …)."""
+    def action_cycle_agent(self) -> None:
+        """Tab — cycle through [no agent, agent1, agent2, …] alphabetically."""
         from .. import state
-        from ..commands.control import _VALID_MODES
+        from ..storage import agents as ag
 
-        # If prompt has text, Tab should insert a tab / do nothing special
+        # If prompt has text, let Tab behave normally inside the input.
         try:
             prompt = self.query_one("#prompt", PromptArea)
             if prompt.text.strip():
-                # Let normal Tab behaviour through (indent / focus)
                 return
         except Exception:
             pass
 
-        modes = list(_VALID_MODES)
-        current_idx = modes.index(state.active_mode) if state.active_mode in modes else 0
-        next_mode = modes[(current_idx + 1) % len(modes)]
-        state.active_mode = next_mode
+        # Build the cycle: ["" (off), name1, name2, …] in stable order.
+        agents = ag.discover_agents()
+        cycle: list[tuple[str, dict | None]] = [("", None)]
+        for a in sorted(agents, key=lambda x: x["name"]):
+            cycle.append((a["name"], a))
 
-        lbl, col, _s = state.MODE_LABELS.get(next_mode, (next_mode, "#58a6ff", ""))
-        try:
-            log = self.query_one("#transcript", RichLog)
-            badge = Text()
-            if next_mode == "default":
-                badge.append(" DEFAULT MODE ", style="bold #e6edf3 on #30363d")
-                badge.append("  standard", style="#8b949e")
-            else:
-                badge.append(f" {lbl} ", style=f"bold #0a0a0a on {col}")
-                badge.append("  addon rules active", style=col)
-            log.write(badge)
-        except Exception:
-            pass
+        cur = state.active_agent_name or ""
+        idx = 0
+        for i, (nm, _rec) in enumerate(cycle):
+            if nm == cur:
+                idx = i
+                break
+        next_name, next_rec = cycle[(idx + 1) % len(cycle)]
+        state.set_active_agent(next_rec)
 
-        self._set_status(f"mode → {lbl}")
+        self._set_status("ready")
 
     def action_toggle_internal(self):
         from .. import state

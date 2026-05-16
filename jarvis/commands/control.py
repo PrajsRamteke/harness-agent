@@ -9,7 +9,7 @@ from ..constants import (
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    AUTH_API_KEY, AUTH_OAUTH, MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG, MODE_SETUP,
+    AUTH_API_KEY, AUTH_OAUTH,
 )
 from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
 from ..utils.io import _secure_write
@@ -28,17 +28,6 @@ from .. import state
 
 def handle_control(c: str, arg: str):
     """Return (handled, new_inp_or_None)."""
-    # ── mode switching ─────────────────────────────────────────────────────────
-    if c == "/coding":
-        _toggle_coding_mode()
-        return True, None
-    if c == "/setup":
-        _toggle_setup_mode()
-        return True, None
-    if c == "/mode":
-        _handle_mode(arg)
-        return True, None
-    # ─────────────────────────────────────────────────────────────────────────
     if c == "/multi":
         console.print("[dim]enter multiline message, end with a single ';;' line:[/]")
         buf = []
@@ -74,7 +63,7 @@ def handle_control(c: str, arg: str):
         console.print(
             Panel(
                 f"[bold #58a6ff]Jarvis[/] [dim]v[/][bold]{VERSION}[/]\n"
-                f"[dim]{state.MODEL} · {state.provider} · mode: {state.active_mode}[/]",
+                f"[dim]{state.MODEL} · {state.provider} · agent: {state.active_agent_name or '—'}[/]",
                 border_style="magenta",
                 padding=(0, 2),
             )
@@ -376,84 +365,6 @@ def _handle_provider(arg: str):
         console.print(f"[red]failed to switch provider: {e}[/]")
         state.provider = prev_provider
         _secure_write(PROVIDER_FILE, prev_provider)
-
-
-# ── mode helpers ───────────────────────────────────────────────────────────────
-
-_VALID_MODES = (MODE_DEFAULT, MODE_CODING, MODE_REVERSE_ENG, MODE_SETUP)
-
-
-def _toggle_coding_mode() -> None:
-    """/coding — toggle between default and coding modes."""
-    if state.active_mode == MODE_CODING:
-        state.active_mode = MODE_DEFAULT
-        console.print(
-            "[dim]🔘 Coding mode [red]OFF[/] — back to default system prompt.[/]"
-        )
-    else:
-        state.active_mode = MODE_CODING
-        console.print(
-            "[bold #00d7af]⚡ Coding mode ON[/] [dim]— CODING_ADDON rules are now active.[/]"
-        )
-    header_panel(compact=True)
-
-
-def _toggle_setup_mode() -> None:
-    """/setup — toggle the Jarvis-config setup mode.
-
-    When active, the agent receives the config-location playbook so it knows
-    exactly which file to edit when the user asks it to install an MCP,
-    create a skill, or change a preference.
-    """
-    if state.active_mode == MODE_SETUP:
-        state.active_mode = MODE_DEFAULT
-        console.print(
-            "[dim]🔘 Setup mode [red]OFF[/] — back to default system prompt.[/]"
-        )
-    else:
-        state.active_mode = MODE_SETUP
-        console.print(
-            "[bold #58a6ff]🛠  Setup mode ON[/] [dim]— agent now knows where Jarvis configs live "
-            "(MCP, skills, settings).[/]"
-        )
-    header_panel(compact=True)
-
-
-def _handle_mode(arg: str) -> None:
-    """/mode [name] — show current mode or switch to a named mode."""
-    target = arg.strip().lower()
-    if not target:
-        # Show available modes
-        label, colour, _style = state.MODE_LABELS.get(
-            state.active_mode, (state.active_mode, "#ffffff", "")
-        )
-        lines = [
-            f"current mode: [{colour}]{label}[/]\n",
-            "available modes:",
-        ]
-        for m in _VALID_MODES:
-            lbl, col, _s = state.MODE_LABELS.get(m, (m, "#ffffff", ""))
-            marker = " ← active" if m == state.active_mode else ""
-            lines.append(f"  [cyan]{m}[/]  [{col}]{lbl}[/]{marker}")
-        lines.append("\nusage: [dim]/mode coding[/]  or  [dim]/coding[/] to toggle  or  [dim]Tab[/] in TUI")
-        console.print(Panel("\n".join(lines), title="🎛  mode", border_style="cyan"))
-        return
-
-    if target not in _VALID_MODES:
-        console.print(
-            f"[red]unknown mode: {target}[/]  "
-            f"valid: {', '.join(_VALID_MODES)}"
-        )
-        return
-
-    if target == state.active_mode:
-        console.print(f"[dim]already in {target} mode[/]")
-        return
-
-    state.active_mode = target
-    lbl, col, _s = state.MODE_LABELS.get(target, (target, "#ffffff", ""))
-    console.print(f"[{col}]✓ mode switched to {lbl}[/]")
-    header_panel(compact=True)
 
 
 def _handle_theme(arg: str) -> None:

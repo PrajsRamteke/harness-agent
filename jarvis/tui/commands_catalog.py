@@ -1,9 +1,14 @@
-"""Flat list of slash commands shown in the TUI palette."""
+"""Flat list of slash commands shown in the TUI palette.
+
+Repeated subcommand groups (``/memory add``, ``/lesson search``,
+``/settings set``, …) have been folded into modal-opening entries so the
+palette stays scannable. The full subcommand surface is still reachable by
+typing the command directly — see each modal for the in-modal key bindings.
+"""
 
 COMMANDS = [
     # Session
-    ("/help", "show command reference"),
-    ("/help ", "search help for a keyword (e.g. /help session)"),
+    ("/help", "open the help reference (type to search)"),
     ("/new", "start a fresh conversation (keeps pinned context)"),
     ("/reset", "clear conversation"),
     ("/retry", "re-send last user message"),
@@ -12,10 +17,7 @@ COMMANDS = [
     ("/export ", "export conversation as markdown"),
     ("/save ", "save session JSON"),
     ("/load ", "load session JSON"),
-    ("/session", "list persisted sessions & resume"),
-    ("/session resume ", "resume a session by id"),
-    # /new does the same thing — /session new removed as duplicate
-    ("/session delete ", "delete a stored session"),
+    ("/session", "open the session modal (resume / delete handled inside)"),
     ("/clear", "clear the terminal screen"),
     ("/keytest", "show what key your terminal sends (Shift+Enter debug)"),
     ("/exit", "quit"),
@@ -26,24 +28,12 @@ COMMANDS = [
     ("/notes", "show your notes file"),
     ("/alias ", "create a shortcut alias (e.g. /alias gs=/git)"),
     ("/aliases", "list aliases"),
-    # Memory
-    ("/memory", "show stored personal facts"),
-    ("/memory add ", "save a personal fact"),
-    ("/memory del ", "delete a fact by id"),
-    ("/memory clear", "wipe all memory"),
-    # Lessons (agent self-learning)
-    ("/lesson", "list saved lessons"),
-    ("/lesson search ", "find relevant lessons for a task"),
-    ("/lesson add ", "save a lesson"),
-    ("/lesson del ", "delete a lesson"),
-    ("/lesson clear", "wipe all lessons"),
-    # Skills (project-base)
-    ("/skill", "list available project-base skills"),
-    ("/skill <name>", "load and show full skill content"),
-    ("/skill refresh", "re-scan for new/changed skills"),
-    ("/skill global", "show current global skill setting"),
-    ("/skill global on", "enable global skill visibility"),
-    ("/skill global off", "switch to project-only skills"),
+    # Memory — modal handles list / add / delete / clear
+    ("/memory", "open the memory modal (list · add · delete · clear)"),
+    # Lessons — modal handles list / search / add / delete / clear
+    ("/lesson", "open the lesson modal (list · search · add · delete · clear)"),
+    # Skills — modal browses; LLM auto-invokes by description
+    ("/skill", "open the skill browser modal"),
     # Files & Shell
     ("/ls", "list directory"),
     ("/cd ", "change working dir"),
@@ -56,33 +46,23 @@ COMMANDS = [
     # Clipboard
     ("/copy", "copy last assistant response"),
     ("/paste", "send clipboard text / OCR clipboard image"),
-    # Modes
-    ("/mode", "open the mode picker (default / coding / reverse_eng / setup)"),
-    # Theme
-    ("/theme", "show current visual theme"),
-    ("/theme red", "switch to red (original green+magenta) theme"),
-    ("/theme purple", "switch to purple (soft) theme"),
+    # Agents — modal handles browse · activate · new · edit · global · scope
+    ("/agent", "open the agent control modal"),
+    ("/agent init", "scaffold a .harness/ tree in the current project"),
+    # Theme — modal handles the picker
+    ("/theme", "open the theme picker (red · purple)"),
     # Scan
-    ("/scan me", "[one-time] AI-powered deep scan: identity, docs, projects → memory"),
-    ("/scan", "show /scan me usage (one-time LLM-driven system scan)"),
-    # MCP (Model Context Protocol) — single entry; opens a modal in the TUI
+    ("/scan", "AI-powered deep scan: identity / docs / projects → memory"),
+    # MCP — single modal for everything
     ("/mcp", "MCP control panel — list, toggle, import JSON, manage scope"),
-    # Settings
-    ("/settings", "show all preferences from ~/.config/harness-agent/settings.json"),
-    ("/settings get ", "show one preference value"),
-    ("/settings set ", "set a preference (key value) — auto-saves + applies"),
-    ("/settings reset ", "restore a preference to its default"),
-    ("/settings reload", "re-read settings.json from disk"),
-    ("/settings edit", "open settings.json in $EDITOR"),
-    ("/settings path", "show settings.json file location"),
+    # Settings — modal handles get · set · reset · reload · edit · path
+    ("/settings", "open the settings modal (view · edit · reset · reload)"),
     # Upgrade
-    ("/upgrade", "update Jarvis to the latest version via git pull"),
-    ("/upgrade check", "check if a newer version is available without upgrading"),
+    ("/upgrade", "update Jarvis to the latest version (use 'check' to dry-run)"),
     # Version
     ("/version", "show Jarvis version"),
     # Control
-    ("/think", "toggle extended thinking"),
-    ("/think mode", "open thinking effort picker (xhigh/high/medium/low/minimal/none)"),
+    ("/think", "toggle extended thinking (bare /think) — or open effort picker"),
     ("/verbose", "toggle internal tool trace (thinking UI needs /think)"),
     ("/auto", "toggle auto-approve bash"),
     ("/multi", "enter a multiline message"),

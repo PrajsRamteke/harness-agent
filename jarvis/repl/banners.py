@@ -47,12 +47,21 @@ def welcome_banner(compact: bool = False):
         ))
 
 
-def _mode_flag() -> str:
-    """Compact rich-markup mode indicator for header panels."""
-    lbl, col, style = state.MODE_LABELS.get(
-        state.active_mode, (state.active_mode, "#ffffff", "")
-    )
-    return f"[{style} {col}]{lbl}[/]" if style else f"[{col}]{lbl}[/]"
+def _agent_flag() -> str:
+    """Compact rich-markup indicator for the active agent (header panels).
+
+    Falls back to a dim "default" badge when no agent is active so the
+    header always tells the user which prompt is in effect.
+    """
+    rec = state.active_agent
+    if rec is None and state.active_agent_name:
+        rec = state.resolve_active_agent()
+    if not rec:
+        return "[dim]default[/]"
+    icon = (rec.get("icon") or "").strip()
+    color = (rec.get("color") or "").strip() or "#3fb950"
+    label = f"{icon} {rec['name']}".strip() if icon else rec["name"]
+    return f"[bold {color}]{label}[/]"
 
 
 def header_panel(compact: bool = False):
@@ -74,7 +83,7 @@ def header_panel(compact: bool = False):
     if compact:
         flags = "  ".join([
             f"[{asst}]{state.MODEL}[/]",
-            f"mode:{_mode_flag()}",
+            f"agent:{_agent_flag()}",
             f"think:{think_hl if state.think_mode else off}",
             f"tools:{verbose if state.show_internal else quiet}",
             f"v{VERSION}",
@@ -85,7 +94,7 @@ def header_panel(compact: bool = False):
     flags = " • ".join([
         f"[{asst}]{state.MODEL}[/]",
         f"v{VERSION}",
-        f"mode {_mode_flag()}",
+        f"agent {_agent_flag()}",
         f"think {think_hl if state.think_mode else off}",
         f"bash {auto_hl if state.auto_approve else ask}",
         f"tools {verbose if state.show_internal else quiet}",

@@ -10,7 +10,7 @@ from pathlib import Path
 from . import state
 
 
-PROJECT_CONTEXT_FILES = ("AGENT.md", "CLAUDE.md", "JARVIS.md")
+PROJECT_CONTEXT_FILES = ("AGENTS.md", "AGENT.md", "CLAUDE.md", "JARVIS.md")
 
 
 def detect_project_context(cwd: str | Path | None = None) -> bool:
