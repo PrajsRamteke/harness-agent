@@ -23,7 +23,7 @@ _THEMES = [
 
 class ThemePickerScreen(TuiModalScreen[str | None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    ThemePickerScreen #modal { width: 55%; max-width: 70; max-height: 50%; padding: 2 3; }
+    ThemePickerScreen #modal { width: 56%; max-width: 80; max-height: 50%; }
     ThemePickerScreen OptionList { height: 6; }
     """
 
@@ -36,9 +36,12 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🎨  theme", id="modal_title")
+                yield Static("🎨  Theme", id="modal_title")
                 yield OptionList(id="theme_list")
-                yield Static("↑/↓ navigate • Enter apply • Esc cancel", id="modal_hint")
+                yield Static(
+                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] apply   [#f0b3ff]esc[/] cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         enable_mouse()
@@ -48,10 +51,10 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
             is_active = name == state.theme
             marker = "● " if is_active else "  "
             row = Text.assemble(
-                (marker, "green bold"),
-                (f"{name:<10}", "bold cyan" if is_active else "cyan"),
+                (marker, "bold #3fb950"),
+                (f"{name:<10s}", "bold #79c0ff" if is_active else "#79c0ff"),
                 ("  ", ""),
-                (desc, "dim"),
+                (desc, "#8b949e"),
             )
             opts.add_option(Option(row, id=name))
             if is_active:

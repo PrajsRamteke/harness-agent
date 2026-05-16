@@ -28,17 +28,19 @@ from .mouse_toggle import enable_mouse, disable_mouse
 
 class _AddFactScreen(TuiModalScreen[str | None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    _AddFactScreen #modal { width: 60%; max-width: 80; max-height: 40%; padding: 2 3; }
-    _AddFactScreen Input { margin-top: 1; }
+    _AddFactScreen #modal { width: 60%; max-width: 80; max-height: 40%; }
     """
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=True)]
 
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("➕  new memory fact", id="modal_title")
+                yield Static("➕  New Memory Fact", id="modal_title")
                 yield Input(placeholder="e.g. user prefers TypeScript over JavaScript", id="fact_text")
-                yield Static("Enter to save • Esc cancel", id="modal_hint")
+                yield Static(
+                    "[#f0b3ff]↵[/] save   [#f0b3ff]esc[/] cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         self.query_one("#fact_text", Input).focus()
@@ -58,17 +60,24 @@ class _AddFactScreen(TuiModalScreen[str | None]):
 
 class _ConfirmClearScreen(TuiModalScreen[bool]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    _ConfirmClearScreen #modal { width: 50%; max-width: 70; max-height: 30%; padding: 2 3; }
-    _ConfirmClearScreen Input { margin-top: 1; }
+    _ConfirmClearScreen #modal { width: 52%; max-width: 70; max-height: 32%; }
+    _ConfirmClearScreen #confirm_prompt { padding: 0 1; color: #e6edf3; margin-bottom: 1; }
     """
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=True)]
 
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⚠  wipe all memory?", id="modal_title")
-                yield Static("Type [bold yellow]yes[/] to confirm, anything else to cancel.", id="modal_hint")
+                yield Static("⚠  Wipe All Memory?", id="modal_title")
+                yield Static(
+                    "Type [bold #d29922]yes[/] to confirm, anything else cancels.",
+                    id="confirm_prompt",
+                )
                 yield Input(placeholder="yes", id="confirm_input")
+                yield Static(
+                    "[#f0b3ff]↵[/] confirm   [#f0b3ff]esc[/] cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         self.query_one("#confirm_input", Input).focus()
@@ -85,9 +94,8 @@ class _ConfirmClearScreen(TuiModalScreen[bool]):
 
 class MemoryModalScreen(TuiModalScreen[None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    MemoryModalScreen #modal { width: 75%; max-width: 110; max-height: 80%; padding: 2 3; }
-    MemoryModalScreen OptionList { height: 1fr; min-height: 10; }
-    MemoryModalScreen #modal_status { padding: 0 1; color: #8b949e; }
+    MemoryModalScreen #modal { width: 78%; max-width: 120; max-height: 82%; }
+    MemoryModalScreen OptionList { height: 1fr; min-height: 12; }
     """
 
     BINDINGS = [
@@ -104,11 +112,13 @@ class MemoryModalScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🧠  memory", id="modal_title")
+                yield Static("🧠  Memory", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="fact_list")
                 yield Static(
-                    "↑/↓ navigate • a add • d delete • c clear • r refresh • Esc close",
+                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]a[/] add   "
+                    "[#f0b3ff]d[/] delete   [#f0b3ff]c[/] clear   "
+                    "[#f0b3ff]r[/] refresh   [#f0b3ff]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -124,17 +134,24 @@ class MemoryModalScreen(TuiModalScreen[None]):
         opts.clear_options()
         facts = mem.list_facts()
         if not facts:
-            opts.add_option(Option(Text("(memory is empty — press 'a' to add)", style="dim"), disabled=True))
+            opts.add_option(Option(
+                Text("  memory is empty — press 'a' to add a fact",
+                     style="italic #6e7681"),
+                disabled=True,
+            ))
         else:
             for f in facts:
                 row = Text.assemble(
-                    (f"#{f['id']:<4}", "dim cyan"),
                     ("  ", ""),
-                    (f["text"], "white"),
+                    (f"#{f['id']:<5d}", "#6e7681"),
+                    ("  ", ""),
+                    (f["text"], "#e6edf3"),
                 )
                 opts.add_option(Option(row, id=f"fact:{f['id']}"))
         try:
-            self.query_one("#modal_title", Static).update(f"🧠  memory  [dim]· {len(facts)} fact(s)[/]")
+            self.query_one("#modal_title", Static).update(
+                f"🧠  Memory   [#6e7681]{len(facts)} fact{'s' if len(facts) != 1 else ''}[/]"
+            )
         except Exception:
             pass
         opts.focus()

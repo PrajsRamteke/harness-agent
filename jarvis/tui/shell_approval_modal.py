@@ -18,24 +18,30 @@ class ShellApprovalScreen(ModalScreen[str]):
     DEFAULT_CSS = """
     ShellApprovalScreen {
         align: center middle;
-        background: rgba(0, 0, 0, 0.60);
+        background: rgba(0, 0, 0, 0.62);
     }
     ShellApprovalScreen > #sh_modal {
-        width: 90%;
-        max-width: 110;
+        width: 86%;
+        max-width: 120;
         height: auto;
         background: #161b22;
-        border: tall #d29922;
-        padding: 2 2;
+        border: round #d29922;
+        padding: 1 2;
     }
     ShellApprovalScreen #sh_title {
         color: #d29922;
         text-style: bold;
         padding: 0 1 1 1;
+        border-bottom: hkey #21262d;
+        margin-bottom: 1;
+        width: 100%;
     }
     ShellApprovalScreen #sh_hint {
-        color: #8b949e;
-        padding-top: 1;
+        color: #6e7681;
+        padding: 1 1 0 1;
+        border-top: hkey #21262d;
+        margin-top: 1;
+        width: 100%;
     }
     """
 
@@ -56,16 +62,18 @@ class ShellApprovalScreen(ModalScreen[str]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="sh_modal"):
-            yield Static("Run shell command?", id="sh_title")
+            yield Static("⚡  Run Shell Command?", id="sh_title")
             yield Static(
                 Panel(
                     Text(self._cmd, overflow="fold"),
                     title="sh",
                     border_style="dim",
+                    padding=(0, 1),
                 ),
             )
             yield Static(
-                "Y or Enter: run  •  N or Esc: cancel  •  A: always approve (this session)",
+                "[#3fb950]y / ↵[/] run     [#f85149]n / esc[/] cancel     "
+                "[#d29922]a[/] always (this session)",
                 id="sh_hint",
             )
 

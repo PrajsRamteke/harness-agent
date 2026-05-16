@@ -24,9 +24,8 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         + """
     SessionPickerScreen #modal {
         width: 85%;
-        max-width: 120;
+        max-width: 130;
         max-height: 80%;
-        padding: 2 3;
     }
     SessionPickerScreen OptionList {
         height: 20;
@@ -46,10 +45,13 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🗂  sessions", id="modal_title")
+                yield Static("🗂  Sessions", id="modal_title")
                 yield OptionList(id="session_list")
-                yield Static("↑/↓ navigate • Enter resume • d delete • Esc cancel",
-                             id="modal_hint")
+                yield Static(
+                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] resume   "
+                    "[#f0b3ff]d[/] delete   [#f0b3ff]esc[/] cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self):
         enable_mouse()
@@ -74,15 +76,20 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
             return
         opts.disabled = False
         for r in rows:
-            marker = " ●" if r["id"] == state.current_session_id else "  "
+            is_active = r["id"] == state.current_session_id
+            marker = "● " if is_active else "  "
             title = r["title"] or "(untitled)"
             label = Text.assemble(
-                (f"{marker} ", "green bold"),
-                (f"#{r['id']:<5}", "cyan"),
-                (f"{title[:50]:<52}", ""),
-                (f"{r['msg_count']:>4} msgs   ", "dim"),
-                (f"{r['model'] or '-':<28}", "magenta"),
-                (_fmt_ts(r["updated_at"]), "dim"),
+                (marker, "bold #3fb950"),
+                (f"#{r['id']:<5d}", "bold #79c0ff" if is_active else "#79c0ff"),
+                ("  ", ""),
+                (f"{title[:50]:<50s}", "#e6edf3"),
+                ("  ", ""),
+                (f"{r['msg_count']:>4d} msgs", "#8b949e"),
+                ("   ", ""),
+                (f"{(r['model'] or '-'):<24s}", "#bc8cff"),
+                ("  ", ""),
+                (_fmt_ts(r["updated_at"]), "#8b949e"),
             )
             opts.add_option(Option(label, id=str(r["id"])))
         opts.highlighted = 0

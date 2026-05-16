@@ -21,12 +21,12 @@ class TextInputScreen(TuiModalScreen[str | None]):
         TUI_MODAL_CHROME_CSS
         + """
     TextInputScreen #modal {
-        width: 80%;
+        width: 78%;
         max-width: 120;
-        padding: 2 3;
     }
     TextInputScreen #modal_body {
         color: #c9d1d9;
+        padding: 0 1;
         margin-bottom: 1;
     }
     """
@@ -61,7 +61,7 @@ class TextInputScreen(TuiModalScreen[str | None]):
                     id="text_input",
                 )
                 yield Static(
-                    "Enter to submit  •  Esc to cancel",
+                    "[#f0b3ff]↵[/] submit   [#f0b3ff]esc[/] cancel",
                     id="modal_hint",
                 )
 

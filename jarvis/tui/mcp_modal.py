@@ -108,27 +108,21 @@ class JSONImportScreen(TuiModalScreen[dict | None]):
         TUI_MODAL_CHROME_CSS
         + """
     JSONImportScreen #modal {
-        width: 80%;
-        max-width: 100;
+        width: 82%;
+        max-width: 110;
         max-height: 80%;
-        padding: 2 2;
     }
     JSONImportScreen TextArea {
         height: 16;
-        background: #0d1117;
-        color: #e6edf3;
-        border: tall #30363d;
-    }
-    JSONImportScreen TextArea:focus {
-        border: tall #58a6ff;
+        margin: 1 0;
     }
     JSONImportScreen #import_status {
         color: #f85149;
-        padding-top: 1;
+        padding: 0 1;
+        margin-top: 1;
     }
-    JSONImportScreen #import_status.ok {
-        color: #3fb950;
-    }
+    JSONImportScreen #import_status.ok { color: #3fb950; }
+    JSONImportScreen #import_help { padding: 0 1; }
     """
     )
 
@@ -140,20 +134,20 @@ class JSONImportScreen(TuiModalScreen[dict | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("📥  Import MCP server (JSON)", id="modal_title")
+                yield Static("📥  Import MCP Server", id="modal_title")
                 yield Static(
                     Text.from_markup(
-                        "[dim]Paste one of:[/]\n"
-                        '  [cyan]{"mcpServers": {"my-srv": {"command": "npx", "args": ["-y", "@..."]}}}[/]\n'
-                        '  [cyan]{"servers": {"my-srv": {"type": "stdio", "command": "..."}}, "auto_connect": ["my-srv"]}[/]\n'
-                        '  [cyan]{"name": "my-srv", "command": "npx", "args": [...]}[/]   [dim](bare form)[/]'
+                        "[#8b949e]Paste one of:[/]\n"
+                        '  [#79c0ff]{"mcpServers": {"my-srv": {"command": "npx", "args": ["-y", "@..."]}}}[/]\n'
+                        '  [#79c0ff]{"servers": {"my-srv": {"type": "stdio", "command": "..."}}, "auto_connect": ["my-srv"]}[/]\n'
+                        '  [#79c0ff]{"name": "my-srv", "command": "npx", "args": [...]}[/]   [#6e7681](bare form)[/]'
                     ),
                     id="import_help",
                 )
                 yield TextArea("", id="import_input", show_line_numbers=False)
                 yield Static("", id="import_status")
                 yield Static(
-                    "Ctrl+S import • Esc cancel",
+                    "[#f0b3ff]ctrl+s[/] import   [#f0b3ff]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -288,28 +282,26 @@ class MCPModalScreen(TuiModalScreen[None]):
         TUI_MODAL_CHROME_CSS
         + """
     MCPModalScreen #modal {
-        width: 90%;
-        max-width: 130;
+        width: 88%;
+        max-width: 140;
         max-height: 85%;
-        padding: 2 2;
     }
     MCPModalScreen OptionList {
         height: 18;
-        margin-top: 1;
     }
     MCPModalScreen #mcp_header {
-        padding-bottom: 1;
+        padding: 0 1;
+        margin-bottom: 1;
         color: #e6edf3;
     }
     MCPModalScreen #mcp_status {
-        padding-top: 1;
+        padding: 0 1;
+        margin-top: 1;
         color: #8b949e;
     }
     MCPModalScreen #mcp_status.ok { color: #3fb950; }
     MCPModalScreen #mcp_status.err { color: #f85149; }
-    MCPModalScreen Input {
-        margin-top: 1;
-    }
+    MCPModalScreen Input { margin-bottom: 1; }
     """
     )
 
@@ -336,13 +328,15 @@ class MCPModalScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🧩  MCP servers", id="modal_title")
+                yield Static("🧩  MCP Servers", id="modal_title")
                 yield Static("", id="mcp_header")
                 yield Input(placeholder="filter…  (press / to focus)", id="mcp_filter")
                 yield OptionList(id="mcp_list")
                 yield Static("", id="mcp_status")
                 yield Static(
-                    "Space toggle • g global on/off • i import JSON • r refresh • d delete • Esc close",
+                    "[#f0b3ff]space[/] toggle   [#f0b3ff]g[/] global   "
+                    "[#f0b3ff]i[/] import   [#f0b3ff]r[/] refresh   "
+                    "[#f0b3ff]d[/] delete   [#f0b3ff]esc[/] close",
                     id="modal_hint",
                 )
 

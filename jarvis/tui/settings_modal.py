@@ -67,8 +67,8 @@ def _fmt_value(v: Any) -> str:
 
 class _EditValueScreen(TuiModalScreen[str | None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    _EditValueScreen #modal { width: 60%; max-width: 80; max-height: 40%; padding: 2 3; }
-    _EditValueScreen Input { margin-top: 1; }
+    _EditValueScreen #modal { width: 62%; max-width: 90; max-height: 42%; }
+    _EditValueScreen #edit_hint { padding: 0 1; color: #8b949e; margin-bottom: 1; }
     """
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=True)]
 
@@ -80,12 +80,18 @@ class _EditValueScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static(f"✏  set [bold cyan]{self._key}[/]", id="modal_title")
+                yield Static(
+                    f"✏  Set   [bold #79c0ff]{self._key}[/]",
+                    id="modal_title",
+                )
                 hint = _DESCRIPTIONS.get(self._key, "")
                 if hint:
-                    yield Static(f"[dim]{hint}[/]", id="edit_hint")
+                    yield Static(f"[#8b949e]{hint}[/]", id="edit_hint")
                 yield Input(value=_fmt_value(self._current), id="value_input")
-                yield Static("Enter to save • Esc cancel", id="modal_hint")
+                yield Static(
+                    "[#f0b3ff]↵[/] save   [#f0b3ff]esc[/] cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         inp = self.query_one("#value_input", Input)
@@ -107,9 +113,8 @@ class _EditValueScreen(TuiModalScreen[str | None]):
 
 class SettingsModalScreen(TuiModalScreen[None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    SettingsModalScreen #modal { width: 80%; max-width: 120; max-height: 85%; padding: 2 3; }
-    SettingsModalScreen OptionList { height: 1fr; min-height: 10; }
-    SettingsModalScreen #modal_status { padding: 0 1; color: #8b949e; }
+    SettingsModalScreen #modal { width: 84%; max-width: 130; max-height: 85%; }
+    SettingsModalScreen OptionList { height: 1fr; min-height: 12; }
     """
 
     BINDINGS = [
@@ -127,11 +132,14 @@ class SettingsModalScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⚙  settings", id="modal_title")
+                yield Static("⚙  Settings", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="settings_list")
                 yield Static(
-                    "↑/↓ navigate • e/Enter edit • r reset • R reload • p path • o $EDITOR • Esc close",
+                    "[#f0b3ff]↑↓[/] nav   [#f0b3ff]↵/e[/] edit   "
+                    "[#f0b3ff]r[/] reset   [#f0b3ff]R[/] reload   "
+                    "[#f0b3ff]p[/] path   [#f0b3ff]o[/] $EDITOR   "
+                    "[#f0b3ff]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -154,26 +162,29 @@ class SettingsModalScreen(TuiModalScreen[None]):
             is_override = path in overrides
             default_val = defaults_flat.get(path, "")
             same_as_default = value == default_val
-            key_style = "bold cyan" if is_override else "cyan"
+            key_style = "bold #79c0ff" if is_override else "#79c0ff"
             value_style = (
-                "bold green" if isinstance(value, bool) and value
-                else "bold red" if isinstance(value, bool)
-                else "dim italic" if (isinstance(value, str) and not value)
-                else "white"
+                "bold #3fb950" if isinstance(value, bool) and value
+                else "bold #f85149" if isinstance(value, bool)
+                else "italic #6e7681" if (isinstance(value, str) and not value)
+                else "#e6edf3"
             )
-            tail = f"  [dim](default)[/]" if same_as_default else f"  [dim]· default {_fmt_value(default_val)}[/]"
+            tail = (
+                "  [#6e7681](default)[/]" if same_as_default
+                else f"  [#6e7681]· default {_fmt_value(default_val)}[/]"
+            )
             desc = _DESCRIPTIONS.get(path, "")
             row = Text.from_markup(
-                f"[{key_style}]{path:<22}[/]  "
+                f"  [{key_style}]{path:<22}[/]  "
                 f"[{value_style}]{_fmt_value(value):<28}[/]"
-                f"{tail}  [dim]{desc}[/]"
+                f"{tail}  [#6e7681]{desc}[/]"
             )
             opts.add_option(Option(row, id=f"k:{path}"))
         try:
             n_over = len(overrides)
             n_keys = len(rows)
             self.query_one("#modal_title", Static).update(
-                f"⚙  settings  [dim]· {n_keys} keys · {n_over} overrides[/]"
+                f"⚙  Settings   [#6e7681]{n_keys} keys · {n_over} override{'s' if n_over != 1 else ''}[/]"
             )
         except Exception:
             pass

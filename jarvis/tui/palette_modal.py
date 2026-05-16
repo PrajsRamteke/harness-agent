@@ -10,7 +10,7 @@ from textual.widgets.option_list import Option
 from rich.text import Text
 
 from .commands_catalog import filter_commands
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
@@ -21,13 +21,9 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
         TUI_MODAL_CHROME_CSS
         + """
     CommandPaletteScreen #modal {
-        width: 75%;
-        max-width: 100;
-        max-height: 70%;
-        padding: 2 2;
-    }
-    CommandPaletteScreen #modal_title {
-        padding: 0 1 1 1;
+        width: 80%;
+        max-width: 110;
+        max-height: 75%;
     }
     CommandPaletteScreen OptionList {
         height: 18;
@@ -51,11 +47,11 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⌘  commands", id="modal_title")
+                yield Static("⌘  Commands", id="modal_title")
                 yield Input(value=self._initial, placeholder="type to filter…", id="palette_input")
                 yield OptionList(id="palette_options")
                 yield Static(
-                    "↑/↓ navigate • Enter run • Esc cancel",
+                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] run   [#f0b3ff]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -81,7 +77,10 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
         matches = filter_commands(query)
         for cmd, desc in matches[:60]:
             label = Text.assemble(
-                (f"{cmd:<22}", "bold cyan"), ("  ", ""), (desc, "dim")
+                ("  ", ""),
+                (f"{cmd:<{ROW_NAME_WIDTH}s}", "bold #79c0ff"),
+                ("  ", ""),
+                (desc, "#8b949e"),
             )
             opts.add_option(Option(label, id=cmd))
         if opts.option_count:

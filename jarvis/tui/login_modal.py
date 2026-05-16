@@ -117,21 +117,27 @@ class LoginModalScreen(TuiModalScreen[bool]):
         + """
     LoginModalScreen #modal {
         width: 80%;
-        max-width: 100;
-        max-height: 80%;
-        padding: 2 2;
+        max-width: 110;
+        max-height: 82%;
     }
     LoginModalScreen #login_info {
-        padding-bottom: 1;
+        padding: 0 1;
+        margin-bottom: 1;
     }
     LoginModalScreen #login_url {
         background: #0d1117;
         color: #58a6ff;
         padding: 0 1;
-        border: tall #21262d;
+        border: round #21262d;
+        margin-bottom: 1;
+    }
+    LoginModalScreen #login_prompt {
+        padding: 0 1;
+        margin-bottom: 1;
     }
     LoginModalScreen #login_status {
-        padding-top: 1;
+        padding: 0 1;
+        margin-top: 1;
         color: #8b949e;
     }
     LoginModalScreen #login_status.ok  { color: #3fb950; }
@@ -158,7 +164,7 @@ class LoginModalScreen(TuiModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🔐  Log in with Claude Pro / Max", id="modal_title")
+                yield Static("🔐  Log In   [#6e7681]Claude Pro / Max OAuth[/]", id="modal_title")
                 yield Static("", id="login_info")
                 yield Static("", id="login_url")
                 yield Static(
@@ -175,7 +181,8 @@ class LoginModalScreen(TuiModalScreen[bool]):
                 )
                 yield Static("", id="login_status")
                 yield Static(
-                    "Ctrl+S submit • Ctrl+O re-open browser • Ctrl+R fresh code • Esc cancel",
+                    "[#f0b3ff]ctrl+s[/] submit   [#f0b3ff]ctrl+o[/] re-open browser   "
+                    "[#f0b3ff]ctrl+r[/] fresh code   [#f0b3ff]esc[/] cancel",
                     id="modal_hint",
                 )
 

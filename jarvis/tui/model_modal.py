@@ -22,10 +22,9 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         TUI_MODAL_CHROME_CSS
         + """
     ModelPickerScreen #modal {
-        width: 80%;
-        max-width: 120;
+        width: 82%;
+        max-width: 130;
         max-height: 80%;
-        padding: 2 3;
     }
     ModelPickerScreen OptionList {
         height: 22;
@@ -45,11 +44,11 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🤖  models", id="modal_title")
-                yield Input(value="", placeholder="type to search models…", id="model_search")
+                yield Static("🤖  Models", id="modal_title")
+                yield Input(value="", placeholder="search models…", id="model_search")
                 yield OptionList(id="model_list")
                 yield Static(
-                    "↑/↓ navigate • Enter select • Esc cancel",
+                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] select   [#f0b3ff]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -82,12 +81,16 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         for prov, m, desc in rows:
             if q and q not in m.lower() and q not in desc.lower() and q not in PROVIDER_LABELS.get(prov, prov).lower():
                 continue
-            marker = " ●" if m == state.MODEL else "  "
+            is_active = (m == state.MODEL)
+            marker = "● " if is_active else "  "
+            name_style = "bold #79c0ff" if is_active else "#79c0ff"
             label = Text.assemble(
-                (marker, "green bold"),
-                (f"{m:<42}", "cyan"),
-                (f"  {PROVIDER_LABELS.get(prov, prov):<12}", "magenta"),
-                (desc[:52], "dim"),
+                (marker, "bold #3fb950"),
+                (f"{m:<40s}", name_style),
+                ("  ", ""),
+                (f"{PROVIDER_LABELS.get(prov, prov):<12s}", "#bc8cff"),
+                ("  ", ""),
+                (desc[:60], "#8b949e"),
             )
             opts.add_option(Option(label, id=m))
             matched += 1

@@ -24,7 +24,7 @@ from rich.text import Text
 
 from ..storage import skills as sk
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
@@ -35,17 +35,15 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         TUI_MODAL_CHROME_CSS
         + """
     SkillBrowserScreen #modal {
-        width: 72%;
-        max-width: 110;
+        width: 78%;
+        max-width: 120;
         max-height: 80%;
-        padding: 2 3;
     }
     SkillBrowserScreen OptionList {
         height: 1fr;
-        min-height: 8;
+        min-height: 12;
     }
-    SkillBrowserScreen Input { margin: 1 0; }
-    SkillBrowserScreen #modal_status { padding: 0 1; color: #8b949e; }
+    SkillBrowserScreen Input { margin-bottom: 1; }
     """
     )
 
@@ -61,12 +59,14 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🧰  skills (LLM auto-invokes by description)", id="modal_title")
+                yield Static("🧰  Skills", id="modal_title")
                 yield Static("", id="modal_status")
-                yield Input(placeholder="search by name or description…", id="skill_search")
+                yield Input(placeholder="search name or description…", id="skill_search")
                 yield OptionList(id="skill_list")
                 yield Static(
-                    "↑/↓ navigate • Enter preview • / search • g global • r refresh • Esc close",
+                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] preview   "
+                    "[#f0b3ff]/[/] search   [#f0b3ff]g[/] global   "
+                    "[#f0b3ff]r[/] refresh   [#f0b3ff]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -120,16 +120,18 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
 
         if project:
             opts.add_option(Option(
-                Text("── PROJECT  (.harness/skills/, .skills/, .claude/skills/, …) ──", style="dim bold"),
+                Text("  PROJECT  ·  .harness/skills/  .skills/  .claude/skills/",
+                     style="bold #6e7681"),
                 disabled=True,
             ))
             for s in project:
                 opts.add_option(Option(_format_skill_row(s), id=s["name"]))
 
         if glob:
-            opts.add_option(Option(Text("", style="dim"), disabled=True))
+            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
             opts.add_option(Option(
-                Text("── GLOBAL  (~/.harness/skills/, ~/.claude/skills/, …) ──", style="dim bold"),
+                Text("  GLOBAL   ·  ~/.harness/skills/  ~/.claude/skills/",
+                     style="bold #6e7681"),
                 disabled=True,
             ))
             for s in glob:
@@ -138,9 +140,10 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         if not state.global_skills:
             gc = sk.global_count()
             if gc:
-                opts.add_option(Option(Text("", style="dim"), disabled=True))
+                opts.add_option(Option(Text(" ", style="dim"), disabled=True))
                 opts.add_option(Option(
-                    Text(f"  ({gc} global skills hidden — press 'g' to show)", style="dim italic"),
+                    Text(f"  {gc} global skill{'s' if gc != 1 else ''} hidden — press 'g' to show",
+                         style="italic #6e7681"),
                     disabled=True,
                 ))
 
@@ -149,11 +152,11 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         self._refresh_title()
 
     def _refresh_title(self) -> None:
-        scope = "🌍 project + global" if state.global_skills else "📁 project"
+        scope = "project + global" if state.global_skills else "project"
         count = len(sk.discover_skills())
         try:
             self.query_one("#modal_title", Static).update(
-                f"🧰  skills  [dim]· {count} available · {scope} · LLM auto-invokes[/]"
+                f"🧰  Skills   [#6e7681]{count} available · scope: {scope} · LLM auto-invokes[/]"
             )
         except Exception:
             pass
@@ -238,7 +241,7 @@ def _format_skill_row(skill: dict) -> Text:
     desc = skill.get("description", "")
     return Text.assemble(
         ("  ", ""),
-        (f"{name:<22s}", "bold cyan"),
+        (f"{name:<{ROW_NAME_WIDTH}s}", "bold #79c0ff"),
         ("  ", ""),
-        (desc[:100], "dim"),
+        (desc[:100], "#8b949e"),
     )

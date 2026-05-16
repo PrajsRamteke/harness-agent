@@ -224,7 +224,7 @@ class JarvisTUI(App):
     #transcript {
         background: #0d1117;
         color: #e6edf3;
-        padding: 0 1;
+        padding: 0 2;
         border: none;
         height: 1fr;
         min-height: 0;
@@ -234,20 +234,36 @@ class JarvisTUI(App):
         scrollbar-size-vertical: 0;
     }
 
-    /* ── Prompt input ───────────────────────────────────── */
+    /* ── Status bar (single line: agent · model · #session · stats) ─── */
+    #statusbar {
+        height: 1;
+        max-height: 1;
+        background: #0d1117;
+        color: #8b949e;
+        padding: 0 2;
+        margin: 0;
+        min-width: 0;
+        border: none;
+        scrollbar-size-vertical: 0;
+        scrollbar-color: transparent transparent;
+    }
+
+    /* ── Prompt input row ───────────────────────────────── */
     #prompt_row {
         height: auto;
-        margin: 0 1 1 1;
+        margin: 1 2 1 2;
         background: #161b22;
-        border: tall #30363d;
+        border: round #30363d;
         min-width: 0;
+        padding: 0 1;
     }
     #prompt_row:focus-within {
-        border: tall #58a6ff;
+        border: round #58a6ff;
     }
     #prompt_prefix {
-        width: auto;
-        padding: 0 0 0 1;
+        width: 3;
+        padding: 0;
+        content-align: center middle;
         color: #58a6ff;
         text-style: bold;
         dock: left;
@@ -259,25 +275,11 @@ class JarvisTUI(App):
         max-height: 12;
         background: #161b22;
         border: none;
-        padding: 0 2 0 1;
+        padding: 0 1;
         min-width: 0;
     }
     #prompt:focus {
         border: none;
-    }
-
-    /* ── Status bar (also shows spinner + timing when busy) ─── */
-    #statusbar {
-        height: auto;
-        max-height: 6;
-        background: #161b22;
-        color: #8b949e;
-        padding: 0 1;
-        margin: 0 1 0 1;
-        min-width: 0;
-        border: tall #30363d;
-        scrollbar-size-vertical: 0;
-        scrollbar-color: transparent transparent;
     }
 
     /* ── Shared widget defaults ─────────────────────────── */
@@ -377,7 +379,7 @@ class JarvisTUI(App):
     def compose(self) -> ComposeResult:
         with Vertical(id="main"):
             yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
-            yield RichLog(id="statusbar", wrap=True, highlight=True, markup=True, auto_scroll=False, max_lines=6)
+            yield RichLog(id="statusbar", wrap=False, highlight=False, markup=True, auto_scroll=False, max_lines=1)
             with Horizontal(id="prompt_row"):
                 yield Static("❯", id="prompt_prefix", markup=False)
                 yield PromptArea(id="prompt")
@@ -471,8 +473,6 @@ class JarvisTUI(App):
 
     def _refresh_activity_widgets(self) -> None:
         """Prepend spinner + phase to status bar, append turn timing."""
-        from datetime import datetime
-
         label = self._activity_label
         if not label or not self._busy:
             return
@@ -483,38 +483,38 @@ class JarvisTUI(App):
         step_elapsed = max(0.0, time.monotonic() - self._activity_t0)
         turn_elapsed = max(0.0, time.monotonic() - self._turn_t0) if self._turn_t0 else 0.0
 
-        spinner_prefix = f"[#58a6ff]{sp}[/] [b]{label}[/] [dim]{step_elapsed:.1f}s[/]"
-        clock_suffix = f"[dim][{turn_elapsed:.0f}s][/]"
+        spinner_prefix = (
+            f"[#58a6ff]{sp}[/] [b #e6edf3]{label}[/] "
+            f"[#6e7681]{step_elapsed:.1f}s[/]"
+        )
+        clock_suffix = f"[#6e7681]{turn_elapsed:.0f}s[/]"
 
         try:
-            # Build the same status bar info as _set_status
             from ..constants import VERSION
             from .. import state
-            trace = "shown" if state.show_internal else "hidden"
             agent_part = _format_agent_status_segment()
-            left = [agent_part, f"[#58a6ff]{state.MODEL}[/]"]
+            left = [spinner_prefix, agent_part, f"[#58a6ff]{state.MODEL}[/]"]
             if state.current_session_id is not None:
-                left.append(f"[dim]#{state.current_session_id}[/]")
+                left.append(f"[#6e7681]#{state.current_session_id}[/]")
 
             right = []
-            right.append(f"[dim]v{VERSION}[/]")
-            right.append(f"💬 [dim]{len(state.messages)}[/]")
-            right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
+            right.append(f"[#6e7681]v{VERSION}[/]")
+            right.append(f"💬 [#8b949e]{len(state.messages)}[/]")
+            right.append(
+                f"⇅ [#8b949e]{state.total_in}[/]/[#8b949e]{state.total_out}[/]"
+            )
             if state.think_mode:
                 right.append(f"[#3fb950]think:{state.think_effort}[/]")
-            else:
-                right.append("[dim]think:off[/]")
-            if state.project_context_file:
-                right.append(f"[#bc8cff]{state.project_context_file}[/]")
             if state.prompt_queue:
                 right.append(f"[#d29922]📋 {len(state.prompt_queue)}[/]")
-            right.append(f"[dim]int:{trace}[/]")
+            right.append(clock_suffix)
+
+            sep = "  [#21262d]·[/]  "
+            line = sep.join(left) + sep + sep.join(right)
 
             bar = self.query_one("#statusbar", RichLog)
             bar.clear()
-            # prepend spinner · status info · clock
-            parts = [spinner_prefix] + left + [""] + right + [clock_suffix]
-            bar.write(Text.from_markup("  ·  ".join(parts)))
+            bar.write(Text.from_markup(line))
         except Exception:
             pass
 
@@ -1099,40 +1099,43 @@ class JarvisTUI(App):
 
     def _set_status(self, msg: str):
         try:
-            import pathlib
             from ..constants import VERSION
             from .. import state
-            trace = "shown" if state.show_internal else "hidden"
+            trace = "on" if state.show_internal else "off"
             agent_part = _format_agent_status_segment()
-            # Build a cleaner status line — grouped by category, no pipe noise
+
+            # Left cluster: short status verb + identity (agent / model / session)
             left = []
             if msg:
                 left.append(f"[#e6edf3]{msg}[/]")
             left.append(agent_part)
             left.append(f"[#58a6ff]{state.MODEL}[/]")
             if state.current_session_id is not None:
-                left.append(f"[dim]#{state.current_session_id}[/]")
+                left.append(f"[#6e7681]#{state.current_session_id}[/]")
 
+            # Right cluster: stats + flags
             right = []
-            right.append(f"[dim]v{VERSION}[/]")
-            right.append(f"💬 [dim]{len(state.messages)}[/]")
-            right.append(f"⇅ [dim]{state.total_in}[/]/[dim]{state.total_out}[/] [dim]= {state.total_in + state.total_out}[/]")
+            right.append(f"💬 [#8b949e]{len(state.messages)}[/]")
+            right.append(
+                f"⇅ [#8b949e]{state.total_in}[/]/[#8b949e]{state.total_out}[/]"
+            )
             if state.think_mode:
                 right.append(f"[#3fb950]think:{state.think_effort}[/]")
             else:
-                right.append("[dim]think:off[/]")
+                right.append("[#6e7681]think:off[/]")
             if state.project_context_file:
                 right.append(f"[#bc8cff]{state.project_context_file}[/]")
             if state.prompt_queue:
                 right.append(f"[#d29922]📋 {len(state.prompt_queue)}[/]")
-            right.append(f"[dim]int:{trace}[/]")
+            right.append(f"[#6e7681]int:{trace}[/]")
+            right.append(f"[#6e7681]v{VERSION}[/]")
 
-            sep = "  ·  "
-            all_parts = left + [""] + right
-            self.query_one("#statusbar", RichLog).clear()
-            self.query_one("#statusbar", RichLog).write(
-                Text.from_markup(sep.join(all_parts))
-            )
+            sep = "  [#21262d]·[/]  "
+            line = sep.join(left) + sep + sep.join(right)
+
+            bar = self.query_one("#statusbar", RichLog)
+            bar.clear()
+            bar.write(Text.from_markup(line))
         except Exception:
             pass
 

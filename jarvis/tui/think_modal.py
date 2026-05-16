@@ -35,7 +35,6 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
         width: 58%;
         max-width: 80;
         max-height: 70%;
-        padding: 2 3;
     }
     ThinkPickerScreen OptionList {
         height: 9;
@@ -52,9 +51,12 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🧠  thinking effort", id="modal_title")
+                yield Static("🧠  Thinking Effort", id="modal_title")
                 yield OptionList(id="think_list")
-                yield Static("↑/↓ navigate • Enter select • Esc cancel", id="modal_hint")
+                yield Static(
+                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] select   [#f0b3ff]esc[/] cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         enable_mouse()
@@ -65,11 +67,12 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
             selected = (
                 state.think_mode and effort == state.think_effort
             ) or (not state.think_mode and effort == "none")
-            marker = " ●" if selected else "  "
+            marker = "● " if selected else "  "
             label = Text.assemble(
-                (marker, "green bold"),
-                (f"{effort:<9}", "cyan"),
-                (f"  {_DESCRIPTIONS.get(effort, '')}", "dim"),
+                (marker, "bold #3fb950"),
+                (f"{effort:<9s}", "bold #79c0ff" if selected else "#79c0ff"),
+                ("  ", ""),
+                (_DESCRIPTIONS.get(effort, ""), "#8b949e"),
             )
             opts.add_option(Option(label, id=effort))
         opts.highlighted = list(THINK_EFFORTS).index(

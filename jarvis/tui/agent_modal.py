@@ -32,7 +32,7 @@ from rich.text import Text
 from ..storage import agents as ag
 from ..commands import agent as agent_cmd
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
@@ -52,9 +52,13 @@ class _NewAgentScreen(TuiModalScreen[tuple[str, str] | None]):
         width: 60%;
         max-width: 80;
         max-height: 50%;
-        padding: 2 3;
     }
-    _NewAgentScreen Input { margin-top: 1; }
+    _NewAgentScreen #newagent_name_label,
+    _NewAgentScreen #newagent_desc_label {
+        color: #8b949e;
+        padding: 0 1;
+    }
+    _NewAgentScreen #newagent_desc_label { margin-top: 1; }
     """
     )
 
@@ -68,18 +72,21 @@ class _NewAgentScreen(TuiModalScreen[tuple[str, str] | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static(
-                    f"➕  new agent  [dim]· writes to {self._scope} scope[/]",
+                    f"➕  New Agent   [#6e7681]writes to {self._scope} scope[/]",
                     id="modal_title",
                 )
                 yield Static(
-                    "name  [dim](lowercase-kebab, e.g. python-debugger)[/]",
+                    "Name  [#6e7681](lowercase-kebab — e.g. python-debugger)[/]",
                     id="newagent_name_label",
                 )
                 yield Input(placeholder="agent-name", id="newagent_name")
-                yield Static("description  [dim](one line)[/]", id="newagent_desc_label")
+                yield Static(
+                    "Description  [#6e7681](one line)[/]",
+                    id="newagent_desc_label",
+                )
                 yield Input(placeholder="what this agent does", id="newagent_desc")
                 yield Static(
-                    "Enter on description to create • Esc cancel",
+                    "[#f0b3ff]↵[/] on description to create   [#f0b3ff]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -116,18 +123,13 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         TUI_MODAL_CHROME_CSS
         + """
     AgentPickerScreen #modal {
-        width: 78%;
+        width: 80%;
         max-width: 120;
         max-height: 85%;
-        padding: 2 3;
     }
     AgentPickerScreen OptionList {
         height: 1fr;
-        min-height: 10;
-    }
-    AgentPickerScreen #modal_status {
-        padding: 0 1;
-        color: #8b949e;
+        min-height: 12;
     }
     """
     )
@@ -148,12 +150,14 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🎛  agent", id="modal_title")
+                yield Static("🎛  Agents", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="agent_list")
                 yield Static(
-                    "↑/↓ navigate • Enter activate • o default • n new • e edit • "
-                    "p preview • g global • s scope • r refresh • Esc close",
+                    "[#f0b3ff]↑↓[/] nav   [#f0b3ff]↵[/] activate   [#f0b3ff]o[/] default   "
+                    "[#f0b3ff]n[/] new   [#f0b3ff]e[/] edit   [#f0b3ff]p[/] preview   "
+                    "[#f0b3ff]g[/] global   [#f0b3ff]s[/] scope   [#f0b3ff]r[/] refresh   "
+                    "[#f0b3ff]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -183,19 +187,23 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
 
         # "default" row (no agent → base system prompt)
         off_text = Text.assemble(
-            ("● " if not active else "  ", "green bold"),
-            ("default      ", "bold cyan" if not active else "cyan"),
-            ("  base system prompt only", "dim"),
+            ("● " if not active else "  ", "bold #3fb950"),
+            ("    ", ""),  # icon slot — keeps alignment with rows that have one
+            (f"{'default':<{ROW_NAME_WIDTH}s}",
+             "bold #79c0ff" if not active else "#79c0ff"),
+            ("  ", ""),
+            ("base system prompt only", "#8b949e"),
         )
         opts.add_option(Option(off_text, id=_OFF_ID))
 
         agents = ag.discover_agents(force=True)
         if not agents:
-            opts.add_option(Option(Text("", style="dim"), disabled=True))
+            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
             opts.add_option(Option(
                 Text(
-                    "(no agents found — press 'n' to create one, or drop files in .harness/agents/)",
-                    style="dim",
+                    "  no agents found — press 'n' to create one, "
+                    "or drop files in .harness/agents/",
+                    style="italic #6e7681",
                 ),
                 disabled=True,
             ))
@@ -208,18 +216,20 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         glob = [a for a in agents if a.get("scope") == "global"]
 
         if project:
-            opts.add_option(Option(Text("", style="dim"), disabled=True))
+            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
             opts.add_option(Option(
-                Text("── PROJECT  (.harness/agents/, .claude/agents/, …) ──", style="dim bold"),
+                Text("  PROJECT  ·  .harness/agents/  .claude/agents/",
+                     style="bold #6e7681"),
                 disabled=True,
             ))
             for a in project:
                 opts.add_option(Option(_format_agent_row(a, active), id=a["name"]))
 
         if glob:
-            opts.add_option(Option(Text("", style="dim"), disabled=True))
+            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
             opts.add_option(Option(
-                Text("── GLOBAL  (~/.harness/agents/, ~/.claude/agents/, …) ──", style="dim bold"),
+                Text("  GLOBAL   ·  ~/.harness/agents/  ~/.claude/agents/",
+                     style="bold #6e7681"),
                 disabled=True,
             ))
             for a in glob:
@@ -228,9 +238,10 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         if not state.global_agents:
             gc = ag.global_count()
             if gc:
-                opts.add_option(Option(Text("", style="dim"), disabled=True))
+                opts.add_option(Option(Text(" ", style="dim"), disabled=True))
                 opts.add_option(Option(
-                    Text(f"  ({gc} global agents hidden — press 'g' to show)", style="dim italic"),
+                    Text(f"  {gc} global agent{'s' if gc != 1 else ''} hidden — press 'g' to show",
+                         style="italic #6e7681"),
                     disabled=True,
                 ))
 
@@ -245,10 +256,10 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         active = state.active_agent_name or "default"
         try:
             self.query_one("#modal_title", Static).update(
-                f"🎛  agent  [dim]· {count} available · scope: {scope}[/]"
+                f"🎛  Agents   [#6e7681]{count} available · scope: {scope}[/]"
             )
             self.query_one("#modal_status", Static).update(
-                f"active: [bold cyan]{active}[/]  ·  new writes to: [bold]{new_scope}[/]"
+                f"active: [bold #79c0ff]{active}[/]   ·   new writes to: [bold #e6edf3]{new_scope}[/]"
             )
         except Exception:
             pass
@@ -398,15 +409,15 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
 def _format_agent_row(agent: dict, active_name: str) -> Text:
     is_active = agent["name"] == active_name
     icon = (agent.get("icon") or "").strip()
-    color = (agent.get("color") or "").strip() or "cyan"
+    color = (agent.get("color") or "").strip() or "#79c0ff"
     marker = "● " if is_active else "  "
     icon_part = f"{icon}  " if icon else "    "
     name_style = f"bold {color}" if is_active else color
     desc = agent.get("description", "")
     return Text.assemble(
-        (marker, "green bold"),
+        (marker, "bold #3fb950"),
         (icon_part, color),
-        (f"{agent['name']:<20s}", name_style),
+        (f"{agent['name']:<{ROW_NAME_WIDTH}s}", name_style),
         ("  ", ""),
-        (desc, "dim"),
+        (desc, "#8b949e"),
     )

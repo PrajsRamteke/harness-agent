@@ -26,22 +26,29 @@ from .mouse_toggle import enable_mouse, disable_mouse
 
 class _AddLessonScreen(TuiModalScreen[tuple[str, str, str] | None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    _AddLessonScreen #modal { width: 70%; max-width: 100; max-height: 60%; padding: 2 3; }
-    _AddLessonScreen Input { margin-top: 1; }
+    _AddLessonScreen #modal { width: 72%; max-width: 110; max-height: 65%; }
+    _AddLessonScreen #lab1, _AddLessonScreen #lab2, _AddLessonScreen #lab3 {
+        color: #8b949e;
+        padding: 0 1;
+    }
+    _AddLessonScreen #lab2, _AddLessonScreen #lab3 { margin-top: 1; }
     """
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=True)]
 
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("➕  new lesson", id="modal_title")
-                yield Static("task  [dim](what were you doing)[/]", id="lab1")
+                yield Static("➕  New Lesson", id="modal_title")
+                yield Static("Task  [#6e7681](what were you doing)[/]", id="lab1")
                 yield Input(placeholder="e.g. wiring Redux Saga with TypeScript", id="add_task")
-                yield Static("lesson  [dim](what you learned)[/]", id="lab2")
+                yield Static("Lesson  [#6e7681](what you learned)[/]", id="lab2")
                 yield Input(placeholder="e.g. always wrap dispatch in put()", id="add_lesson")
-                yield Static("tags  [dim](comma-separated, optional)[/]", id="lab3")
+                yield Static("Tags  [#6e7681](comma-separated, optional)[/]", id="lab3")
                 yield Input(placeholder="redux,saga,typescript", id="add_tags")
-                yield Static("Enter on tags to save • Esc cancel", id="modal_hint")
+                yield Static(
+                    "[#f0b3ff]↵[/] on tags to save   [#f0b3ff]esc[/] cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         self.query_one("#add_task", Input).focus()
@@ -66,17 +73,26 @@ class _AddLessonScreen(TuiModalScreen[tuple[str, str, str] | None]):
 
 class _ConfirmClearLessonsScreen(TuiModalScreen[bool]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    _ConfirmClearLessonsScreen #modal { width: 50%; max-width: 70; max-height: 30%; padding: 2 3; }
-    _ConfirmClearLessonsScreen Input { margin-top: 1; }
+    _ConfirmClearLessonsScreen #modal { width: 52%; max-width: 70; max-height: 32%; }
+    _ConfirmClearLessonsScreen #confirm_prompt {
+        padding: 0 1; color: #e6edf3; margin-bottom: 1;
+    }
     """
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=True)]
 
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⚠  wipe all lessons?", id="modal_title")
-                yield Static("Type [bold yellow]yes[/] to confirm.", id="modal_hint")
+                yield Static("⚠  Wipe All Lessons?", id="modal_title")
+                yield Static(
+                    "Type [bold #d29922]yes[/] to confirm.",
+                    id="confirm_prompt",
+                )
                 yield Input(placeholder="yes", id="confirm_input")
+                yield Static(
+                    "[#f0b3ff]↵[/] confirm   [#f0b3ff]esc[/] cancel",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         self.query_one("#confirm_input", Input).focus()
@@ -90,10 +106,9 @@ class _ConfirmClearLessonsScreen(TuiModalScreen[bool]):
 
 class LessonModalScreen(TuiModalScreen[None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
-    LessonModalScreen #modal { width: 80%; max-width: 120; max-height: 85%; padding: 2 3; }
-    LessonModalScreen OptionList { height: 1fr; min-height: 10; }
-    LessonModalScreen Input { margin: 1 0; }
-    LessonModalScreen #modal_status { padding: 0 1; color: #8b949e; }
+    LessonModalScreen #modal { width: 82%; max-width: 130; max-height: 85%; }
+    LessonModalScreen OptionList { height: 1fr; min-height: 12; }
+    LessonModalScreen Input { margin-bottom: 1; }
     """
 
     BINDINGS = [
@@ -111,12 +126,15 @@ class LessonModalScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🧠  lessons", id="modal_title")
+                yield Static("📚  Lessons", id="modal_title")
                 yield Static("", id="modal_status")
-                yield Input(placeholder="search…  (Esc to clear & focus list)", id="lesson_search")
+                yield Input(placeholder="search…  (esc clears, focuses list)", id="lesson_search")
                 yield OptionList(id="lesson_list")
                 yield Static(
-                    "↑/↓ navigate • / search • a add • d delete • c clear • r refresh • Esc close",
+                    "[#f0b3ff]↑↓[/] nav   [#f0b3ff]/[/] search   "
+                    "[#f0b3ff]a[/] add   [#f0b3ff]d[/] delete   "
+                    "[#f0b3ff]c[/] clear   [#f0b3ff]r[/] refresh   "
+                    "[#f0b3ff]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -133,22 +151,31 @@ class LessonModalScreen(TuiModalScreen[None]):
         if rows is None:
             rows = ls.list_lessons()
         if not rows:
-            opts.add_option(Option(Text("(no lessons — press 'a' to add)", style="dim"), disabled=True))
+            opts.add_option(Option(
+                Text("  no lessons yet — press 'a' to add one",
+                     style="italic #6e7681"),
+                disabled=True,
+            ))
         else:
             for r in rows:
                 tag_part = ""
                 if r.get("tags"):
-                    tag_part = f"  [{', '.join(r['tags'])}]"
+                    tag_part = f"   [{', '.join(r['tags'])}]"
                 row = Text.assemble(
-                    (f"#{r['id']:<4}", "dim magenta"),
-                    (f"  hits={r.get('hits', 0):<3}", "dim"),
-                    (f"  {r['task']}", "bold white"),
-                    (f"  → {r['lesson']}", "white"),
-                    (tag_part, "dim cyan"),
+                    ("  ", ""),
+                    (f"#{r['id']:<5d}", "#6e7681"),
+                    (f"  ×{r.get('hits', 0):<3d}", "#8b949e"),
+                    ("  ", ""),
+                    (r["task"], "bold #e6edf3"),
+                    ("  → ", "#6e7681"),
+                    (r["lesson"], "#e6edf3"),
+                    (tag_part, "#bc8cff"),
                 )
                 opts.add_option(Option(row, id=f"lesson:{r['id']}"))
         try:
-            self.query_one("#modal_title", Static).update(f"🧠  lessons  [dim]· {len(rows)} entry(s)[/]")
+            self.query_one("#modal_title", Static).update(
+                f"📚  Lessons   [#6e7681]{len(rows)} entr{'ies' if len(rows) != 1 else 'y'}[/]"
+            )
         except Exception:
             pass
         opts.focus()
