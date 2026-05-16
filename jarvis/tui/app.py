@@ -225,7 +225,7 @@ class JarvisTUI(App):
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=True),
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Quit", show=True),
-        Binding("ctrl+t", "trace or logs", "Logs", show=True),
+        Binding("ctrl+t", "toggle_internal", "Logs", show=True),
         Binding("f2", "toggle_internal", "Internals", show=True),
         Binding("tab", "cycle_agent", "Agent", show=True),
         Binding("escape", "escape_action", show=False),
