@@ -79,6 +79,11 @@ def welcome_banner(compact: bool = False):
     #   slate     → #d0d7de (light gray)
     #   ocean     → #93c5fd (sky blue)
     #   cyberpunk → #f0aaff (neon pink)
+    #   monochrome→ #808080 (gray)
+    #   forest    → #aed581 (light green)
+    #   dracula   → #8be9fd (cyan)
+    #   sunset    → #f7c08a (peach)
+    #   dark      → #ce9178 (warm orange)
     console.print(f"[{c['accent_3']}]{WELCOME_ART}[/]")
 
     title = f"[bold {c['accent']}]JARVIS v{VERSION}[/]"

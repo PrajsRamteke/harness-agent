@@ -181,6 +181,41 @@ THEMES = {
         "tool_border": "#facc15",
         "project_border": "#22d3ee",
     },
+    "monochrome": {
+        "user_border": "#bbbbbb",
+        "asst_border": "#e0e0e0",
+        "think_border": "#606060",
+        "tool_border": "#999999",
+        "project_border": "#ffffff",
+    },
+    "forest": {
+        "user_border": "#4caf50",
+        "asst_border": "#5a8f4a",
+        "think_border": "#5c6b50",
+        "tool_border": "#cd9b1d",
+        "project_border": "#7cb342",
+    },
+    "dracula": {
+        "user_border": "#50fa7b",
+        "asst_border": "#bd93f9",
+        "think_border": "#6c6f85",
+        "tool_border": "#f1fa8c",
+        "project_border": "#ff79c6",
+    },
+    "sunset": {
+        "user_border": "#56d364",
+        "asst_border": "#e07a3a",
+        "think_border": "#8a604a",
+        "tool_border": "#e3b341",
+        "project_border": "#f59e4c",
+    },
+    "dark": {
+        "user_border": "#4ec9b0",
+        "asst_border": "#569cd6",
+        "think_border": "#606060",
+        "tool_border": "#ce9178",
+        "project_border": "#569cd6",
+    },
 }
 theme: str = "red"
 theme_colors: dict = THEMES["red"]

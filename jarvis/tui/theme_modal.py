@@ -27,6 +27,11 @@ _THEMES = [
     ("slate",     "neutral grays, no color bias, professional"),
     ("ocean",     "deep navy backgrounds, ice-blue accents"),
     ("cyberpunk", "neon cyan + magenta on dark purple, high contrast"),
+    ("monochrome","pure black, zero color — white/gray only"),
+    ("forest",    "deep earthy greens, brown borders, amber highlights"),
+    ("dracula",   "classic dark: purple/pink accents, green highlights"),
+    ("sunset",    "warm brick bg, orange coral accents, amber glow"),
+    ("dark",      "pure black bg, clean blue/teal accents, classic dark"),
 ]
 
 
