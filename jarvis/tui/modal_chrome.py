@@ -18,8 +18,16 @@ from . import theme as _theme
 TDismiss = TypeVar("TDismiss")
 
 
-# Standard column width shared by every list-style modal.
+# Standard column widths shared by every list-style modal.
 ROW_NAME_WIDTH = 22
+ROW_DESC_MAX_WIDTH = 55
+
+
+def _ellipsis(s: str, max_len: int = ROW_DESC_MAX_WIDTH) -> str:
+    """Truncate ``s`` to ``max_len`` characters, appending ``…`` if cut."""
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
 
 
 # Backwards-compatible alias — every modal imports this name.

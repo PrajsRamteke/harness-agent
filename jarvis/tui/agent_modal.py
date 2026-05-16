@@ -32,7 +32,7 @@ from rich.text import Text
 from ..storage import agents as ag
 from ..commands import agent as agent_cmd
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, _ellipsis
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
@@ -419,5 +419,5 @@ def _format_agent_row(agent: dict, active_name: str) -> Text:
         (icon_part, color),
         (f"{agent['name']:<{ROW_NAME_WIDTH}s}", name_style),
         ("  ", ""),
-        (desc, "#8b949e"),
+        (_ellipsis(desc), "#8b949e"),
     )

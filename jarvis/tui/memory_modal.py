@@ -19,7 +19,7 @@ from textual.widgets.option_list import Option
 from rich.text import Text
 
 from ..storage import memory as mem
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
@@ -145,7 +145,7 @@ class MemoryModalScreen(TuiModalScreen[None]):
                     ("  ", ""),
                     (f"#{f['id']:<5d}", "#6e7681"),
                     ("  ", ""),
-                    (f["text"], "#e6edf3"),
+                    (_ellipsis(f["text"], 78), "#e6edf3"),
                 )
                 opts.add_option(Option(row, id=f"fact:{f['id']}"))
         try:

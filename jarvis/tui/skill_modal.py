@@ -24,7 +24,7 @@ from rich.text import Text
 
 from ..storage import skills as sk
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, _ellipsis
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
@@ -243,5 +243,5 @@ def _format_skill_row(skill: dict) -> Text:
         ("  ", ""),
         (f"{name:<{ROW_NAME_WIDTH}s}", "bold #79c0ff"),
         ("  ", ""),
-        (desc[:100], "#8b949e"),
+        (_ellipsis(desc), "#8b949e"),
     )

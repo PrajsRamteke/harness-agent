@@ -25,7 +25,7 @@ from rich.text import Text
 
 from ..storage.settings import get_settings, SETTINGS_FILE, DEFAULTS
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
@@ -176,8 +176,8 @@ class SettingsModalScreen(TuiModalScreen[None]):
             desc = _DESCRIPTIONS.get(path, "")
             row = Text.from_markup(
                 f"  [{key_style}]{path:<22}[/]  "
-                f"[{value_style}]{_fmt_value(value):<28}[/]"
-                f"{tail}  [#6e7681]{desc}[/]"
+                f"[{value_style}]{_ellipsis(_fmt_value(value), 28):<28}[/]"
+                f"{_ellipsis(tail, 30)}  [#6e7681]{_ellipsis(desc, 45)}[/]"
             )
             opts.add_option(Option(row, id=f"k:{path}"))
         try:

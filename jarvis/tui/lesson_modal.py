@@ -20,7 +20,7 @@ from textual.widgets.option_list import Option
 from rich.text import Text
 
 from ..storage import lessons as ls
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
@@ -166,10 +166,10 @@ class LessonModalScreen(TuiModalScreen[None]):
                     (f"#{r['id']:<5d}", "#6e7681"),
                     (f"  ×{r.get('hits', 0):<3d}", "#8b949e"),
                     ("  ", ""),
-                    (r["task"], "bold #e6edf3"),
+                    (_ellipsis(r["task"], 28), "bold #e6edf3"),
                     ("  → ", "#6e7681"),
-                    (r["lesson"], "#e6edf3"),
-                    (tag_part, "#bc8cff"),
+                    (_ellipsis(r["lesson"], 50), "#e6edf3"),
+                    (_ellipsis(tag_part, 25), "#bc8cff"),
                 )
                 opts.add_option(Option(row, id=f"lesson:{r['id']}"))
         try:
