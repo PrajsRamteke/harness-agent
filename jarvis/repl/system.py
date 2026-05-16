@@ -17,6 +17,7 @@ from ..constants.system_prompt import build_base_system
 from ..storage.memory import as_prompt_block
 from ..storage.lessons import as_prompt_block as lessons_prompt_block
 from ..storage.skills import as_prompt_block as skills_prompt_block
+from ..mcp.registry import as_prompt_block as mcp_prompt_block
 from ..storage.agents import (
     as_prompt_block as agents_prompt_block,
     load_agent_body,
@@ -28,6 +29,7 @@ _cached_body: str = ""
 _cached_mem_key: str = ""
 _cached_sk_key: str = ""
 _cached_skills_key: str = ""
+_cached_mcp_key: str = ""
 _cached_agents_key: str = ""
 _cached_pinned: str = ""
 _cached_cwd_branch: str = ""
@@ -76,11 +78,12 @@ def _agent_addon_block() -> str:
 def _build_static_body() -> str:
     """Everything except the date/time line and agent addon. Cached between turns."""
     global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key
-    global _cached_agents_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
+    global _cached_mcp_key, _cached_agents_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
 
     mem_block = as_prompt_block()
     sk_block = lessons_prompt_block()
     skills_block = skills_prompt_block()
+    mcp_block = mcp_prompt_block()
     agents_block = agents_prompt_block()
     pinned = state.pinned_context.strip()
     from pathlib import Path
@@ -91,6 +94,7 @@ def _build_static_body() -> str:
     if (mem_block == _cached_mem_key
             and sk_block == _cached_sk_key
             and skills_block == _cached_skills_key
+            and mcp_block == _cached_mcp_key
             and agents_block == _cached_agents_key
             and pinned == _cached_pinned
             and cwd_branch_key == _cached_cwd_branch
@@ -121,6 +125,8 @@ def _build_static_body() -> str:
         body += "\n" + sk_block
     if skills_block:
         body += "\n" + skills_block
+    if mcp_block:
+        body += "\n" + mcp_block
     if agents_block:
         body += "\n" + agents_block
     if state.project_context_file:
@@ -143,6 +149,7 @@ def _build_static_body() -> str:
     _cached_mem_key = mem_block
     _cached_sk_key = sk_block
     _cached_skills_key = skills_block
+    _cached_mcp_key = mcp_block
     _cached_agents_key = agents_block
     _cached_pinned = pinned
     _cached_cwd_branch = cwd_branch_key

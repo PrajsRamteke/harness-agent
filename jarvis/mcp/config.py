@@ -1,14 +1,12 @@
 """MCP server configuration — discovery, scope handling, and persistence.
 
-Two scopes, mirroring the skills feature:
+Two scopes:
 
-* **project** — always active. The ``.mcp.json`` file in the current working
-  directory (Claude Code compatible). This is the only source loaded by default.
+* **project** — The ``.mcp.json`` file in the current working directory
+  (Claude Code compatible). Always loaded — you control what goes here.
 
-* **global**  — opt-in via ``state.global_mcp = True`` (toggled with
-  ``/mcp global on``). When enabled, servers are aggregated from multiple
-  external tool config files so MCPs you registered with Claude Code,
-  OpenCode, Cursor, etc. become available inside Jarvis too:
+* **global**  — Aggregated from multiple external tool config files when
+  ``state.global_mcp = True`` (toggled with ``/mcp global on``):
 
     - Jarvis     : ``~/.config/harness-agent/mcp.json``
     - Claude Code: ``~/.claude.json``                (``mcpServers`` key)

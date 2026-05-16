@@ -80,7 +80,7 @@ global_skills: bool = False         # if True, include skills from ~/.config/*/s
 
 # MCP
 global_mcp: bool = False            # if True, include MCP servers from global config files
-                                    # (Jarvis, Claude Code, OpenCode, Cursor). When False
+                                    # (Jarvis, Claude Code, OpenCode, Cursor). When False,
                                     # only project .mcp.json is loaded.
 
 # user context

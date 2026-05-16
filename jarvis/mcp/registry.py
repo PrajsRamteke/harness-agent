@@ -541,6 +541,35 @@ class MCPRegistry:
 mcp_registry = MCPRegistry()
 
 
+def as_prompt_block() -> str:
+    """Format MCP server names into the system prompt as a minimal heading.
+
+    Just the server names so the agent knows what's available. Tools are
+    fetched on demand via mcp_registry when needed — not injected here.
+    When no MCP is available (global_mcp off or no servers), returns empty.
+    """
+    from .. import state as jarvis_state
+    from .config import get_config
+
+    if not jarvis_state.global_mcp:
+        return ""
+
+    config = get_config()
+    servers = config.list_servers()
+    if not servers:
+        return ""
+
+    connected = mcp_registry.list_connected()
+    live_names = {name for name, _tools, _err in connected}
+
+    names = sorted(servers.keys())
+    line = "MCP: " + ", ".join(
+        name if name in live_names else f"{name} (offline)"
+        for name in names
+    )
+    return line
+
+
 def auto_connect_servers(console_print: Callable | None = None) -> None:
     """Auto-connect MCP servers listed in the config's auto_connect field."""
     from .config import get_config

@@ -549,7 +549,7 @@ def _build_modal_css() -> str:
 }}
 .tui-modal-screen OptionList > .option-list--option-highlighted,
 .tui-modal-screen OptionList:focus > .option-list--option-highlighted {{
-    background: {BG_3};
+    background: {BG_4};
     color: #ffffff;
     text-style: none;
 }}
