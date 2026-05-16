@@ -52,11 +52,11 @@ def handle_control(c: str, arg: str):
         header_panel()
         return True, None
     if c == "/tokens":
-        console.print(f"in:{state.total_in}  out:{state.total_out}  total:{state.total_in+state.total_out}")
+        console.print(f"in:{state.total_in}  out:{state.total_out}  total:{state.total_tokens}")
         return True, None
     if c == "/cost":
         console.print(f"[green]≈ ${estimated_cost():.4f}[/] "
-                      f"[dim]({state.total_in} in + {state.total_out} out @ {state.MODEL})[/]")
+                      f"[dim]({state.total_in} in + {state.total_out} out = {state.total_tokens} total @ {state.MODEL})[/]")
         return True, None
     if c == "/version":
         from ..constants import VERSION
@@ -76,7 +76,7 @@ def handle_control(c: str, arg: str):
         t.add_row("💬 messages", str(len(state.messages)))
         t.add_row("🔧 tool calls", str(state.tool_calls_count))
         t.add_row("🛠  internals", "shown" if state.show_internal else "hidden")
-        t.add_row("⇅ tokens in/out", f"{state.total_in} / {state.total_out}")
+        t.add_row("⇅ tokens in/out/total", f"{state.total_in} / {state.total_out} / {state.total_tokens}")
         t.add_row("💰 est. cost", f"${estimated_cost():.4f}")
         t.add_row("🤖 model", state.MODEL)
         t.add_row("📂 cwd", str(pathlib.Path.cwd()))

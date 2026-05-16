@@ -71,7 +71,7 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     "minimax-m2.5-free":      ("MiniMax M2.5 Free — default",   PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
     "hy3-preview-free":       ("HY3 Preview Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
     "nemotron-3-super-free":  ("Nemotron 3 Super Free",         PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
-    "ring-2.6-1t-free":       ("Ring 2.6 1T Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
+    # "ring-2.6-1t-free":       ("Ring 2.6 1T Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
     "deepseek-v4-flash-free": ("DeepSeek V4 Flash Free",       PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
 }
 

@@ -152,6 +152,7 @@ def resume_session_into_state(sid: int, console_print, preview: bool = True) -> 
     state.tool_calls_count = 0
     state.total_in = 0
     state.total_out = 0
+    state.total_tokens = 0
     console_print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
     if not preview:
         return True

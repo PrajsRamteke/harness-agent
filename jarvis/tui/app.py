@@ -501,7 +501,7 @@ class JarvisTUI(App):
             right.append(f"[#6e7681]v{VERSION}[/]")
             right.append(f"💬 [#8b949e]{len(state.messages)}[/]")
             right.append(
-                f"⇅ [#8b949e]{state.total_in}[/]/[#8b949e]{state.total_out}[/]"
+                f"⇅ [#8b949e]{state.total_in}[/]/[#8b949e]{state.total_out}[/]=[#8b949e]{state.total_tokens}[/]"
             )
             if state.think_mode:
                 right.append(f"[#3fb950]think:{state.think_effort}[/]")
@@ -1117,7 +1117,7 @@ class JarvisTUI(App):
             right = []
             right.append(f"💬 [#8b949e]{len(state.messages)}[/]")
             right.append(
-                f"⇅ [#8b949e]{state.total_in}[/]/[#8b949e]{state.total_out}[/]"
+                f"⇅ [#8b949e]{state.total_in}[/]/[#8b949e]{state.total_out}[/]=[#8b949e]{state.total_tokens}[/]"
             )
             if state.think_mode:
                 right.append(f"[#3fb950]think:{state.think_effort}[/]")

@@ -44,6 +44,7 @@ think_effort: str = DEFAULT_THINK_EFFORT
 show_internal: bool = True
 total_in: int = 0
 total_out: int = 0
+total_tokens: int = 0
 
 # Cancel processing flag — set when user presses Escape, checked at every
 # checkpoint (stream start, tool execution, between turn iterations).

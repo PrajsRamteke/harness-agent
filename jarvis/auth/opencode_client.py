@@ -18,6 +18,17 @@ from dataclasses import dataclass, field
 from typing import Any, Generator, Optional
 
 
+def _get_usage_value(usage_obj, attr_name: str, default: int = 0) -> int:
+    """Safely extract a token count from a usage object that may be a
+    pydantic model (OpenAI SDK), a raw dict (some OpenCode providers),
+    or None.  Handles all three transparently."""
+    if usage_obj is None:
+        return default
+    if isinstance(usage_obj, dict):
+        return usage_obj.get(attr_name, default)
+    return getattr(usage_obj, attr_name, default)
+
+
 def _repair_truncated_json(raw: str) -> Optional[dict]:
     """Best-effort recovery of a JSON object whose stream was cut mid-flight.
 
@@ -107,6 +118,7 @@ def _opencode_reasoning_options(_model: str, thinking: dict | None) -> dict[str,
 class _Usage:
     input_tokens: int = 0
     output_tokens: int = 0
+    total_tokens: int = 0
 
 
 class _ContentBlock:
@@ -311,8 +323,9 @@ def _openai_response_to_anthropic(response) -> _FakeMessage:
             ))
 
     usage = _Usage(
-        input_tokens=getattr(response.usage, "prompt_tokens", 0),
-        output_tokens=getattr(response.usage, "completion_tokens", 0),
+        input_tokens=_get_usage_value(response.usage, "prompt_tokens"),
+        output_tokens=_get_usage_value(response.usage, "completion_tokens"),
+        total_tokens=_get_usage_value(response.usage, "total_tokens"),
     )
     stop_reason = "tool_use" if msg.tool_calls else "end_turn"
     return _FakeMessage(content=content, usage=usage, stop_reason=stop_reason)
@@ -423,8 +436,9 @@ class _OpenCodeStream:
                         )}
             content.append(_ToolUseBlock(type="tool_use", id=tc["id"], name=tc["name"], input=args))
         usage = _Usage(
-            input_tokens=getattr(self._usage_obj, "prompt_tokens", 0) if self._usage_obj else 0,
-            output_tokens=getattr(self._usage_obj, "completion_tokens", 0) if self._usage_obj else 0,
+            input_tokens=_get_usage_value(self._usage_obj, "prompt_tokens"),
+            output_tokens=_get_usage_value(self._usage_obj, "completion_tokens"),
+            total_tokens=_get_usage_value(self._usage_obj, "total_tokens"),
         )
         stop_reason = "tool_use" if any(b.get("type") == "tool_use" for b in content) else "end_turn"
         return _FakeMessage(content=content, usage=usage, stop_reason=stop_reason)

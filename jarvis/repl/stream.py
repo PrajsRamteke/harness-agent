@@ -161,6 +161,7 @@ def call_claude_stream():
             # so accumulation is correct.
             state.total_in = final.usage.input_tokens
             state.total_out += final.usage.output_tokens
+            state.total_tokens = final.usage.total_tokens
             return final
         except APITimeoutError:
             report_turn_phase("HTTP timeout — no data from API")
