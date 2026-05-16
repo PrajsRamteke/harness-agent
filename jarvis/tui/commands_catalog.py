@@ -74,7 +74,7 @@ COMMANDS = [
     ("/login", "log in with Anthropic Pro/Max subscription (OAuth modal)"),
     ("/logout", "log out of Anthropic OAuth (revert to API key)"),
     ("/auth", "show current provider + auth"),
-    ("/provider ", "switch provider (anthropic/openrouter)"),
+    ("/provider", "open the provider picker (select anthropic / openrouter / opencode)"),
 ]
 
 

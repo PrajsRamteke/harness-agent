@@ -42,6 +42,7 @@ from .lesson_modal import LessonModalScreen
 from .settings_modal import SettingsModalScreen
 from .theme_modal import ThemePickerScreen
 from .login_modal import LoginModalScreen
+from .provider_modal import ProviderPickerScreen
 from . import theme as ui
 from .. import state
 
@@ -52,6 +53,14 @@ from .. import state
 def _is_bare_model_command(text: str) -> bool:
     s = (text or "").strip()
     if not s.startswith("/model"):
+        return False
+    parts = s.split(maxsplit=1)
+    return len(parts) == 1
+
+
+def _is_bare_provider_command(text: str) -> bool:
+    s = (text or "").strip()
+    if not s.startswith("/provider"):
         return False
     parts = s.split(maxsplit=1)
     return len(parts) == 1
@@ -530,6 +539,10 @@ class JarvisTUI(App):
                 self._open_model_picker()
                 inp.focus()
                 return
+            if _is_bare_provider_command(cmd):
+                self._open_provider_picker()
+                inp.focus()
+                return
             if _is_think_picker_command(cmd):
                 self._open_think_picker()
                 inp.focus()
@@ -602,6 +615,16 @@ class JarvisTUI(App):
             _handle_think(effort)
             self._set_status("ready")
         self.push_screen(ThinkPickerScreen(), after)
+
+    def _open_provider_picker(self):
+        def after(provider: str | None):
+            if not provider:
+                self._tui_console.print(f"[{ui.FG_DIM}]provider picker cancelled[/]")
+                return
+            from ..commands.control import _handle_provider
+            _handle_provider(provider)
+            self._set_status("ready")
+        self.push_screen(ProviderPickerScreen(), after)
 
     def _open_mcp_modal(self):
         def after(_: object) -> None:
@@ -802,6 +825,9 @@ class JarvisTUI(App):
 
         if _is_bare_model_command(text):
             self._open_model_picker()
+            return
+        if _is_bare_provider_command(text):
+            self._open_provider_picker()
             return
         if _is_think_picker_command(text):
             self._open_think_picker()
