@@ -71,16 +71,16 @@ class TUIConsole:
             return
         self._flush_streaming_panel()
 
-    # ─── theme helpers (read current state) ──────────────────────────
+    # ─── theme helpers ───────────────────────────────────────────────
     @staticmethod
     def _asst_border() -> str:
-        from .. import state as _s
-        return _s.theme_colors["asst_border"]
+        from . import theme as _t
+        return _t.ACCENT_2
 
     @staticmethod
     def _think_border() -> str:
-        from .. import state as _s
-        return _s.theme_colors["think_border"]
+        from . import theme as _t
+        return _t.SEP
 
     def _flush_streaming_panel(self) -> None:
         buf = self._as_buffer
@@ -235,13 +235,8 @@ class TUIConsole:
         prev = None
         if self._status is not None:
             try:
-                from textual.widgets import RichLog
-                if isinstance(self._status, RichLog):
-                    self._app.call_from_thread(self._status.clear)
-                    self._app.call_from_thread(self._status.write, message)
-                else:
-                    prev = getattr(self._status, "renderable", None)
-                    self._app.call_from_thread(self._status.update, message)
+                prev = getattr(self._status, "renderable", None)
+                self._app.call_from_thread(self._status.update, message)
             except Exception:
                 pass
         try:
@@ -249,13 +244,7 @@ class TUIConsole:
         finally:
             if self._status is not None:
                 try:
-                    from textual.widgets import RichLog
-                    if isinstance(self._status, RichLog):
-                        self._app.call_from_thread(self._status.clear)
-                        if prev:
-                            self._app.call_from_thread(self._status.write, prev)
-                    else:
-                        self._app.call_from_thread(self._status.update, prev or "")
+                    self._app.call_from_thread(self._status.update, prev or "")
                 except Exception:
                     pass
 

@@ -380,7 +380,7 @@ def _handle_theme(arg: str) -> None:
         for t in valid:
             marker = " ← active" if t == cur else ""
             lines.append(f"  [cyan]{t}[/]{marker}")
-        lines.append("\nusage: [dim]/theme red[/]  or  [dim]/theme purple[/]")
+        lines.append("\nusage: [dim]/theme <name>[/]  —  " + ", ".join(valid))
         console.print(Panel("\n".join(lines), title="🎨 theme", border_style="cyan"))
         return
 

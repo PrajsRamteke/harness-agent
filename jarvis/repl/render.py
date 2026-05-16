@@ -12,6 +12,15 @@ from .hallucination import _scrub_hallucinations
 from .tool_activity import describe_tool_activity
 from .turn_progress import report_turn_phase
 
+try:
+    from ..tui import theme as _ui
+except Exception:  # pragma: no cover
+    from types import SimpleNamespace
+    _ui = SimpleNamespace(
+        ACCENT_2="#c084fc", WARN="#e3b341", SEP="#1f2630",
+        FG_DIM="#6b7684", ERR="#f85149",
+    )
+
 
 def assistant_model_label() -> str:
     """Short label for assistant panels (Sonnet / Opus / Haiku / raw model id)."""
@@ -111,7 +120,7 @@ def render_assistant(resp) -> bool:
     """Print assistant content, execute any tool calls, return True if more turns needed."""
     report_turn_phase("Jarvis: applying model output (text & tool plan)…")
     _model_label = assistant_model_label()
-    panel_title = f"Jarvis [{_model_label}]"
+    panel_title = f"jarvis · {_model_label}"
 
     def _abort_stream_if_no_text():
         if not state._assistant_stream_ui_active:
@@ -155,16 +164,17 @@ def render_assistant(resp) -> bool:
                 state._assistant_stream_ui_active = False
                 thinking_blocks = []  # already rendered inside commit; don't re-render
                 if was_flagged:
-                    console.print("[dim red]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
+                    console.print(f"[{_ui.ERR}]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
                 continue
             console.print(Panel(
                 Markdown(text),
                 title=panel_title,
-                border_style="magenta",
+                title_align="left",
+                border_style=_ui.ACCENT_2,
                 padding=(0, 1),
             ))
             if was_flagged:
-                console.print("[dim red]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
+                console.print(f"[{_ui.ERR}]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
 
         # ── thinking block — collect, render after text commit ───────
         elif b.type == "thinking":
@@ -186,7 +196,8 @@ def render_assistant(resp) -> bool:
             console.print(Panel(
                 thinking,
                 title="thinking",
-                border_style="dim",
+                title_align="left",
+                border_style=_ui.SEP,
                 padding=(0, 1),
             ))
 
@@ -216,12 +227,12 @@ def render_assistant(resp) -> bool:
         for b in tool_uses:
             icon, ap, out_str = outputs[b.id]
             if state.show_internal:
-                console.print(f"{icon} [yellow]{b.name}[/] [dim]{ap}[/]")
+                console.print(f"{icon} [{_ui.WARN}]{b.name}[/] [{_ui.FG_DIM}]{ap}[/]")
                 if re.search(r"\S", out_str):
                     short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
                     # Wrap in Text so stray brackets in tool output (e.g. URLs,
                     # JSON fragments) aren't interpreted as Rich markup tags.
-                    console.print(Panel(Text(short), border_style="dim", padding=(0, 1)))
+                    console.print(Panel(Text(short), border_style=_ui.SEP, padding=(0, 1)))
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": b.id,

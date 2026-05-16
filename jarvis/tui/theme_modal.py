@@ -1,4 +1,4 @@
-"""Centered theme picker — switch between red / purple."""
+"""Centered theme picker — switch between red / blue / purple / green."""
 from __future__ import annotations
 
 from textual.app import ComposeResult
@@ -11,20 +11,25 @@ from rich.text import Text
 
 from ..storage.settings import get_settings
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, get_modal_chrome_css
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 _THEMES = [
-    ("red",    "original green + magenta accents"),
-    ("purple", "soft purple + green accents"),
+    ("red",    "warm coral tones, soft pink highlights"),
+    ("blue",   "cool blue tones, teal secondary, sky highlights"),
+    ("purple", "soft violet accents, warm amber warnings"),
+    ("green",  "nature green primary, teal secondary, mint highlights"),
+    ("orange", "fiery orange accents, golden highlights"),
+    ("yellow", "gold and amber tones, bright highlights"),
 ]
 
 
 class ThemePickerScreen(TuiModalScreen[str | None]):
-    DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
+    DEFAULT_CSS = get_modal_chrome_css() + """
     ThemePickerScreen #modal { width: 56%; max-width: 80; max-height: 50%; }
-    ThemePickerScreen OptionList { height: 6; }
+    ThemePickerScreen OptionList { height: 8; }
     """
 
     BINDINGS = [
@@ -47,12 +52,14 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
         enable_mouse()
         opts = self.query_one("#theme_list", OptionList)
         active_idx = 0
+        accent_color = ui.ACCENT_2  # current theme's accent-2
+        ok_color = ui.OK
         for i, (name, desc) in enumerate(_THEMES):
             is_active = name == state.theme
             marker = "● " if is_active else "  "
             row = Text.assemble(
-                (marker, "bold #3fb950"),
-                (f"{name:<10s}", "bold #79c0ff" if is_active else "#79c0ff"),
+                (marker, f"bold {ok_color}"),
+                (f"{name:<10s}", f"bold {accent_color}" if is_active else accent_color),
                 ("  ", ""),
                 (desc, "#8b949e"),
             )

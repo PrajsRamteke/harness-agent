@@ -138,7 +138,7 @@ def call_claude_stream():
     _worker_thread_id = threading.current_thread().ident or 0
     delays = [1, 3, 6]
     oauth_refreshed = False
-    panel_title = f"Jarvis [{assistant_model_label()}]"
+    panel_title = f"jarvis · {assistant_model_label()}"
     for attempt in range(len(delays) + 1):
         try:
             report_turn_phase("Jarvis: API waiting...")

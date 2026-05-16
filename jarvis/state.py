@@ -109,13 +109,21 @@ active_agent: Optional[dict] = None
 global_agents: bool = False
 
 # ── visual theme ────────────────────────────────────────────────────────────
+# These are kept in sync with jarvis/tui/theme.py PALETTES.
 THEMES = {
     "red": {
-        "user_border": "green",
-        "asst_border": "magenta",
-        "think_border": "dim",
-        "tool_border": "yellow",
-        "project_border": "cyan",
+        "user_border": "#3fb950",
+        "asst_border": "#f97583",
+        "think_border": "#8b949e",
+        "tool_border": "#d29922",
+        "project_border": "#ff7b72",
+    },
+    "blue": {
+        "user_border": "#3fb950",
+        "asst_border": "#56d4dd",
+        "think_border": "#8b949e",
+        "tool_border": "#d29922",
+        "project_border": "#58a6ff",
     },
     "purple": {
         "user_border": "#3fb950",
@@ -124,13 +132,34 @@ THEMES = {
         "tool_border": "#d29922",
         "project_border": "#58a6ff",
     },
+    "green": {
+        "user_border": "#3fb950",
+        "asst_border": "#56d4dd",
+        "think_border": "#8b949e",
+        "tool_border": "#d29922",
+        "project_border": "#56d364",
+    },
+    "orange": {
+        "user_border": "#3fb950",
+        "asst_border": "#f0883e",
+        "think_border": "#8b949e",
+        "tool_border": "#d29922",
+        "project_border": "#ffa657",
+    },
+    "yellow": {
+        "user_border": "#3fb950",
+        "asst_border": "#e3b341",
+        "think_border": "#8b949e",
+        "tool_border": "#d29922",
+        "project_border": "#f0d272",
+    },
 }
 theme: str = "red"
 theme_colors: dict = THEMES["red"]
 
 
 def _reload_saved_theme() -> None:
-    """Restore theme from the unified settings file (migrates legacy on first read)."""
+    """Restore theme from the unified settings file and sync the TUI theme module."""
     global theme, theme_colors
     try:
         from .storage.settings import get_settings
@@ -138,6 +167,12 @@ def _reload_saved_theme() -> None:
         if t in THEMES:
             theme = t
             theme_colors = dict(THEMES[t])
+            # Sync the TUI theme module so Python constants update.
+            try:
+                from .tui.theme import set_theme as _set_tui_theme
+                _set_tui_theme(t)
+            except Exception:
+                pass
             return
     except Exception:
         pass

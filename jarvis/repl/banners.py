@@ -1,8 +1,53 @@
-"""Welcome banner and status-header panel."""
+"""Welcome banner and status header.
+
+In the TUI the persistent info (model / agent / session) lives in the
+status bar, so this module emits only a lean welcome card into the
+transcript. The legacy Rich REPL path still calls ``header_panel``.
+
+Theme-awareness
+---------------
+Theme colors are resolved *live* inside each function so they pick up
+runtime ``set_theme()`` calls.  We never capture ``_ui.ACCENT`` at module
+level — that would freeze one theme for the lifetime of the import.
+"""
 from rich.markup import escape
 
 from ..console import console, Panel
 from .. import state
+
+
+def _theme_colors():
+    """Return current theme color tokens — works in TUI and Rich REPL."""
+    try:
+        from ..tui import theme as _ui
+        return {
+            "accent": _ui.ACCENT,
+            "accent_2": _ui.ACCENT_2,
+            "accent_3": _ui.ACCENT_3,
+            "fg_mute": _ui.FG_MUTE,
+            "fg_dim": _ui.FG_DIM,
+            "ok": _ui.OK,
+            "border": _ui.BORDER,
+            "border_fc": _ui.BORDER_FC,
+            "warn": _ui.WARN,
+            "err": _ui.ERR,
+            "sep": _ui.SEP,
+        }
+    except Exception:  # pragma: no cover — Rich REPL without TUI module
+        return {
+            "accent": "#79c0ff",
+            "accent_2": "#c084fc",
+            "accent_3": "#f0b3ff",
+            "fg_mute": "#9aa4b1",
+            "fg_dim": "#6b7684",
+            "ok": "#56d364",
+            "border": "#2a323d",
+            "border_fc": "#4d8df6",
+            "warn": "#e3b341",
+            "err": "#f85149",
+            "sep": "#1f2630",
+        }
+
 
 WELCOME_ART = r"""
   ██╗  ██╗ █████╗ ██████╗ ███╗   ██╗███████╗███████╗███████╗    █████╗  ██████╗ ███████╗███╗   ██╗████████╗
@@ -15,93 +60,108 @@ WELCOME_ART = r"""
 
 
 def welcome_banner(compact: bool = False):
+    """Render the welcome card into the active console (transcript in TUI).
+
+    Colors are resolved live from the current theme so the art and panel
+    shift when the user switches themes mid-session.
+    """
+    c = _theme_colors()
     from ..constants import VERSION
 
-    asst = state.theme_colors["asst_border"]
-    link = state.theme_colors["project_border"]
-    if not compact:
-        console.print(f"[{asst}]{WELCOME_ART}[/]")
-    console.print(Panel(
-        f"[{asst}]Jarvis[/] [dim]v{VERSION}[/] — chat, code, and control your Mac.\n"
-        f"[dim][{link}]/help[/] commands · [{link}]F2[/]/[{link}]/verbose[/] internals · [{link}]/exit[/] quit[/]",
-        border_style=asst, padding=(0, 2),
-    ))
+    # Art uses accent_3 (the "highlight" token) — varies per theme:
+    #   red    → #ffa198 (coral)
+    #   blue   → #79f0ff (cyan)
+    #   purple → #f0b3ff (pink)
+    #   green  → #a3f0bf (mint)
+    #   orange → #fec77d (golden)
+    #   yellow → #f0d272 (pale gold)
+    console.print(f"[{c['accent_3']}]{WELCOME_ART}[/]")
+
+    title = f"[bold {c['accent']}]JARVIS v{VERSION}[/]"
+    tagline = f"[{c['fg_mute']}]Chat, code, and control your Mac.[/]"
+    hints = (
+        f"[{c['accent_2']}]/[/] commands   "
+        f"[{c['accent_2']}]/agent[/] pick agent   "
+        f"[{c['accent_2']}]/model[/] switch model   "
+        f"[{c['accent_2']}]/help[/] full reference   "
+        f"[{c['accent_2']}]F2[/] toggle internals"
+    )
+
+    body = f"{title}    {tagline}\n{hints}"
+    console.print(Panel(body, border_style=c['border'], padding=(0, 2)))
 
     if state.update_result:
         info = state.update_result
         count = info.get("count", 0)
         commits = info.get("commits", [])
         noun = "commit" if count == 1 else "commits"
-        lines = [f"[bold {link}]✓ {count} new {noun} pulled[/]"]
-        for c in commits[:5]:
-            lines.append(f"[dim]  · {escape(c)}[/]")
+        lines = [f"[bold {c['ok']}]✓ {count} new {noun} pulled[/]"]
+        for commit in commits[:5]:
+            lines.append(f"[{c['fg_dim']}]  · {escape(commit)}[/]")
         if len(commits) > 5:
-            lines.append(f"[dim]  … and {len(commits) - 5} more[/]")
-        lines.append(f"\n[dim]Restart Jarvis to run the updated code.[/]")
+            lines.append(f"[{c['fg_dim']}]  … and {len(commits) - 5} more[/]")
+        lines.append(f"\n[{c['fg_dim']}]Restart Jarvis to run the updated code.[/]")
         console.print(Panel(
             "\n".join(lines),
             title="[bold]Updated[/]",
             title_align="left",
-            border_style=link,
+            border_style=c['accent'],
             padding=(0, 2),
         ))
 
 
-def _agent_flag() -> str:
-    """Compact rich-markup indicator for the active agent (header panels).
+def _agent_flag(c: dict | None = None) -> str:
+    """Compact indicator for the active agent — used in the Rich REPL header.
 
-    Falls back to a dim "default" badge when no agent is active so the
-    header always tells the user which prompt is in effect.
+    The TUI uses ``jarvis.tui.app._agent_badge_markup`` instead.
     """
+    if c is None:
+        c = _theme_colors()
     rec = state.active_agent
     if rec is None and state.active_agent_name:
         rec = state.resolve_active_agent()
     if not rec:
-        return "[dim]default[/]"
+        return f"[{c['fg_dim']}]default[/]"
     icon = (rec.get("icon") or "").strip()
-    color = (rec.get("color") or "").strip() or "#3fb950"
+    color = (rec.get("color") or "").strip() or c['ok']
     label = f"{icon} {rec['name']}".strip() if icon else rec["name"]
     return f"[bold {color}]{label}[/]"
 
 
 def header_panel(compact: bool = False):
-    # Use live cwd so /cd and launch location are reflected immediately.
+    """Rich-REPL only header strip. The TUI shows status bar instead."""
+    c = _theme_colors()
     import pathlib
     from ..constants import VERSION
 
     cwd = pathlib.Path.cwd()
     cwd_text = escape(str(cwd))
-    pinned_flag = "[#d29922]pinned[/]" if state.pinned_context.strip() else "[dim]no pin[/]"
-    asst = state.theme_colors["asst_border"]
-    hl = state.theme_colors["project_border"]
-    think_hl = f"[{hl}]{state.think_effort}[/]"
-    verbose = f"[{hl}]verbose[/]"
-    auto_hl = f"[{hl}]auto[/]"
-    off = "[dim]off[/]"
-    quiet = "[dim]quiet[/]"
-    ask = "[dim]ask[/]"
+    pinned_flag = (
+        f"[{c['accent']}]pinned[/]" if state.pinned_context.strip()
+        else f"[{c['fg_dim']}]no pin[/]"
+    )
+    think_hl = f"[{c['accent']}]{state.think_effort}[/]"
+    off = f"[{c['fg_dim']}]off[/]"
     if compact:
         flags = "  ".join([
-            f"[{asst}]{state.MODEL}[/]",
-            f"agent:{_agent_flag()}",
+            f"[{c['accent']}]{state.MODEL}[/]",
+            f"agent:{_agent_flag(c)}",
             f"think:{think_hl if state.think_mode else off}",
-            f"tools:{verbose if state.show_internal else quiet}",
             f"v{VERSION}",
-            f"[dim]{cwd_text}[/]",
+            f"[{c['fg_dim']}]{cwd_text}[/]",
         ])
-        console.print(f"[dim]{flags}[/]")
+        console.print(f"[{c['fg_mute']}]{flags}[/]")
         return
     flags = " • ".join([
-        f"[{asst}]{state.MODEL}[/]",
+        f"[{c['accent']}]{state.MODEL}[/]",
         f"v{VERSION}",
-        f"agent {_agent_flag()}",
+        f"agent {_agent_flag(c)}",
         f"think {think_hl if state.think_mode else off}",
-        f"bash {auto_hl if state.auto_approve else ask}",
-        f"tools {verbose if state.show_internal else quiet}",
+        f"bash {c['accent'] if state.auto_approve else c['fg_dim']}",
         f"pin {pinned_flag}",
         f"msgs {len(state.messages)}",
-        f"[dim]{cwd_text}[/]",
-        f"provider [dim]{state.provider}[/]",
-        f"auth [dim]{state.auth_mode if state.provider == 'anthropic' else 'api_key'}[/]",
+        f"[{c['fg_dim']}]{cwd_text}[/]",
+        f"provider [{c['fg_dim']}]{state.provider}[/]",
+        f"auth [{c['fg_dim']}]{state.auth_mode if state.provider == 'anthropic' else 'api_key'}[/]",
     ])
-    console.print(Panel(flags, border_style=hl, padding=(0, 1)))
+    console.print(Panel(flags, border_style=c['border'], padding=(0, 1)))

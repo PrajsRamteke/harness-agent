@@ -121,7 +121,7 @@ def _atomic_write(path: pathlib.Path, text: str) -> None:
 
 # ── Settings class ───────────────────────────────────────────────────────
 
-_VALID_THEMES = ("red", "purple")
+_VALID_THEMES = ("red", "blue", "purple", "green", "orange", "yellow")
 _VALID_THINK_EFFORTS = ("none", "low", "medium", "high")
 
 

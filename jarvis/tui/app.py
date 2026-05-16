@@ -1,20 +1,19 @@
 """Textual TUI app for Jarvis.
 
-Layout (OpenCode-inspired):
-
-    ┌───────────────── header (title + model/session) ─────────────────┐
-    │                                                                   │
-    │                          transcript (RichLog)                     │
-    │                                                                   │
-    ├──────────────── activity (phase + clock) ─────────────────────────┤
-    ├──────────────────────── status line ──────────────────────────────┤
-    │ ❯ input                                                           │
-    └───────────────────────────────────────────────────────────────────┘
+Layout
+------
+    ┌─ header (brand · model · agent · #session) ─────────────────────┐
+    │                                                                 │
+    │                       transcript (RichLog)                      │
+    │                                                                 │
+    ├──────────────── status strip (spinner · stats) ─────────────────┤
+    │ ❯ composer                                                      │
+    ├──────────────── hint bar (key cheatsheet) ──────────────────────┤
+    └─────────────────────────────────────────────────────────────────┘
 """
 from __future__ import annotations
 
 import sys
-import threading
 import time
 
 from textual.actions import SkipAction
@@ -43,7 +42,11 @@ from .lesson_modal import LessonModalScreen
 from .settings_modal import SettingsModalScreen
 from .theme_modal import ThemePickerScreen
 from .login_modal import LoginModalScreen
+from . import theme as ui
 from .. import state
+
+
+# ─── slash-command sniffers (modal-opening shortcuts) ────────────────────
 
 
 def _is_bare_model_command(text: str) -> bool:
@@ -65,19 +68,16 @@ def _is_think_picker_command(text: str) -> bool:
 
 
 def _is_mcp_modal_command(text: str) -> bool:
-    """Bare ``/mcp`` (no subcommand) opens the modal in the TUI."""
     s = (text or "").strip().lower()
     return s in ("/mcp", "/mcps")
 
 
 def _is_agent_picker_command(text: str) -> bool:
-    """Bare ``/agent`` / ``/agents`` opens the agent picker in the TUI."""
     s = (text or "").strip().lower()
     return s in ("/agent", "/agents")
 
 
 def _is_skill_picker_command(text: str) -> bool:
-    """Bare ``/skill`` / ``/skills`` opens the skill browser modal in the TUI."""
     s = (text or "").strip().lower()
     return s in ("/skill", "/skills")
 
@@ -103,28 +103,29 @@ def _is_theme_modal_command(text: str) -> bool:
 
 
 def _is_login_command(text: str) -> bool:
-    """Bare ``/login`` opens the Anthropic OAuth modal in the TUI."""
     s = (text or "").strip().lower()
     return s in ("/login", "/signin", "/sign-in")
 
 
-def _format_agent_status_segment() -> str:
-    """Render the active-agent badge for the status bar.
+# ─── header / status segment builders ────────────────────────────────────
 
-    Always shows something — "default" when no agent is active so the user
-    can see at a glance which prompt is in effect.
-    """
+
+def _agent_badge_markup() -> str:
+    """Compact badge for the active agent — used in header & status."""
     rec = state.active_agent
     if rec is None and state.active_agent_name:
         rec = state.resolve_active_agent()
     if not rec:
-        return "[dim #8b949e]default[/]"
+        return f"[{ui.FG_DIM}]default[/]"
     icon = (rec.get("icon") or "").strip()
-    color = (rec.get("color") or "").strip() or "#3fb950"
+    color = (rec.get("color") or "").strip() or ui.OK
     label = f"{icon} {rec['name']}".strip() if icon else rec["name"]
     if rec.get("scope") == "global":
-        return f"[bold {color}]{label}[/] [dim](global)[/]"
+        return f"[bold {color}]{label}[/] [{ui.FG_DIM}](g)[/]"
     return f"[bold {color}]{label}[/]"
+
+
+# ─── multi-line prompt (Enter submits, Ctrl+J / Alt+Enter for newline) ───
 
 
 class PromptArea(TextArea):
@@ -132,12 +133,8 @@ class PromptArea(TextArea):
 
     - Enter submits.
     - Ctrl+J / Alt+Enter / Ctrl+Enter / Shift+Enter / Ctrl+N insert a newline.
-      Many terminals cannot distinguish Shift+Enter from plain Enter; Ctrl+J
-      is the most portable newline key (it's the literal LF byte).
-    - Trailing backslash before Enter inserts a newline (bash-style continuation).
-    - Ctrl+D / Ctrl+C bubble up to the App so the global Quit / Cancel
-      bindings still fire while the input is focused (TextArea normally
-      swallows Ctrl+D as "delete-forward").
+    - Trailing backslash before Enter inserts a newline (bash-style).
+    - Ctrl+D / Ctrl+C bubble up to the App.
     """
 
     class Submitted(Message):
@@ -148,9 +145,6 @@ class PromptArea(TextArea):
     async def _on_key(self, event):  # type: ignore[override]
         key = event.key
         if key == "escape":
-            # TextArea normally swallows Escape (to defocus); forward it to the
-            # App so an in-flight turn can be cancelled while the prompt is
-            # focused. action_escape_action() is a safe no-op when idle.
             event.stop()
             event.prevent_default()
             try:
@@ -199,12 +193,7 @@ class PromptArea(TextArea):
 
 
 def _swap_console_everywhere(tui_console):
-    """Replace every `console` module attribute across loaded jarvis.* modules.
-
-    `from ..console import console` creates per-module bindings — reassigning
-    `jarvis.console.console` alone would not update them. Walk all loaded
-    submodules and swap the attribute where present.
-    """
+    """Replace every `console` module attribute across loaded jarvis.* modules."""
     import jarvis.console as _cmod
     _cmod.console = tui_console
     for name, mod in list(sys.modules.items()):
@@ -217,91 +206,12 @@ def _swap_console_everywhere(tui_console):
                 pass
 
 
+# ─── App ─────────────────────────────────────────────────────────────────
+
+
 class JarvisTUI(App):
     ENABLE_COMMAND_PALETTE = False
-    CSS = """
-    /* ── GitHub Dark-inspired theme ────────────────────────── */
-    Screen {
-        background: #0d1117;
-        layers: base overlay;
-    }
-    #main {
-        height: 100%;
-        width: 100%;
-        min-width: 0;
-    }
-
-    /* ── Transcript ─────────────────────────────────────── */
-    #transcript {
-        background: #0d1117;
-        color: #e6edf3;
-        padding: 0 2;
-        border: none;
-        height: 1fr;
-        min-height: 0;
-        min-width: 0;
-        overflow-y: auto;
-        scrollbar-color: transparent transparent;
-        scrollbar-size-vertical: 0;
-    }
-
-    /* ── Status bar (single line: agent · model · #session · stats) ─── */
-    #statusbar {
-        height: 1;
-        max-height: 1;
-        background: #0d1117;
-        color: #8b949e;
-        padding: 0 2;
-        margin: 0;
-        min-width: 0;
-        border: none;
-        scrollbar-size-vertical: 0;
-        scrollbar-color: transparent transparent;
-    }
-
-    /* ── Prompt input row ───────────────────────────────── */
-    #prompt_row {
-        height: auto;
-        margin: 1 2 1 2;
-        background: #161b22;
-        border: round #30363d;
-        min-width: 0;
-        padding: 0 1;
-    }
-    #prompt_row:focus-within {
-        border: round #58a6ff;
-    }
-    #prompt_prefix {
-        width: 3;
-        padding: 0;
-        content-align: center middle;
-        color: #58a6ff;
-        text-style: bold;
-        dock: left;
-        background: #161b22;
-    }
-    #prompt {
-        height: auto;
-        min-height: 1;
-        max-height: 12;
-        background: #161b22;
-        border: none;
-        padding: 0 1;
-        min-width: 0;
-    }
-    #prompt:focus {
-        border: none;
-    }
-
-    /* ── Shared widget defaults ─────────────────────────── */
-    Input, TextArea {
-        background: #161b22;
-        color: #e6edf3;
-    }
-    TextArea > .text-area--cursor-line {
-        background: #161b22;
-    }
-    """
+    CSS = ui.GLOBAL_CSS
 
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=True),
@@ -319,8 +229,6 @@ class JarvisTUI(App):
     ]
 
     def action_scroll_transcript(self, direction: str) -> None:
-        # App-level priority bindings run before modal widgets; skip so ↑/↓/PgUp…
-        # reach OptionList in session/model/command pickers (see Textual SkipAction).
         if isinstance(self.screen, ModalScreen):
             raise SkipAction
         try:
@@ -345,20 +253,15 @@ class JarvisTUI(App):
     def __init__(self):
         super().__init__()
         self._busy = False
-        self._cancel_flag = threading.Event()
         self._last_input_value = ""
         self._activity_timer = None
         self._activity_label = ""
         self._activity_t0 = 0.0
         self._turn_t0 = 0.0
         self._activity_spinner_i = 0
-        self._spinner_frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠏"
-        # Toggled from Ctrl+C to disambiguate cancel → quit when there is no
-        # selection and no in-flight turn. Reset on any next keypress.
+        self._spinner_frames = ui.SPINNER_FRAMES
+        self._status_msg = "ready"
         self._last_ctrl_c_t = 0.0
-        # When True, the next key press is logged to the transcript instead
-        # of being dispatched. Toggled by /keytest so users can see exactly
-        # what their terminal sends for keys like Shift+Enter / Cmd+Enter.
         self._key_debug = False
 
     async def _on_key(self, event):  # type: ignore[override]
@@ -371,15 +274,15 @@ class JarvisTUI(App):
                 aliases = list(getattr(event, "key_aliases", []) or [])
                 char_repr = repr(char) if char is not None else "<none>"
                 self._tui_console.print(
-                    f"[#3fb950]🔑 keytest:[/] [bold]{key}[/]  "
-                    f"[dim](name={name}, char={char_repr}, aliases={aliases})[/]"
+                    f"[{ui.OK}]🔑 keytest:[/] [bold]{key}[/]  "
+                    f"[{ui.FG_DIM}](name={name}, char={char_repr}, aliases={aliases})[/]"
                 )
                 if key == "enter" and name == "enter":
                     self._tui_console.print(
-                        "[dim]→ your terminal sent bare Enter — it doesn't "
-                        "distinguish Shift+Enter from Enter. Use Ctrl+N / Ctrl+J / "
-                        "Alt+Enter / \\\\+Enter, or enable the Kitty keyboard "
-                        "protocol in your terminal.[/]"
+                        f"[{ui.FG_DIM}]→ your terminal sent bare Enter — it doesn't "
+                        f"distinguish Shift+Enter from Enter. Use Ctrl+N / Ctrl+J / "
+                        f"Alt+Enter / \\\\+Enter, or enable the Kitty keyboard "
+                        f"protocol in your terminal.[/]"
                     )
             except Exception:
                 pass
@@ -387,52 +290,55 @@ class JarvisTUI(App):
             event.prevent_default()
             return
 
+    # ─── compose ─────────────────────────────────────────────────────
     def compose(self) -> ComposeResult:
         with Vertical(id="main"):
-            yield RichLog(id="transcript", wrap=True, highlight=True, markup=True, auto_scroll=True)
-            yield RichLog(id="statusbar", wrap=False, highlight=False, markup=True, auto_scroll=False, max_lines=1)
-            with Horizontal(id="prompt_row"):
-                yield Static("❯", id="prompt_prefix", markup=False)
+            yield RichLog(
+                id="transcript",
+                wrap=True,
+                highlight=True,
+                markup=True,
+                auto_scroll=True,
+            )
+            yield Static("", id="statusbar", markup=True, shrink=True)
+            with Horizontal(id="composer"):
+                yield Static(ui.ARROW, id="prompt_prefix", markup=False)
                 yield PromptArea(id="prompt")
+            yield Static("", id="hintbar", markup=True, shrink=True)
 
-    # ─── lifecycle ─────────────────────────────────────────────────────
+    # ─── lifecycle ───────────────────────────────────────────────────
     def on_mount(self):
         from ..constants import VERSION
         self.title = f"Jarvis v{VERSION}"
         self.sub_title = "The better agent"
 
         log = self.query_one("#transcript", RichLog)
-        status = self.query_one("#statusbar", RichLog)
+        status = self.query_one("#statusbar", Static)
 
-        # Install the shim BEFORE touching any jarvis.repl/* code so their
-        # module-local `console` names are rebound to the TUI console.
+        # Swap console BEFORE importing repl/* so their module-local
+        # `console` names are rebound to the TUI console.
         tui_console = TUIConsole(self, log, status)
         _swap_console_everywhere(tui_console)
         self._tui_console = tui_console
 
-        # Now it is safe to import the parts that log to `console`.
         from ..auth.client import make_client
         from ..storage.sessions import db_init, db_create_session
-        from ..repl.banners import welcome_banner, header_panel
-        from .. import state
+        from ..repl.banners import welcome_banner
 
-        # Auth is normally resolved *before* the TUI starts (see `run()` below)
-        # so interactive prompts use real stdio. Fall back to in-TUI resolution
-        # only if something bypassed that path.
         if state.client is None:
             state.client = make_client()
         welcome_banner()
-        header_panel(compact=True)
         db_init()
         state.current_session_id = db_create_session(state.MODEL)
+
+        # Header / hint / status are all rendered through the new writer.
+        self._render_hintbar()
         self._set_status("ready")
         self._sync_activity_phase("")
 
-        # Auto-connect MCP servers from config
         from ..mcp.registry import auto_connect_servers
         auto_connect_servers(console_print=self._tui_console.print)
 
-        # ── Detect project context file without reading full content ───────
         from ..project_context import detect_project_context
         detect_project_context()
 
@@ -440,37 +346,130 @@ class JarvisTUI(App):
             log.write(
                 Panel(
                     Text.from_markup(
-                        f"📄 [bold #58a6ff]{state.project_context_file}[/] found — "
-                        f"[#58a6ff]available on demand via read_file[/]",
+                        f"📄 [bold {ui.ACCENT}]{state.project_context_file}[/] "
+                        f"detected — [{ui.FG_MUTE}]loaded on demand via read_file[/]"
                     ),
-                    title="Project Context",
+                    title="project context",
                     title_align="left",
-                    border_style=state.theme_colors["project_border"],
+                    border_style=ui.ACCENT,
                     padding=(0, 1),
                 )
             )
-            self._set_status("ready")
 
-        # ── Detect project-base skills (.skills/) ────────────────────────────
         from ..storage import skills as _skills
         _sk_count = _skills.skill_count()
         if _sk_count > 0:
             log.write(
                 Panel(
                     Text.from_markup(
-                        f"🧠 [bold #58a6ff]{_sk_count} skill{'s' if _sk_count != 1 else ''}[/] available — "
-                        f"[#58a6ff]headers in system prompt[/], "
-                        f"[dim]use /skill to list or skill_load() to load[/]",
+                        f"🧠 [bold {ui.ACCENT_2}]{_sk_count} skill"
+                        f"{'s' if _sk_count != 1 else ''}[/] available — "
+                        f"[{ui.FG_MUTE}]auto-invoked from headers in system prompt[/]"
                     ),
-                    title="Project Skills",
+                    title="skills",
                     title_align="left",
-                    border_style=state.theme_colors["project_border"],
+                    border_style=ui.ACCENT_2,
                     padding=(0, 1),
                 )
             )
 
         self.query_one("#prompt", PromptArea).focus()
 
+    # ─── hint bar ────────────────────────────────────────────────────
+    def _render_hintbar(self) -> None:
+        try:
+            hints = [
+                f"[{ui.ACCENT_3}]↵[/] send",
+                f"[{ui.ACCENT_3}]⇧↵[/]/[{ui.ACCENT_3}]⌃J[/] newline",
+                f"[{ui.ACCENT_3}]/[/] commands",
+                f"[{ui.ACCENT_3}]⇥[/] agent",
+                f"[{ui.ACCENT_3}]esc[/] cancel",
+                f"[{ui.ACCENT_3}]^C[/] copy/cancel",
+                f"[{ui.ACCENT_3}]^D[/] quit",
+                f"[{ui.ACCENT_3}]F2[/] internals",
+            ]
+            line = f"  [{ui.SEP}]{ui.DOT}[/]  ".join(hints)
+            self.query_one("#hintbar", Static).update(Text.from_markup(line))
+        except Exception:
+            pass
+
+    # ─── status bar (single line with everything) ────────────────────
+    _STATUS_SEP = f"  [{ui.SEP}]{ui.DOT}[/]  "
+
+    def _build_status_segments(self, *, busy: bool) -> list[str]:
+        """Build all segments for the status bar — brand, activity, model,
+        agent, session, stats, project context, internals — in one list."""
+        segs: list[str] = []
+
+        # ── activity / status ─────────────────────────────────────────
+        if busy and self._activity_label:
+            i = self._activity_spinner_i % len(self._spinner_frames)
+            sp = self._spinner_frames[i]
+            step = max(0.0, time.monotonic() - self._activity_t0)
+            segs.append(
+                f"[{ui.ACCENT}]{sp}[/] [b {ui.FG}]{self._activity_label}[/] "
+                f"[{ui.FG_DIM}]{step:.1f}s[/]"
+            )
+        elif self._status_msg:
+            segs.append(f"[{ui.FG}]{self._status_msg}[/]")
+
+        # ── model ─────────────────────────────────────────────────────
+        segs.append(f"[{ui.ACCENT}]{state.MODEL}[/]")
+
+        # ── agent ─────────────────────────────────────────────────────
+        segs.append(_agent_badge_markup())
+
+        # ── session ────────────────────────────────────────────────────
+        if state.current_session_id is not None:
+            segs.append(f"[{ui.FG_DIM}]#{state.current_session_id}[/]")
+
+        # ── messages count ────────────────────────────────────────────
+        segs.append(f"💬 [{ui.FG_MUTE}]{len(state.messages)}[/]")
+
+        # ── tokens ────────────────────────────────────────────────────
+        segs.append(
+            f"⇅ [{ui.FG_MUTE}]{state.total_in}[/]/[{ui.FG_MUTE}]{state.total_out}[/]"
+            f"=[{ui.FG_MUTE}]{state.total_tokens}[/]"
+        )
+
+        # ── think ─────────────────────────────────────────────────────
+        if state.think_mode:
+            segs.append(f"[{ui.OK}]think:{state.think_effort}[/]")
+        else:
+            segs.append(f"[{ui.FG_DIM}]think:off[/]")
+
+        # ── project context file ──────────────────────────────────────
+        if state.project_context_file:
+            segs.append(f"[{ui.FG_MUTE}]{state.project_context_file}[/]")
+
+        # ── prompt queue ──────────────────────────────────────────────
+        if state.prompt_queue:
+            segs.append(f"[{ui.WARN}]📋 {len(state.prompt_queue)}[/]")
+
+        # ── internal trace ────────────────────────────────────────────
+        if state.show_internal:
+            segs.append(f"[{ui.FG_DIM}]trace:on[/]")
+
+        # ── turn timer ────────────────────────────────────────────────
+        if busy and self._turn_t0:
+            turn = max(0.0, time.monotonic() - self._turn_t0)
+            segs.append(f"[{ui.FG_DIM}]{turn:.0f}s[/]")
+
+        return segs
+
+    def _write_status_line(self, *, busy: bool) -> None:
+        try:
+            segs = self._build_status_segments(busy=busy)
+            line = self._STATUS_SEP.join(segs)
+            self.query_one("#statusbar", Static).update(Text.from_markup(line))
+        except Exception:
+            pass
+
+    def _set_status(self, msg: str):
+        self._status_msg = msg or ""
+        self._write_status_line(busy=self._busy and bool(self._activity_label))
+
+    # ─── activity / spinner ──────────────────────────────────────────
     def _sync_activity_phase(self, label: str) -> None:
         self._activity_label = (label or "").strip()
         self._activity_t0 = time.monotonic()
@@ -483,51 +482,10 @@ class JarvisTUI(App):
             self._refresh_activity_widgets()
 
     def _refresh_activity_widgets(self) -> None:
-        """Prepend spinner + phase to status bar, append turn timing."""
         label = self._activity_label
         if not label or not self._busy:
             return
-
-        frames = self._spinner_frames
-        i = self._activity_spinner_i % len(frames)
-        sp = frames[i]
-        step_elapsed = max(0.0, time.monotonic() - self._activity_t0)
-        turn_elapsed = max(0.0, time.monotonic() - self._turn_t0) if self._turn_t0 else 0.0
-
-        spinner_prefix = (
-            f"[#58a6ff]{sp}[/] [b #e6edf3]{label}[/] "
-            f"[#6e7681]{step_elapsed:.1f}s[/]"
-        )
-        clock_suffix = f"[#6e7681]{turn_elapsed:.0f}s[/]"
-
-        try:
-            from ..constants import VERSION
-            from .. import state
-            agent_part = _format_agent_status_segment()
-            left = [spinner_prefix, agent_part, f"[#58a6ff]{state.MODEL}[/]"]
-            if state.current_session_id is not None:
-                left.append(f"[#6e7681]#{state.current_session_id}[/]")
-
-            right = []
-            right.append(f"[#6e7681]v{VERSION}[/]")
-            right.append(f"💬 [#8b949e]{len(state.messages)}[/]")
-            right.append(
-                f"⇅ [#8b949e]{state.total_in}[/]/[#8b949e]{state.total_out}[/]=[#8b949e]{state.total_tokens}[/]"
-            )
-            if state.think_mode:
-                right.append(f"[#3fb950]think:{state.think_effort}[/]")
-            if state.prompt_queue:
-                right.append(f"[#d29922]📋 {len(state.prompt_queue)}[/]")
-            right.append(clock_suffix)
-
-            sep = "  [#21262d]·[/]  "
-            line = sep.join(left) + sep + sep.join(right)
-
-            bar = self.query_one("#statusbar", RichLog)
-            bar.clear()
-            bar.write(Text.from_markup(line))
-        except Exception:
-            pass
+        self._write_status_line(busy=True)
 
     def _start_activity_pulse(self) -> None:
         self._stop_activity_pulse()
@@ -538,9 +496,8 @@ class JarvisTUI(App):
             self._activity_timer.stop()
             self._activity_timer = None
 
-    # ─── palette (centered modal) ──────────────────────────────────────
+    # ─── palette ─────────────────────────────────────────────────────
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        """Open palette instantly when '/' is typed in an empty prompt."""
         if event.text_area.id != "prompt":
             return
         val = event.text_area.text or ""
@@ -621,39 +578,32 @@ class JarvisTUI(App):
     def _open_model_picker(self):
         def after(model_id: str | None):
             if not model_id:
-                self._tui_console.print("[dim]model picker cancelled[/]")
+                self._tui_console.print(f"[{ui.FG_DIM}]model picker cancelled[/]")
                 return
             from ..commands.control import _apply_model_selection
-
             _apply_model_selection(model_id)
             self._set_status("ready")
-
         self.push_screen(ModelPickerScreen(), after)
 
     def _open_think_picker(self):
         def after(effort: str | None):
             if not effort:
-                self._tui_console.print("[dim]thinking picker cancelled[/]")
+                self._tui_console.print(f"[{ui.FG_DIM}]thinking picker cancelled[/]")
                 return
             from ..commands.control import _handle_think
-
             _handle_think(effort)
             self._set_status("ready")
-
         self.push_screen(ThinkPickerScreen(), after)
 
     def _open_mcp_modal(self):
-        """Open the single-pane MCP modal (list/toggle/import in one place)."""
         def after(_: object) -> None:
             self._set_status("ready")
-
         self.push_screen(MCPModalScreen(), after)
 
     def _open_agent_picker(self):
-        """Open the centered agent picker (project + global, with on/off)."""
         def after(result: object) -> None:
             if result is None:
-                self._tui_console.print("[dim]agent picker cancelled[/]")
+                self._tui_console.print(f"[{ui.FG_DIM}]agent picker cancelled[/]")
                 return
             if result == "off":
                 state.set_active_agent(None)
@@ -664,14 +614,11 @@ class JarvisTUI(App):
                 self._set_status("ready")
                 return
             self._set_status("ready")
-
         self.push_screen(AgentPickerScreen(), after)
 
     def _open_skill_browser(self):
-        """Open the skill browser modal (read-only — LLM auto-invokes skills)."""
         def after(_: object) -> None:
             self._set_status("ready")
-
         self.push_screen(SkillBrowserScreen(), after)
 
     def _open_memory_modal(self):
@@ -690,34 +637,54 @@ class JarvisTUI(App):
         self.push_screen(SettingsModalScreen(), after)
 
     def _open_theme_modal(self):
-        def after(_: object) -> None:
-            # Re-render so the new theme colors take effect everywhere.
+        def after(name: object) -> None:
+            if name and isinstance(name, str):
+                # Theme was selected — rebuild UI with new colors.
+                from . import theme as _tui_theme
+                from .modal_chrome import reload_chrome_css
+                import inspect
+
+                _tui_theme.set_theme(name)
+                reload_chrome_css()
+
+                # Rebuild the app's Textual stylesheet.
+                app_path = ""
+                try:
+                    app_path = inspect.getfile(self.__class__)
+                except (TypeError, OSError):
+                    pass
+                read_from = (app_path, f"{self.__class__.__name__}.CSS")
+                self.stylesheet.add_source(
+                    _tui_theme.GLOBAL_CSS, read_from=read_from, is_default_css=False
+                )
+                self.stylesheet.reparse()
+                self.stylesheet.update(self)
+                self.refresh()
+
+                # Re-render the welcome banner & any existing messages with new
+                # theme so the full display reflects the switch.
+                self._rebuild_transcript()
+
+                self._tui_console.print(
+                    f"[{_tui_theme.OK}]✓ switched to [bold]{name}[/] theme[/]"
+                )
             self._set_status("ready")
         self.push_screen(ThemePickerScreen(), after)
 
     def _open_login_modal(self):
-        """Open the Anthropic Pro/Max OAuth login modal."""
         def after(ok: bool | None) -> None:
             if ok:
                 self._tui_console.print(
-                    "[green]✓[/] [bold]Signed in with Anthropic[/] — provider: Anthropic · auth: OAuth"
+                    f"[{ui.OK}]{ui.CHECK}[/] [bold]Signed in with Anthropic[/] — "
+                    f"provider: Anthropic · auth: OAuth"
                 )
-                # Refresh header so model label / provider chip updates.
-                if hasattr(self, "_render_header"):
-                    try:
-                        self._render_header()
-                    except Exception:
-                        pass
             else:
-                self._tui_console.print("[dim]login cancelled[/]")
+                self._tui_console.print(f"[{ui.FG_DIM}]login cancelled[/]")
             self._set_status("ready")
-
         self.push_screen(LoginModalScreen(), after)
 
     def _dispatch_palette_slash(self, inp: str):
-        """Run a slash command picked from the palette (no second Enter)."""
         from ..commands.dispatch import handle_slash
-        from .. import state
 
         text = (inp or "").strip()
         if not text.startswith("/"):
@@ -727,10 +694,9 @@ class JarvisTUI(App):
             return
         head = text.split(maxsplit=1)[0]
         if head[1:] in state.aliases:
-            rest = text[len(head) :]
+            rest = text[len(head):]
             text = state.aliases[head[1:]] + rest
 
-        # If busy, queue the command as a prompt to be processed after current turn
         if self._busy:
             state.prompt_queue.append(text)
             idx = len(state.prompt_queue)
@@ -738,20 +704,9 @@ class JarvisTUI(App):
             self._set_status(f"queued #{idx} ({len(state.prompt_queue)} waiting)")
             return
 
-        # Commands that need stdin (OAuth token paste, key entry) must run in
-        # the worker thread so the TUIConsole can show a blocking input modal.
         if head in ("/login", "/logout", "/auth", "/key", "/model", "/session", "/sessions"):
-            # Show the command in the transcript, then run in worker thread
             log = self.query_one("#transcript", RichLog)
-            log.write(
-                Panel(
-                    Markdown(text),
-                    title="you",
-                    title_align="left",
-                    border_style=state.theme_colors["user_border"],
-                    padding=(0, 1),
-                )
-            )
+            log.write(self._user_panel(text))
             self._busy = True
             self._turn_t0 = time.monotonic()
             self._sync_activity_phase("Thinking…")
@@ -766,15 +721,7 @@ class JarvisTUI(App):
             return
         if should_send and new_inp:
             log = self.query_one("#transcript", RichLog)
-            log.write(
-                Panel(
-                    Markdown(new_inp),
-                    title="you",
-                    title_align="left",
-                    border_style=state.theme_colors["user_border"],
-                    padding=(0, 1),
-                )
-            )
+            log.write(self._user_panel(new_inp))
             self._busy = True
             self._turn_t0 = time.monotonic()
             self._sync_activity_phase("Thinking…")
@@ -784,27 +731,18 @@ class JarvisTUI(App):
             return
         self._set_status("ready")
 
-    def action_escape_action(self):
-        """Esc: cancel any in-flight AI turn — works across all phases.
+    # ─── panels (shared user / queue / dequeue renderers) ────────────
+    @staticmethod
+    def _user_panel(text: str) -> Panel:
+        return Panel(
+            Markdown(text),
+            title="you",
+            title_align="left",
+            border_style=ui.OK,
+            padding=(0, 1),
+        )
 
-        Always sets the cancel flag so tool execution, stream start, and
-        every other checkpoint aborts. Safe to call even when idle.
-        """
-        from ..repl.stream import cancel_current_stream
-
-        cancel_current_stream()  # Always sets state.cancel_requested + closes stream
-        self._sync_activity_phase("Cancelling…")
-
-        if self._busy:
-            self._tui_console.print("[yellow]⏹ cancelled by user[/]")
-            # Worker may still be blocked on finalize after close(); reset UI now
-            # so the prompt accepts new input. _turn_done is safe if the worker
-            # also calls it from finally.
-            self._turn_done()
-
-    # ─── prompt queue helpers ──────────────────────────────────────────
     def _show_queue_panel(self, text: str, idx: int = 0) -> None:
-        """Write a 'queued' panel to the transcript."""
         preview = text[:100].replace("\n", " ")
         if len(text) > 100:
             preview += "…"
@@ -812,28 +750,39 @@ class JarvisTUI(App):
         log = self.query_one("#transcript", RichLog)
         log.write(
             Panel(
-                Text.from_markup(f"[#8b949e]{preview}[/]"),
+                Text.from_markup(f"[{ui.FG_MUTE}]{preview}[/]"),
                 title=f"⏳ queued {tag}",
                 title_align="left",
-                border_style="dim",
+                border_style=ui.WARN,
                 padding=(0, 1),
             )
         )
 
     def _show_dequeue_panel(self, text: str, remaining: int) -> None:
-        """Write a 'dequeue' panel to the transcript."""
         log = self.query_one("#transcript", RichLog)
         log.write(
             Panel(
-                Text.from_markup(f"[#e6edf3]{text}[/]"),
-                title=f"⏭ from queue ({remaining} remaining)" if remaining else "⏭ from queue",
+                Text.from_markup(f"[{ui.FG}]{text}[/]"),
+                title=(
+                    f"⏭ from queue ({remaining} remaining)"
+                    if remaining
+                    else "⏭ from queue"
+                ),
                 title_align="left",
-                border_style="#58a6ff",
+                border_style=ui.ACCENT,
                 padding=(0, 1),
             )
         )
 
-    # ─── input handling ────────────────────────────────────────────────
+    def action_escape_action(self):
+        from ..repl.stream import cancel_current_stream
+        cancel_current_stream()
+        self._sync_activity_phase("Cancelling…")
+        if self._busy:
+            self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user[/]")
+            self._turn_done()
+
+    # ─── input handling ──────────────────────────────────────────────
     def on_prompt_area_submitted(self, event: "PromptArea.Submitted") -> None:
         raw = event.value or ""
         text = raw.strip()
@@ -843,74 +792,54 @@ class JarvisTUI(App):
         if not text:
             return
 
-        # /model (no argument) → modal picker (no stdin)
         if _is_bare_model_command(text):
             self._open_model_picker()
             return
-
-        # /think mode → modal picker
         if _is_think_picker_command(text):
             self._open_think_picker()
             return
-
-        # /mcp (bare) → MCP modal in the TUI
         if _is_mcp_modal_command(text):
             self._open_mcp_modal()
             return
-
-        # /agent (bare) → agent picker modal in the TUI
         if _is_agent_picker_command(text):
             self._open_agent_picker()
             return
-
-        # /skill (bare) → skill browser modal in the TUI
         if _is_skill_picker_command(text):
             self._open_skill_browser()
             return
-
         if _is_memory_modal_command(text):
             self._open_memory_modal()
             return
-
         if _is_lesson_modal_command(text):
             self._open_lesson_modal()
             return
-
         if _is_settings_modal_command(text):
             self._open_settings_modal()
             return
-
         if _is_theme_modal_command(text):
             self._open_theme_modal()
             return
-
-        # /login → Anthropic Pro/Max OAuth modal
         if _is_login_command(text):
             self._open_login_modal()
             return
 
-        # /session (bare) or /session list/ls → modal picker
         stripped = text.strip()
         if stripped in ("/session", "/sessions", "/session list", "/session ls"):
             self._open_session_picker()
             return
 
-        # /exit shortcut
         if stripped in ("/exit", "/quit"):
             self.exit()
             return
 
-        # /keytest — capture and log the next keypress so users can see what
-        # their terminal sends for keys like Shift+Enter, Cmd+Enter, etc.
         if stripped == "/keytest":
             self._key_debug = True
             self._tui_console.print(
-                "[#d29922]🔑 keytest armed —[/] press any key to see what your "
+                f"[{ui.WARN}]🔑 keytest armed —[/] press any key to see what your "
                 "terminal sent (one shot)."
             )
             return
 
-        # ── If busy → queue the prompt instead of discarding ──────────────
         if self._busy:
             state.prompt_queue.append(text)
             idx = len(state.prompt_queue)
@@ -921,12 +850,10 @@ class JarvisTUI(App):
         self._begin_turn(text)
 
     def _begin_turn(self, inp: str) -> None:
-        """Start a new turn. Called from on_prompt_area_submitted or _turn_done."""
-        state.cancel_requested.clear()  # Reset cancel flag for the new turn
+        state.cancel_requested.clear()
 
         log = self.query_one("#transcript", RichLog)
-        log.write(Panel(Markdown(inp), title="you", title_align="left",
-                        border_style=state.theme_colors["user_border"], padding=(0, 1)))
+        log.write(self._user_panel(inp))
         self._busy = True
         self._turn_t0 = time.monotonic()
         self._sync_activity_phase("Thinking…")
@@ -934,11 +861,11 @@ class JarvisTUI(App):
         self._set_status("thinking…")
         self._run_turn(inp)
 
-    # ─── session picker ────────────────────────────────────────────────
+    # ─── session picker ──────────────────────────────────────────────
     def _open_session_picker(self):
         def after(sid):
             if sid is None:
-                self._tui_console.print("[dim]cancelled[/]")
+                self._tui_console.print(f"[{ui.FG_DIM}]cancelled[/]")
                 return
             if resume_session_into_state(sid, self._tui_console.print, preview=False):
                 self._render_loaded_session()
@@ -964,7 +891,6 @@ class JarvisTUI(App):
     def _render_internal_blocks(self, content) -> None:
         if isinstance(content, str):
             return
-        from .. import state
         log = self.query_one("#transcript", RichLog)
         for block in content:
             data = self._block_dict(block)
@@ -974,35 +900,55 @@ class JarvisTUI(App):
                     continue
                 body = data.get("thinking", "")
                 if body:
-                    log.write(Panel(Text(body, style="dim"), title="thinking", title_align="left",
-                                    border_style=state.theme_colors["think_border"], padding=(0, 1)))
+                    log.write(
+                        Panel(
+                            Text(body, style=f"{ui.FG_DIM}"),
+                            title="thinking",
+                            title_align="left",
+                            border_style=ui.SEP,
+                            padding=(0, 1),
+                        )
+                    )
                 continue
             if not state.show_internal:
                 continue
             if kind == "tool_use":
                 name = data.get("name", "tool")
                 args = str(data.get("input", ""))[:800]
-                log.write(Panel(Text(args), title=f"tool: {name}", title_align="left",
-                                border_style=state.theme_colors["tool_border"], padding=(0, 1)))
+                log.write(
+                    Panel(
+                        Text(args),
+                        title=f"tool: {name}",
+                        title_align="left",
+                        border_style=ui.WARN,
+                        padding=(0, 1),
+                    )
+                )
             elif kind == "tool_result":
                 body = data.get("content", "")
                 if isinstance(body, list):
                     body = "\n".join(
                         item.get("text", "") for item in body if isinstance(item, dict)
                     )
-                log.write(Panel(Text(str(body)[:2000], style="dim"), title="tool result", title_align="left",
-                                border_style=state.theme_colors["think_border"], padding=(0, 1)))
+                log.write(
+                    Panel(
+                        Text(str(body)[:2000], style=f"{ui.FG_DIM}"),
+                        title="tool result",
+                        title_align="left",
+                        border_style=ui.SEP,
+                        padding=(0, 1),
+                    )
+                )
 
     def _render_loaded_session(self) -> None:
-        from .. import state
-        from ..repl.banners import welcome_banner, header_panel
+        from ..repl.banners import welcome_banner
 
         log = self.query_one("#transcript", RichLog)
         log.clear()
         welcome_banner()
-        header_panel(compact=True)
         self._tui_console.print(
-            f"[green]▶ resumed session #{state.current_session_id} ({len(state.messages)} messages)[/]"
+            f"[{ui.OK}]▶ resumed session #{state.current_session_id} "
+            f"({len(state.messages)} messages)[/]"
         )
         for msg in state.messages:
             role = msg.get("role", "")
@@ -1010,15 +956,95 @@ class JarvisTUI(App):
             text = self._content_text(content).strip()
             if role == "user":
                 if text:
-                    log.write(Panel(Markdown(text), title="you", title_align="left",
-                                    border_style=state.theme_colors["user_border"], padding=(0, 1)))
+                    log.write(self._user_panel(text))
                 self._render_internal_blocks(content)
             elif role == "assistant":
                 self._render_internal_blocks(content)
                 if text:
-                    log.write(Panel(Markdown(text), title="Jarvis", title_align="left",
-                                    border_style=state.theme_colors["asst_border"], padding=(0, 1)))
+                    log.write(
+                        Panel(
+                            Markdown(text),
+                            title="jarvis",
+                            title_align="left",
+                            border_style=ui.ACCENT_2,
+                            padding=(0, 1),
+                        )
+                    )
         self._set_status("session loaded")
+
+    def _rebuild_transcript(self) -> None:
+        """Clear and re-render the full transcript with current theme colors.
+
+        Called after a mid-session theme switch so the welcome art, message
+        panels, project-context panels, and status/hint bars all reflect the
+        new palette.
+        """
+        from ..repl.banners import welcome_banner
+
+        log = self.query_one("#transcript", RichLog)
+        log.clear()
+
+        # Welcome art + panel — uses live theme colors via banners._theme_colors()
+        welcome_banner()
+
+        # Project-context panel (same rendering as on_mount).
+        if state.project_context_file:
+            log.write(
+                Panel(
+                    Text.from_markup(
+                        f"📄 [bold {ui.ACCENT}]{state.project_context_file}[/] "
+                        f"detected — [{ui.FG_MUTE}]loaded on demand via read_file[/]"
+                    ),
+                    title="project context",
+                    title_align="left",
+                    border_style=ui.ACCENT,
+                    padding=(0, 1),
+                )
+            )
+
+        # Skills panel (same rendering as on_mount).
+        from ..storage import skills as _skills
+        _sk_count = _skills.skill_count()
+        if _sk_count > 0:
+            log.write(
+                Panel(
+                    Text.from_markup(
+                        f"🧠 [bold {ui.ACCENT_2}]{_sk_count} skill"
+                        f"{'s' if _sk_count != 1 else ''}[/] available — "
+                        f"[{ui.FG_MUTE}]auto-invoked from headers in system prompt[/]"
+                    ),
+                    title="skills",
+                    title_align="left",
+                    border_style=ui.ACCENT_2,
+                    padding=(0, 1),
+                )
+            )
+
+        # Re-play existing messages (border styles pick up current ui.* tokens).
+        for msg in state.messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            text = self._content_text(content).strip()
+            if role == "user":
+                if text:
+                    log.write(self._user_panel(text))
+                self._render_internal_blocks(content)
+            elif role == "assistant":
+                self._render_internal_blocks(content)
+                if text:
+                    log.write(
+                        Panel(
+                            Markdown(text),
+                            title="jarvis",
+                            title_align="left",
+                            border_style=ui.ACCENT_2,
+                            padding=(0, 1),
+                        )
+                    )
+
+        # Refresh status bar, hint bar, and composer prefix with new colors.
+        self._render_hintbar()
+        self._set_status("ready")
 
     @work(thread=True, exclusive=True)
     def _run_turn(self, inp: str) -> None:
@@ -1027,10 +1053,8 @@ class JarvisTUI(App):
         from ..repl.stream import call_claude_stream
         from ..repl.render import render_assistant
         from ..storage.sessions import db_append_message, db_set_title_if_empty
-        from .. import state
 
         try:
-            # alias expansion
             if inp.startswith("/"):
                 head = inp.split(maxsplit=1)[0]
                 if head[1:] in state.aliases:
@@ -1041,7 +1065,8 @@ class JarvisTUI(App):
                 cmd = inp[1:].strip()
                 if cmd:
                     from ..tools.shell import run_bash
-                    prev = state.auto_approve; state.auto_approve = True
+                    prev = state.auto_approve
+                    state.auto_approve = True
                     out = run_bash(cmd)
                     state.auto_approve = prev
                     self.call_from_thread(lambda o=out: self._tui_console.print(o))
@@ -1062,8 +1087,6 @@ class JarvisTUI(App):
                 db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
                 db_set_title_if_empty(state.current_session_id, inp)
 
-            # Active agent is already shown in the status bar — no per-turn badge.
-
             while True:
                 if state.cancel_requested.is_set():
                     raise KeyboardInterrupt()
@@ -1075,29 +1098,26 @@ class JarvisTUI(App):
                 more = render_assistant(resp)
                 if resp.stop_reason == "end_turn" or not more:
                     break
-                # Check cancel after tool execution — if set during
-                # render_assistant tool calls, break out cleanly
                 if state.cancel_requested.is_set():
                     raise KeyboardInterrupt()
                 if state.current_session_id and state.messages and state.messages[-1] is not asst_msg:
                     db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
         except KeyboardInterrupt:
             self._tui_console.assistant_stream_abort()
-        except Exception as e:  # surface errors in the transcript, don't crash the app
+        except Exception as e:
             self._tui_console.assistant_stream_abort()
-            self._tui_console.print(f"[red]error: {type(e).__name__}: {e}[/]")
+            self._tui_console.print(f"[{ui.ERR}]error: {type(e).__name__}: {e}[/]")
         finally:
             self._tui_console.assistant_stream_abort()
             self.call_from_thread(self._turn_done)
 
     def _turn_done(self):
-        state.cancel_requested.clear()  # Allow new turns
+        state.cancel_requested.clear()
         self._busy = False
         self._turn_t0 = 0.0
         self._stop_activity_pulse()
         self._sync_activity_phase("")
 
-        # Check the prompt queue — auto-process next if any
         if state.prompt_queue:
             next_prompt = state.prompt_queue.pop(0)
             remaining = len(state.prompt_queue)
@@ -1108,54 +1128,9 @@ class JarvisTUI(App):
         self._set_status("ready")
         self.query_one("#prompt", PromptArea).focus()
 
-    def _set_status(self, msg: str):
-        try:
-            from ..constants import VERSION
-            from .. import state
-            trace = "on" if state.show_internal else "off"
-            agent_part = _format_agent_status_segment()
-
-            # Left cluster: short status verb + identity (agent / model / session)
-            left = []
-            if msg:
-                left.append(f"[#e6edf3]{msg}[/]")
-            left.append(agent_part)
-            left.append(f"[#58a6ff]{state.MODEL}[/]")
-            if state.current_session_id is not None:
-                left.append(f"[#6e7681]#{state.current_session_id}[/]")
-
-            # Right cluster: stats + flags
-            right = []
-            right.append(f"💬 [#8b949e]{len(state.messages)}[/]")
-            right.append(
-                f"⇅ [#8b949e]{state.total_in}[/]/[#8b949e]{state.total_out}[/]=[#8b949e]{state.total_tokens}[/]"
-            )
-            if state.think_mode:
-                right.append(f"[#3fb950]think:{state.think_effort}[/]")
-            else:
-                right.append("[#6e7681]think:off[/]")
-            if state.project_context_file:
-                right.append(f"[#bc8cff]{state.project_context_file}[/]")
-            if state.prompt_queue:
-                right.append(f"[#d29922]📋 {len(state.prompt_queue)}[/]")
-            right.append(f"[#6e7681]int:{trace}[/]")
-            right.append(f"[#6e7681]v{VERSION}[/]")
-
-            sep = "  [#21262d]·[/]  "
-            line = sep.join(left) + sep + sep.join(right)
-
-            bar = self.query_one("#statusbar", RichLog)
-            bar.clear()
-            bar.write(Text.from_markup(line))
-        except Exception:
-            pass
-
     def action_cycle_agent(self) -> None:
-        """Tab — cycle through [no agent, agent1, agent2, …] alphabetically."""
-        from .. import state
         from ..storage import agents as ag
 
-        # If prompt has text, let Tab behave normally inside the input.
         try:
             prompt = self.query_one("#prompt", PromptArea)
             if prompt.text.strip():
@@ -1163,7 +1138,6 @@ class JarvisTUI(App):
         except Exception:
             pass
 
-        # Build the cycle: ["" (off), name1, name2, …] in stable order.
         agents = ag.discover_agents()
         cycle: list[tuple[str, dict | None]] = [("", None)]
         for a in sorted(agents, key=lambda x: x["name"]):
@@ -1175,13 +1149,12 @@ class JarvisTUI(App):
             if nm == cur:
                 idx = i
                 break
-        next_name, next_rec = cycle[(idx + 1) % len(cycle)]
+        _next_name, next_rec = cycle[(idx + 1) % len(cycle)]
         state.set_active_agent(next_rec)
 
         self._set_status("ready")
 
     def action_toggle_internal(self):
-        from .. import state
         state.show_internal = not state.show_internal
         mode = "shown" if state.show_internal else "hidden"
         self._set_status(f"internals {mode}")
@@ -1189,18 +1162,11 @@ class JarvisTUI(App):
             self._render_loaded_session()
         else:
             try:
-                self._tui_console.print(
-                    f"[dim]internal tool trace {mode}[/]"
-                )
+                self._tui_console.print(f"[{ui.FG_DIM}]internal tool trace {mode}[/]")
             except Exception:
                 pass
 
     def _copy_to_system_clipboard(self, text: str) -> bool:
-        """Best-effort cross-platform clipboard copy.
-
-        Tries pyperclip first, then platform-native CLIs (pbcopy / clip /
-        wl-copy / xclip / xsel). Returns True on success.
-        """
         if not text:
             return False
         try:
@@ -1237,9 +1203,6 @@ class JarvisTUI(App):
         return False
 
     def action_cancel_or_quit(self):
-        # If the user has a text selection in the transcript, Ctrl+C should
-        # copy it (matching normal terminal expectations) instead of
-        # cancelling or quitting.
         try:
             selected = self.screen.get_selected_text()
         except Exception:
@@ -1259,12 +1222,11 @@ class JarvisTUI(App):
         if self._busy:
             from ..repl.stream import cancel_current_stream
             self._sync_activity_phase("Cancelling…")
-            cancel_current_stream()  # Always sets the persistent flag
-            self._tui_console.print("[yellow]⏹ cancelled by user[/]")
+            cancel_current_stream()
+            self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user[/]")
             self._turn_done()
             return
 
-        # Idle Ctrl+C: require a confirmation press within 2s before quitting.
         now = time.monotonic()
         if now - self._last_ctrl_c_t < 2.0:
             self.exit()
@@ -1278,15 +1240,8 @@ def _escape(s: str) -> str:
 
 
 def run():
-    # Resolve authentication BEFORE the Textual app takes over the terminal.
-    # Once the TUI is running, `console` is swapped to a TUIConsole that cannot
-    # read stdin — so any interactive prompt (mode picker, API key entry, OAuth
-    # fallback) would crash. Doing it here means `console.input()` / getpass()
-    # see real stdio, and the user can recover from a reset key / stale auth
-    # mode / OAuth failure before the UI starts.
+    # Resolve authentication BEFORE Textual takes the terminal.
     from ..auth.client import make_client
-    from .. import state
-
     if state.client is None:
         state.client = make_client()
 
@@ -1296,6 +1251,4 @@ def run():
     try:
         app.run(mouse=False)
     finally:
-        # Restore terminal mouse state even if the app crashes or is killed
-        # while a modal (which enables mouse tracking) was displayed.
         reset_mouse_fully()

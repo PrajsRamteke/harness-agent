@@ -1,23 +1,11 @@
 """Shared backdrop, frame, and OptionList styling for centered TUI modals.
 
-Every modal in `jarvis.tui` inherits these styles via ``TuiModalScreen`` +
-``TUI_MODAL_CHROME_CSS``. Keep token use here disciplined so the visual
-language stays uniform — colors are GitHub-Dark accents:
+The actual CSS now lives in :mod:`jarvis.tui.theme` so every widget,
+modal, and chat panel pulls colors from a single source. This module
+re-exports the modal CSS plus a few row-formatting helpers.
 
-  bg-base        #0d1117    page background
-  bg-elev        #161b22    modal / inputs surface
-  bg-hover       #1f2937    highlighted row
-  border-mute    #30363d    resting borders
-  border-focus   #58a6ff    focused borders / accents
-  fg-base        #e6edf3    primary text
-  fg-mute        #8b949e    secondary text
-  accent-title   #bb9af7    modal title
-  accent-key     #f0b3ff    key hints
-
-Row formatters in modals should also share the same column geometry so the
-catalog feels uniform:
-
-    MARKER (2)  NAME (22)  DESC (rest, dim)
+To pick up the current theme's modal CSS at runtime, call ``get_modal_chrome_css()``
+instead of caching the ``TUI_MODAL_CHROME_CSS`` string at import time.
 """
 from __future__ import annotations
 
@@ -25,102 +13,34 @@ from typing import TypeVar
 
 from textual.screen import ModalScreen
 
+from . import theme as _theme
+
 TDismiss = TypeVar("TDismiss")
 
 
-# Standard column widths shared by every list-style modal.
+# Standard column width shared by every list-style modal.
 ROW_NAME_WIDTH = 22
 
 
-TUI_MODAL_CHROME_CSS = """
-/* ── Backdrop ──────────────────────────────────────────────── */
-.tui-modal-screen {
-    background: rgba(0, 0, 0, 0.62);
-    align: center middle;
-}
+# Backwards-compatible alias — every modal imports this name.
+# Evaluated at import time; refreshes when the app calls reload_chrome_css()
+# after a theme switch.
+TUI_MODAL_CHROME_CSS: str = _theme.MODAL_CSS
 
-/* ── Frame ─────────────────────────────────────────────────── */
-.tui-modal-screen #modal {
-    height: auto;
-    background: #161b22;
-    border: round #30363d;
-    padding: 1 2;
-}
 
-/* ── Title row (emoji + label) ─────────────────────────────── */
-.tui-modal-screen #modal_title {
-    color: #bb9af7;
-    text-style: bold;
-    padding: 0 1 1 1;
-    border-bottom: hkey #21262d;
-    margin-bottom: 1;
-    width: 100%;
-}
+def get_modal_chrome_css() -> str:
+    """Return the current theme's modal chrome CSS string.
 
-/* ── Status / sub-title strip just under the title ─────────── */
-.tui-modal-screen #modal_status {
-    color: #8b949e;
-    padding: 0 1;
-    margin-bottom: 1;
-    width: 100%;
-    height: auto;
-}
+    Use this in ``DEFAULT_CSS`` concatenations to ensure fresh theme colors
+    are picked up even after a runtime theme switch.
+    """
+    return _theme.MODAL_CSS
 
-/* ── Footer hint row (key cheatsheet) ──────────────────────── */
-.tui-modal-screen #modal_hint {
-    color: #6e7681;
-    padding: 1 1 0 1;
-    border-top: hkey #21262d;
-    margin-top: 1;
-    width: 100%;
-}
 
-/* ── Inputs ────────────────────────────────────────────────── */
-.tui-modal-screen Input {
-    background: #0d1117;
-    color: #e6edf3;
-    border: tall #30363d;
-    padding: 0 1;
-    height: 3;
-}
-.tui-modal-screen Input:focus {
-    border: tall #58a6ff;
-}
-
-/* ── Option lists ──────────────────────────────────────────── */
-.tui-modal-screen OptionList {
-    background: #161b22;
-    color: #e6edf3;
-    border: none;
-    padding: 0;
-    overflow-y: auto;
-    scrollbar-size-vertical: 0;
-    scrollbar-color: transparent transparent;
-}
-.tui-modal-screen OptionList > .option-list--option {
-    padding: 0 1;
-}
-.tui-modal-screen OptionList > .option-list--option-highlighted,
-.tui-modal-screen OptionList:focus > .option-list--option-highlighted {
-    background: #1f2937;
-    color: #ffffff;
-    text-style: none;
-}
-.tui-modal-screen OptionList > .option-list--option-disabled {
-    color: #6e7681;
-}
-
-/* ── TextArea (used in import / multiline modals) ─────────── */
-.tui-modal-screen TextArea {
-    background: #0d1117;
-    color: #e6edf3;
-    border: tall #30363d;
-    padding: 0 1;
-}
-.tui-modal-screen TextArea:focus {
-    border: tall #58a6ff;
-}
-"""
+def reload_chrome_css() -> None:
+    """Re-read modal CSS from the current theme (call after ``set_theme``)."""
+    global TUI_MODAL_CHROME_CSS
+    TUI_MODAL_CHROME_CSS = _theme.MODAL_CSS
 
 
 class TuiModalScreen(ModalScreen[TDismiss]):
@@ -137,10 +57,9 @@ class TuiModalScreen(ModalScreen[TDismiss]):
 def marker_for(active: bool) -> tuple[str, str]:
     """Return (text, style) for the active-row indicator.
 
-    Using ``●`` for active and a thin bullet placeholder keeps every row
-    exactly two columns wide regardless of state — required for clean
-    alignment in the option list.
+    ``●`` for active vs. two-space placeholder so every row keeps the same
+    two-column gutter regardless of state.
     """
     if active:
-        return ("● ", "bold #3fb950")
+        return ("● ", f"bold {_theme.OK}")
     return ("  ", "")
