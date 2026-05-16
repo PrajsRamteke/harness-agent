@@ -67,6 +67,7 @@ def welcome_banner(compact: bool = False):
     """
     c = _theme_colors()
     from ..constants import VERSION
+    import pathlib
 
     # Art uses accent_3 (the "highlight" token) — varies per theme:
     #   red       → #ffa198 (coral)
@@ -88,6 +89,7 @@ def welcome_banner(compact: bool = False):
 
     title = f"[bold {c['accent']}]JARVIS v{VERSION}[/]"
     tagline = f"[{c['fg_mute']}]Chat, code, and control your Mac.[/]"
+    cwd_text = escape(str(pathlib.Path.cwd()))
     hints = (
         f"[{c['accent_2']}]/[/] commands   "
         f"[{c['accent_2']}]/agent[/] pick agent   "
@@ -96,7 +98,7 @@ def welcome_banner(compact: bool = False):
         f"[{c['accent_2']}]F2[/] toggle internals"
     )
 
-    body = f"{title}    {tagline}\n{hints}"
+    body = f"{title}    {tagline} 📂 {cwd_text}\n{hints}"
     console.print(Panel(body, border_style=c['border'], padding=(0, 2)))
 
     if state.update_result:
