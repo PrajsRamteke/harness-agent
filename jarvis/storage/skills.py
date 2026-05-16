@@ -309,13 +309,11 @@ def global_count() -> int:
 
 
 def as_prompt_block() -> str:
-    """Format discovered skills as a tiny system-prompt summary.
+    """Format discovered skill headers (name + description) into the system prompt.
 
-    Only shows counts, never names, descriptions, or full content. The agent
-    must call skill_list() when a task looks like it might match a reusable
-    skill, then skill_load() for the chosen skill.
-
-    Returns empty string if no skills found.
+    Name and description are always included so the agent can match skills
+    to tasks without calling skill_list(). Only full body content is
+    lazy-loaded via skill_load().
     """
     skills = discover_skills()
     if not skills:
@@ -328,8 +326,10 @@ def as_prompt_block() -> str:
     if state.global_skills:
         counts += f", {global_count_value} global"
 
-    return (
-        f"SKILLS: {len(skills)} available ({counts}; scope: {scope}). "
-        "Use skill_list() only when the task may match reusable instructions, "
-        "then skill_load('<name>') for the selected skill. Full skill content is not injected."
-    )
+    lines = [f"SKILLS: {len(skills)} available ({counts}; scope: {scope})."]
+    lines.append("Headers (name + description) are listed below so you can match without skill_list().")
+    lines.append("Only call skill_load('<name>') when a skill's description matches the current task.")
+    for s in skills:
+        tag = " [global]" if s.get("scope") == "global" else ""
+        lines.append(f"  • {s['name']}{tag}: {s['description']}")
+    return "\n".join(lines)

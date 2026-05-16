@@ -78,25 +78,29 @@ class LazyContextLoadingTests(unittest.TestCase):
             finally:
                 os.chdir(old_cwd)
 
-    def test_skill_prompt_block_uses_counts_not_skill_headers(self):
+    def test_skill_prompt_block_includes_headers_not_full_body(self):
         state.global_skills = False
         with mock.patch.object(skills, "discover_skills", return_value=[
             {
                 "name": "release-helper",
-                "description": "Long release process details that should stay out",
+                "description": "Release process with complex steps",
                 "scope": "project",
             },
             {
                 "name": "debug-helper",
-                "description": "Long debug process details that should stay out",
+                "description": "Debug process for production issues",
                 "scope": "project",
             },
         ]):
             block = skills.as_prompt_block()
 
         self.assertIn("SKILLS: 2 available", block)
-        self.assertNotIn("release-helper", block)
-        self.assertNotIn("Long release process details", block)
+        # Headers (name + description) ARE included for matching
+        self.assertIn("release-helper", block)
+        self.assertIn("Release process with complex steps", block)
+        self.assertIn("debug-helper", block)
+        # Instruction says to call skill_load for full body, not headers
+        self.assertIn("skill_load", block)
 
 
 if __name__ == "__main__":

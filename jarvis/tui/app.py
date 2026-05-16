@@ -272,6 +272,8 @@ class JarvisTUI(App):
         self._status_msg = "ready"
         self._last_ctrl_c_t = 0.0
         self._key_debug = False
+        self._last_t_width = 0
+        self._width_check_timer = None
 
     async def _on_key(self, event):  # type: ignore[override]
         if self._key_debug:
@@ -348,6 +350,9 @@ class JarvisTUI(App):
         from ..mcp.registry import auto_connect_servers
         auto_connect_servers(console_print=self._tui_console.print)
 
+        # Poll for width changes (RichLog doesn't auto-reflow panels on resize)
+        self._start_width_monitor()
+
         from ..project_context import detect_project_context
         detect_project_context()
 
@@ -402,6 +407,39 @@ class JarvisTUI(App):
             self.query_one("#hintbar", Static).update(Text.from_markup(line))
         except Exception:
             pass
+
+    # ─── width monitor (reflow on resize) ─────────────────────────────
+    def _start_width_monitor(self) -> None:
+        """Start polling for transcript width changes to force panel reflow."""
+        # Capture initial width to avoid a spurious first rebuild
+        try:
+            log = self.query_one("#transcript", RichLog)
+            self._last_t_width = log.region.width
+        except Exception:
+            pass
+        self._check_width()
+
+    def _check_width(self) -> None:
+        """If transcript width changed, rebuild all panels at the new width."""
+        try:
+            log = self.query_one("#transcript", RichLog)
+            try:
+                current = log.region.width
+            except AttributeError:
+                current = 0
+            if current and current != self._last_t_width:
+                self._last_t_width = current
+                # During streaming skip the full rebuild — just clear cache
+                if self._busy:
+                    log._line_cache.clear()
+                    if hasattr(log, '_render_cache'):
+                        log._render_cache = {}
+                    log.refresh()
+                else:
+                    self._rebuild_transcript()
+        except Exception:
+            pass
+        self._width_check_timer = self.set_timer(0.3, self._check_width)
 
     # ─── status bar (single line with everything) ────────────────────
     _STATUS_SEP = f"  [{ui.SEP}]{ui.DOT}[/]  "

@@ -389,6 +389,7 @@ Screen {{
     min-height: 0;
     min-width: 0;
     overflow-y: auto;
+    overflow-x: auto;
     scrollbar-background: {BG_0};
     scrollbar-background-hover: {BG_0};
     scrollbar-background-active: {BG_0};

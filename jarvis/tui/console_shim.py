@@ -16,7 +16,6 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
-from textual.geometry import Size
 from textual.widgets import RichLog, Static
 
 
@@ -24,11 +23,8 @@ def _truncate_rich_log_lines(log: RichLog, line_count: int) -> None:
     """Drop lines from ``line_count`` onward (used to replace in-progress stream block)."""
     log.lines = log.lines[:line_count]
     log._line_cache.clear()
-    if log.lines:
-        log._widest_line_width = max(s.cell_length for s in log.lines)
-    else:
-        log._widest_line_width = 0
-    log.virtual_size = Size(log._widest_line_width, len(log.lines))
+    if hasattr(log, '_render_cache'):
+        log._render_cache = {}
     log.refresh(layout=True)
 
 

@@ -103,16 +103,15 @@ def _build_static_body() -> str:
         body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned
 
     # ── Lazy-load system prompt section ──────────────────────────────────
-    # Memory, lessons, skills, agents, and project context are NOT injected
-    # with full content. Only summaries/counts are included. The agent must
-    # use the corresponding tools (memory_list, lesson_search,
-    # skill_list/skill_load, read_file) to load details on demand.
+    # Skill headers (name + description) ARE injected so the agent can match
+    # without an extra tool call. Memory, lessons, agents, and project
+    # context remain lazy (summaries/counts only, full content on demand).
     body += (
-        "\n\nLAZY-LOAD CONTEXT (summaries only — full content loaded on demand):\n"
+        "\n\nLAZY-LOAD CONTEXT (full content loaded on demand unless noted):\n"
         "To save tokens, the following are NOT injected with full content:"
         "\n- MEMORY: use memory_list() only when saved user facts/preferences matter"
         "\n- LESSONS: use lesson_search('<topic>') only when prior experience could help"
-        "\n- SKILLS: use skill_list() only when a reusable skill may match, then skill_load('<name>')"
+        "\n- SKILLS: headers (name + description) are listed below so you can match without skill_list(). Only call skill_load('<name>') for full body when a skill is usable."
         "\n- PROJECT CONTEXT: use read_file('<project_context_file>') only when repository instructions matter"
     )
 
