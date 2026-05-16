@@ -61,7 +61,7 @@ def _is_session_picker_command(text: str) -> bool:
 
 def _is_think_picker_command(text: str) -> bool:
     s = (text or "").strip().lower()
-    return s in ("/think mode", "/think modes", "/think select")
+    return s in ("/think", "/think mode", "/think modes", "/think select")
 
 
 def _is_mcp_modal_command(text: str) -> bool:
@@ -147,6 +147,17 @@ class PromptArea(TextArea):
 
     async def _on_key(self, event):  # type: ignore[override]
         key = event.key
+        if key == "escape":
+            # TextArea normally swallows Escape (to defocus); forward it to the
+            # App so an in-flight turn can be cancelled while the prompt is
+            # focused. action_escape_action() is a safe no-op when idle.
+            event.stop()
+            event.prevent_default()
+            try:
+                self.app.action_escape_action()
+            except Exception:
+                pass
+            return
         if key in ("shift+enter", "alt+enter", "ctrl+j", "ctrl+enter", "ctrl+n"):
             event.stop()
             event.prevent_default()
