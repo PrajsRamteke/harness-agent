@@ -40,6 +40,11 @@ def main():
     from .project_context import detect_project_context
     detect_project_context()
 
+    # Auto-activate coding agent when inside a coding project
+    # and the user hasn't explicitly set an agent yet.
+    from .storage.agents import auto_activate_coding_agent
+    auto_activate_coding_agent()
+
     while True:
         try:
             # Process queued prompts (from TUI /script injection) before fresh input
