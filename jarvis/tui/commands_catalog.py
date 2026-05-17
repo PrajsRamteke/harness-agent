@@ -63,7 +63,7 @@ COMMANDS = [
     ("/tokens", "usage so far"),
     ("/cost", "estimated USD cost"),
     ("/stats", "session stats"),
-    ("/key reset", "delete stored API key"),
+    ("/key", "open API key manager — view, add, edit, or delete keys"),
     ("/login", "log in with Anthropic Pro/Max subscription (OAuth modal)"),
     ("/logout", "log out of Anthropic OAuth (revert to API key)"),
     ("/auth", "show current provider + auth"),

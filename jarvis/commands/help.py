@@ -72,7 +72,7 @@ _SECTIONS = [
         ("/tokens", "usage so far"),
         ("/cost", "estimated USD cost of session"),
         ("/stats", "session stats (time, msgs, tools, tokens)"),
-        ("/key reset", "delete stored API key"),
+        ("/key", "open the API key manager (TUI modal — view / add / edit / delete keys)"),
         ("/login", "log in with your Anthropic Pro/Max subscription (OAuth)"),
         ("/logout", "log out of Anthropic OAuth (revert to API key)"),
         ("/auth", "show current auth mode + token info"),

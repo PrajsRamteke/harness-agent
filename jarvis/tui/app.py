@@ -40,6 +40,7 @@ from .skill_modal import SkillBrowserScreen
 from .memory_modal import MemoryModalScreen
 from .lesson_modal import LessonModalScreen
 from .settings_modal import SettingsModalScreen
+from .key_modal import KeyModalScreen
 from .theme_modal import ThemePickerScreen
 from .login_modal import LoginModalScreen
 from .local_cmd_modal import LocalCmdModalScreen
@@ -120,6 +121,11 @@ def _is_login_command(text: str) -> bool:
 def _is_local_command(text: str) -> bool:
     s = (text or "").strip().lower()
     return s == "/local" or s.startswith("/local ")
+
+
+def _is_key_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s in ("/key", "/keys", "/key reset")
 
 
 # ─── header / status segment builders ────────────────────────────────────
@@ -645,6 +651,10 @@ class JarvisTUI(App):
                 self._open_login_modal()
                 inp.focus()
                 return
+            if _is_key_command(cmd):
+                self._open_key_modal()
+                inp.focus()
+                return
             if _is_local_command(cmd):
                 rest = cmd[len("/local "):] if cmd.startswith("/local ") else ""
                 self._open_local_cmd_modal(initial=rest)
@@ -785,6 +795,11 @@ class JarvisTUI(App):
             self._set_status("ready")
         self.push_screen(LoginModalScreen(), after)
 
+    def _open_key_modal(self) -> None:
+        def after(_: object) -> None:
+            self._set_status("ready")
+        self.push_screen(KeyModalScreen(), after)
+
     def _open_local_cmd_modal(self, initial: str = "") -> None:
         def after(cmd: str | None) -> None:
             inp = self.query_one("#prompt", PromptArea)
@@ -831,10 +846,14 @@ class JarvisTUI(App):
             self._set_status(f"queued #{idx} ({len(state.prompt_queue)} waiting)")
             return
 
-        if head in ("/login", "/logout", "/auth", "/key", "/model", "/session", "/sessions"):
+        if head in ("/login", "/logout", "/auth", "/model", "/session", "/sessions"):
             # Route these to their proper modal/command handler
             # rather than treating them as "thinking" interactions.
             self._route_modal_slash(text)
+            return
+
+        if _is_key_command(text):
+            self._open_key_modal()
             return
 
         result, should_send, new_inp = handle_slash(text)
@@ -881,7 +900,7 @@ class JarvisTUI(App):
             self._open_login_modal()
             return
 
-        if head in ("/key", "/auth", "/logout"):
+        if head in ("/auth", "/logout"):
             # These go through handle_slash which may prompt for input
             # via TUIConsole.input() — show a neutral status.
             log = self.query_one("#transcript", RichLog)
@@ -936,12 +955,15 @@ class JarvisTUI(App):
         if stripped in ("/settings", "/setting"):
             self._open_settings_modal()
             return
+        if _is_key_command(stripped):
+            self._open_key_modal()
+            return
         if stripped in ("/theme",):
             self._open_theme_modal()
             return
 
         head = stripped.split(maxsplit=1)[0]
-        if head in ("/key", "/auth", "/logout", "/local"):
+        if head in ("/auth", "/logout", "/local"):
             # Route through _run_turn but with "processing…" label
             log = self.query_one("#transcript", RichLog)
             log.write(self._user_panel(stripped))
@@ -1075,6 +1097,10 @@ class JarvisTUI(App):
                 f"[{ui.WARN}]🔑 keytest armed —[/] press any key to see what your "
                 "terminal sent (one shot)."
             )
+            return
+
+        if _is_key_command(stripped):
+            self._open_key_modal()
             return
 
         if self._busy:
@@ -1383,10 +1409,13 @@ class JarvisTUI(App):
             if next_prompt.startswith("/"):
                 head = next_prompt.split(maxsplit=1)[0]
                 if head in ("/login", "/model", "/session", "/sessions",
-                            "/logout", "/auth", "/key", "/settings",
+                            "/logout", "/auth", "/settings",
                             "/theme", "/agent", "/skills", "/memory",
                             "/lesson", "/mcp", "/think", "/local"):
                     self._handle_queued_command(next_prompt)
+                    return
+                if _is_key_command(next_prompt):
+                    self._open_key_modal()
                     return
 
             self._begin_turn(next_prompt)
