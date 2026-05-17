@@ -382,16 +382,33 @@ class JarvisTUI(App):
             )
 
         from ..storage import skills as _skills
+        from ..mcp.config import get_config as _get_mcp_config
         _sk_count = _skills.skill_count()
-        if _sk_count > 0:
+        # Count configured MCP servers from config — no connection/tool-fetching.
+        _mcp_count = len(_get_mcp_config().list_servers())
+
+        _show_sk = _sk_count > 0
+        _show_mcp = _mcp_count > 0
+        if _show_sk or _show_mcp:
+            parts = []
+            if _show_sk:
+                parts.append(
+                    f"🧠 [bold {ui.ACCENT_2}]{_sk_count} skill"
+                    f"{'s' if _sk_count != 1 else ''}[/]"
+                )
+            if _show_mcp:
+                parts.append(
+                    f"🔧 [bold {ui.ACCENT}]{_mcp_count} MCP"
+                    f"{'s' if _mcp_count != 1 else ''}[/]"
+                )
+            title_parts = [p for p in ("skills", "MCPs") if (_show_sk and p == "skills") or (_show_mcp and p == "MCPs")]
             log.write(
                 Panel(
                     Text.from_markup(
-                        f"🧠 [bold {ui.ACCENT_2}]{_sk_count} skill"
-                        f"{'s' if _sk_count != 1 else ''}[/] available — "
+                        f"{' & '.join(parts)} available — "
                         f"[{ui.FG_MUTE}]auto-invoked from headers in system prompt[/]"
                     ),
-                    title="skills",
+                    title=" & ".join(title_parts),
                     title_align="left",
                     border_style=ui.ACCENT_2,
                     padding=(0, 1),
@@ -1224,16 +1241,33 @@ class JarvisTUI(App):
 
         # Skills panel (same rendering as on_mount).
         from ..storage import skills as _skills
+        from ..mcp.config import get_config as _get_mcp_config
         _sk_count = _skills.skill_count()
-        if _sk_count > 0:
+        # Count configured MCP servers from config — no connection/tool-fetching.
+        _mcp_count = len(_get_mcp_config().list_servers())
+
+        _show_sk = _sk_count > 0
+        _show_mcp = _mcp_count > 0
+        if _show_sk or _show_mcp:
+            parts = []
+            if _show_sk:
+                parts.append(
+                    f"🧠 [bold {ui.ACCENT_2}]{_sk_count} skill"
+                    f"{'s' if _sk_count != 1 else ''}[/]"
+                )
+            if _show_mcp:
+                parts.append(
+                    f"🔧 [bold {ui.ACCENT}]{_mcp_count} MCP"
+                    f"{'s' if _mcp_count != 1 else ''}[/]"
+                )
+            title_parts = [p for p in ("skills", "MCPs") if (_show_sk and p == "skills") or (_show_mcp and p == "MCPs")]
             log.write(
                 Panel(
                     Text.from_markup(
-                        f"🧠 [bold {ui.ACCENT_2}]{_sk_count} skill"
-                        f"{'s' if _sk_count != 1 else ''}[/] available — "
+                        f"{' & '.join(parts)} available — "
                         f"[{ui.FG_MUTE}]auto-invoked from headers in system prompt[/]"
                     ),
-                    title="skills",
+                    title=" & ".join(title_parts),
                     title_align="left",
                     border_style=ui.ACCENT_2,
                     padding=(0, 1),
