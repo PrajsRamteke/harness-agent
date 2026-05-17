@@ -161,7 +161,13 @@ def call_claude_stream():
             # so accumulation is correct.
             state.total_in = final.usage.input_tokens
             state.total_out += final.usage.output_tokens
-            state.total_tokens = final.usage.total_tokens
+            # Anthropic's Usage exposes only input/output tokens; OpenCode's
+            # fake Usage adds total_tokens. Compute when absent.
+            state.total_tokens = getattr(
+                final.usage,
+                "total_tokens",
+                final.usage.input_tokens + final.usage.output_tokens,
+            )
             return final
         except APITimeoutError:
             report_turn_phase("HTTP timeout — no data from API")
