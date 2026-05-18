@@ -209,9 +209,10 @@ def _scan_agent_dir(agent_dir: pathlib.Path, scope: str, source_tag: str) -> lis
 
 
 def _seed_default_agents() -> None:
-    """Copy bundled defaults (coding/reverse_eng/setup) into global
-    ~/.harness/agents/ and also seed the **coding** agent into the current
-    project's .harness/agents/ so it's visible even without global agents.
+    """Copy bundled defaults (coding/reverse_eng/setup) into the canonical
+    global directory ~/.harness/agents/ only — never into a project's
+    .harness/agents/. From there they're visible on every project because
+    ``global_agents`` defaults to ``True`` on fresh install.
 
     Idempotent: never overwrites an existing user file. Runs once per process via
     a sentinel attribute check before each discover call.
@@ -222,28 +223,10 @@ def _seed_default_agents() -> None:
         if not bundled.is_dir():
             return
 
-        project_root = _find_project_root()
-        project_agents_dir = project_root / PROJECT_AGENTS_DIRNAME
-
         for src in bundled.glob("*.md"):
-            # Always seed to global dir (persists across projects)
-            dst_global = HARNESS_AGENTS_DIR / src.name
-            if not dst_global.exists():
-                shutil.copyfile(src, dst_global)
-
-            # Seed coding agent into the project dir so it's visible as a
-            # project-level agent (no global_agents toggle required).
-            # Other agents only go to project if the dir already exists
-            # (user has opted into per-project agents).
-            if src.name == "coding.md":
-                project_agents_dir.mkdir(parents=True, exist_ok=True)
-                dst_project = project_agents_dir / src.name
-                if not dst_project.exists():
-                    shutil.copyfile(src, dst_project)
-            elif project_agents_dir.exists():
-                dst_project = project_agents_dir / src.name
-                if not dst_project.exists():
-                    shutil.copyfile(src, dst_project)
+            dst = HARNESS_AGENTS_DIR / src.name
+            if not dst.exists():
+                shutil.copyfile(src, dst)
     except Exception:
         pass
 
@@ -271,7 +254,7 @@ def discover_agents(force: bool = False, include_global: bool | None = None) -> 
         _seeded = True
 
     if include_global is None:
-        include_global = getattr(state, "global_agents", False)
+        include_global = getattr(state, "global_agents", True)
 
     cache_mode = "global" if include_global else "project"
     now = time.monotonic()

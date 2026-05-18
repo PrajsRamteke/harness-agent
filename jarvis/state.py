@@ -106,7 +106,9 @@ active_agent_name: str = ""
 active_agent: Optional[dict] = None
 
 # Whether to include agents from global directories (~/.harness/agents, etc.)
-global_agents: bool = False
+# Defaults to True so the bundled coding / reverse_eng / setup agents are
+# visible on fresh install. Users can toggle with `/agent global off`.
+global_agents: bool = True
 
 # ── visual theme ────────────────────────────────────────────────────────────
 # These are kept in sync with jarvis/tui/theme.py PALETTES.

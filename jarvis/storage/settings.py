@@ -53,7 +53,7 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 DEFAULTS: dict[str, Any] = {
     "model":  "",            # empty string == fall back to constants.MODEL
     "theme":  "red",
-    "agent":  {"active": "", "global": False},
+    "agent":  {"active": "", "global": True},   # global agents visible by default
     "skills": {"global": False},
     "mcp":    {"global": False},
     "think":  {"mode": True, "effort": "medium"},
