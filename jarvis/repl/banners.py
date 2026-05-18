@@ -16,6 +16,29 @@ from ..console import console, Panel
 from .. import state
 
 
+def _current_git_branch(cwd) -> str | None:
+    """Return the current git branch for ``cwd`` (or None if not a repo).
+
+    Cheap and safe to call on every banner render — bails out fast when
+    git isn't installed or the directory isn't a repo.
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip()
+            return branch or None
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        pass
+    return None
+
+
 def _theme_colors():
     """Return current theme color tokens — works in TUI and Rich REPL."""
     try:
@@ -88,8 +111,17 @@ def welcome_banner(compact: bool = False):
     console.print(f"[{c['accent_3']}]{WELCOME_ART}[/]")
 
     title = f"[bold {c['accent']}]JARVIS v{VERSION}[/]"
-    tagline = f"[{c['fg_mute']}]Chat, code, and control your Mac.[/]"
-    cwd_text = escape(str(pathlib.Path.cwd()))
+    cwd_path = pathlib.Path.cwd()
+    cwd_text = escape(str(cwd_path))
+
+    # Live git branch — shown in the welcome card instead of the old tagline.
+    branch = _current_git_branch(cwd_path)
+    if branch:
+        branch_label = f"[{c['accent_2']}]⑂ ({escape(branch)})[/]"
+        location = f"[{c['fg_mute']}]📂 {cwd_text}[/]   {branch_label}"
+    else:
+        location = f"[{c['fg_mute']}]📂 {cwd_text}[/]"
+
     hints = (
         f"[{c['accent_2']}]/[/] commands   "
         f"[{c['accent_2']}]/agent[/] pick agent   "
@@ -98,7 +130,7 @@ def welcome_banner(compact: bool = False):
         f"[{c['accent_2']}]F2[/] toggle internals"
     )
 
-    body = f"{title}    {tagline} 📂 {cwd_text}\n{hints}"
+    body = f"{title}    {location}\n{hints}"
     console.print(Panel(body, border_style=c['border'], padding=(0, 2)))
 
     if state.update_result:

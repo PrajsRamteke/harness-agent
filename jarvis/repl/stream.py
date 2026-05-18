@@ -109,11 +109,80 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
             rich_live.stop()
 
 
+def _heal_orphan_tool_uses() -> None:
+    """Ensure every assistant tool_use has a following tool_result.
+
+    Strict providers (OpenAI / DeepSeek via OpenRouter / OpenCode) reject the
+    request with "An assistant message with 'tool_calls' must be followed by
+    tool messages responding to each 'tool_call_id'" if any tool_use is left
+    unanswered. This can happen when tool execution is cancelled or crashes
+    mid-batch, or when a session was persisted in a partially-completed state.
+
+    Walk state.messages; for each assistant message with tool_use blocks, look
+    at the immediately-following user message and add stub tool_result blocks
+    for any tool_use ids that aren't already answered. Inserts a new user
+    message if one isn't there. Idempotent — running it twice is a no-op.
+    """
+    msgs = state.messages
+    i = 0
+    while i < len(msgs):
+        m = msgs[i]
+        if m.get("role") != "assistant":
+            i += 1
+            continue
+        content = m.get("content") or []
+        if not isinstance(content, list):
+            i += 1
+            continue
+        tool_use_ids = []
+        for block in content:
+            btype = getattr(block, "type", None) if not isinstance(block, dict) else block.get("type")
+            if btype != "tool_use":
+                continue
+            bid = getattr(block, "id", None) if not isinstance(block, dict) else block.get("id")
+            if bid:
+                tool_use_ids.append(bid)
+        if not tool_use_ids:
+            i += 1
+            continue
+
+        nxt = msgs[i + 1] if i + 1 < len(msgs) else None
+        nxt_content = nxt.get("content") if isinstance(nxt, dict) and nxt.get("role") == "user" else None
+        if not isinstance(nxt_content, list):
+            nxt_content = None
+
+        answered = set()
+        if nxt_content:
+            for block in nxt_content:
+                btype = block.get("type") if isinstance(block, dict) else None
+                if btype == "tool_result":
+                    tid = block.get("tool_use_id")
+                    if tid:
+                        answered.add(tid)
+
+        missing = [tid for tid in tool_use_ids if tid not in answered]
+        if missing:
+            stubs = [{
+                "type": "tool_result",
+                "tool_use_id": tid,
+                "content": "ERROR: tool execution did not complete (state recovered)",
+            } for tid in missing]
+            if nxt_content is not None:
+                nxt["content"] = stubs + nxt_content
+            else:
+                msgs.insert(i + 1, {"role": "user", "content": stubs})
+        i += 1
+
+
 def call_claude_stream():
     # Check cancel flag before starting a new stream — allows Escape to
     # prevent the next stream from even starting after tool results.
     if state.cancel_requested.is_set():
         raise KeyboardInterrupt()
+
+    # Repair any orphan tool_use blocks before sending — strict providers
+    # (DeepSeek, OpenAI) reject the request otherwise.
+    _heal_orphan_tool_uses()
 
     report_turn_phase("Jarvis: building request…")
     tools = select_tools(state.messages)

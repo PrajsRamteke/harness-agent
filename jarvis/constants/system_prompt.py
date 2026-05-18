@@ -7,7 +7,10 @@ def build_base_system(cwd: pathlib.Path | None = None, git_branch: str | None = 
     header = f"Jarvis — macOS agent + code assistant running in {cwd}"
     if git_branch:
         header += f" (git: {git_branch})"
+    root_line = f"PROJECT ROOT: {cwd}{f'  ({git_branch})' if git_branch else ''}"
     return f"""{header}.
+
+{root_line}
 
 TOOLS (grouped)
 - Files/shell: read_file, read_document (PDF/CSV/JSON/HTML/XLSX/YAML/images), write_file, edit_file, list_dir (full paths), run_bash, search_code (ripgrep, skips node_modules/.git/build), glob_files, rank_files, git_*

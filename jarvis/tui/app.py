@@ -286,6 +286,23 @@ class JarvisTUI(App):
         self._key_debug = False
         self._last_t_width = 0
         self._width_check_timer = None
+        # Git branch cache — refreshed every few seconds, not every status tick.
+        self._git_branch: str | None = None
+        self._git_branch_checked_at: float = 0.0
+        self._git_branch_ttl: float = 5.0
+
+    def _refresh_git_branch(self) -> None:
+        """Re-query the current git branch (with TTL caching)."""
+        now = time.monotonic()
+        if (now - self._git_branch_checked_at) < self._git_branch_ttl:
+            return
+        self._git_branch_checked_at = now
+        try:
+            from ..repl.banners import _current_git_branch
+            import pathlib as _pl
+            self._git_branch = _current_git_branch(_pl.Path.cwd())
+        except Exception:
+            self._git_branch = None
 
     async def _on_key(self, event):  # type: ignore[override]
         if self._key_debug:
@@ -530,6 +547,11 @@ class JarvisTUI(App):
             }
             _color = _ctx_colors.get(state.project_context_file, ui.FG_MUTE)
             segs.append(f"[{_color}]{state.project_context_file}[/]")
+
+        # ── git branch (cached, refreshed every few seconds) ──────────
+        self._refresh_git_branch()
+        if self._git_branch:
+            segs.append(f"[{ui.ACCENT_2}]⑂ ({self._git_branch})[/]")
 
         # ── prompt queue ──────────────────────────────────────────────
         if state.prompt_queue:

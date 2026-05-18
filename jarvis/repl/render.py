@@ -237,14 +237,20 @@ def render_assistant(resp) -> bool:
         _run_parallel_batch(parallel_batch, outputs)
 
         for b in tool_uses:
-            icon, ap, out_str = outputs[b.id]
-            if state.show_internal:
-                console.print(f"{icon} [{_ui.WARN}]{b.name}[/] [{_ui.FG_DIM}]{ap}[/]")
-                if re.search(r"\S", out_str):
-                    short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
-                    # Wrap in Text so stray brackets in tool output (e.g. URLs,
-                    # JSON fragments) aren't interpreted as Rich markup tags.
-                    console.print(Panel(Text(short), border_style=_ui.SEP, padding=(0, 1)))
+            if b.id in outputs:
+                icon, ap, out_str = outputs[b.id]
+                if state.show_internal:
+                    console.print(f"{icon} [{_ui.WARN}]{b.name}[/] [{_ui.FG_DIM}]{ap}[/]")
+                    if re.search(r"\S", out_str):
+                        short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
+                        # Wrap in Text so stray brackets in tool output (e.g. URLs,
+                        # JSON fragments) aren't interpreted as Rich markup tags.
+                        console.print(Panel(Text(short), border_style=_ui.SEP, padding=(0, 1)))
+            else:
+                # Tool was skipped (cancel, partial batch failure). Emit a stub
+                # result so the assistant tool_use has a matching tool_result —
+                # required by strict providers (OpenAI / DeepSeek / OpenRouter).
+                out_str = "ERROR: tool execution cancelled before completion"
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": b.id,
@@ -253,10 +259,13 @@ def render_assistant(resp) -> bool:
                 "content": out_str if b.name in _CONTEXT_TOOL_NAMES else out_str[:MAX_TOOL_OUTPUT],
             })
 
+    # Always append tool_results when tool_uses existed — even on cancel —
+    # so state.messages stays a valid tool_use/tool_result pairing. Otherwise
+    # the next API call fails with "tool_calls must be followed by tool messages".
+    if tool_results:
+        state.messages.append({"role": "user", "content": tool_results})
+
     if state.cancel_requested.is_set():
         return False
 
-    if tool_results:
-        state.messages.append({"role": "user", "content": tool_results})
-        return True
-    return False
+    return bool(tool_results)
