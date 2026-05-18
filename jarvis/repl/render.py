@@ -7,6 +7,7 @@ from rich.text import Text
 from ..console import console, Panel, Markdown
 from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT, MAX_PARALLEL_TOOLS, CONTEXT_BUNDLE_MAX_CHARS
 from ..tools import FUNC
+from ..utils.tool_repair import repair_tool_input
 from .. import state
 from .hallucination import _scrub_hallucinations
 from .tool_activity import describe_tool_activity
@@ -70,6 +71,13 @@ def _run_tool(b):
     # `description`) which would otherwise crash the tool with a confusing
     # `unexpected keyword argument` TypeError.
     call_input = b.input if isinstance(b.input, dict) else {}
+
+    # ── smart repair layer ─────────────────────────────────────────
+    # Auto-fix common formatting mistakes in model tool arguments
+    # (null on optional fields, stringified arrays, markdown in paths, …)
+    # so open-source models don't look "dumb" for small harness-level issues.
+    call_input, repair_log = repair_tool_input(b.name, call_input)
+
     try:
         out = FUNC[b.name](**call_input)
     except TypeError as e:
@@ -91,7 +99,11 @@ def _run_tool(b):
             out = f"ERROR: TypeError: {e}"
     except Exception as e:
         out = f"ERROR: {type(e).__name__}: {e}"
-    return b, icon, args_preview, str(out)
+
+    out_str = str(out)
+    if repair_log:
+        out_str += "\n[repair note: " + "; ".join(repair_log) + "]"
+    return b, icon, args_preview, out_str
 
 
 def _run_parallel_batch(batch, outputs):
