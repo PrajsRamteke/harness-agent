@@ -42,6 +42,8 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         Binding("pageup", "page_up", show=False),
     ]
 
+    PAGE_SIZE = 50
+
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
@@ -57,6 +59,9 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         enable_mouse()
         self._prev_scroll_y = self.app.scroll_sensitivity_y
         self.app.scroll_sensitivity_y = 1.0
+        self._offset = 0
+        self._has_more = True
+        self._loaded_ids: set[int] = set()
         self._populate()
 
     def on_unmount(self):
@@ -69,19 +74,36 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
     def _populate(self):
         opts = self.query_one("#session_list", OptionList)
         opts.clear_options()
-        rows = db_list_sessions()
-        if not rows:
+        self._offset = 0
+        self._loaded_ids.clear()
+        self._has_more = True
+        self._append_page()
+        if opts.option_count == 0:
             opts.add_option(Option("(no saved sessions yet)", id="__none__"))
             opts.disabled = True
             return
         opts.disabled = False
+        opts.highlighted = 0
+        opts.focus()
+
+    def _append_page(self):
+        """Fetch the next page of sessions and append them to the OptionList."""
+        opts = self.query_one("#session_list", OptionList)
+        rows = db_list_sessions(limit=self.PAGE_SIZE, offset=self._offset)
+        if not rows:
+            self._has_more = False
+            return
         for r in rows:
-            is_active = r["id"] == state.current_session_id
+            sid = r["id"]
+            if sid in self._loaded_ids:
+                continue
+            self._loaded_ids.add(sid)
+            is_active = sid == state.current_session_id
             marker = "● " if is_active else "  "
             title = r["title"] or "(untitled)"
             label = Text.assemble(
                 (marker, "bold #3fb950"),
-                (f"#{r['id']:<5d}", "bold #79c0ff" if is_active else "#79c0ff"),
+                (f"#{sid:<5d}", "bold #79c0ff" if is_active else "#79c0ff"),
                 ("  ", ""),
                 (f"{title[:50]:<50s}", "#e6edf3"),
                 ("  ", ""),
@@ -91,9 +113,26 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
                 ("  ", ""),
                 (_fmt_ts(r["updated_at"]), "#8b949e"),
             )
-            opts.add_option(Option(label, id=str(r["id"])))
-        opts.highlighted = 0
-        opts.focus()
+            opts.add_option(Option(label, id=str(sid)))
+        self._offset += len(rows)
+        if len(rows) < self.PAGE_SIZE:
+            self._has_more = False
+
+    def _on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        """Auto-load more sessions when approaching the bottom of the list."""
+        if not self._has_more:
+            return
+        opts = self.query_one("#session_list", OptionList)
+        total = opts.option_count
+        if total == 0:
+            return
+        try:
+            idx = int(event.option_index)
+        except (TypeError, ValueError):
+            return
+        # Load more when within the last 5 items of the current page
+        if idx >= total - 5:
+            self._append_page()
 
     def _current_id(self) -> int | None:
         opts = self.query_one("#session_list", OptionList)

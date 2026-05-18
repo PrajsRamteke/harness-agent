@@ -80,14 +80,24 @@ def db_set_title_if_empty(session_id: int, title: str):
             c.execute("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
 
 
-def db_list_sessions(limit: int = SESSIONS_LIST_LIMIT) -> List[sqlite3.Row]:
+def db_list_sessions(limit: int = SESSIONS_LIST_LIMIT, offset: int = 0) -> List[sqlite3.Row]:
     with db_conn() as c:
         return c.execute("""
             SELECT s.id, s.title, s.model, s.created_at, s.updated_at,
                    (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS msg_count
             FROM sessions s
             WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id=s.id)
-            ORDER BY s.updated_at DESC LIMIT ?""", (limit,)).fetchall()
+            ORDER BY s.updated_at DESC LIMIT ? OFFSET ?""", (limit, offset)).fetchall()
+
+
+def db_count_sessions() -> int:
+    """Total number of sessions with at least one message."""
+    with db_conn() as c:
+        row = c.execute("""
+            SELECT COUNT(*) AS cnt FROM sessions s
+            WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id=s.id)
+        """).fetchone()
+        return row["cnt"] if row else 0
 
 
 def db_load_session(session_id: int) -> Optional[List[Dict]]:
