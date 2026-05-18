@@ -26,6 +26,7 @@ from textual.widgets import RichLog, Static, TextArea
 from textual import work
 
 from rich.markdown import Markdown
+from rich.markup import escape as _rich_escape
 from rich.panel import Panel
 from rich.text import Text
 
@@ -452,7 +453,6 @@ class JarvisTUI(App):
                 f"[{ui.ACCENT_3}]^C[/] copy/cancel",
                 f"[{ui.ACCENT_3}]^T[/] logs",
                 f"[{ui.ACCENT_3}]^D[/] quit",
-                f"[{ui.ACCENT_3}]F2[/] internals",
             ]
             line = f"  [{ui.SEP}]{ui.DOT}[/]  ".join(hints)
             self.query_one("#hintbar", Static).update(Text.from_markup(line))
@@ -1408,7 +1408,7 @@ class JarvisTUI(App):
             self._tui_console.assistant_stream_abort()
         except Exception as e:
             self._tui_console.assistant_stream_abort()
-            self._tui_console.print(f"[{ui.ERR}]error: {type(e).__name__}: {e}[/]")
+            self._tui_console.print(f"[{ui.ERR}]error: {_rich_escape(type(e).__name__)}: {_rich_escape(str(e))}[/]")
         finally:
             self._tui_console.assistant_stream_abort()
             self.call_from_thread(self._turn_done)

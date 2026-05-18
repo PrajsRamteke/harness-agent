@@ -123,11 +123,11 @@ def welcome_banner(compact: bool = False):
         location = f"[{c['fg_mute']}]▣ {cwd_text}[/]"
 
     hints = (
-        f"[{c['accent_2']}]/[/] commands   "
-        f"[{c['accent_2']}]/agent[/] pick agent   "
-        f"[{c['accent_2']}]/model[/] switch model   "
-        f"[{c['accent_2']}]/help[/] full reference   "
-        f"[{c['accent_2']}]F2[/] toggle internals"
+        f"[{c['accent_2']}]/[/] commands  "
+        f"[{c['accent_2']}]/agent[/] pick agent  "
+        f"[{c['accent_2']}]/model[/] switch model "
+        f"[{c['accent_2']}]/help[/] full reference "
+        f"[{c['accent_2']}]/session[/] history "
     )
 
     body = f"{title}    {location}\n{hints}"

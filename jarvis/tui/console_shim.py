@@ -19,6 +19,14 @@ from rich.text import Text
 from textual.widgets import RichLog, Static
 
 
+def _safe_from_markup(text: str) -> Text:
+    """Parse Rich markup, falling back to plain text on malformed tags."""
+    try:
+        return Text.from_markup(text)
+    except Exception:
+        return Text(text)
+
+
 def _truncate_rich_log_lines(log: RichLog, line_count: int) -> None:
     """Drop lines from ``line_count`` onward (used to replace in-progress stream block)."""
     log.lines = log.lines[:line_count]
@@ -215,11 +223,11 @@ class TUIConsole:
             text = sep.join(objects)
             if end and end != "\n":
                 text += end
-            self._write(Text.from_markup(text))
+            self._write(_safe_from_markup(text))
             return
         for obj in objects:
             if isinstance(obj, str):
-                self._write(Text.from_markup(obj))
+                self._write(_safe_from_markup(obj))
             else:
                 self._write(obj)
 
