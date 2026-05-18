@@ -150,7 +150,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🎛  Agents", id="modal_title")
+                yield Static("⚙  Agents", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="agent_list")
                 yield Static(
@@ -256,7 +256,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         active = state.active_agent_name or "default"
         try:
             self.query_one("#modal_title", Static).update(
-                f"🎛  Agents   [#6e7681]{count} available · scope: {scope}[/]"
+                f"⚙  Agents   [#6e7681]{count} available · scope: {scope}[/]"
             )
             self.query_one("#modal_status", Static).update(
                 f"active: [bold #79c0ff]{active}[/]   ·   new writes to: [bold #e6edf3]{new_scope}[/]"
@@ -389,7 +389,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
             log = self.app.query_one("#transcript")
             log.write(Panel(
                 Markdown(body or "*(empty body)*"),
-                title=f"🎛  Agent preview: {name}",
+                title=f"⚙  Agent preview: {name}",
                 border_style="cyan",
             ))
             self._notify(f"previewed '{name}' in transcript")

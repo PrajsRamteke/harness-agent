@@ -5,7 +5,7 @@ from ..storage import lessons as ls
 
 def _render(rows, title):
     if not rows:
-        console.print(Panel("(no lessons)", title=f"🧠 {title}", border_style="magenta"))
+        console.print(Panel("(no lessons)", title=f"◆ {title}", border_style="magenta"))
         return
     lines = []
     for r in rows:
@@ -13,7 +13,7 @@ def _render(rows, title):
         lines.append(f"[magenta]#{r['id']}[/] [dim]hits={r.get('hits',0)}[/]{tag}  "
                      f"[bold]{r['task']}[/] → {r['lesson']}")
     console.print(Panel("\n".join(lines),
-                        title=f"🧠 {title} ({len(rows)})", border_style="magenta"))
+                        title=f"◆ {title} ({len(rows)})", border_style="magenta"))
 
 
 def handle_lesson(cmd: str, arg: str):

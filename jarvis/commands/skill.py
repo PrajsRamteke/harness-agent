@@ -18,7 +18,7 @@ def _render_skills(rows, title):
         scope = "global" if state.global_skills else "project"
         console.print(Panel(
             f"(no {scope} skills found — create .skills/<name>/SKILL.md)",
-            title="📋 Skills",
+            title="☰ Skills",
             border_style="cyan",
         ))
         return
@@ -26,12 +26,12 @@ def _render_skills(rows, title):
     for r in rows:
         tag = f" [dim][global][/]" if r.get("scope") == "global" else ""
         lines.append(f"[bold cyan]{r['name']}[/]{tag}  [dim]{r['description']}[/]")
-        lines.append(f"  [dim]📁 {r['source_dir']}[/]")
+        lines.append(f"  [dim]▣ {r['source_dir']}[/]")
         lines.append("")
-    scope_label = "🌍 global" if state.global_skills else "📁 project"
+    scope_label = "◎ global" if state.global_skills else "▣ project"
     console.print(Panel(
         "\n".join(lines),
-        title=f"📋 Skills ({len(rows)}, {scope_label})",
+        title=f"☰ Skills ({len(rows)}, {scope_label})",
         border_style="cyan",
     ))
     if not state.global_skills:
@@ -43,7 +43,7 @@ def _render_skills(rows, title):
 def _render_skill_content(name: str, content: str):
     console.print(Panel(
         Markdown(content),
-        title=f"📋 Skill: {name}",
+        title=f"☰ Skill: {name}",
         border_style="cyan",
     ))
 
@@ -84,7 +84,7 @@ def handle_skill(cmd: str, arg: str):
         skills = sk.discover_skills(force=True)
         scope = "global" if state.global_skills else "project"
         count = len(skills)
-        label = "🌍 global (project + global)" if state.global_skills else "📁 project-only"
+        label = "◎ global (project + global)" if state.global_skills else "▣ project-only"
         console.print(f"[green]✓[/] Skills scope set to [bold]{label}[/] — [cyan]{count}[/] skills available")
         # Auto-show the updated list
         _render_skills(skills, "auto-reloaded")
@@ -92,7 +92,7 @@ def handle_skill(cmd: str, arg: str):
 
     elif sub == "global":
         # Show current global status
-        label = "🌍 on" if state.global_skills else "📁 off"
+        label = "◎ on" if state.global_skills else "▣ off"
         console.print(f"[cyan]Global skills:[/] {label}  (/skills global on|off to toggle)")
         return True, None
 

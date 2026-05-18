@@ -61,6 +61,6 @@ def handle_files_shell(c: str, arg: str) -> bool:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with NOTES_FILE.open("a") as f:
             f.write(f"- [{time.strftime('%Y-%m-%d %H:%M')}] {arg}\n")
-        console.print(f"[green]📝 saved to {NOTES_FILE}[/]")
+        console.print(f"[green]✎ saved to {NOTES_FILE}[/]")
         return True
     return False

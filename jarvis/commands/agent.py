@@ -39,7 +39,7 @@ def _render_agents(rows: list[dict]) -> None:
         scope = "global" if state.global_agents else "project"
         console.print(Panel(
             f"(no {scope} agents found — create .harness/agents/<name>.md or run /agent new <name>)",
-            title="🎛  Agents",
+            title="⚙  Agents",
             border_style="cyan",
         ))
         return
@@ -51,12 +51,12 @@ def _render_agents(rows: list[dict]) -> None:
         icon = (r.get("icon") or "").strip()
         icon_disp = f"{icon} " if icon else ""
         lines.append(f"{marker} [bold cyan]{icon_disp}{r['name']}[/]{tag}  [dim]{r['description']}[/]")
-        lines.append(f"     [dim]📁 {r.get('source_tag') or r.get('source_dir', '')}[/]")
+        lines.append(f"     [dim]▣ {r.get('source_tag') or r.get('source_dir', '')}[/]")
         lines.append("")
-    scope_label = "🌍 global" if state.global_agents else "📁 project"
+    scope_label = "◎ global" if state.global_agents else "▣ project"
     console.print(Panel(
         "\n".join(lines).rstrip(),
-        title=f"🎛  Agents ({len(rows)}, {scope_label})",
+        title=f"⚙  Agents ({len(rows)}, {scope_label})",
         border_style="cyan",
     ))
     if not state.global_agents:
@@ -88,7 +88,7 @@ def _activate(name: str) -> bool:
 
 def _deactivate() -> None:
     state.set_active_agent(None)
-    console.print("[dim]🔘 agent → default (base system prompt only).[/]")
+    console.print("[dim]◉ agent → default (base system prompt only).[/]")
 
 
 def handle_agent(cmd: str, arg: str):
@@ -134,14 +134,14 @@ def handle_agent(cmd: str, arg: str):
                 state.save_agent_config()
             ag.invalidate_cache()
             rows = ag.discover_agents(force=True)
-            label = "🌍 global (project + global)" if state.global_agents else "📁 project-only"
+            label = "◎ global (project + global)" if state.global_agents else "▣ project-only"
             console.print(
                 f"[green]✓[/] Agent scope set to [bold]{label}[/] — "
                 f"[cyan]{len(rows)}[/] agents visible"
             )
             _render_agents(rows)
             return True, None
-        label = "🌍 on" if state.global_agents else "📁 off"
+        label = "◎ on" if state.global_agents else "▣ off"
         console.print(f"[cyan]Global agents:[/] {label}  (/agent global on|off)")
         return True, None
 
@@ -209,7 +209,7 @@ def handle_agent(cmd: str, arg: str):
             console.print(f"[red]agent '{rest}' not found[/]")
             return True, None
         body = ag.load_agent_body(rec["name"]) or ""
-        title = f"🎛  Agent: {rec['name']}  [dim]({rec.get('scope')})[/]"
+        title = f"⚙  Agent: {rec['name']}  [dim]({rec.get('scope')})[/]"
         console.print(Panel(Markdown(body or "*(empty body)*"), title=title, border_style="cyan"))
         return True, None
 

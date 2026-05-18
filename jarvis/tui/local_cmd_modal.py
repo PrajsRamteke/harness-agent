@@ -85,7 +85,7 @@ class LocalCmdModalScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("💻  Local Commands", id="modal_title")
+                yield Static("▣  Local Commands", id="modal_title")
                 yield Static("", id="modal_status")
                 yield Input(
                     value=self._initial,

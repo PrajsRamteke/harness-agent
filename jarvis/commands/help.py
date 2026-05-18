@@ -109,7 +109,7 @@ def _filter(query: str):
 def cmd_help(arg: str = ""):
     """Show the command reference. With *arg* set, only show matching commands."""
     sections = _filter(arg)
-    title = "📖 commands"
+    title = "≡ commands"
     if arg:
         if not sections:
             console.print(
@@ -117,7 +117,7 @@ def cmd_help(arg: str = ""):
                 f"[dim](try /help for the full list)[/]"
             )
             return
-        title = f"📖 commands matching '{arg}'"
+        title = f"≡ commands matching '{arg}'"
 
     t = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
     t.add_column("command")

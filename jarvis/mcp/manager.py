@@ -66,13 +66,13 @@ def handle_mcp_command(arg: str) -> Any:
 # ── shared visual primitives ─────────────────────────────────────────────
 
 _SOURCE_ICONS = {
-    "project":  "📁",
-    "jarvis":   "🤖",
-    "claude":   "🟣",
-    "opencode": "🟧",
+    "project":  "▣",
+    "jarvis":   "✦",
+    "claude":   "◆",
+    "opencode": "◇",
     "cursor":   "⌘",
-    "windsurf": "🌊",
-    "vscode":   "💠",
+    "windsurf": "≈",
+    "vscode":   "⬡",
 }
 
 _SOURCE_LABELS = {
@@ -157,11 +157,11 @@ def _usage_panel() -> Panel:
         cmds.add_row(c, d)
 
     scopes = Text.assemble(
-        ("📁 project", "magenta bold"),
+        ("▣ project", "magenta bold"),
         ("  always active — reads ", "dim"),
         (".mcp.json", "white"),
         (" from the current directory (Claude Code compatible)\n", "dim"),
-        ("🌍 global ", "blue bold"),
+        ("◎ global ", "blue bold"),
         (" opt-in — aggregates servers from Jarvis, Claude Code, OpenCode, Cursor,", "dim"),
         (" Windsurf, VS Code", "dim"),
     )
@@ -173,7 +173,7 @@ def _usage_panel() -> Panel:
     )
     return Panel(
         body,
-        title="[bold yellow]🧩 MCP — Model Context Protocol[/]",
+        title="[bold yellow]○ MCP — Model Context Protocol[/]",
         subtitle="[dim]/mcp list  ·  /mcp global on[/]",
         border_style="yellow",
         padding=(1, 2),
@@ -202,7 +202,7 @@ def _project_section(config: MCPConfig, project_rows: list[tuple[str, dict, bool
 
     return Panel(
         body,
-        title="[bold magenta]📁 Project[/]",
+        title="[bold magenta]▣ Project[/]",
         subtitle=subtitle,
         border_style="magenta",
         padding=(0, 1),
@@ -221,7 +221,7 @@ def _global_section(
         )
         return Panel(
             body,
-            title="[bold blue]🌍 Global[/]",
+            title="[bold blue]◉ Global[/]",
             subtitle="[dim]off[/]",
             border_style="blue",
             padding=(0, 1),
@@ -234,7 +234,7 @@ def _global_section(
         )
         return Panel(
             body,
-            title="[bold blue]🌍 Global[/]",
+            title="[bold blue]◉ Global[/]",
             subtitle="[dim]0 servers[/]",
             border_style="blue",
             padding=(0, 1),
@@ -265,7 +265,7 @@ def _global_section(
     total = sum(len(v) for v in global_by_source.values())
     return Panel(
         Group(*source_panels),
-        title="[bold blue]🌍 Global[/]",
+        title="[bold blue]◉ Global[/]",
         subtitle=f"[dim]{total} servers · {len(global_by_source)} sources[/]",
         border_style="blue",
         padding=(0, 1),
@@ -313,9 +313,9 @@ def _cmd_list() -> Panel:
     )
 
     scope_label = (
-        Text("🌍  project + global", style="bold blue")
+        Text("◎  project + global", style="bold blue")
         if config.include_global()
-        else Text("📁  project-only", style="bold magenta")
+        else Text("▣  project-only", style="bold magenta")
     )
 
     body = Group(
@@ -329,7 +329,7 @@ def _cmd_list() -> Panel:
     )
     return Panel(
         body,
-        title="[bold yellow]🧩 MCP Servers[/]",
+        title="[bold yellow]○ MCP Servers[/]",
         border_style="yellow",
         padding=(1, 2),
     )
@@ -356,14 +356,14 @@ def _cmd_paths() -> Panel:
     proj_path = config.project_config_path()
     if proj_path is not None:
         t.add_row(
-            Text("📁 project", style="bold magenta"),
+            Text("▣ project", style="bold magenta"),
             Text(""),
             Text(str(proj_path), style="white"),
             Text("found", style="green"),
         )
     else:
         t.add_row(
-            Text("📁 project", style="bold magenta"),
+            Text("▣ project", style="bold magenta"),
             Text(""),
             Text(str(_project_config_path()), style="dim"),
             Text("missing", style="yellow"),
@@ -388,7 +388,7 @@ def _cmd_paths() -> Panel:
             status = Text("scanned", style="dim")
 
         t.add_row(
-            Text("🌍 global", style="bold blue"),
+            Text("◉ global", style="bold blue"),
             Text(f"{icon} {name}", style="white"),
             Text(str(path), style="dim"),
             status,
@@ -404,7 +404,7 @@ def _cmd_paths() -> Panel:
 
     return Panel(
         Group(t, Text(""), footer),
-        title="[bold yellow]🧩 MCP Config Paths[/]",
+        title="[bold yellow]○ MCP Config Paths[/]",
         border_style="yellow",
         padding=(1, 2),
     )
@@ -415,9 +415,9 @@ def _cmd_paths() -> Panel:
 def _cmd_global(args: list[str]):
     if not args:
         scope = (
-            Text("🌍 global ", style="bold blue")
+            Text("◎ global ", style="bold blue")
             if state.global_mcp
-            else Text("📁 project-only ", style="bold magenta")
+            else Text("▣ project-only ", style="bold magenta")
         )
         body = Group(
             scope,
@@ -432,7 +432,7 @@ def _cmd_global(args: list[str]):
         )
         return Panel(
             body,
-            title="[bold yellow]🧩 MCP scope[/]",
+            title="[bold yellow]○ MCP scope[/]",
             border_style="yellow",
             padding=(1, 2),
         )
@@ -591,7 +591,7 @@ def _cmd_add(args: list[str]):
 
     return Panel(
         Group(*body_lines),
-        title="[bold green]🧩 server added[/]",
+        title="[bold green]○ server added[/]",
         border_style="green",
         padding=(1, 2),
     )

@@ -45,7 +45,7 @@ def export_markdown(path: str) -> str:
                 elif t == "thinking":
                     lines.append(f"> *thinking:* {bd.get('thinking','')}")
                 elif t == "tool_use":
-                    lines.append(f"**🔧 tool:** `{bd.get('name')}` — `{json.dumps(bd.get('input',{}))[:400]}`")
+                    lines.append(f"**⚙ tool:** `{bd.get('name')}` — `{json.dumps(bd.get('input',{}))[:400]}`")
                 elif t == "tool_result":
                     body = bd.get("content", "")
                     if isinstance(body, list):

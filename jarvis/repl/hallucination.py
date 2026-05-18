@@ -30,7 +30,7 @@ _HALLUCINATION_PATTERNS: list = [
 ]
 
 _HALLUCINATION_WARNING = (
-    "\n\n> ⚠️ **[Hallucination guard]** "
+    "\n\n> ⚠ **[Hallucination guard]** "
     "A sentence was removed because it contained unverified facts "
     "(version number, date, citation, or source) that were not fetched this session. "
     "Use `verified_search` to get real data.\n"
@@ -50,7 +50,7 @@ def _scrub_hallucinations(text: str) -> tuple:
         hit = any(p.search(line) for p in _HALLUCINATION_PATTERNS)
         if hit:
             flagged = True
-            clean.append(f"⚠️ {line}")  # keep it visible — don't silently drop
+            clean.append(f"⚠ {line}")  # keep it visible — don't silently drop
         else:
             clean.append(line)
     result = "".join(clean).strip()

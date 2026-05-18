@@ -1,12 +1,12 @@
 ---
 name: setup
 description: Harness config playbook — where MCP, skills, settings, and agent files live
-icon: "🛠"
+icon: "⚙"
 color: "#58a6ff"
 ---
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🛠  SETUP — Harness config layout
+⚙  SETUP — Harness config layout
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Active when the user wants you to configure Harness itself — add an MCP server, create a

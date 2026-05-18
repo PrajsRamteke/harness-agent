@@ -36,7 +36,7 @@ def fetch_url(url: str, raw: bool = False) -> str:
         else:
             result = _strip_html(body)
 
-        header = f"📄 {final_url}\n[{len(result)} chars]\n" + "─" * 60 + "\n"
+        header = f"≡ {final_url}\n[{len(result)} chars]\n" + "─" * 60 + "\n"
         return (header + result)[:MAX_TOOL_OUTPUT]
 
     except urllib.error.HTTPError as e:

@@ -13,12 +13,12 @@ CONTEXT TOOLS (always prefer over individual read_file/search_code calls)
 Instead of making 5-20 individual calls, use these to get ALL relevant
 files in 1-2 calls:
 
-  1️⃣  resolve_context("Your task description")
+  1.  resolve_context("Your task description")
       → Returns ALL related files in one bundle (target + imports +
         importers + tests + configs + types + siblings). The repo
         graph builds automatically. Max 25 files, 120K chars.
 
-  2️⃣  read_bundle(["path1", "path2", ...])
+  2.  read_bundle(["path1", "path2", ...])
       → Batch-read specific files you already know about. Use when
         you have exact paths from resolve_context or user mention.
 

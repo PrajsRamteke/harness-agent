@@ -73,14 +73,14 @@ def handle_control(c: str, arg: str):
         import pathlib
         t = Table(show_header=False, box=None, padding=(0, 2))
         t.add_row("⏱  elapsed", fmt_duration(time.time() - state.session_start))
-        t.add_row("💬 messages", str(len(state.messages)))
-        t.add_row("🔧 tool calls", str(state.tool_calls_count))
-        t.add_row("🛠  internals", "shown" if state.show_internal else "hidden")
+        t.add_row("◈ messages", str(len(state.messages)))
+        t.add_row("⚙ tool calls", str(state.tool_calls_count))
+        t.add_row("⚙  internals", "shown" if state.show_internal else "hidden")
         t.add_row("⇅ tokens in/out/total", f"{state.total_in} / {state.total_out} / {state.total_tokens}")
-        t.add_row("💰 est. cost", f"${estimated_cost():.4f}")
-        t.add_row("🤖 model", state.MODEL)
-        t.add_row("📂 cwd", str(pathlib.Path.cwd()))
-        console.print(Panel(t, title="📊 session stats", border_style="cyan"))
+        t.add_row("✦ est. cost", f"${estimated_cost():.4f}")
+        t.add_row("✦ model", state.MODEL)
+        t.add_row("▣ cwd", str(pathlib.Path.cwd()))
+        console.print(Panel(t, title="◆ session stats", border_style="cyan"))
         return True, None
     if c == "/model":
         _handle_model(arg)
@@ -225,7 +225,7 @@ def _handle_model(arg: str):
     for i, (prov, m, desc) in enumerate(rows, 1):
         marker = "[green]● current[/]" if m == state.MODEL else ""
         t.add_row(str(i), m, desc, PROVIDER_LABELS[prov], marker)
-    console.print(Panel(t, title="🤖 available models — all providers", border_style="cyan"))
+    console.print(Panel(t, title="✦ available models — all providers", border_style="cyan"))
     try:
         sel = console.input("[cyan]select model (# or name, enter to cancel): [/]").strip()
     except (RuntimeError, EOFError):
@@ -290,7 +290,7 @@ def _handle_auth():
             has_env = bool(os.getenv("ANTHROPIC_API_KEY"))
             lines.append("source: " + ("env ANTHROPIC_API_KEY" if has_env else f"{KEY_FILE}"))
         lines.append(f"model: [cyan]{state.MODEL}[/]")
-    console.print(Panel("\n".join(lines), title="🔐 auth", border_style="cyan"))
+    console.print(Panel("\n".join(lines), title="⬟ auth", border_style="cyan"))
 
 
 def _handle_provider(arg: str):
@@ -305,7 +305,7 @@ def _handle_provider(arg: str):
             "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n\n"
             "usage: [dim]/provider anthropic[/], [dim]/provider openrouter[/], "
             "[dim]/provider opencode[/], or [dim]/provider opencode_zen[/]",
-            title="🌐 provider", border_style="cyan",
+            title="◎ provider", border_style="cyan",
         ))
         try:
             sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, enter to cancel]: ").strip().lower()
@@ -381,7 +381,7 @@ def _handle_theme(arg: str) -> None:
             marker = " ← active" if t == cur else ""
             lines.append(f"  [cyan]{t}[/]{marker}")
         lines.append("\nusage: [dim]/theme <name>[/]  —  " + ", ".join(valid))
-        console.print(Panel("\n".join(lines), title="🎨 theme", border_style="cyan"))
+        console.print(Panel("\n".join(lines), title="✦ theme", border_style="cyan"))
         return
 
     if target not in valid:

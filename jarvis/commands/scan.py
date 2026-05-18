@@ -29,7 +29,7 @@ def handle_scan(c: str, arg: str) -> Tuple[bool, str]:
         return False, ""
 
     if getattr(state, "scan_completed", False):
-        console.print("[yellow]🔍 Scan already completed — this is a one-time command.[/]")
+        console.print("[yellow]◎ Scan already completed — this is a one-time command.[/]")
         console.print("[dim]Use /memory to view stored facts or /memory add to add more.[/]")
         return True, ""
 
@@ -46,7 +46,7 @@ def handle_scan(c: str, arg: str) -> Tuple[bool, str]:
     state.scan_completed = True
 
     prompt = _build_scan_prompt()
-    console.print("[cyan]🔍 AI-driven scan initiated...[/]")
+    console.print("[cyan]◎ AI-driven scan initiated...[/]")
     console.print(
         "[dim]The LLM is now exploring your system using its tools.[/]\n"
         "[dim]It will find important info and save it to memory automatically.[/]"
@@ -113,23 +113,23 @@ Save only what's unusual or distinctive — NOT common tools everyone has.
 5. `memory_save` any interesting personal facts
 
 ## WHAT TO SAVE (use memory_save for each)
-✅ Full name, email, usernames (GitHub, etc.)
-✅ Work: company, role, team structure, work repos
-✅ Personal projects: name + description + language
-✅ Education: degrees, institutions, certifications
-✅ Interests: hobbies, anime, sports, music, etc.
-✅ SSH keys and git identities
-✅ Key environment variables (WORK_, HABUILD_, etc.)
-✅ Important file locations (project folders, notes)
+✓ Full name, email, usernames (GitHub, etc.)
+✓ Work: company, role, team structure, work repos
+✓ Personal projects: name + description + language
+✓ Education: degrees, institutions, certifications
+✓ Interests: hobbies, anime, sports, music, etc.
+✓ SSH keys and git identities
+✓ Key environment variables (WORK_, HABUILD_, etc.)
+✓ Important file locations (project folders, notes)
 
 ## WHAT TO SKIP (DO NOT save these)
-❌ Git commit messages, branch names, log lines
-❌ Uptime, timestamps, date/time
-❌ Tool versions (Node, npm, Python, etc.) — unless unusual
-❌ Transient state: current directory, session IDs, token counts
-❌ File sizes, line counts, directory structure listings
-❌ System load averages, memory usage
-❌ Anything that will be different tomorrow
+✗ Git commit messages, branch names, log lines
+✗ Uptime, timestamps, date/time
+✗ Tool versions (Node, npm, Python, etc.) — unless unusual
+✗ Transient state: current directory, session IDs, token counts
+✗ File sizes, line counts, directory structure listings
+✗ System load averages, memory usage
+✗ Anything that will be different tomorrow
 
 ## REMINDERS
 - Check `memory_list` first to avoid duplicating existing facts.

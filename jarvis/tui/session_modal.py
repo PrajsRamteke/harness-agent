@@ -45,7 +45,7 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🗂  Sessions", id="modal_title")
+                yield Static("▤  Sessions", id="modal_title")
                 yield OptionList(id="session_list")
                 yield Static(
                     "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] resume   "

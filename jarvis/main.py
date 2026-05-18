@@ -62,7 +62,7 @@ def main():
                     f"[bold yellow]▎[/][dim] {now_str} [/][bold bright_yellow]you[/] [bold yellow]❯[/] "
                 ).strip()
         except (EOFError, KeyboardInterrupt):
-            console.print("\n[magenta]bye 👋[/]"); break
+            console.print("\n[magenta]bye ♪[/]"); break
         if not inp:
             continue
 
@@ -93,7 +93,7 @@ def main():
         hits = extract_image_paths(inp)
         if hits:
             names = ", ".join(p.name for _, p in hits)
-            console.print(f"[dim]📷 detected image(s): {names} — running OCR…[/]")
+            console.print(f"[dim]▣ detected image(s): {names} — running OCR…[/]")
             inp = process_input_for_images(inp)
         else:
             img = clipboard_image_to_file()
@@ -103,11 +103,11 @@ def main():
                 digest = file_digest(img)
                 if digest != state.last_clipboard_image_digest:
                     state.last_clipboard_image_digest = digest
-                    console.print(f"[dim]📷 fresh clipboard image detected → OCR ({img})[/]")
+                    console.print(f"[dim]▣ fresh clipboard image detected → OCR ({img})[/]")
                     block, ocr = ocr_image_block(img, label="clipboard")
                     inp = append_image_block(inp, block)
                     console.print(Panel(ocr[:PANEL_PREVIEW_CHARS] + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
-                                        title="📷 attached clipboard image (OCR)", border_style="cyan"))
+                                        title="▣ attached clipboard image (OCR)", border_style="cyan"))
 
         _send_and_loop(inp)
 

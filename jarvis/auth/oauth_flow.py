@@ -36,7 +36,7 @@ def oauth_login() -> Optional[dict]:
         "3. Copy the ENTIRE code (including the [cyan]#[/]) and paste it back here.\n\n"
         f"If the browser doesn't open, visit this URL manually:\n[dim]{url}[/]\n\n"
         "[dim]Type [cyan]b[/dim][dim] to go back to the auth method picker.[/]",
-        title="🔐 Anthropic OAuth login", border_style="cyan",
+        title="⬟ Anthropic OAuth login", border_style="cyan",
     ))
     try: webbrowser.open(url)
     except Exception: pass

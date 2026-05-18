@@ -76,20 +76,20 @@ def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str
         abstract = data.get("AbstractText", "").strip()
         abstract_url = data.get("AbstractURL", "").strip()
         if abstract:
-            results.append(f"[Abstract]\n{abstract}\n🔗 {abstract_url}")
+            results.append(f"[Abstract]\n{abstract}\n⌗ {abstract_url}")
 
         for t in data.get("RelatedTopics", [])[:max_results]:
             if isinstance(t, dict) and t.get("Text") and t.get("FirstURL"):
-                results.append(f"• {t['Text']}\n  🔗 {t['FirstURL']}")
+                results.append(f"• {t['Text']}\n  ⌗ {t['FirstURL']}")
             elif isinstance(t, dict) and t.get("Topics"):
                 for sub in t["Topics"][:3]:
                     if sub.get("Text") and sub.get("FirstURL"):
-                        results.append(f"• {sub['Text']}\n  🔗 {sub['FirstURL']}")
+                        results.append(f"• {sub['Text']}\n  ⌗ {sub['FirstURL']}")
 
         defn = data.get("Definition", "").strip()
         defn_url = data.get("DefinitionURL", "").strip()
         if defn:
-            results.append(f"[Definition]\n{defn}\n🔗 {defn_url}")
+            results.append(f"[Definition]\n{defn}\n⌗ {defn_url}")
 
         answer = data.get("Answer", "").strip()
         if answer:
@@ -145,7 +145,7 @@ def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str
                     pass
                 clean_title = html.unescape(re.sub(r"<[^>]+>", "", title)).strip()
                 snip = snips[i].strip() if i < len(snips) else ""
-                entry = f"• {clean_title}\n  🔗 {urllib.parse.unquote(href)}"
+                entry = f"• {clean_title}\n  ⌗ {urllib.parse.unquote(href)}"
                 if snip:
                     entry += f"\n  {snip}"
                 results.append(entry)
@@ -156,7 +156,7 @@ def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str
     if not results:
         if ddg_blocked:
             return (
-                f"⚠️  {_BLOCKED_MARKER}: DuckDuckGo is rate-limiting this IP "
+                f"⚠  {_BLOCKED_MARKER}: DuckDuckGo is rate-limiting this IP "
                 f"(HTTP 202 / splash page). Re-running web_search with a "
                 f"different query will NOT help — same block applies to every "
                 f"query. Do NOT retry web_search this turn. "
@@ -169,5 +169,5 @@ def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str
             msg += f" [{last_error}]"
         return msg
 
-    header = f'🔍 Web search: "{query}" — {len(results)} result(s)\n' + "─" * 60
+    header = f'◎ Web search: "{query}" — {len(results)} result(s)\n' + "─" * 60
     return (header + "\n\n" + "\n\n".join(results))[:MAX_TOOL_OUTPUT]

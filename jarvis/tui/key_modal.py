@@ -5,7 +5,7 @@ Opened via the :command:`/key` slash command in the TUI.
 Layout
 ------
 ┌─────────────────────────────────────────────────────────────────┐
-│ 🔑  API Keys                                       3 keys · 2 saved │
+│ ⬟  API Keys                                       3 keys · 2 saved │
 │                                                                      │
 │  ● Anthropic      file  ~/.config/harness-agent/key    sk-ant-…abc123 │
 │  ○ OpenRouter     env   OPENROUTER_API_KEY                 …def456  │
@@ -208,7 +208,7 @@ class _ConfirmDeleteScreen(TuiModalScreen[bool]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static(
-                    f"🗑  Delete {self._label} key?",
+                    f"✕  Delete {self._label} key?",
                     id="modal_title",
                 )
                 yield Static(
@@ -253,7 +253,7 @@ class KeyModalScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🔑  API Keys", id="modal_title")
+                yield Static("⬟  API Keys", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="key_list")
                 yield Static(
@@ -293,7 +293,7 @@ class KeyModalScreen(TuiModalScreen[None]):
         total = len(_KEY_DEFS)
         try:
             self.query_one("#modal_title", Static).update(
-                f"🔑  API Keys   [#6e7681]{total} providers · "
+                f"⬟  API Keys   [#6e7681]{total} providers · "
                 f"{configured} configured[/]"
             )
         except Exception:
@@ -359,7 +359,7 @@ class KeyModalScreen(TuiModalScreen[None]):
             self._notify(f"cannot edit {info['label']} key (source: {info['source']})", error=True)
             return
 
-        title = f"✏  Edit {info['label']} API Key"
+        title = f"✎  Edit {info['label']} API Key"
         body = (
             f"Paste your new {info['label']} API key.\n"
             f"Saved to: [#58a6ff]{info['file_path']}[/] (chmod 600)"

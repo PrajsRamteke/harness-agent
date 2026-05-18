@@ -14,16 +14,16 @@ def handle_context(c: str, arg: str):
             console.print("usage: /pin <text>"); return True, None
         state.pinned_context = (state.pinned_context + "\n" + arg).strip()
         save_pin()
-        console.print(f"[green]📌 pinned ({len(state.pinned_context)} chars)[/]")
+        console.print(f"[green]▪ pinned ({len(state.pinned_context)} chars)[/]")
         return True, None
     if c == "/unpin":
         state.pinned_context = ""; save_pin()
-        console.print("[green]📌 cleared[/]")
+        console.print("[green]▪ cleared[/]")
         return True, None
     if c == "/notes":
         if NOTES_FILE.exists():
             console.print(Panel(Markdown(NOTES_FILE.read_text()),
-                                title="📝 notes", border_style="yellow"))
+                                title="✎ notes", border_style="yellow"))
         else:
             console.print("[dim]no notes yet[/]")
         return True, None
@@ -51,18 +51,18 @@ def handle_context(c: str, arg: str):
         # First check if clipboard has an image
         img = clipboard_image_to_file()
         if img is not None:
-            console.print(f"[dim]📷 image on clipboard → OCR ({img})[/]")
+            console.print(f"[dim]▣ image on clipboard → OCR ({img})[/]")
             body, ocr = ocr_image_block(img, label="clipboard")
             state.last_clipboard_image_digest = file_digest(img)
             if arg.strip():
                 body = append_image_block(arg.strip(), body)
             console.print(Panel(ocr[:PANEL_PREVIEW_CHARS] + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
-                                title="📷 pasted image (OCR)", border_style="cyan"))
+                                title="▣ pasted image (OCR)", border_style="cyan"))
             return True, body
         pasted = clipboard_get()
         if not pasted.strip():
             console.print("[dim]clipboard empty[/]"); return True, None
         console.print(Panel(pasted[:PANEL_PREVIEW_CHARS] + ("…" if len(pasted) > PANEL_PREVIEW_CHARS else ""),
-                            title="📋 pasted", border_style="dim"))
+                            title="☰ pasted", border_style="dim"))
         return True, pasted  # fall through to send as user message
     return False, None

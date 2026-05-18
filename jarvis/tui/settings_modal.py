@@ -81,7 +81,7 @@ class _EditValueScreen(TuiModalScreen[str | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static(
-                    f"✏  Set   [bold #79c0ff]{self._key}[/]",
+                    f"✎  Set   [bold #79c0ff]{self._key}[/]",
                     id="modal_title",
                 )
                 hint = _DESCRIPTIONS.get(self._key, "")

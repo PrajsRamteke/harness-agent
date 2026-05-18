@@ -42,13 +42,13 @@ from ..mcp.registry import mcp_registry
 
 
 _SOURCE_ICONS = {
-    "project":  "📁",
-    "jarvis":   "🤖",
-    "claude":   "🟣",
-    "opencode": "🟧",
+    "project":  "▣",
+    "jarvis":   "✦",
+    "claude":   "◆",
+    "opencode": "◇",
     "cursor":   "⌘",
-    "windsurf": "🌊",
-    "vscode":   "💠",
+    "windsurf": "≈",
+    "vscode":   "⬡",
 }
 
 
@@ -134,7 +134,7 @@ class JSONImportScreen(TuiModalScreen[dict | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("📥  Import MCP Server", id="modal_title")
+                yield Static("▶  Import MCP Server", id="modal_title")
                 yield Static(
                     Text.from_markup(
                         "[#8b949e]Paste one of:[/]\n"
@@ -328,7 +328,7 @@ class MCPModalScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🧩  MCP Servers", id="modal_title")
+                yield Static("▧  MCP Servers", id="modal_title")
                 yield Static("", id="mcp_header")
                 yield Input(placeholder="filter…  (press / to focus)", id="mcp_filter")
                 yield OptionList(id="mcp_list")
@@ -378,7 +378,7 @@ class MCPModalScreen(TuiModalScreen[None]):
         scope_text = (
             Text.assemble(
                 ("scope: ", "dim"),
-                ("🌍 global on  ", "bold blue"),
+                ("◉ global on  ", "bold blue"),
                 (f"{len(servers)} servers · ", "dim"),
                 (f"{len(auto_connect)} auto · ", "dim"),
                 (f"{mcp_registry.tool_count()} tools live", "green"),
@@ -386,7 +386,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             if config.include_global()
             else Text.assemble(
                 ("scope: ", "dim"),
-                ("📁 project-only  ", "bold magenta"),
+                ("▣ project-only  ", "bold magenta"),
                 (f"{len(servers)} servers · ", "dim"),
                 (f"{mcp_registry.tool_count()} tools live", "green"),
                 ("  ", ""),

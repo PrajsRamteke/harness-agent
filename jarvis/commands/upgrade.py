@@ -101,7 +101,7 @@ def cmd_upgrade(arg: str) -> bool:
     # Fast-path: if user typed /upgrade (no args or "check")
     arg = arg.strip().lower()
 
-    console.print("[cyan]🔍 Locating Jarvis installation…[/]")
+    console.print("[cyan]◎ Locating Jarvis installation…[/]")
 
     repo_root = _find_repo_root()
     if repo_root is None:
@@ -148,14 +148,14 @@ def cmd_upgrade(arg: str) -> bool:
         from rich.table import Table
 
         table = Table(show_header=False, box=None, padding=(0, 2))
-        table.add_row("📦 Version", f"[cyan]v{VERSION}[/]")
-        table.add_row("📁 Location", f"[dim]{repo_root}[/]")
-        table.add_row("🌐 Remote", remote_url)
-        table.add_row("🔧 Local commit", local_commit)
-        table.add_row("🔬 Remote commit", remote_commit)
-        table.add_row("⬇️  Behind remote", f"{'[yellow]' if behind > 0 else '[green]'}{behind} commit{'s' if behind != 1 else ''}[/]")
+        table.add_row("≡ Version", f"[cyan]v{VERSION}[/]")
+        table.add_row("▣ Location", f"[dim]{repo_root}[/]")
+        table.add_row("⌗ Remote", remote_url)
+        table.add_row("⚙ Local commit", local_commit)
+        table.add_row("✦ Remote commit", remote_commit)
+        table.add_row("↓  Behind remote", f"{'[yellow]' if behind > 0 else '[green]'}{behind} commit{'s' if behind != 1 else ''}[/]")
 
-        console.print(Panel(table, title="🔍 Jarvis Upgrade Check", border_style="cyan"))
+        console.print(Panel(table, title="◎ Jarvis Upgrade Check", border_style="cyan"))
 
         if behind > 0:
             console.print(f"\n[yellow]{behind} update{'s' if behind != 1 else ''} available.[/] Run [cyan]/upgrade[/] to apply.")
@@ -164,7 +164,7 @@ def cmd_upgrade(arg: str) -> bool:
         return True
 
     # ── Actual upgrade ─────────────────────────────────────────────
-    console.print("[cyan]⬇ Fetching latest changes…[/]")
+    console.print("[cyan]↓ Fetching latest changes…[/]")
 
     # Step 1: git fetch
     rc, out, err = _run(["git", "fetch", "origin"], repo_root)
@@ -187,7 +187,7 @@ def cmd_upgrade(arg: str) -> bool:
         return True
 
     # Step 3: pip install
-    console.print("[cyan]📦 Installing dependencies…[/]")
+    console.print("[cyan]≡ Installing dependencies…[/]")
 
     # Detect the python from the venv or system
     venv_python = repo_root / ".venv" / "bin" / "python"

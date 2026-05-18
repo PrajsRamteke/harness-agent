@@ -50,7 +50,7 @@ class ProviderPickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🌐  Provider", id="modal_title")
+                yield Static("◎  Provider", id="modal_title")
                 yield OptionList(id="provider_list")
                 yield Static(
                     "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] select   [#f0b3ff]esc[/] cancel",

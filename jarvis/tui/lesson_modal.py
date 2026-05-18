@@ -126,7 +126,7 @@ class LessonModalScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("📚  Lessons", id="modal_title")
+                yield Static("≡  Lessons", id="modal_title")
                 yield Static("", id="modal_status")
                 yield Input(placeholder="search…  (esc clears, focuses list)", id="lesson_search")
                 yield OptionList(id="lesson_list")
@@ -174,7 +174,7 @@ class LessonModalScreen(TuiModalScreen[None]):
                 opts.add_option(Option(row, id=f"lesson:{r['id']}"))
         try:
             self.query_one("#modal_title", Static).update(
-                f"📚  Lessons   [#6e7681]{len(rows)} entr{'ies' if len(rows) != 1 else 'y'}[/]"
+                f"≡  Lessons   [#6e7681]{len(rows)} entr{'ies' if len(rows) != 1 else 'y'}[/]"
             )
         except Exception:
             pass

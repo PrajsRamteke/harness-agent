@@ -112,7 +112,7 @@ class MemoryModalScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🧠  Memory", id="modal_title")
+                yield Static("◆  Memory", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="fact_list")
                 yield Static(
@@ -150,7 +150,7 @@ class MemoryModalScreen(TuiModalScreen[None]):
                 opts.add_option(Option(row, id=f"fact:{f['id']}"))
         try:
             self.query_one("#modal_title", Static).update(
-                f"🧠  Memory   [#6e7681]{len(facts)} fact{'s' if len(facts) != 1 else ''}[/]"
+                f"◆  Memory   [#6e7681]{len(facts)} fact{'s' if len(facts) != 1 else ''}[/]"
             )
         except Exception:
             pass

@@ -50,7 +50,7 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🎨  Theme", id="modal_title")
+                yield Static("✦  Theme", id="modal_title")
                 yield OptionList(id="theme_list")
                 yield Static(
                     "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] apply   [#f0b3ff]esc[/] cancel",

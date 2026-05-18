@@ -314,7 +314,7 @@ class JarvisTUI(App):
                 aliases = list(getattr(event, "key_aliases", []) or [])
                 char_repr = repr(char) if char is not None else "<none>"
                 self._tui_console.print(
-                    f"[{ui.OK}]🔑 keytest:[/] [bold]{key}[/]  "
+                    f"[{ui.OK}]⬟ keytest:[/] [bold]{key}[/]  "
                     f"[{ui.FG_DIM}](name={name}, char={char_repr}, aliases={aliases})[/]"
                 )
                 if key == "enter" and name == "enter":
@@ -394,7 +394,7 @@ class JarvisTUI(App):
             log.write(
                 Panel(
                     Text.from_markup(
-                        f"📄 [bold {ui.ACCENT}]{state.project_context_file}[/] "
+                        f"≡ [bold {ui.ACCENT}]{state.project_context_file}[/] "
                         f"detected — [{ui.FG_MUTE}]loaded on demand via read_file[/]"
                     ),
                     title="project context",
@@ -416,12 +416,12 @@ class JarvisTUI(App):
             parts = []
             if _show_sk:
                 parts.append(
-                    f"🧠 [bold {ui.ACCENT_2}]{_sk_count} skill"
+                    f"✦ [bold {ui.ACCENT_2}]{_sk_count} skill"
                     f"{'s' if _sk_count != 1 else ''}[/]"
                 )
             if _show_mcp:
                 parts.append(
-                    f"🔧 [bold {ui.ACCENT}]{_mcp_count} MCP"
+                    f"⚙ [bold {ui.ACCENT}]{_mcp_count} MCP"
                     f"{'s' if _mcp_count != 1 else ''}[/]"
                 )
             title_parts = [p for p in ("skills", "MCPs") if (_show_sk and p == "skills") or (_show_mcp and p == "MCPs")]
@@ -523,7 +523,7 @@ class JarvisTUI(App):
             segs.append(f"[{ui.FG_DIM}]#{state.current_session_id}[/]")
 
         # ── messages count ────────────────────────────────────────────
-        segs.append(f"💬 [{ui.FG_MUTE}]{len(state.messages)}[/]")
+        segs.append(f"◈ [{ui.FG_MUTE}]{len(state.messages)}[/]")
 
         # ── tokens ────────────────────────────────────────────────────
         segs.append(
@@ -555,7 +555,7 @@ class JarvisTUI(App):
 
         # ── prompt queue ──────────────────────────────────────────────
         if state.prompt_queue:
-            segs.append(f"[{ui.WARN}]📋 {len(state.prompt_queue)}[/]")
+            segs.append(f"[{ui.WARN}]☰ {len(state.prompt_queue)}[/]")
 
         # ── internal trace ────────────────────────────────────────────
         if state.show_internal:
@@ -1024,7 +1024,7 @@ class JarvisTUI(App):
         log.write(
             Panel(
                 Text.from_markup(f"[{ui.FG_MUTE}]{preview}[/]"),
-                title=f"⏳ queued {tag}",
+                title=f"⟳ queued {tag}",
                 title_align="left",
                 border_style=ui.WARN,
                 padding=(0, 1),
@@ -1116,7 +1116,7 @@ class JarvisTUI(App):
         if stripped == "/keytest":
             self._key_debug = True
             self._tui_console.print(
-                f"[{ui.WARN}]🔑 keytest armed —[/] press any key to see what your "
+                f"[{ui.WARN}]⬟ keytest armed —[/] press any key to see what your "
                 "terminal sent (one shot)."
             )
             return
@@ -1277,7 +1277,7 @@ class JarvisTUI(App):
             log.write(
                 Panel(
                     Text.from_markup(
-                        f"📄 [bold {ui.ACCENT}]{state.project_context_file}[/] "
+                        f"≡ [bold {ui.ACCENT}]{state.project_context_file}[/] "
                         f"detected — [{ui.FG_MUTE}]loaded on demand via read_file[/]"
                     ),
                     title="project context",
@@ -1300,12 +1300,12 @@ class JarvisTUI(App):
             parts = []
             if _show_sk:
                 parts.append(
-                    f"🧠 [bold {ui.ACCENT_2}]{_sk_count} skill"
+                    f"✦ [bold {ui.ACCENT_2}]{_sk_count} skill"
                     f"{'s' if _sk_count != 1 else ''}[/]"
                 )
             if _show_mcp:
                 parts.append(
-                    f"🔧 [bold {ui.ACCENT}]{_mcp_count} MCP"
+                    f"⚙ [bold {ui.ACCENT}]{_mcp_count} MCP"
                     f"{'s' if _mcp_count != 1 else ''}[/]"
                 )
             title_parts = [p for p in ("skills", "MCPs") if (_show_sk and p == "skills") or (_show_mcp and p == "MCPs")]

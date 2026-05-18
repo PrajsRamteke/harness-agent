@@ -25,7 +25,7 @@ def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> 
          source list with trust scores, and a confidence summary.
     """
     query = _enrich_query_with_date(query)
-    console.print(f"[dim cyan]🔍 verified_search: collecting sources for \"{query}\"…[/]")
+    console.print(f"[dim cyan]◎ verified_search: collecting sources for \"{query}\"…[/]")
 
     candidates = gather_candidates(query)
     deduped = dedupe_by_domain(candidates)
@@ -82,7 +82,7 @@ def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> 
 
     if not good_sources:
         return (
-            f'⚠️  verified_search: found {len(to_fetch)} URLs but could not '
+            f'⚠  verified_search: found {len(to_fetch)} URLs but could not '
             f'fetch readable content from any of them for "{query}".\n'
             + "\n".join(f"  • {s['url']}" for s in to_fetch)
         )

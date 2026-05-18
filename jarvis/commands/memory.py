@@ -6,10 +6,10 @@ from ..storage import memory as mem
 def _render_table() -> None:
     facts = mem.list_facts()
     if not facts:
-        console.print(Panel("(memory is empty)", title="🧠 memory", border_style="cyan"))
+        console.print(Panel("(memory is empty)", title="◆ memory", border_style="cyan"))
         return
     lines = [f"[cyan]#{f['id']}[/]  {f['text']}" for f in facts]
-    console.print(Panel("\n".join(lines), title=f"🧠 memory ({len(facts)})", border_style="cyan"))
+    console.print(Panel("\n".join(lines), title=f"◆ memory ({len(facts)})", border_style="cyan"))
 
 
 def handle_memory(cmd: str, arg: str):

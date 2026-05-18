@@ -118,9 +118,9 @@ def welcome_banner(compact: bool = False):
     branch = _current_git_branch(cwd_path)
     if branch:
         branch_label = f"[{c['accent_2']}]⑂ ({escape(branch)})[/]"
-        location = f"[{c['fg_mute']}]📂 {cwd_text}[/]   {branch_label}"
+        location = f"[{c['fg_mute']}]▣ {cwd_text}[/]   {branch_label}"
     else:
-        location = f"[{c['fg_mute']}]📂 {cwd_text}[/]"
+        location = f"[{c['fg_mute']}]▣ {cwd_text}[/]"
 
     hints = (
         f"[{c['accent_2']}]/[/] commands   "

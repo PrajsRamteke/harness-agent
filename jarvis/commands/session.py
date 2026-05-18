@@ -28,7 +28,7 @@ def cmd_session(arg: str):
             title = r["title"] or "[dim](untitled)[/]"
             t.add_row(str(i), str(r["id"]) + marker, title,
                       str(r["msg_count"]), r["model"] or "-", _fmt_ts(r["updated_at"]))
-        console.print(Panel(t, title="🗂  sessions", border_style="cyan"))
+        console.print(Panel(t, title="▤  sessions", border_style="cyan"))
         sel = console.input("[cyan]resume # or id (enter to cancel, 'd <id>' to delete): [/]").strip()
         if not sel: return None
         if sel.startswith("d "):

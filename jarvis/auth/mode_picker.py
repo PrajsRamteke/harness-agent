@@ -13,7 +13,7 @@ def _choose_provider() -> str:
         "  [cyan]2[/]  OpenRouter         [dim](free & paid models from many providers)[/]\n"
         "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
         "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax M2.5 Free, HY3, Nemotron)[/]\n",
-        title="🌐 Provider", border_style="cyan",
+        title="◎ Provider", border_style="cyan",
     ))
     while True:
         try:
@@ -33,7 +33,7 @@ def _choose_auth_mode() -> str:
         "[bold]How would you like to authenticate with Anthropic?[/]\n\n"
         "  [cyan]1[/]  API key  [dim](pay-as-you-go, sk-ant-…)[/]\n"
         "  [cyan]2[/]  Log in with Anthropic  [dim](Claude Pro/Max subscription)[/]\n",
-        title="🔐 Anthropic auth", border_style="cyan",
+        title="⬟ Anthropic auth", border_style="cyan",
     ))
     while True:
         try:

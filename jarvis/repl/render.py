@@ -56,7 +56,7 @@ from ..mcp.registry import is_mcp_tool
 _CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle", "lesson_list", "lesson_search"}
 
 def _run_tool(b):
-    icon = TOOL_ICONS.get(b.name, "🔧")
+    icon = TOOL_ICONS.get(b.name, "⚙")
     args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
     report_turn_phase(describe_tool_activity(b.name, b.input))
 
@@ -176,7 +176,7 @@ def render_assistant(resp) -> bool:
                 state._assistant_stream_ui_active = False
                 thinking_blocks = []  # already rendered inside commit; don't re-render
                 if was_flagged:
-                    console.print(f"[{_ui.ERR}]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
+                    console.print(f"[{_ui.ERR}]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠)[/]")
                 continue
             console.print(Panel(
                 Markdown(text),
@@ -186,7 +186,7 @@ def render_assistant(resp) -> bool:
                 padding=(0, 1),
             ))
             if was_flagged:
-                console.print(f"[{_ui.ERR}]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠️)[/]")
+                console.print(f"[{_ui.ERR}]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠)[/]")
 
         # ── thinking block — collect, render after text commit ───────
         elif b.type == "thinking":

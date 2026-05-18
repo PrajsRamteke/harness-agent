@@ -44,7 +44,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🤖  Models", id="modal_title")
+                yield Static("✦  Models", id="modal_title")
                 yield Input(value="", placeholder="search models…", id="model_search")
                 yield OptionList(id="model_list")
                 yield Static(
