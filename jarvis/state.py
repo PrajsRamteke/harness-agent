@@ -4,12 +4,14 @@ Using `jarvis.state.<name> = ...` preserves original global-mutation semantics
 without threading plumbing through every function.
 """
 import json, os, threading, time
+from collections import deque
 from typing import Dict, List, Optional
 
 from .constants import (
     VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL,
     PROVIDER_ANTHROPIC, AUTH_API_KEY,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
+    TOOL_UI_HISTORY_SIZE,
 )
 
 # auth / client
@@ -59,6 +61,21 @@ tool_calls_count: int = 0
 last_assistant_text: str = ""
 web_tool_used_this_turn: bool = False  # disables hallucination guard when True
 last_clipboard_image_digest: str = ""
+
+# Recent tool outputs for scrollable F3 viewer in the TUI.
+tool_output_history: deque = deque(maxlen=TOOL_UI_HISTORY_SIZE)
+
+
+def record_tool_output(name: str, args_preview: str, content: str) -> None:
+    """Remember a tool result for the scrollable output viewer."""
+    tool_output_history.append(
+        {
+            "name": name,
+            "args": args_preview,
+            "content": content,
+            "ts": time.time(),
+        }
+    )
 
 # live typing/streaming of assistant text (API deltas → UI). Disable with HARNESS_STREAM_REPLY=0.
 stream_reply_live: bool = os.getenv("HARNESS_STREAM_REPLY", "1").strip().lower() not in (

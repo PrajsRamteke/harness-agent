@@ -11,6 +11,7 @@ from ..utils.tool_repair import repair_tool_input
 from .. import state
 from .hallucination import _scrub_hallucinations
 from .tool_activity import describe_tool_activity
+from .tool_display import format_tool_output_preview
 from .turn_progress import report_turn_phase
 
 try:
@@ -239,13 +240,20 @@ def render_assistant(resp) -> bool:
         for b in tool_uses:
             if b.id in outputs:
                 icon, ap, out_str = outputs[b.id]
+                state.record_tool_output(b.name, ap, out_str)
                 if state.show_internal:
                     console.print(f"{icon} [{_ui.WARN}]{b.name}[/] [{_ui.FG_DIM}]{ap}[/]")
                     if re.search(r"\S", out_str):
-                        short = out_str.strip()[:400] + ("…" if len(out_str.strip()) > 400 else "")
-                        # Wrap in Text so stray brackets in tool output (e.g. URLs,
-                        # JSON fragments) aren't interpreted as Rich markup tags.
-                        console.print(Panel(Text(short), border_style=_ui.SEP, padding=(0, 1)))
+                        body, _trunc = format_tool_output_preview(out_str)
+                        console.print(
+                            Panel(
+                                body,
+                                title=f"{b.name} output",
+                                title_align="left",
+                                border_style=_ui.SEP,
+                                padding=(0, 1),
+                            )
+                        )
             else:
                 # Tool was skipped (cancel, partial batch failure). Emit a stub
                 # result so the assistant tool_use has a matching tool_result —

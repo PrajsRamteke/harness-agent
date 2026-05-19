@@ -23,6 +23,11 @@ MAX_PARALLEL_TOOLS = _env_int("HARNESS_MAX_PARALLEL_TOOLS", 64, 1, 64)
 # ── Numeric / behavior constants ───────────────────────────────────────────────
 FILE_PERMISSION = 0o600
 PANEL_PREVIEW_CHARS = 400
+# Tool output shown inline in the transcript (RichLog scrolls). F3 opens full viewer.
+TOOL_UI_PREVIEW_LINES = _env_int("HARNESS_TOOL_UI_PREVIEW_LINES", 24, 4, 200)
+TOOL_UI_PREVIEW_CHARS = _env_int("HARNESS_TOOL_UI_PREVIEW_CHARS", 4000, 500, 100_000)
+TOOL_UI_VIEWER_MAX_CHARS = _env_int("HARNESS_TOOL_UI_VIEWER_MAX_CHARS", 500_000, 10_000, 2_000_000)
+TOOL_UI_HISTORY_SIZE = 32
 OAUTH_EXPIRY_BUFFER = 60      # seconds before expiry to trigger refresh
 OAUTH_DEFAULT_EXPIRY = 3600   # fallback when expires_in missing
 DEFAULT_BASH_TIMEOUT = 60

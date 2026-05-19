@@ -47,6 +47,7 @@ from .theme_modal import ThemePickerScreen
 from .login_modal import LoginModalScreen
 from .local_cmd_modal import LocalCmdModalScreen
 from .file_ref_picker import filter_project_files, file_ref_option_label
+from .tool_output_modal import ToolOutputViewerScreen
 from .provider_modal import ProviderPickerScreen
 from .mouse_toggle import enable_mouse, disable_mouse
 from ..prompt_refs import (
@@ -235,6 +236,22 @@ class PromptArea(TextArea):
             except Exception:
                 self.app.exit()
             return
+        if key == "ctrl+f":
+            event.stop()
+            event.prevent_default()
+            try:
+                self.app.action_open_tool_output()
+            except Exception:
+                pass
+            return
+        if key == "ctrl+t":
+            event.stop()
+            event.prevent_default()
+            try:
+                self.app.action_toggle_internal()
+            except Exception:
+                pass
+            return
 
 
 def _swap_console_everywhere(tui_console):
@@ -262,7 +279,9 @@ class JarvisTUI(App):
         Binding("ctrl+d", "quit", "Quit", show=True),
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Quit", show=True),
         Binding("ctrl+t", "toggle_internal", "Logs", show=True),
-        Binding("f2", "toggle_internal", "Internals", show=True),
+        Binding("ctrl+f", "open_tool_output", "Tool out", show=True),
+        Binding("f2", "toggle_internal", "Internals", show=False),
+        Binding("f3", "open_tool_output", "Tool out", show=False),
         Binding("tab", "cycle_agent", "Agent", show=True),
         Binding("escape", "escape_action", show=False),
         Binding("up", "scroll_transcript('up')", show=False, priority=True),
@@ -529,6 +548,7 @@ class JarvisTUI(App):
                 f"[{ui.ACCENT_3}]esc[/] cancel",
                 f"[{ui.ACCENT_3}]^C[/] copy/cancel",
                 f"[{ui.ACCENT_3}]^T[/] logs",
+                f"[{ui.ACCENT_3}]^F[/] tool",
                 f"[{ui.ACCENT_3}]^D[/] quit",
             ]
             line = f"  [{ui.SEP}]{ui.DOT}[/]  ".join(hints)
@@ -1707,6 +1727,17 @@ class JarvisTUI(App):
                 self._tui_console.print(f"[{ui.FG_DIM}]internal tool trace {mode}[/]")
             except Exception:
                 pass
+
+    def action_open_tool_output(self) -> None:
+        if not state.tool_output_history:
+            try:
+                self._tui_console.print(
+                    f"[{ui.FG_DIM}]no tool output yet — enable internals (^T) and run a tool[/]"
+                )
+            except Exception:
+                pass
+            return
+        self.push_screen(ToolOutputViewerScreen())
 
     def _copy_to_system_clipboard(self, text: str) -> bool:
         if not text:
