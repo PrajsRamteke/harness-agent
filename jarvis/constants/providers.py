@@ -9,15 +9,18 @@ update more than one dict when adding or changing a model.
 import os
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
-PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen")
+PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_OPENCODE_ZEN = "opencode_zen"
+PROVIDER_OPENAI_CODEX = "openai_codex"
 
 # Model-picker sources (Anthropic splits API key vs OAuth subscription).
 PROVIDER_ANTHROPIC_API = "anthropic_api"
 PROVIDER_ANTHROPIC_AUTH = "anthropic_auth"
+
+PROVIDER_OPENAI_CODEX_AUTH = "openai_codex_auth"
 
 # ── Auth mode identifiers ─────────────────────────────────────────────────────
 AUTH_API_KEY = "api_key"
@@ -28,6 +31,7 @@ PROVIDER_LABELS = {
     PROVIDER_OPENROUTER: "OpenRouter",
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
+    PROVIDER_OPENAI_CODEX: "OpenAI Codex",
 }
 
 MODEL_SOURCE_LABELS = {
@@ -36,6 +40,7 @@ MODEL_SOURCE_LABELS = {
     PROVIDER_OPENROUTER: "OpenRouter",
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
+    PROVIDER_OPENAI_CODEX_AUTH: "OpenAI Codex Auth",
 }
 
 # Picker display order (Anthropic API + Auth first when configured).
@@ -45,6 +50,7 @@ MODEL_SOURCES = (
     PROVIDER_OPENROUTER,
     PROVIDER_OPENCODE,
     PROVIDER_OPENCODE_ZEN,
+    PROVIDER_OPENAI_CODEX_AUTH,
 )
 
 # ── SINGLE SOURCE OF TRUTH: all models + descriptions + pricing ───────────────
@@ -94,6 +100,9 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     "nemotron-3-super-free":  ("Nemotron 3 Super Free",         PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
     # "ring-2.6-1t-free":       ("Ring 2.6 1T Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
     "deepseek-v4-flash-free": ("DeepSeek V4 Flash Free",       PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
+    "gpt-5.5":                ("GPT-5.5 — Codex recommended",  PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
+    "gpt-5.4":                ("GPT-5.4 — Codex fallback",       PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
+    "gpt-5.4-mini":           ("GPT-5.4 Mini — faster Codex",    PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
 }
 
 # ── Auto-generated model lists from MODEL_INFO ─────────────────────────────────
@@ -126,6 +135,11 @@ OPENCODE_ZEN_MODELS = [
     for mid, info in MODEL_INFO.items()
     if info[1] == PROVIDER_OPENCODE_ZEN
 ]
+CODEX_MODELS = [
+    (mid, info[0])
+    for mid, info in MODEL_INFO.items()
+    if info[1] == PROVIDER_OPENAI_CODEX
+]
 
 # ── Pricing dict (auto-generated from MODEL_INFO) ─────────────────────────────
 PRICING: dict[str, tuple[float, float]] = {
@@ -137,11 +151,13 @@ PRICING: dict[str, tuple[float, float]] = {
 OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m2.5:free"
 OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
 OPENCODE_ZEN_DEFAULT_MODEL = "minimax-m2.5-free"
+CODEX_DEFAULT_MODEL = "gpt-5.5"
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
 OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
 OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
+CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 
 
 def _has_anthropic_api() -> bool:
@@ -163,6 +179,14 @@ def _has_anthropic_oauth() -> bool:
         return False
 
 
+def _has_openai_codex_oauth() -> bool:
+    try:
+        from ..auth.codex_oauth_tokens import load_codex_oauth_tokens
+        return load_codex_oauth_tokens() is not None
+    except Exception:
+        return False
+
+
 def connected_model_sources() -> list[str]:
     """Model-picker sources that have credentials configured."""
     sources: list[str] = []
@@ -170,6 +194,8 @@ def connected_model_sources() -> list[str]:
         sources.append(PROVIDER_ANTHROPIC_API)
     if _has_anthropic_oauth():
         sources.append(PROVIDER_ANTHROPIC_AUTH)
+    if _has_openai_codex_oauth():
+        sources.append(PROVIDER_OPENAI_CODEX_AUTH)
     if os.getenv("OPENROUTER_API_KEY"):
         sources.append(PROVIDER_OPENROUTER)
     else:
@@ -219,6 +245,8 @@ def models_for_source(source: str):
     if source == PROVIDER_ANTHROPIC_AUTH:
         from ..auth.anthropic_models import anthropic_auth_models_for_picker
         return anthropic_auth_models_for_picker()
+    if source == PROVIDER_OPENAI_CODEX_AUTH:
+        return list(CODEX_MODELS)
     return models_for(source)
 
 
@@ -256,6 +284,8 @@ def connected_providers() -> set[str]:
 
     if _has_anthropic_api() or _has_anthropic_oauth():
         connected.add(PROVIDER_ANTHROPIC)
+    if _has_openai_codex_oauth():
+        connected.add(PROVIDER_OPENAI_CODEX)
     if _has_content(OPENROUTER_KEY_FILE):
         connected.add(PROVIDER_OPENROUTER)
     if _has_content(OPENCODE_KEY_FILE):
@@ -276,4 +306,6 @@ def models_for(provider: str):
         return OPENCODE_MODELS
     if provider == PROVIDER_OPENCODE_ZEN:
         return OPENCODE_ZEN_MODELS
+    if provider == PROVIDER_OPENAI_CODEX:
+        return CODEX_MODELS
     return list(ANTHROPIC_MODELS)

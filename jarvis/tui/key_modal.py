@@ -36,10 +36,7 @@ from textual.widgets.option_list import Option
 
 from rich.text import Text
 
-from ..constants import (
-    KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
-    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-)
+from ..constants.api_keys import API_KEY_SPECS
 from ..utils.io import _secure_write
 from .. import state
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
@@ -47,38 +44,9 @@ from .mouse_toggle import enable_mouse, disable_mouse
 from .text_input_modal import TextInputScreen
 
 
-# ── key descriptor ────────────────────────────────────────────────────────────
+# ── key descriptor (from shared constants) ────────────────────────────────────
 
-_KEY_DEFS: list[dict[str, Any]] = [
-    {
-        "provider": PROVIDER_ANTHROPIC,
-        "label": "Anthropic",
-        "file_path": KEY_FILE,
-        "env_var": "ANTHROPIC_API_KEY",
-        "key_prefix": "sk-ant-",
-    },
-    {
-        "provider": PROVIDER_OPENROUTER,
-        "label": "OpenRouter",
-        "file_path": OPENROUTER_KEY_FILE,
-        "env_var": "OPENROUTER_API_KEY",
-        "key_prefix": "sk-or-",
-    },
-    {
-        "provider": PROVIDER_OPENCODE,
-        "label": "OpenCode Go",
-        "file_path": OPENCODE_KEY_FILE,
-        "env_var": "OPENCODE_API_KEY",
-        "key_prefix": None,
-    },
-    {
-        "provider": PROVIDER_OPENCODE_ZEN,
-        "label": "OpenCode Zen",
-        "file_path": OPENCODE_ZEN_KEY_FILE,
-        "env_var": "OPENCODE_ZEN_API_KEY",
-        "key_prefix": None,
-    },
-]
+_KEY_DEFS: list[dict] = list(API_KEY_SPECS)
 
 ID_PREFIX = "kp:"
 

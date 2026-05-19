@@ -9,6 +9,7 @@ from ..constants import (
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
+    PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
 )
@@ -16,6 +17,7 @@ from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
 from ..utils.io import _secure_write
 from ..utils.time_fmt import fmt_duration
 from ..auth.oauth_tokens import load_oauth_tokens, clear_oauth_tokens
+from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, clear_codex_oauth_tokens
 from ..auth.oauth_flow import oauth_login
 from ..auth.anthropic_models import sync_anthropic_model_ids, format_anthropic_model_lines
 from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
@@ -176,10 +178,13 @@ def _all_models():
 
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
 _OPENCODE_ZEN_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE_ZEN)}
+_CODEX_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENAI_CODEX)}
 
 
 def _provider_for_model(model: str) -> str:
     """Determine provider from model id."""
+    if model in _CODEX_MODEL_IDS:
+        return PROVIDER_OPENAI_CODEX
     if model in _OPENCODE_MODEL_IDS:
         return PROVIDER_OPENCODE
     if model in _OPENCODE_ZEN_MODEL_IDS:
@@ -193,6 +198,8 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
     target_provider = _provider_for_model(chosen)
     if source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
         target_provider = PROVIDER_ANTHROPIC
+    elif source == PROVIDER_OPENAI_CODEX_AUTH:
+        target_provider = PROVIDER_OPENAI_CODEX
 
     if target_provider != state.provider:
         _handle_provider(target_provider)
@@ -215,6 +222,19 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
             except Exception as e:
                 console.print(f"[red]failed to switch auth mode: {e}[/]")
                 return
+
+    if state.provider == PROVIDER_OPENAI_CODEX and source == PROVIDER_OPENAI_CODEX_AUTH:
+        if not load_codex_oauth_tokens():
+            console.print("[yellow]OpenAI Codex OAuth not configured — run /login first[/]")
+            return
+        state.auth_mode = AUTH_OAUTH
+        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+        try:
+            from ..auth.client import _build_codex_client
+            state.client = _build_codex_client()
+        except Exception as e:
+            console.print(f"[red]failed to switch to Codex OAuth: {e}[/]")
+            return
 
     state.MODEL = chosen
     save_last_model()
@@ -255,9 +275,10 @@ def _handle_model(arg: str):
     for i, (src, m, desc) in enumerate(rows, 1):
         marker = "[green]● current[/]" if (
             m == state.MODEL and (
-                (src == PROVIDER_ANTHROPIC_AUTH and state.auth_mode == AUTH_OAUTH)
-                or (src == PROVIDER_ANTHROPIC_API and state.auth_mode == AUTH_API_KEY)
-                or (src not in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH) and src == state.provider)
+                (src == PROVIDER_ANTHROPIC_AUTH and state.auth_mode == AUTH_OAUTH and state.provider == PROVIDER_ANTHROPIC)
+                or (src == PROVIDER_ANTHROPIC_API and state.auth_mode == AUTH_API_KEY and state.provider == PROVIDER_ANTHROPIC)
+                or (src == PROVIDER_OPENAI_CODEX_AUTH and state.provider == PROVIDER_OPENAI_CODEX)
+                or (src not in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH, PROVIDER_OPENAI_CODEX_AUTH) and src == state.provider)
             )
         ) else ""
         t.add_row(str(i), m, desc, MODEL_SOURCE_LABELS.get(src, src), marker)
@@ -355,7 +376,10 @@ def _handle_provider(arg: str):
         elif sel in ("3", "opencode", "oc"):           target = PROVIDER_OPENCODE
         elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
         else: return
-    if target not in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+    if target not in (
+        PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
+        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+    ):
         console.print(f"[red]unknown provider: {target}[/]"); return
     if target == state.provider:
         console.print(f"[dim]already on {PROVIDER_LABELS[target]}[/]"); return
@@ -380,6 +404,17 @@ def _handle_provider(arg: str):
             state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
         if not os.getenv("OPENCODE_ZEN_API_KEY") and not OPENCODE_ZEN_KEY_FILE.exists():
             prompt_for_opencode_zen_key()
+    elif target == PROVIDER_OPENAI_CODEX:
+        from ..constants import CODEX_DEFAULT_MODEL
+        if state.MODEL not in _CODEX_MODEL_IDS:
+            state.MODEL = CODEX_DEFAULT_MODEL
+        if not load_codex_oauth_tokens():
+            console.print("[yellow]OpenAI Codex OAuth not configured — run /login first[/]")
+            state.provider = prev_provider
+            _secure_write(PROVIDER_FILE, prev_provider)
+            return
+        state.auth_mode = AUTH_OAUTH
+        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
     else:
         if "/" in state.MODEL or state.MODEL in _OPENCODE_MODEL_IDS:
             state.MODEL = _DEFAULT_ANTHROPIC_MODEL
@@ -389,6 +424,11 @@ def _handle_provider(arg: str):
             state.client = _build_opencode_client()
         elif target == PROVIDER_OPENCODE_ZEN:
             state.client = _build_opencode_zen_client()
+        elif target == PROVIDER_OPENAI_CODEX:
+            from ..auth.client import _build_codex_client
+            state.client = _build_codex_client()
+            if state.client is None:
+                raise RuntimeError("Codex OAuth client unavailable")
         else:
             state.client = _build_client_from_mode(
                 PROVIDER_OPENROUTER if target == PROVIDER_OPENROUTER else state.auth_mode

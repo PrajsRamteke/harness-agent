@@ -16,6 +16,7 @@ from ..constants import (
     OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
     MODEL as _DEFAULT_ANTHROPIC_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
+    PROVIDER_OPENAI_CODEX,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
 )
 from ..utils.io import _secure_write
@@ -30,6 +31,8 @@ from .oauth_tokens import (
     oauth_client_headers,
 )
 from .anthropic_models import sync_anthropic_model_ids
+from .codex_client import CodexClient
+from .codex_oauth_tokens import get_fresh_codex_oauth_token, load_codex_oauth_tokens
 from .oauth_flow import oauth_login
 from .mode_picker import _choose_auth_mode, _choose_provider
 
@@ -65,7 +68,7 @@ def _build_openrouter_client() -> Anthropic:
     )
 
 
-def _build_client_from_mode(mode: str) -> Anthropic:
+def _build_client_from_mode(mode: str, *, interactive: bool = True) -> Anthropic:
     """Construct a client. `mode` is 'openrouter' | 'oauth' | 'api_key'.
 
     If state.provider is openrouter, ignore `mode` and build an OpenRouter client.
@@ -75,12 +78,16 @@ def _build_client_from_mode(mode: str) -> Anthropic:
     if mode == AUTH_OAUTH:
         tokens = get_fresh_oauth_token()
         if not tokens:
+            if not interactive:
+                raise RuntimeError("Anthropic OAuth not configured")
             tokens = oauth_login()
         if not tokens:
+            if not interactive:
+                raise RuntimeError("Anthropic OAuth not configured")
             new_mode = _choose_auth_mode()
             state.auth_mode = new_mode
             _secure_write(AUTH_MODE_FILE, new_mode)
-            return _build_client_from_mode(new_mode)
+            return _build_client_from_mode(new_mode, interactive=interactive)
         return Anthropic(
             api_key=None,
             auth_token=tokens["access_token"],
@@ -90,10 +97,65 @@ def _build_client_from_mode(mode: str) -> Anthropic:
     return Anthropic(api_key=load_key(), timeout=_http_timeout(openrouter=False))
 
 
-def _resolve_provider() -> str:
+def _has_openrouter_key() -> bool:
+    if os.getenv("OPENROUTER_API_KEY"):
+        return True
+    try:
+        return OPENROUTER_KEY_FILE.exists() and bool(OPENROUTER_KEY_FILE.read_text().strip())
+    except OSError:
+        return False
+
+
+def _has_opencode_key() -> bool:
+    from ..constants.paths import OPENCODE_KEY_FILE
+    if os.getenv("OPENCODE_API_KEY"):
+        return True
+    try:
+        return OPENCODE_KEY_FILE.exists() and bool(OPENCODE_KEY_FILE.read_text().strip())
+    except OSError:
+        return False
+
+
+def _has_opencode_zen_key() -> bool:
+    if os.getenv("OPENCODE_ZEN_API_KEY"):
+        return True
+    try:
+        return OPENCODE_ZEN_KEY_FILE.exists() and bool(OPENCODE_ZEN_KEY_FILE.read_text().strip())
+    except OSError:
+        return False
+
+
+def _has_anthropic_api_key() -> bool:
+    return bool(os.getenv("ANTHROPIC_API_KEY")) or (
+        KEY_FILE.exists() and bool(KEY_FILE.read_text().strip())
+    )
+
+
+def _resolve_auth_mode(*, interactive: bool) -> str | None:
+    """Pick Anthropic auth mode without prompting when ``interactive=False``."""
+    if os.getenv("ANTHROPIC_API_KEY") or KEY_FILE.exists():
+        return AUTH_API_KEY
+    if load_oauth_tokens():
+        return AUTH_OAUTH
+    if AUTH_MODE_FILE.exists():
+        stored = AUTH_MODE_FILE.read_text().strip()
+        if stored == AUTH_OAUTH and load_oauth_tokens():
+            return AUTH_OAUTH
+        if stored == AUTH_API_KEY and _has_anthropic_api_key():
+            return AUTH_API_KEY
+        if stored == AUTH_OAUTH and not load_oauth_tokens():
+            return None
+        if stored == AUTH_API_KEY and not _has_anthropic_api_key():
+            return None
+    if not interactive:
+        return None
+    return _choose_auth_mode()
+
+
+def _resolve_provider(*, interactive: bool = True) -> str:
     """Decide provider from env → stored → prompt, preserving legacy behavior."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
-    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX):
         return env_provider
     # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -106,10 +168,17 @@ def _resolve_provider() -> str:
         return PROVIDER_OPENCODE_ZEN
     if PROVIDER_FILE.exists():
         stored = PROVIDER_FILE.read_text().strip()
-        if stored in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+        if stored == PROVIDER_OPENAI_CODEX:
+            if load_codex_oauth_tokens():
+                return PROVIDER_OPENAI_CODEX
+        elif stored in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
             return stored
     # Legacy: any existing Anthropic state means Anthropic (preserves old flow).
     if AUTH_MODE_FILE.exists() or KEY_FILE.exists() or load_oauth_tokens():
+        return PROVIDER_ANTHROPIC
+    if load_codex_oauth_tokens():
+        return PROVIDER_OPENAI_CODEX
+    if not interactive:
         return PROVIDER_ANTHROPIC
     return _choose_provider()
 
@@ -124,15 +193,47 @@ def _build_opencode_zen_client() -> OpenCodeClient:
     return OpenCodeClient(api_key=key, base_url=f"{OPENCODE_ZEN_BASE_URL}/")
 
 
-def make_client():
-    """Resolve provider + auth, build client, validate; handle 401 with refresh/re-auth."""
-    state.provider = _resolve_provider()
+def _pick_fallback_provider(*, interactive: bool = True) -> str | None:
+    """Choose another provider when Codex OAuth is unavailable."""
+    if load_oauth_tokens() or _has_anthropic_api_key():
+        return PROVIDER_ANTHROPIC
+    if _has_openrouter_key():
+        return PROVIDER_OPENROUTER
+    from ..constants.paths import OPENCODE_KEY_FILE
+    try:
+        if OPENCODE_KEY_FILE.exists() and OPENCODE_KEY_FILE.read_text().strip():
+            return PROVIDER_OPENCODE
+        if OPENCODE_ZEN_KEY_FILE.exists() and OPENCODE_ZEN_KEY_FILE.read_text().strip():
+            return PROVIDER_OPENCODE_ZEN
+    except OSError:
+        pass
+    if not interactive:
+        return None
+    return _choose_provider()
+
+
+def _build_codex_client() -> CodexClient | None:
+    tokens = get_fresh_codex_oauth_token()
+    if not tokens:
+        return None
+    return CodexClient(tokens["access_token"])
+
+
+def make_client(*, interactive: bool = True, _retried: bool = False):
+    """Resolve provider + auth, build client, validate; handle 401 with refresh/re-auth.
+
+    When ``interactive=False`` (TUI default), never opens Rich console login prompts.
+    Returns ``None`` if credentials are missing — use ``/login`` or ``/key`` in the TUI.
+    """
+    state.provider = _resolve_provider(interactive=interactive)
     _secure_write(PROVIDER_FILE, state.provider)
 
     if state.provider == PROVIDER_OPENCODE:
         from ..constants import OPENCODE_DEFAULT_MODEL
         if not state.MODEL or state.MODEL.startswith("claude-") or "/" in state.MODEL:
             state.MODEL = OPENCODE_DEFAULT_MODEL
+        if not interactive and not _has_opencode_key():
+            return None
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_opencode_client()
@@ -152,6 +253,8 @@ def make_client():
         from ..constants import OPENCODE_ZEN_DEFAULT_MODEL
         if not state.MODEL or state.MODEL.startswith("claude-") or "/" in state.MODEL:
             state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
+        if not interactive and not _has_opencode_zen_key():
+            return None
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_opencode_zen_client()
@@ -166,9 +269,47 @@ def make_client():
                 raise
         console.print("[red]Too many OpenCode Zen auth failures[/]"); sys.exit(1)
 
+    if state.provider == PROVIDER_OPENAI_CODEX:
+        from ..constants import CODEX_DEFAULT_MODEL
+        if not state.MODEL or state.MODEL.startswith("claude-"):
+            state.MODEL = CODEX_DEFAULT_MODEL
+        state.auth_mode = AUTH_OAUTH
+        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+        c = _build_codex_client()
+        if c is None:
+            if not interactive:
+                return None
+            console.print(
+                "[yellow]OpenAI Codex OAuth not configured — run /login to sign in[/]"
+            )
+            if not _retried:
+                fallback = _pick_fallback_provider(interactive=interactive)
+                if fallback:
+                    state.provider = fallback
+                    _secure_write(PROVIDER_FILE, state.provider)
+                    return make_client(interactive=interactive, _retried=True)
+            console.print("[red]No fallback auth configured[/]")
+            sys.exit(1)
+        for attempt in range(DEFAULT_RETRIES):
+            try:
+                return c
+            except Exception as e:
+                if "401" in str(e) or "unauthorized" in str(e).lower():
+                    from .codex_oauth_tokens import clear_codex_oauth_tokens
+                    clear_codex_oauth_tokens()
+                    console.print("[yellow]Codex OAuth session invalid — run /login[/]")
+                    c = _build_codex_client()
+                    if c is None:
+                        break
+                    continue
+                raise
+        console.print("[red]Too many OpenAI Codex auth failures[/]"); sys.exit(1)
+
     if state.provider == PROVIDER_OPENROUTER:
         if "/" not in state.MODEL:
             state.MODEL = OPENROUTER_DEFAULT_MODEL
+        if not interactive and not _has_openrouter_key():
+            return None
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_openrouter_client()
@@ -189,25 +330,10 @@ def make_client():
         console.print("[red]Too many OpenRouter auth failures[/]"); sys.exit(1)
 
     # ── Anthropic path (preserved from original flow) ──
-    if os.getenv("ANTHROPIC_API_KEY"):
-        state.auth_mode = AUTH_API_KEY
-    elif AUTH_MODE_FILE.exists():
-        stored = AUTH_MODE_FILE.read_text().strip()
-        if stored in (AUTH_API_KEY, AUTH_OAUTH):
-            state.auth_mode = stored
-            if state.auth_mode == AUTH_OAUTH and not load_oauth_tokens():
-                pass
-            elif state.auth_mode == AUTH_API_KEY and not KEY_FILE.exists() and not os.getenv("ANTHROPIC_API_KEY"):
-                state.auth_mode = _choose_auth_mode()
-        else:
-            state.auth_mode = _choose_auth_mode()
-    elif KEY_FILE.exists():
-        state.auth_mode = AUTH_API_KEY
-    elif load_oauth_tokens():
-        state.auth_mode = AUTH_OAUTH
-    else:
-        state.auth_mode = _choose_auth_mode()
-
+    mode = _resolve_auth_mode(interactive=interactive)
+    if mode is None:
+        return None
+    state.auth_mode = mode
     _secure_write(AUTH_MODE_FILE, state.auth_mode)
 
     # If returning from OpenRouter, restore a valid Anthropic default model.
@@ -216,11 +342,15 @@ def make_client():
 
     for attempt in range(DEFAULT_RETRIES):
         try:
-            c = _build_client_from_mode(state.auth_mode)
+            c = _build_client_from_mode(state.auth_mode, interactive=interactive)
             c.models.list(limit=1)  # cheap validation
             if state.provider == PROVIDER_ANTHROPIC:
                 sync_anthropic_model_ids(c)
             return c
+        except RuntimeError:
+            if not interactive:
+                return None
+            raise
         except APIStatusError as e:
             if e.status_code == 401:
                 if state.auth_mode == AUTH_OAUTH:
@@ -230,13 +360,19 @@ def make_client():
                         continue
                     console.print("[yellow]OAuth session invalid — re-login required.[/]")
                     clear_oauth_tokens()
+                    if not interactive:
+                        return None
                     oauth_login()
                     continue
                 else:
                     KEY_FILE.unlink(missing_ok=True)
+                    if not interactive:
+                        return None
                     prompt_for_key(reason="Stored Anthropic key rejected (401). Please re-enter.")
                     continue
             raise
         except APIConnectionError as e:
             console.print(f"[red]Network error: {e}[/]"); sys.exit(1)
+    if not interactive:
+        return None
     console.print("[red]Too many auth failures[/]"); sys.exit(1)

@@ -344,7 +344,10 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
                 ok=True,
             )
         # Give the user a half-second to read the success line.
-        self.set_timer(0.6, lambda: self.dismiss(model_ids))
+        self.set_timer(0.6, lambda ids=model_ids: self._finish_login(ids))
+
+    def _finish_login(self, model_ids: list[str]) -> None:
+        self.dismiss(model_ids)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "login_code":

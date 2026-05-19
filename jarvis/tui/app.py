@@ -44,7 +44,7 @@ from .lesson_modal import LessonModalScreen
 from .settings_modal import SettingsModalScreen
 from .key_modal import KeyModalScreen
 from .theme_modal import ThemePickerScreen
-from .login_modal import LoginModalScreen
+from .oauth_connect_modal import OAuthConnectModalScreen, OAuthConnectResult
 from .local_cmd_modal import LocalCmdModalScreen
 from .file_ref_picker import filter_project_files, file_ref_option_label
 from .tool_output_modal import ToolOutputViewerScreen
@@ -122,9 +122,18 @@ def _is_theme_modal_command(text: str) -> bool:
     return s in ("/theme", "/themes")
 
 
-def _is_login_command(text: str) -> bool:
+def _is_oauth_modal_command(text: str) -> bool:
     s = (text or "").strip().lower()
-    return s in ("/login", "/signin", "/sign-in")
+    return s in ("/login", "/signin", "/sign-in", "/logout", "/auth")
+
+
+def _oauth_modal_title(text: str) -> str:
+    s = (text or "").strip().lower()
+    if s == "/logout":
+        return "Sign out"
+    if s in ("/login", "/signin", "/sign-in"):
+        return "Sign in"
+    return "OAuth login"
 
 
 def _is_local_command(text: str) -> bool:
@@ -493,8 +502,13 @@ class JarvisTUI(App):
         from ..repl.banners import welcome_banner
 
         if state.client is None:
-            state.client = make_client()
+            state.client = make_client(interactive=False)
         welcome_banner()
+        if state.client is None:
+            tui_console.print(
+                f"[{ui.WARN}]Not signed in[/] — use [cyan]/login[/] for OAuth "
+                "(Anthropic or Codex) or [cyan]/key[/] for API keys"
+            )
         db_init()
         state.current_session_id = db_create_session(state.MODEL)
 
@@ -949,8 +963,8 @@ class JarvisTUI(App):
                 self._open_theme_modal()
                 inp.focus()
                 return
-            if _is_login_command(cmd):
-                self._open_login_modal()
+            if _is_oauth_modal_command(cmd):
+                self._open_oauth_modal(title=_oauth_modal_title(cmd))
                 inp.focus()
                 return
             if _is_key_command(cmd):
@@ -988,6 +1002,7 @@ class JarvisTUI(App):
             from ..commands.control import _apply_model_selection
             source, model_id = parse_model_option_id(option_id)
             _apply_model_selection(model_id, source=source)
+            self._write_status_line(busy=False)
             self._set_status("ready")
         self.push_screen(ModelPickerScreen(), after)
 
@@ -1099,23 +1114,37 @@ class JarvisTUI(App):
             self._set_status("ready")
         self.push_screen(ThemePickerScreen(), after)
 
-    def _open_login_modal(self):
-        def after(model_ids: list[str] | None) -> None:
-            if model_ids is not None:
+    def _open_oauth_modal(self, *, title: str = "OAuth login") -> None:
+        def after(result: OAuthConnectResult | None) -> None:
+            if result is None:
+                self._tui_console.print(f"[{ui.FG_DIM}]oauth login closed[/]")
+            elif result.action == "connected" and result.spec_id == "anthropic":
                 self._tui_console.print(
-                    f"[{ui.OK}]{ui.CHECK}[/] [bold]Signed in with Anthropic[/] — "
-                    f"provider: Anthropic · auth: OAuth"
+                    f"[{ui.OK}]{ui.CHECK}[/] [bold]Signed in with Anthropic OAuth[/]"
                 )
-                if model_ids:
+                if result.model_ids:
                     from ..auth.anthropic_models import format_anthropic_model_lines
                     self._tui_console.print(f"[{ui.FG_DIM}]Available models:[/]")
-                    for line in format_anthropic_model_lines(model_ids):
+                    for line in format_anthropic_model_lines(result.model_ids):
                         self._tui_console.print(f"  [{ui.ACCENT}]{line}[/]")
-            else:
-                self._tui_console.print(f"[{ui.FG_DIM}]login cancelled[/]")
+            elif result.action == "connected" and result.spec_id == "openai_codex":
+                self._tui_console.print(
+                    f"[{ui.OK}]{ui.CHECK}[/] [bold]Signed in with OpenAI Codex OAuth[/]"
+                )
+                if result.model_ids:
+                    self._tui_console.print(f"[{ui.FG_DIM}]Available models:[/]")
+                    for mid in result.model_ids:
+                        self._tui_console.print(f"  [{ui.ACCENT}]{mid}[/]")
+            elif result.message:
+                color = ui.OK if result.message.startswith("✓") else ui.WARN
+                self._tui_console.print(f"[{color}]{result.message}[/]")
             self._write_status_line(busy=False)
             self._set_status("ready")
-        self.push_screen(LoginModalScreen(), after)
+
+        self.push_screen(OAuthConnectModalScreen(title=title), after)
+
+    def _open_login_modal(self):
+        self._open_oauth_modal(title="Sign in")
 
     def _open_key_modal(self) -> None:
         def after(_: object) -> None:
@@ -1219,20 +1248,15 @@ class JarvisTUI(App):
             return
 
         if head in ("/login",):
-            self._open_login_modal()
+            self._open_oauth_modal(title="Sign in")
             return
 
-        if head in ("/auth", "/logout"):
-            # These go through handle_slash which may prompt for input
-            # via TUIConsole.input() — show a neutral status.
-            log = self.query_one("#transcript", RichLog)
-            log.write(self._user_panel(text))
-            self._busy = True
-            self._turn_t0 = time.monotonic()
-            self._sync_activity_phase("Processing…")
-            self._start_activity_pulse()
-            self._set_status("processing…")
-            self._run_turn(text)
+        if head in ("/logout",):
+            self._open_oauth_modal(title="Sign out")
+            return
+
+        if head in ("/auth",):
+            self._open_oauth_modal(title="OAuth login")
             return
 
         self._set_status("ready")
@@ -1248,7 +1272,13 @@ class JarvisTUI(App):
 
         # Map head -> handler
         if stripped in ("/login", "/signin", "/sign-in"):
-            self._open_login_modal()
+            self._open_oauth_modal(title="Sign in")
+            return
+        if stripped in ("/logout",):
+            self._open_oauth_modal(title="Sign out")
+            return
+        if stripped in ("/auth",):
+            self._open_oauth_modal(title="OAuth login")
             return
         if stripped in ("/session", "/sessions", "/session list", "/session ls"):
             self._open_session_picker()
@@ -1285,8 +1315,7 @@ class JarvisTUI(App):
             return
 
         head = stripped.split(maxsplit=1)[0]
-        if head in ("/auth", "/logout", "/local"):
-            # Route through _run_turn but with "processing…" label
+        if head in ("/local",):
             log = self.query_one("#transcript", RichLog)
             log.write(self._user_panel(stripped))
             self._busy = True
@@ -1396,8 +1425,8 @@ class JarvisTUI(App):
         if _is_theme_modal_command(text):
             self._open_theme_modal()
             return
-        if _is_login_command(text):
-            self._open_login_modal()
+        if _is_oauth_modal_command(text):
+            self._open_oauth_modal(title=_oauth_modal_title(text))
             return
 
         if _is_local_command(text):
@@ -1695,6 +1724,18 @@ class JarvisTUI(App):
                 )
             inp = expanded
 
+            if state.client is None:
+                from ..auth.client import make_client
+                state.client = make_client(interactive=False)
+            if state.client is None:
+                self.call_from_thread(
+                    lambda: self._tui_console.print(
+                        f"[{ui.WARN}]Not signed in[/] — run [cyan]/login[/] "
+                        "(OAuth) or [cyan]/key[/] (API keys) first"
+                    )
+                )
+                return
+
             user_msg = {"role": "user", "content": inp}
             state.messages.append(user_msg)
             state.web_tool_used_this_turn = False
@@ -1885,11 +1926,7 @@ def _escape(s: str) -> str:
 
 
 def run():
-    # Resolve authentication BEFORE Textual takes the terminal.
-    from ..auth.client import make_client
-    if state.client is None:
-        state.client = make_client()
-
+    # Auth is resolved in on_mount with interactive=False — use /login or /key modals.
     from .mouse_toggle import reset_mouse_fully
 
     app = JarvisTUI()

@@ -9,8 +9,9 @@ from anthropic import APITimeoutError
 from ..console import console, APIStatusError, RateLimitError
 from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
-from ..constants import PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN
+from ..constants import PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX
 from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
+from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refresh
 from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
@@ -268,7 +269,20 @@ def call_claude_stream():
                         "Delete `~/.config/harness-agent/opencode_key` and restart, "
                         "or run /provider to reconfigure.[/]"
                     )
-                elif state.auth_mode == "oauth" and not oauth_refreshed:
+                elif state.provider == PROVIDER_OPENAI_CODEX and not oauth_refreshed:
+                    tokens = load_codex_oauth_tokens()
+                    refreshed = codex_oauth_refresh(tokens) if tokens else None
+                    if refreshed:
+                        console.print("[dim]Codex OAuth token refreshed, retrying…[/]")
+                        from ..auth.client import _build_codex_client
+                        state.client = _build_codex_client()
+                        oauth_refreshed = True
+                        continue
+                    console.print(
+                        "[red]Auth error — Provider: OpenAI Codex (OAuth)[/]\n"
+                        "[yellow]OAuth session expired. Run /login to re-authenticate.[/]"
+                    )
+                elif state.auth_mode == "oauth" and state.provider == "anthropic" and not oauth_refreshed:
                     tokens = load_oauth_tokens()
                     refreshed = oauth_refresh(tokens) if tokens else None
                     if refreshed:

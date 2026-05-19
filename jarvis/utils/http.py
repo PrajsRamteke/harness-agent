@@ -1,5 +1,5 @@
-"""HTTP JSON helper used by OAuth flows."""
-import json, urllib.request, urllib.error
+"""HTTP helpers used by OAuth flows."""
+import json, urllib.parse, urllib.request, urllib.error
 
 
 def _http_json(
@@ -35,5 +35,45 @@ def _http_json(
         raw = e.read().decode("utf-8", errors="replace")
         try: return e.code, json.loads(raw)
         except json.JSONDecodeError: return e.code, raw
+    except urllib.error.URLError as e:
+        return 0, f"network error: {e.reason}"
+
+
+def _http_form(
+    url: str,
+    fields: dict[str, str],
+    timeout: int = 30,
+    *,
+    user_agent: str | None = None,
+) -> tuple[int, object]:
+    """POST application/x-www-form-urlencoded; return (status, body_dict_or_text)."""
+    body = urllib.parse.urlencode(fields).encode()
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": user_agent or (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode("utf-8", errors="replace")
+            try:
+                return r.status, json.loads(raw)
+            except json.JSONDecodeError:
+                return r.status, raw
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        try:
+            return e.code, json.loads(raw)
+        except json.JSONDecodeError:
+            return e.code, raw
     except urllib.error.URLError as e:
         return 0, f"network error: {e.reason}"

@@ -63,10 +63,10 @@ COMMANDS = [
     ("/tokens", "usage so far"),
     ("/cost", "estimated USD cost"),
     ("/stats", "session stats"),
-    ("/key", "open API key manager — view, add, edit, or delete keys"),
-    ("/login", "log in with Anthropic Pro/Max subscription (OAuth modal)"),
-    ("/logout", "log out of Anthropic OAuth (revert to API key)"),
-    ("/auth", "show current provider + auth"),
+    ("/key", "open API key manager — Anthropic API, OpenRouter, OpenCode"),
+    ("/login", "OAuth sign in — Anthropic or OpenAI Codex subscription"),
+    ("/logout", "OAuth sign out — subscription accounts only"),
+    ("/auth", "OAuth login modal — sign-in status and activate subscription auth"),
     ("/provider", "open the provider picker (select anthropic / openrouter / opencode)"),
 ]
 
