@@ -5,7 +5,7 @@ import json
 import re
 from typing import Iterable
 
-from . import TOOL_GROUPS, TOOL_NAME_TO_GROUP
+from . import TOOL_GROUPS, TOOL_NAME_TO_GROUP, FUNC
 from ..storage.skills import skill_count
 from ..utils.schema import sanitize_tools
 
@@ -112,17 +112,17 @@ def select_tools(messages: list[dict]) -> list[dict]:
     if LESSON_RE.search(text) or "lessons" in active:
         groups.append("lessons")
 
-    # MCP group — always include when there are connected MCP tools
-    mcp_tools = TOOL_GROUPS.get("mcp", [])
+    # MCP group — only when at least one MCP tool is registered (server connected).
+    # Skills may mention mcp__* tool names even when disconnected; never expose
+    # schemas that are not backed by a FUNC handler.
+    mcp_tools = [t for t in TOOL_GROUPS.get("mcp", []) if t["name"] in FUNC]
     if mcp_tools:
         groups.append("mcp")
-        # Also consider MCP group active if there was a recent MCP tool_use
-        if "mcp" in active:
-            pass  # already in the list
 
     # Defense in depth: sanitize every tool schema right before it leaves
     # the process. Anthropic rejects top-level oneOf/anyOf/allOf, and some
     # MCP servers (ClickUp, GitHub, TestSprite, …) ship those. Doing it here
     # means a stale TOOL_GROUPS entry from an older registration cycle can't
     # leak the broken shape into the API call.
-    return sanitize_tools(_dedupe_tools(groups))
+    tools = sanitize_tools(_dedupe_tools(groups))
+    return [t for t in tools if t["name"] in FUNC]

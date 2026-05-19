@@ -36,6 +36,16 @@ class ToolRouterTests(unittest.TestCase):
         names = {t["name"] for t in tools}
         self.assertIn("skill_load", names)
 
+    def test_mcp_tools_omitted_when_not_registered_in_func(self):
+        msgs = [{"role": "user", "content": "what are my clickup tickets"}]
+        stale_mcp = [{"name": "mcp__clickup__get_tasks", "description": "x", "input_schema": {}}]
+        with mock.patch("jarvis.tools.router.skill_count", return_value=1), \
+                mock.patch.dict("jarvis.tools.router.TOOL_GROUPS", {"mcp": stale_mcp}, clear=False), \
+                mock.patch.dict("jarvis.tools.router.FUNC", {}, clear=False):
+            tools = select_tools(msgs)
+        names = {t["name"] for t in tools}
+        self.assertNotIn("mcp__clickup__get_tasks", names)
+
 
 if __name__ == "__main__":
     unittest.main()

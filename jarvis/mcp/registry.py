@@ -553,7 +553,22 @@ def as_prompt_block() -> str:
 
     config = get_config()
     servers = config.list_servers()
+
+    lines: list[str] = []
+    if not jarvis_state.global_mcp:
+        lines.append(
+            "MCP scope: project-only (global OFF). "
+            "Servers from ~/.cursor, ~/.claude, OpenCode, etc. are NOT loaded. "
+            "Enable via /mcp → press g, then connect. "
+            "Do NOT read those config files to bypass missing MCP — tell the user to enable global scope."
+        )
+
     if not servers:
+        if lines:
+            lines.append(
+                "No MCP servers in current scope (add .mcp.json in project or enable global scope)."
+            )
+            return "\n".join(lines)
         return ""
 
     connected = mcp_registry.list_connected()
@@ -561,21 +576,23 @@ def as_prompt_block() -> str:
 
     scope = "project + global" if jarvis_state.global_mcp else "project-only"
     names = sorted(servers.keys())
-    line = f"MCP ({scope}): " + ", ".join(
-        name if name in live_names else f"{name} (offline — connect via /mcp)"
-        for name in names
+    lines.append(
+        f"MCP ({scope}): "
+        + ", ".join(
+            name if name in live_names else f"{name} (offline — connect via /mcp)"
+            for name in names
+        )
     )
     if live_names:
-        line += (
-            "\nConnected MCP tools are callable as mcp__<server>__<tool>."
+        lines.append(
+            "Connected MCP tools are callable as mcp__<server>__<tool>."
             " Re-check after /mcp scope or connection changes in the same session."
         )
     else:
-        line += (
-            "\nNo MCP servers connected yet — open /mcp and connect a server"
-            " before calling MCP tools."
+        lines.append(
+            "No MCP servers connected — open /mcp and connect before calling MCP tools."
         )
-    return line
+    return "\n".join(lines)
 
 
 def auto_connect_servers(console_print: Callable | None = None) -> None:

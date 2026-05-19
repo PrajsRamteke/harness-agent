@@ -117,6 +117,26 @@ def _run_tool(b):
     # so open-source models don't look "dumb" for small harness-level issues.
     call_input, repair_log = repair_tool_input(b.name, call_input)
 
+    if b.name not in FUNC:
+        if is_mcp_tool(b.name):
+            if not state.global_mcp:
+                out = (
+                    f"ERROR: MCP tool '{b.name}' is unavailable — global MCP scope is OFF. "
+                    "Servers from Cursor/Claude/OpenCode configs are not loaded in this session. "
+                    "Tell the user to open /mcp and press g to enable global scope, then connect "
+                    "the server. Do NOT read ~/.claude, ~/.cursor, or other global MCP config "
+                    "files as a workaround."
+                )
+            else:
+                out = (
+                    f"ERROR: MCP tool '{b.name}' is not connected. "
+                    "Open /mcp and connect the server before calling MCP tools."
+                )
+        else:
+            out = f"ERROR: tool '{b.name}' is not available in this session"
+        out_str = str(out)
+        return b, icon, args_preview, out_str
+
     try:
         out = FUNC[b.name](**call_input)
     except TypeError as e:

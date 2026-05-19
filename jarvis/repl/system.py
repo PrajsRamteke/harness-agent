@@ -167,7 +167,10 @@ def _build_static_body() -> str:
             "- Load every skill whose description might apply — call skill_load once per match.\n"
             "- Multiple skills can apply to the same task; load and follow all of them.\n"
             "- Batch parallel skill_load calls in one turn when several match.\n"
-            "- Do not skip skill checks for 'simple' tasks."
+            "- Do not skip skill checks for 'simple' tasks.\n"
+            "- If a loaded skill references MCP tools (mcp__*) but MCP is offline or global "
+            "scope is off, tell the user to enable /mcp global scope and connect — do NOT "
+            "read ~/.claude, ~/.cursor, or other MCP config files as a workaround."
         )
 
     _cached_body = body

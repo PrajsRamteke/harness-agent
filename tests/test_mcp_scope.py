@@ -25,6 +25,17 @@ class MCPScopeTests(unittest.TestCase):
         self.assertIn("MCP (project-only)", block)
         self.assertIn("clickup", block)
         self.assertIn("offline", block)
+        self.assertIn("global OFF", block)
+
+    def test_prompt_block_warns_when_global_off_and_no_servers(self):
+        state.global_mcp = False
+        fake_config = mock.Mock()
+        fake_config.list_servers.return_value = {}
+        with mock.patch("jarvis.mcp.config.get_config", return_value=fake_config), \
+                mock.patch("jarvis.mcp.registry.mcp_registry.list_connected", return_value=[]):
+            block = as_prompt_block()
+        self.assertIn("global OFF", block)
+        self.assertIn("Do NOT read", block)
 
     def test_apply_mcp_scope_change_invalidates_system_cache(self):
         system._cached_body = "stale"
