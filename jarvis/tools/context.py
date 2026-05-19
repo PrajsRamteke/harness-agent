@@ -12,17 +12,26 @@ Architecture:
 Graph is scoped to CWD and rebuilt automatically when source files change.
 """
 import ast
+import hashlib
 import os
 import pathlib
 import re
 import time
 import tokenize
 import io
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Set, Tuple
 
-from ..constants import CWD, CONTEXT_BUNDLE_MAX_CHARS, MAX_PARALLEL_TOOLS
+from ..constants import (
+    CWD,
+    CONTEXT_BUNDLE_MAX_CHARS,
+    CONTEXT_BUNDLE_PER_FILE_MAX,
+    BUNDLE_DEFAULT_MODE,
+    BUNDLE_DEFAULT_MODE_READ,
+    MAX_PARALLEL_TOOLS,
+)
+from ..path_resolve import robust_resolve
 from .. import state
 from .dirs import SKIP_DIRS
 
@@ -668,92 +677,262 @@ def _collect_connected_files(
     return collected
 
 
-_CONTEXT_ANALYSIS_CACHE: Dict[str, str] = {}  # task_hash -> bundle_text
+# Trim.py preserves tool results that start with this marker (never stubbed).
+BUNDLE_MARKER = "=== Connected Context Pack ==="
+_BUNDLE_MODES = frozenset({"full", "skeleton", "manifest"})
+_CONTEXT_ANALYSIS_CACHE: "OrderedDict[str, str]" = OrderedDict()
+_PATH_BUNDLE_CACHE: "OrderedDict[str, str]" = OrderedDict()
+_CACHE_MAX = 16
 
 
-def _read_one_path(rel: str) -> str:
-    """Read via read_file — cache, guards, and path locks."""
+def _normalize_mode(mode: str, default: str) -> str:
+    m = (mode or default or "skeleton").strip().lower()
+    return m if m in _BUNDLE_MODES else default
+
+
+def _graph_fingerprint() -> str:
+    if not _graph_mtimes:
+        return "empty"
+    sample = sorted(_graph_mtimes.items())[-200:]
+    raw = repr(sample).encode("utf-8", errors="replace")
+    return hashlib.sha256(raw).hexdigest()[:12]
+
+
+def _relation_weight(relation: str) -> float:
+    if relation == "root_target":
+        return 4.0
+    if relation.startswith("imported_by"):
+        return 2.5
+    if relation.startswith("importer_of"):
+        return 2.5
+    if relation.startswith("test_for"):
+        return 2.0
+    if relation in ("route_entry", "config_related"):
+        return 1.5
+    if relation == "requested":
+        return 3.5
+    return 1.0
+
+
+def _allocate_char_budget(
+    items: List[Tuple[str, str]],
+    max_chars: int,
+    per_file_max: int,
+) -> Dict[str, int]:
+    """Split bundle budget across files by relation priority."""
+    if not items:
+        return {}
+    weights = {rel: _relation_weight(rel_type) for rel, rel_type in items}
+    total_w = sum(weights.values()) or 1.0
+    budgets: Dict[str, int] = {}
+    for rel, w in weights.items():
+        share = int(max_chars * w / total_w)
+        budgets[rel] = min(per_file_max, max(400, share))
+
+    total = sum(budgets.values())
+    if total <= max_chars:
+        return budgets
+
+    scale = max_chars / total
+    scaled = {rel: max(300, int(b * scale)) for rel, b in budgets.items()}
+    while sum(scaled.values()) > max_chars:
+        rel = max(scaled, key=scaled.get)
+        scaled[rel] = max(300, scaled[rel] - 200)
+    return scaled
+
+
+def _file_size(rel: str) -> int:
+    try:
+        p = robust_resolve(rel)
+        if p.is_file():
+            return p.stat().st_size
+    except OSError:
+        pass
+    return 0
+
+
+def _read_capped(rel: str, max_chars: int) -> Tuple[str, bool, int]:
+    """Read at most max_chars. Returns (text, partial, approx_disk_chars)."""
     from .files import read_file
 
-    return read_file(rel)
+    if max_chars <= 0:
+        return "", False, 0
+
+    size = _file_size(rel)
+    if size and size <= max_chars:
+        txt = read_file(rel)
+        return txt, False, len(txt)
+
+    line_limit = max(25, max_chars // 80)
+    partial = read_file(rel, offset=0, limit=line_limit)
+    if partial.startswith("ERROR:"):
+        txt = read_file(rel)
+        if len(txt) <= max_chars:
+            return txt, False, len(txt)
+        return (
+            txt[:max_chars]
+            + f"\n\n[truncated at {max_chars} chars — use read_file offset/limit for more]",
+            True,
+            max_chars,
+        )
+
+    note = (
+        f"\n\n[PARTIAL: first ~{line_limit} lines"
+        + (f"; file ~{size:,} bytes" if size else "")
+        + "; use read_file for more]"
+    )
+    out = partial + note
+    if len(out) > max_chars:
+        out = out[:max_chars] + "\n[…]"
+    return out, True, len(out)
 
 
-def _read_paths_parallel(paths: List[str]) -> Dict[str, str]:
-    """Read many project-relative paths concurrently."""
-    if not paths:
-        return {}
-    unique = list(dict.fromkeys(paths))
-    if len(unique) == 1:
-        return {unique[0]: _read_one_path(unique[0])}
+def _skeleton_block(rel: str, relation: str, info: Optional[dict]) -> str:
+    lines = [f"\n--- {rel} (RELATION: {relation}) [skeleton] ---"]
+    if info:
+        syms = (info.get("symbols") or [])[:40]
+        types = (info.get("types") or [])[:25]
+        imps = (info.get("imports") or [])[:12]
+        if syms:
+            lines.append(f"symbols: {', '.join(syms)}")
+        if types:
+            lines.append(f"types: {', '.join(types)}")
+        if imps:
+            lines.append(f"imports: {', '.join(imps)}")
+    sz = _file_size(rel)
+    if sz:
+        lines.append(f"size: {sz:,} bytes")
+    lines.append("(body omitted — read_file or read_bundle mode=full for full text)")
+    return "\n".join(lines)
 
-    workers = min(MAX_PARALLEL_TOOLS, len(unique))
-    out: Dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for path, content in ex.map(lambda p: (p, _read_one_path(p)), unique):
-            out[path] = content
-    return out
+
+def _manifest_line(rel: str, relation: str, info: Optional[dict]) -> str:
+    bits = [rel, f"({relation})"]
+    if info:
+        ns = len(info.get("symbols") or [])
+        if ns:
+            bits.append(f"{ns} symbols")
+    sz = _file_size(rel)
+    if sz:
+        bits.append(f"{sz:,}B")
+    return "  · ".join(bits)
 
 
-def resolve_context(task: str) -> str:
-    """Main tool: resolve a coding task and return ALL connected file contents.
+def _cache_get(cache: "OrderedDict[str, str]", key: str) -> Optional[str]:
+    if key in cache:
+        cache.move_to_end(key)
+        return cache[key]
+    return None
 
-    Call this ONCE instead of making 5-20 separate read_file/search_code calls.
-    After receiving the bundle, you have ALL the context you need to plan and edit.
 
-    Args:
-        task: Natural-language description of what you need to do.
-              Be specific about the feature, component, or bug.
-              Examples:
-                - "Fix login bug — JWT token not refreshing"
-                - "Add user profile edit page"
-                - "Create API endpoint for product search"
-                - "Refactor auth service to use new middleware"
+def _cache_put(cache: "OrderedDict[str, str]", key: str, value: str) -> None:
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > _CACHE_MAX:
+        cache.popitem(last=False)
 
-    Returns:
-        Connected Context Pack — a structured bundle of all relevant files.
-    """
-    # Build graph if needed
-    try:
-        graph = _get_or_build_graph()
-    except Exception as e:
-        return f"Error building repo graph: {e}"
 
-    # Resolve target files
-    try:
-        targets = _resolve_target_files(task, graph)
-    except Exception as e:
-        targets = []
+def _render_file_entry(
+    rel: str,
+    relation: str,
+    mode: str,
+    budget: int,
+    graph: Optional[FileGraph],
+) -> Tuple[str, int, int, str]:
+    """Returns (section_text, emitted_chars, disk_read_chars, kind full|skeleton|manifest|skip)."""
+    info = (graph or {}).get(rel)
+    use_skeleton = mode == "manifest" or (
+        mode == "skeleton" and relation != "root_target" and relation != "requested"
+    )
 
-    if not targets:
-        # Fall back to scanning a few key entry points
-        for key in ("main", "app", "index", "cli", "router", "__init__"):
-            matches = [rel for rel in graph if key in rel.lower()]
-            if matches:
-                targets = matches[:3]
-                break
-        if not targets:
-            # Last resort: pick up to 5 top-level files
-            targets = [rel for rel in sorted(graph.keys()) if "/" not in rel][:5]
+    if use_skeleton:
+        text = _skeleton_block(rel, relation, info) if mode != "manifest" else _manifest_line(rel, relation, info)
+        kind = "manifest" if mode == "manifest" else "skeleton"
+        if mode == "manifest":
+            return text + "\n", len(text) + 1, 0, kind
+        return text, len(text), 0, kind
 
-    if not targets:
-        return "No relevant files found. The repo graph may be empty or the task too vague."
+    if budget <= 0:
+        return _manifest_line(rel, relation, info) + "\n", len(rel) + 20, 0, "skip"
 
-    # Collect connected files
-    try:
-        connected = _collect_connected_files(targets, graph, **_COLLECTOR_DEFAULTS)
-    except Exception as e:
-        connected = {t: "root_target" for t in targets}
+    body, partial, disk = _read_capped(rel, budget)
+    header = f"\n--- {rel} (RELATION: {relation})"
+    if partial:
+        header += " [partial]"
+    header += " ---\n"
+    text = header + body
+    return text, len(text), disk, "partial" if partial else "full"
 
-    # Read all file contents
-    lines: List[str] = []
-    lines.append("=== Connected Context Pack ===")
-    lines.append(f"Task: {task}")
-    lines.append(f"Root files: {', '.join(targets)}")
-    lines.append(f"Connected files: {len(connected)} total")
-    lines.append("")
 
-    # Sort: root targets first, then by relation type
-    def _sort_key(item):
+def _build_bundle(
+    items: List[Tuple[str, str]],
+    *,
+    mode: str,
+    max_chars: int,
+    per_file_max: int,
+    header_lines: List[str],
+    graph: Optional[FileGraph] = None,
+) -> str:
+    """Assemble a budget-aware context bundle."""
+    mode = _normalize_mode(mode, "skeleton")
+    max_chars = max(4000, max_chars)
+    per_file_max = min(per_file_max, max_chars)
+
+    lines: List[str] = [BUNDLE_MARKER, *header_lines, f"Mode: {mode}", ""]
+
+    if not items:
+        lines.append("(no files)")
+        return "\n".join(lines)
+
+    budgets = _allocate_char_budget(items, max_chars, per_file_max)
+    emitted_total = len("\n".join(lines))
+    disk_total = 0
+    kinds: Dict[str, int] = defaultdict(int)
+
+    def _work(item: Tuple[str, str]) -> Tuple[str, int, int, str]:
+        rel, relation = item
+        return _render_file_entry(rel, relation, mode, budgets.get(rel, 0), graph)
+
+    workers = min(MAX_PARALLEL_TOOLS, len(items))
+    sections: List[Tuple[str, int, int, str]] = []
+    if workers <= 1:
+        for item in items:
+            sections.append(_work(item))
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            sections = list(ex.map(_work, items))
+
+    for (rel, _), (text, em, disk, kind) in zip(items, sections):
+        if emitted_total + em > max_chars:
+            lines.append(f"\n--- {rel} (SKIPPED: bundle char limit) ---")
+            kinds["skipped"] += 1
+            continue
+        lines.append(text)
+        emitted_total += em
+        disk_total += disk
+        kinds[kind] += 1
+
+    if graph and mode != "manifest":
+        lines.append("\n\n=== Relationships ===")
+        for rel, relation in items:
+            if relation != "root_target" and relation != "requested":
+                lines.append(f"  {rel}  ←  {relation}")
+
+    if graph:
+        lines.append(f"\n=== Graph: {len(graph)} files indexed ===")
+
+    lines.append(
+        f"\n=== Bundle stats: mode={mode}, files={len(items)}, "
+        f"full={kinds['full']}, partial={kinds['partial']}, "
+        f"skeleton={kinds['skeleton']}, manifest={kinds['manifest']}, "
+        f"skipped={kinds['skipped']}, emitted≈{emitted_total:,} chars "
+        f"(limit {max_chars:,}), disk_read≈{disk_total:,} chars ==="
+    )
+    return "\n".join(lines)
+
+
+def _sort_connected_items(connected: Dict[str, str]) -> List[Tuple[str, str]]:
+    def _sort_key(item: Tuple[str, str]) -> Tuple[int, str]:
         rel, relation = item
         if relation == "root_target":
             return (0, rel)
@@ -771,65 +950,106 @@ def resolve_context(task: str) -> str:
             return (6, rel)
         return (9, rel)
 
-    sorted_files = sorted(connected.items(), key=_sort_key)
-    contents = _read_paths_parallel([rel for rel, _ in sorted_files])
+    return sorted(connected.items(), key=_sort_key)
 
-    total_chars = 0
-    for rel, relation in sorted_files:
-        content = contents.get(rel, "// file not found")
-        # Estimate: header + content
-        estimated = len(rel) + len(content) + 200
-        if total_chars + estimated > CONTEXT_BUNDLE_MAX_CHARS:
-            lines.append(f"\n--- {rel} (TRUNCATED: bundle size limit reached) ---")
-            break
 
-        lines.append(f"\n--- {rel} (RELATION: {relation}) ---")
-        lines.append(content)
-        total_chars += estimated
+def resolve_context(task: str, mode: str = "", max_chars: int = 0) -> str:
+    """Resolve a coding task and return a budget-aware Connected Context Pack.
 
-    # Add relationship summary
-    lines.append("\n\n=== Relationships ===")
-    for rel, relation in sorted_files:
-        if relation == "root_target":
-            continue
-        lines.append(f"  {rel}  ←  {relation}")
+    Default mode is ``skeleton``: root targets are read (capped per file); related
+    files show symbols/imports only. Use ``mode=full`` for all bodies, or
+    ``mode=manifest`` for a path list only (then ``read_bundle`` on key paths).
+    """
+    mode = _normalize_mode(mode, BUNDLE_DEFAULT_MODE)
+    cap = max_chars if max_chars > 0 else CONTEXT_BUNDLE_MAX_CHARS
 
-    # Add graph stats
-    lines.append(f"\n=== Graph: {len(graph)} files indexed ===")
-    lines.append(f"=== Bundle: {len(connected)} files, {total_chars} chars (limit: {CONTEXT_BUNDLE_MAX_CHARS}) ===")
+    cache_key = hashlib.sha256(
+        f"resolve|{task}|{mode}|{cap}|{_graph_fingerprint()}".encode()
+    ).hexdigest()[:20]
+    hit = _cache_get(_CONTEXT_ANALYSIS_CACHE, cache_key)
+    if hit is not None:
+        return hit
 
-    result = "\n".join(lines)
+    try:
+        graph = _get_or_build_graph()
+    except Exception as e:
+        return f"Error building repo graph: {e}"
+
+    try:
+        targets = _resolve_target_files(task, graph)
+    except Exception:
+        targets = []
+
+    if not targets:
+        for key in ("main", "app", "index", "cli", "router", "__init__"):
+            matches = [rel for rel in graph if key in rel.lower()]
+            if matches:
+                targets = matches[:3]
+                break
+        if not targets:
+            targets = [rel for rel in sorted(graph.keys()) if "/" not in rel][:5]
+
+    if not targets:
+        return "No relevant files found. The repo graph may be empty or the task too vague."
+
+    try:
+        connected = _collect_connected_files(targets, graph, **_COLLECTOR_DEFAULTS)
+    except Exception:
+        connected = {t: "root_target" for t in targets}
+
+    items = _sort_connected_items(connected)
+    header = [
+        f"Task: {task}",
+        f"Root files: {', '.join(targets)}",
+        f"Connected files: {len(connected)} total",
+    ]
+    result = _build_bundle(
+        items,
+        mode=mode,
+        max_chars=cap,
+        per_file_max=CONTEXT_BUNDLE_PER_FILE_MAX,
+        header_lines=header,
+        graph=graph,
+    )
+    _cache_put(_CONTEXT_ANALYSIS_CACHE, cache_key, result)
     return result
 
 
-def read_bundle(paths: List[str]) -> str:
-    """Batch-read multiple files at once and return their contents.
+def read_bundle(paths: List[str], mode: str = "", max_chars: int = 0) -> str:
+    """Batch-read paths into one budget-aware bundle (parallel I/O, read cache).
 
-    Use this when you already know the exact files you need (from a previous
-    resolve_context call or from explicit user mention). Provide up to 20 paths.
-
-    Args:
-        paths: List of file paths relative to the project root.
-
-    Returns:
-        Contents of all requested files, each prefixed with its path.
+    Default mode is ``full``. After ``resolve_context(..., mode='manifest')``,
+    call ``read_bundle`` on the 3–8 paths you need with ``mode='full'``.
     """
     if not paths:
         return "ERROR: no paths provided"
 
-    paths = paths[:20]  # cap at 20
-    contents = _read_paths_parallel(paths)
-    lines = []
-    total_chars = 0
+    mode = _normalize_mode(mode, BUNDLE_DEFAULT_MODE_READ)
+    cap = max_chars if max_chars > 0 else CONTEXT_BUNDLE_MAX_CHARS
+    paths = list(dict.fromkeys(paths))[:20]
 
-    for path in paths:
-        content = contents.get(path, "// file not found")
-        estimated = len(path) + len(content) + 100
-        if total_chars + estimated > CONTEXT_BUNDLE_MAX_CHARS:
-            lines.append(f"\n--- {path} (TRUNCATED: size limit) ---")
-            break
-        lines.append(f"\n--- {path} ---")
-        lines.append(content)
-        total_chars += estimated
+    path_sig = []
+    for p in paths:
+        try:
+            rp = robust_resolve(p)
+            path_sig.append((p, rp.stat().st_mtime, rp.stat().st_size))
+        except OSError:
+            path_sig.append((p, 0, 0))
+    cache_key = hashlib.sha256(
+        repr((path_sig, mode, cap)).encode()
+    ).hexdigest()[:20]
+    hit = _cache_get(_PATH_BUNDLE_CACHE, cache_key)
+    if hit is not None:
+        return hit
 
-    return "\n".join(lines)
+    items = [(p, "requested") for p in paths]
+    result = _build_bundle(
+        items,
+        mode=mode,
+        max_chars=cap,
+        per_file_max=CONTEXT_BUNDLE_PER_FILE_MAX,
+        header_lines=[f"Paths: {', '.join(paths)}"],
+        graph=_graph,
+    )
+    _cache_put(_PATH_BUNDLE_CACHE, cache_key, result)
+    return result

@@ -13,23 +13,32 @@ CONTEXT_TOOLS = [
         "  4. Plan your edits using the bundle\n"
         "  5. Call edit_file/write_file to make changes\n"
         "  6. Verify with run_bash (tests/lint)\n\n"
-        "This replaces the old: explore → locate → read → plan loop with ONE call."
+        "Modes (default skeleton): full = all bodies (capped); skeleton = full root "
+        "targets + symbol/import summaries for related files; manifest = file list only "
+        "(then read_bundle on 3–8 paths). Budget is split across files — not read-all-then-truncate."
     ),
      "input_schema": {"type": "object", "properties": {
         "task": {"type": "string", "description": (
             "Natural-language description of the coding task. Be specific: "
             "'Fix login bug in JWT token refresh' or 'Add user profile edit page'"
         )},
+        "mode": {"type": "string", "enum": ["full", "skeleton", "manifest"],
+                 "description": "Bundle density. Default skeleton."},
+        "max_chars": {"type": "integer",
+                      "description": "Output cap (default ~120K). Rarely needed."},
      }, "required": ["task"]}},
     {"name": "read_bundle", "description": (
-        "PREFERRED for 2–20 known paths: batch-read in one call with parallel disk "
-        "I/O and read cache (~120K char bundle). Use when you already know which "
-        "files you need (user list, search_code, glob_files, resolve_context follow-up). "
+        "PREFERRED for 2–20 known paths: one budget-aware bundle with parallel I/O. "
+        "Default mode full. After resolve_context(mode=manifest), call this on key paths. "
         "Do NOT substitute 10+ separate read_file calls for the same paths."
     ),
      "input_schema": {"type": "object", "properties": {
         "paths": {"type": "array", "items": {"type": "string"},
                   "description": "File paths relative to project root. Max 20."},
+        "mode": {"type": "string", "enum": ["full", "skeleton", "manifest"],
+                 "description": "Default full for explicit path lists."},
+        "max_chars": {"type": "integer",
+                      "description": "Output cap (default ~120K). Rarely needed."},
      }, "required": ["paths"]}},
 ]
 

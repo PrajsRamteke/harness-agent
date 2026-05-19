@@ -25,8 +25,8 @@ FILESYSTEM
 - Save tokens: reuse files already visible in the conversation. Do not reread broad files just to refresh context; use search_code or read_file offset/limit for the exact missing lines.
 
 READ STRATEGY (pick one — do not mix blindly)
-- read_bundle(paths): DEFAULT when you know 2–20 paths and need full bodies in one result (~120K bundle, parallel I/O + read cache). Use after search_code/glob/user lists paths.
-- resolve_context(task): when you do NOT know which files — discovers related files and returns one bundle.
+- read_bundle(paths, mode?): DEFAULT when you know 2–20 paths (~120K cap, budget split per file). mode=full (default) | skeleton | manifest.
+- resolve_context(task, mode?): when you do NOT know which files. Default mode=skeleton (full root files + summaries for related); use manifest then read_bundle for huge repos.
 - read_file: ONE file; or offset/limit on a huge file; or a quick re-read of a few lines already in context.
 - Do NOT fire 10+ separate read_file calls for the same job read_bundle would do — wastes tokens and tool round-trips. Up to ~4 parallel read_file calls is fine when you need separate results or line ranges only.
 

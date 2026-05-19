@@ -32,6 +32,10 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 - `HARNESS_PROVIDER` — pin provider explicitly: `anthropic`, `openrouter`, `opencode`, or `opencode_zen`
 - `CLAUDE_MODEL` — override default model (default: `sonnet-4-6`)
 - `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent tool workers (default/cap: 64)
+- `HARNESS_BUNDLE_MAX_CHARS` — max chars in resolve_context/read_bundle output (default: 120000)
+- `HARNESS_BUNDLE_PER_FILE_MAX` — per-file cap inside a bundle (default: 20000)
+- `HARNESS_BUNDLE_MODE` — default for resolve_context: `full` | `skeleton` | `manifest` (default: skeleton)
+- `HARNESS_BUNDLE_MODE_READ` — default for read_bundle (default: full)
 - `HARNESS_HTTP_READ_TIMEOUT` — streaming response timeout in seconds (default: 240 OpenRouter, 600 direct)
 - `HARNESS_HTTP_CONNECT_TIMEOUT` — connection timeout (default: 30)
 - `HARNESS_STREAM_REPLY` — set to `0` to disable live streaming of assistant text
