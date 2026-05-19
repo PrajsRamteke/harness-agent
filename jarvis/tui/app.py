@@ -980,12 +980,14 @@ class JarvisTUI(App):
         self.push_screen(CommandPaletteScreen(), after)
 
     def _open_model_picker(self):
-        def after(model_id: str | None):
-            if not model_id:
+        def after(option_id: str | None):
+            if not option_id:
                 self._tui_console.print(f"[{ui.FG_DIM}]model picker cancelled[/]")
                 return
+            from ..constants.providers import parse_model_option_id
             from ..commands.control import _apply_model_selection
-            _apply_model_selection(model_id)
+            source, model_id = parse_model_option_id(option_id)
+            _apply_model_selection(model_id, source=source)
             self._set_status("ready")
         self.push_screen(ModelPickerScreen(), after)
 
@@ -1098,14 +1100,20 @@ class JarvisTUI(App):
         self.push_screen(ThemePickerScreen(), after)
 
     def _open_login_modal(self):
-        def after(ok: bool | None) -> None:
-            if ok:
+        def after(model_ids: list[str] | None) -> None:
+            if model_ids is not None:
                 self._tui_console.print(
                     f"[{ui.OK}]{ui.CHECK}[/] [bold]Signed in with Anthropic[/] — "
                     f"provider: Anthropic · auth: OAuth"
                 )
+                if model_ids:
+                    from ..auth.anthropic_models import format_anthropic_model_lines
+                    self._tui_console.print(f"[{ui.FG_DIM}]Available models:[/]")
+                    for line in format_anthropic_model_lines(model_ids):
+                        self._tui_console.print(f"  [{ui.ACCENT}]{line}[/]")
             else:
                 self._tui_console.print(f"[{ui.FG_DIM}]login cancelled[/]")
+            self._write_status_line(busy=False)
             self._set_status("ready")
         self.push_screen(LoginModalScreen(), after)
 

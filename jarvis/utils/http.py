@@ -2,7 +2,13 @@
 import json, urllib.request, urllib.error
 
 
-def _http_json(url: str, payload: dict, timeout: int = 30) -> tuple:
+def _http_json(
+    url: str,
+    payload: dict,
+    timeout: int = 30,
+    *,
+    user_agent: str | None = None,
+) -> tuple:
     """POST JSON, return (status, body_dict_or_text)."""
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
@@ -10,10 +16,10 @@ def _http_json(url: str, payload: dict, timeout: int = 30) -> tuple:
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            # Cloudflare (error 1010) bans the default "Python-urllib/X.Y" UA
-            # on console.anthropic.com. Send a normal browser UA so the OAuth
-            # token-exchange / refresh requests aren't rejected.
-            "User-Agent": (
+            # Cloudflare rejects the default "Python-urllib/X.Y" UA on Anthropic
+            # OAuth endpoints. Callers pass OAUTH_TOKEN_USER_AGENT for token
+            # exchange/refresh; other callers get a generic browser UA.
+            "User-Agent": user_agent or (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/125.0.0.0 Safari/537.36"

@@ -15,6 +15,10 @@ PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_OPENCODE_ZEN = "opencode_zen"
 
+# Model-picker sources (Anthropic splits API key vs OAuth subscription).
+PROVIDER_ANTHROPIC_API = "anthropic_api"
+PROVIDER_ANTHROPIC_AUTH = "anthropic_auth"
+
 # ── Auth mode identifiers ─────────────────────────────────────────────────────
 AUTH_API_KEY = "api_key"
 AUTH_OAUTH = "oauth"
@@ -25,6 +29,23 @@ PROVIDER_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
 }
+
+MODEL_SOURCE_LABELS = {
+    PROVIDER_ANTHROPIC_API: "Anthropic API",
+    PROVIDER_ANTHROPIC_AUTH: "Anthropic Auth",
+    PROVIDER_OPENROUTER: "OpenRouter",
+    PROVIDER_OPENCODE: "OpenCode Go",
+    PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
+}
+
+# Picker display order (Anthropic API + Auth first when configured).
+MODEL_SOURCES = (
+    PROVIDER_ANTHROPIC_API,
+    PROVIDER_ANTHROPIC_AUTH,
+    PROVIDER_OPENROUTER,
+    PROVIDER_OPENCODE,
+    PROVIDER_OPENCODE_ZEN,
+)
 
 # ── SINGLE SOURCE OF TRUTH: all models + descriptions + pricing ───────────────
 # Each entry: model_id -> (description, provider, (input_price_per_1M, output_price_per_1M))
@@ -81,6 +102,15 @@ ANTHROPIC_MODELS = [
     for mid, info in MODEL_INFO.items()
     if info[1] == PROVIDER_ANTHROPIC
 ]
+
+# OAuth / Pro-Max subscription catalog (newest first). Live API ids are merged in
+# at runtime when OAuth connects successfully.
+ANTHROPIC_AUTH_MODEL_IDS = (
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+)
 OPENROUTER_FREE_MODELS = [
     (mid, info[0])
     for mid, info in MODEL_INFO.items()
@@ -114,6 +144,84 @@ OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
 OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 
 
+def _has_anthropic_api() -> bool:
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return True
+    from .paths import KEY_FILE
+
+    try:
+        return KEY_FILE.exists() and bool(KEY_FILE.read_text().strip())
+    except OSError:
+        return False
+
+
+def _has_anthropic_oauth() -> bool:
+    try:
+        from ..auth.oauth_tokens import load_oauth_tokens
+        return load_oauth_tokens() is not None
+    except Exception:
+        return False
+
+
+def connected_model_sources() -> list[str]:
+    """Model-picker sources that have credentials configured."""
+    sources: list[str] = []
+    if _has_anthropic_api():
+        sources.append(PROVIDER_ANTHROPIC_API)
+    if _has_anthropic_oauth():
+        sources.append(PROVIDER_ANTHROPIC_AUTH)
+    if os.getenv("OPENROUTER_API_KEY"):
+        sources.append(PROVIDER_OPENROUTER)
+    else:
+        from .paths import OPENROUTER_KEY_FILE
+        try:
+            if OPENROUTER_KEY_FILE.exists() and OPENROUTER_KEY_FILE.read_text().strip():
+                sources.append(PROVIDER_OPENROUTER)
+        except OSError:
+            pass
+    if os.getenv("OPENCODE_API_KEY"):
+        sources.append(PROVIDER_OPENCODE)
+    else:
+        from .paths import OPENCODE_KEY_FILE
+        try:
+            if OPENCODE_KEY_FILE.exists() and OPENCODE_KEY_FILE.read_text().strip():
+                sources.append(PROVIDER_OPENCODE)
+        except OSError:
+            pass
+    if os.getenv("OPENCODE_ZEN_API_KEY"):
+        sources.append(PROVIDER_OPENCODE_ZEN)
+    else:
+        from .paths import OPENCODE_ZEN_KEY_FILE
+        try:
+            if OPENCODE_ZEN_KEY_FILE.exists() and OPENCODE_ZEN_KEY_FILE.read_text().strip():
+                sources.append(PROVIDER_OPENCODE_ZEN)
+        except OSError:
+            pass
+    if not sources:
+        return list(MODEL_SOURCES)
+    return sources
+
+
+def model_option_id(source: str, model_id: str) -> str:
+    return f"{source}::{model_id}"
+
+
+def parse_model_option_id(option_id: str) -> tuple[str, str]:
+    if "::" in option_id:
+        source, model_id = option_id.split("::", 1)
+        return source, model_id
+    return "", option_id
+
+
+def models_for_source(source: str):
+    if source == PROVIDER_ANTHROPIC_API:
+        return list(ANTHROPIC_MODELS)
+    if source == PROVIDER_ANTHROPIC_AUTH:
+        from ..auth.anthropic_models import anthropic_auth_models_for_picker
+        return anthropic_auth_models_for_picker()
+    return models_for(source)
+
+
 def connected_providers() -> set[str]:
     """Return set of provider identifiers that have configured API keys (file or env).
 
@@ -136,7 +244,7 @@ def connected_providers() -> set[str]:
     # ── Key files on disk ──────────────────────────────────────────────────
     # Lazy import to avoid circular dependency (paths → no providers imports)
     from .paths import (
-        KEY_FILE, OAUTH_FILE, OPENROUTER_KEY_FILE,
+        KEY_FILE, OPENROUTER_KEY_FILE,
         OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
     )
 
@@ -146,9 +254,7 @@ def connected_providers() -> set[str]:
         except OSError:
             return False
 
-    if _has_content(KEY_FILE):
-        connected.add(PROVIDER_ANTHROPIC)
-    if OAUTH_FILE.exists():
+    if _has_anthropic_api() or _has_anthropic_oauth():
         connected.add(PROVIDER_ANTHROPIC)
     if _has_content(OPENROUTER_KEY_FILE):
         connected.add(PROVIDER_OPENROUTER)
@@ -170,4 +276,4 @@ def models_for(provider: str):
         return OPENCODE_MODELS
     if provider == PROVIDER_OPENCODE_ZEN:
         return OPENCODE_ZEN_MODELS
-    return ANTHROPIC_MODELS
+    return list(ANTHROPIC_MODELS)

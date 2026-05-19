@@ -30,53 +30,23 @@ from textual.widgets import Input, Static
 from rich.text import Text
 
 from .. import state
-from ..auth.oauth_tokens import save_oauth_tokens, clear_oauth_tokens
+from ..auth.oauth_tokens import save_oauth_tokens, clear_oauth_tokens, exchange_oauth_code, parse_oauth_paste
+from ..auth.anthropic_models import sync_anthropic_model_ids
 from ..auth.pkce import _pkce_pair
 from ..constants import (
-    OAUTH_CLIENT_ID, OAUTH_AUTHORIZE_URL, OAUTH_TOKEN_URL,
+    OAUTH_CLIENT_ID, OAUTH_AUTHORIZE_URL,
     OAUTH_REDIRECT_URI, OAUTH_SCOPES,
     AUTH_OAUTH, PROVIDER_ANTHROPIC, AUTH_MODE_FILE, PROVIDER_FILE,
 )
 from ..constants.models import OAUTH_DEFAULT_EXPIRY
-from ..utils.http import _http_json
 from ..utils.io import _secure_write
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
 
 
 def _parse_code_input(raw: str, fallback_state: str) -> tuple[str, str]:
-    """Extract ``(code, state)`` from any of:
-
-    * bare code             → ``"abc123"``
-    * code-with-fragment    → ``"abc123#xyz789"``
-    * full callback URL     → ``"https://…/callback?code=abc&state=xyz"``
-    * URL fragment form     → ``"https://…/callback#code=abc&state=xyz"``
-
-    Returns the parsed values, falling back to ``fallback_state`` (the PKCE
-    verifier) when no ``state`` is present.
-    """
-    s = (raw or "").strip()
-    if not s:
-        return "", fallback_state
-
-    # Full URL — pull from query or fragment.
-    if s.startswith(("http://", "https://")):
-        try:
-            parsed = urllib.parse.urlparse(s)
-            qs = urllib.parse.parse_qs(parsed.query)
-            frag_qs = urllib.parse.parse_qs(parsed.fragment) if parsed.fragment else {}
-            code = (qs.get("code") or frag_qs.get("code") or [""])[0]
-            state_val = (qs.get("state") or frag_qs.get("state") or [fallback_state])[0]
-            return code.strip(), state_val.strip()
-        except Exception:
-            pass  # fall through to the simple parsers below
-
-    # "code#state" form (what Anthropic's OOB page shows).
-    if "#" in s:
-        code, state_val = s.split("#", 1)
-        return code.strip(), state_val.strip()
-
-    return s, fallback_state
+    """Extract ``(code, state)`` from paste input or a callback URL."""
+    return parse_oauth_paste(raw, fallback_state)
 
 
 def _explain_error(status: int, body: object) -> str:
@@ -87,21 +57,30 @@ def _explain_error(status: int, body: object) -> str:
         err = body.get("error")
         if isinstance(err, dict):
             err_type = str(err.get("type") or err.get("error") or "")
-            err_msg = str(err.get("message") or "")
+            err_msg = str(err.get("message") or err.get("error_description") or "")
         elif isinstance(err, str):
             err_type = err
-        err_msg = err_msg or str(body.get("error_description") or "")
+        err_msg = err_msg or str(body.get("error_description") or body.get("message") or "")
 
     if status == 429 or err_type in ("rate_limit_error", "too_many_requests"):
         return (
             "Anthropic OAuth rate-limited (429). Wait ~60s, then press "
             "Ctrl+R for a fresh code and try again."
         )
-    if err_type in ("invalid_grant", "expired_token") or status == 400:
+    if err_type in ("invalid_grant", "expired_token"):
         return (
             "Code expired or already used. Press Ctrl+R for a fresh code, "
             "then paste the new one."
         )
+    if err_type in ("invalid_request", "invalid_request_error") or (
+        status == 400 and "invalid request" in err_msg.lower()
+    ):
+        return (
+            "OAuth request rejected — press Ctrl+R, sign in again, and paste the "
+            "full code#state string."
+        )
+    if status == 400:
+        return f"HTTP 400: {err_msg or err_type or body}"
     if err_type == "invalid_client" or status in (401, 403):
         return "OAuth client rejected — make sure you signed in to the same Anthropic account."
     if status == 0:
@@ -109,8 +88,8 @@ def _explain_error(status: int, body: object) -> str:
     return f"HTTP {status}: {err_msg or err_type or body}"
 
 
-class LoginModalScreen(TuiModalScreen[bool]):
-    """Anthropic OAuth login. Dismisses ``True`` on success, ``False`` otherwise."""
+class LoginModalScreen(TuiModalScreen[list[str] | None]):
+    """Anthropic OAuth login. Dismisses model ids on success, ``None`` on cancel/error."""
 
     DEFAULT_CSS = (
         TUI_MODAL_CHROME_CSS
@@ -156,6 +135,7 @@ class LoginModalScreen(TuiModalScreen[bool]):
         super().__init__()
         self._verifier: str = ""
         self._challenge: str = ""
+        self._oauth_state: str = ""
         self._auth_url: str = ""
         self._busy: bool = False
 
@@ -212,7 +192,7 @@ class LoginModalScreen(TuiModalScreen[bool]):
 
     def _regenerate_pkce(self) -> None:
         """Create a fresh PKCE pair + authorize URL (used on mount and Ctrl+R)."""
-        self._verifier, self._challenge = _pkce_pair()
+        self._verifier, self._challenge, self._oauth_state = _pkce_pair()
         params = {
             "code": "true",
             "client_id": OAUTH_CLIENT_ID,
@@ -221,7 +201,7 @@ class LoginModalScreen(TuiModalScreen[bool]):
             "scope": OAUTH_SCOPES,
             "code_challenge": self._challenge,
             "code_challenge_method": "S256",
-            "state": self._verifier,
+            "state": self._oauth_state,
         }
         self._auth_url = OAUTH_AUTHORIZE_URL + "?" + urllib.parse.urlencode(params)
 
@@ -241,11 +221,16 @@ class LoginModalScreen(TuiModalScreen[bool]):
     def action_cancel(self) -> None:
         if self._busy:
             return
-        self.dismiss(False)
+        self.dismiss(None)
 
     def action_open_browser(self) -> None:
+        """Re-open the authorize URL for the *current* PKCE session (same code)."""
         try:
             webbrowser.open(self._auth_url)
+            self._set_status(
+                "browser reopened — paste the code from this session (Ctrl+R for a new one)",
+                ok=None,
+            )
         except Exception:
             pass
 
@@ -274,11 +259,17 @@ class LoginModalScreen(TuiModalScreen[bool]):
             self._set_status("paste the code first", ok=False)
             return
 
-        code, returned_state = _parse_code_input(raw, fallback_state=self._verifier)
+        code, pasted_state = _parse_code_input(raw, self._oauth_state)
         if not code:
             self._set_status(
                 "couldn't extract a code from that input — paste the value, "
                 "not the page text",
+                ok=False,
+            )
+            return
+        if pasted_state != self._oauth_state:
+            self._set_status(
+                "state mismatch — press Ctrl+R, sign in again, paste the new code#state",
                 ok=False,
             )
             return
@@ -288,14 +279,7 @@ class LoginModalScreen(TuiModalScreen[bool]):
 
         def _worker() -> None:
             try:
-                status, body = _http_json(OAUTH_TOKEN_URL, {
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "state": returned_state,
-                    "client_id": OAUTH_CLIENT_ID,
-                    "redirect_uri": OAUTH_REDIRECT_URI,
-                    "code_verifier": self._verifier,
-                })
+                status, body = exchange_oauth_code(code, self._verifier, self._oauth_state)
             except Exception as e:
                 self.app.call_from_thread(self._on_exchange_done, None, 0, str(e))
                 return
@@ -339,20 +323,28 @@ class LoginModalScreen(TuiModalScreen[bool]):
         try:
             from ..auth.client import _build_client_from_mode
             state.client = _build_client_from_mode(AUTH_OAUTH)
-            # Light validation — list models is cheap and confirms the token.
-            state.client.models.list(limit=1)
+            model_ids = sync_anthropic_model_ids(state.client)
+            if not model_ids:
+                state.client.models.list(limit=1)
         except Exception as e:
             self._busy = False
             self._set_status(f"tokens saved but client build failed — {e}", ok=False)
             return
 
         self._busy = False
-        self._set_status(
-            "✓ logged in — provider switched to Anthropic, OAuth client active",
-            ok=True,
-        )
+        if model_ids:
+            preview = ", ".join(model_ids)
+            self._set_status(
+                f"✓ logged in — {len(model_ids)} models: {preview}",
+                ok=True,
+            )
+        else:
+            self._set_status(
+                "✓ logged in — provider switched to Anthropic, OAuth client active",
+                ok=True,
+            )
         # Give the user a half-second to read the success line.
-        self.set_timer(0.6, lambda: self.dismiss(True))
+        self.set_timer(0.6, lambda: self.dismiss(model_ids))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "login_code":

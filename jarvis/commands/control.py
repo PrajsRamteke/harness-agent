@@ -4,11 +4,12 @@ import os, time
 from ..console import console, Panel, Table
 from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
-    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS,
+    AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, MODEL_SOURCE_LABELS,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
+    PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
 )
 from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
@@ -16,6 +17,7 @@ from ..utils.io import _secure_write
 from ..utils.time_fmt import fmt_duration
 from ..auth.oauth_tokens import load_oauth_tokens, clear_oauth_tokens
 from ..auth.oauth_flow import oauth_login
+from ..auth.anthropic_models import sync_anthropic_model_ids, format_anthropic_model_lines
 from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
 from ..auth.opencode import prompt_for_opencode_key, load_opencode_key
 from ..auth.opencode_zen import prompt_for_opencode_zen_key, load_opencode_zen_key
@@ -94,13 +96,21 @@ def handle_control(c: str, arg: str):
         return True, None
     if c == "/login":
         clear_oauth_tokens()
-        oauth_login()
+        tokens = oauth_login()
+        if not tokens:
+            return True, None
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
         state.auth_mode = AUTH_OAUTH
         try:
             state.client = _build_client_from_mode(AUTH_OAUTH)
-            state.client.models.list(limit=1)
+            model_ids = sync_anthropic_model_ids(state.client)
+            if not model_ids:
+                state.client.models.list(limit=1)
             console.print("[green]✓ OAuth client active[/]")
+            if model_ids:
+                console.print("[dim]Available models:[/]")
+                for line in format_anthropic_model_lines(model_ids):
+                    console.print(f"  [cyan]{line}[/]")
         except Exception as e:
             console.print(f"[red]login validation failed: {e}[/]")
         return True, None
@@ -156,14 +166,11 @@ def _handle_think(arg: str = "") -> None:
 
 
 def _all_models():
-    """Combined list: [(provider, model_id, description), ...] — only shows
-    providers whose API keys are configured (file or env)."""
-    from ..constants import connected_providers, models_for
-    providers = connected_providers()
+    """Combined list: [(source, model_id, description), ...] for configured auth."""
+    from ..constants import connected_model_sources, models_for_source
     rows = []
-    for prov in PROVIDERS:  # keep display order
-        if prov in providers:
-            rows += [(prov, m, d) for m, d in models_for(prov)]
+    for src in connected_model_sources():
+        rows += [(src, m, d) for m, d in models_for_source(src)]
     return rows
 
 
@@ -182,16 +189,38 @@ def _provider_for_model(model: str) -> str:
     return PROVIDER_ANTHROPIC
 
 
-def _apply_model_selection(chosen: str):
+def _apply_model_selection(chosen: str, *, source: str = ""):
     target_provider = _provider_for_model(chosen)
+    if source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
+        target_provider = PROVIDER_ANTHROPIC
+
     if target_provider != state.provider:
         _handle_provider(target_provider)
         if state.provider != target_provider:
             return  # switch failed (e.g. user cancelled key prompt)
+
+    if state.provider == PROVIDER_ANTHROPIC and source:
+        target_auth = AUTH_OAUTH if source == PROVIDER_ANTHROPIC_AUTH else AUTH_API_KEY
+        if target_auth != state.auth_mode:
+            if target_auth == AUTH_OAUTH and not load_oauth_tokens():
+                console.print("[yellow]OAuth not configured — run /login first[/]")
+                return
+            if target_auth == AUTH_API_KEY and not KEY_FILE.exists() and not os.getenv("ANTHROPIC_API_KEY"):
+                console.print("[yellow]Anthropic API key not configured[/]")
+                return
+            state.auth_mode = target_auth
+            _secure_write(AUTH_MODE_FILE, target_auth)
+            try:
+                state.client = _build_client_from_mode(target_auth)
+            except Exception as e:
+                console.print(f"[red]failed to switch auth mode: {e}[/]")
+                return
+
     state.MODEL = chosen
     save_last_model()
+    src_label = MODEL_SOURCE_LABELS.get(source) or PROVIDER_LABELS.get(state.provider, state.provider)
     console.print(f"[green]✓ model switched to[/] [cyan]{state.MODEL}[/] "
-                  f"[dim]({PROVIDER_LABELS[state.provider]})[/]")
+                  f"[dim]({src_label})[/]")
     header_panel()
 
 
@@ -202,18 +231,19 @@ def _handle_model(arg: str):
         if arg.isdigit():
             i = int(arg) - 1
             if 0 <= i < len(rows):
-                chosen = rows[i][1]
+                src, chosen, _d = rows[i]
+                _apply_model_selection(chosen, source=src)
+                return
         else:
-            for _, m, _d in rows:
+            for src, m, _d in rows:
                 if arg == m or arg in m:
-                    chosen = m; break
-            if not chosen:
+                    _apply_model_selection(m, source=src)
+                    return
+            if arg:
                 # Freeform: accept any string. '/' → OpenRouter slug, else Anthropic id.
-                chosen = arg
-        if chosen:
-            _apply_model_selection(chosen)
-        else:
-            console.print(f"[red]unknown model: {arg}[/]")
+                _apply_model_selection(arg)
+                return
+        console.print(f"[red]unknown model: {arg}[/]")
         return
 
     t = Table(show_header=True, box=None, pad_edge=False)
@@ -222,9 +252,15 @@ def _handle_model(arg: str):
     t.add_column("description")
     t.add_column("provider", style="magenta")
     t.add_column("")
-    for i, (prov, m, desc) in enumerate(rows, 1):
-        marker = "[green]● current[/]" if m == state.MODEL else ""
-        t.add_row(str(i), m, desc, PROVIDER_LABELS[prov], marker)
+    for i, (src, m, desc) in enumerate(rows, 1):
+        marker = "[green]● current[/]" if (
+            m == state.MODEL and (
+                (src == PROVIDER_ANTHROPIC_AUTH and state.auth_mode == AUTH_OAUTH)
+                or (src == PROVIDER_ANTHROPIC_API and state.auth_mode == AUTH_API_KEY)
+                or (src not in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH) and src == state.provider)
+            )
+        ) else ""
+        t.add_row(str(i), m, desc, MODEL_SOURCE_LABELS.get(src, src), marker)
     console.print(Panel(t, title="✦ available models — all providers", border_style="cyan"))
     try:
         sel = console.input("[cyan]select model (# or name, enter to cancel): [/]").strip()

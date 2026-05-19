@@ -9,7 +9,12 @@ from textual.widgets.option_list import Option
 
 from rich.text import Text
 
-from ..constants import PROVIDER_LABELS, models_for
+from ..constants import (
+    MODEL_SOURCE_LABELS, models_for_source, connected_model_sources,
+    model_option_id,
+    PROVIDER_ANTHROPIC, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
+    AUTH_API_KEY, AUTH_OAUTH,
+)
 from .. import state
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
@@ -67,32 +72,40 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         except AttributeError:
             pass
 
+    def _is_active(self, source: str, model_id: str) -> bool:
+        if model_id != state.MODEL:
+            return False
+        if source == PROVIDER_ANTHROPIC_AUTH:
+            return state.provider == PROVIDER_ANTHROPIC and state.auth_mode == AUTH_OAUTH
+        if source == PROVIDER_ANTHROPIC_API:
+            return state.provider == PROVIDER_ANTHROPIC and state.auth_mode == AUTH_API_KEY
+        return state.provider == source
+
     def _populate(self, query: str = "") -> None:
         q = query.strip().lower()
         opts = self.query_one("#model_list", OptionList)
         opts.clear_options()
-        from ..constants import connected_providers, models_for, PROVIDERS, PROVIDER_LABELS
-        providers = connected_providers()
-        rows = []
-        for prov in PROVIDERS:
-            if prov in providers:
-                rows += [(prov, m, d) for m, d in models_for(prov)]
+        sources = connected_model_sources()
+        rows: list[tuple[str, str, str]] = []
+        for src in sources:
+            rows += [(src, m, d) for m, d in models_for_source(src)]
         matched = 0
-        for prov, m, desc in rows:
-            if q and q not in m.lower() and q not in desc.lower() and q not in PROVIDER_LABELS.get(prov, prov).lower():
+        for src, m, desc in rows:
+            label_name = MODEL_SOURCE_LABELS.get(src, src)
+            if q and q not in m.lower() and q not in desc.lower() and q not in label_name.lower():
                 continue
-            is_active = (m == state.MODEL)
+            is_active = self._is_active(src, m)
             marker = "● " if is_active else "  "
             name_style = "bold #79c0ff" if is_active else "#79c0ff"
             label = Text.assemble(
                 (marker, "bold #3fb950"),
                 (f"{m:<40s}", name_style),
                 ("  ", ""),
-                (f"{PROVIDER_LABELS.get(prov, prov):<12s}", "#bc8cff"),
+                (f"{label_name:<14s}", "#bc8cff"),
                 ("  ", ""),
                 (desc[:60], "#8b949e"),
             )
-            opts.add_option(Option(label, id=m))
+            opts.add_option(Option(label, id=model_option_id(src, m)))
             matched += 1
         if opts.option_count:
             opts.highlighted = 0
@@ -111,10 +124,10 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         self._accept()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        mid = event.option.id
-        if mid == "__none__":
+        oid = event.option.id
+        if oid == "__none__":
             return
-        self.dismiss(str(mid) if mid else None)
+        self.dismiss(str(oid) if oid else None)
 
     # ─── actions ───────────────────────────────────────────────────────
     def action_dismiss_cancel(self) -> None:

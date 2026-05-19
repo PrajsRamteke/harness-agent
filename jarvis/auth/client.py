@@ -12,7 +12,7 @@ import httpx
 from ..console import console, Anthropic, APIStatusError, APIConnectionError
 from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_ZEN_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
-    OAUTH_BETA_HEADER, OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL,
+    OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL,
     OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
     MODEL as _DEFAULT_ANTHROPIC_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
@@ -27,7 +27,9 @@ from .opencode_zen import load_opencode_zen_key, prompt_for_opencode_zen_key
 from .opencode_client import OpenCodeClient
 from .oauth_tokens import (
     load_oauth_tokens, clear_oauth_tokens, oauth_refresh, get_fresh_oauth_token,
+    oauth_client_headers,
 )
+from .anthropic_models import sync_anthropic_model_ids
 from .oauth_flow import oauth_login
 from .mode_picker import _choose_auth_mode, _choose_provider
 
@@ -83,7 +85,7 @@ def _build_client_from_mode(mode: str) -> Anthropic:
             api_key=None,
             auth_token=tokens["access_token"],
             timeout=_http_timeout(openrouter=False),
-            default_headers={"anthropic-beta": OAUTH_BETA_HEADER},
+            default_headers=oauth_client_headers(),
         )
     return Anthropic(api_key=load_key(), timeout=_http_timeout(openrouter=False))
 
@@ -216,6 +218,8 @@ def make_client():
         try:
             c = _build_client_from_mode(state.auth_mode)
             c.models.list(limit=1)  # cheap validation
+            if state.provider == PROVIDER_ANTHROPIC:
+                sync_anthropic_model_ids(c)
             return c
         except APIStatusError as e:
             if e.status_code == 401:
