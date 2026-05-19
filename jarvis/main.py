@@ -1,4 +1,4 @@
-"""Entry point: construct client, init DB, run REPL."""
+"""Entry point: construct client, init DB, run REPL or one-shot headless runs."""
 from datetime import datetime
 
 from .console import console, Panel
@@ -23,27 +23,115 @@ from .tools.image_input import (
 from . import state
 
 
-def main():
-    # Build client (sets state.auth_mode internally) before welcome so auth prompts appear first.
+def init_runtime(*, quiet: bool = False) -> None:
+    """Shared startup for interactive REPL, TUI, and headless runs."""
     state.client = make_client()
-
-    welcome_banner()
-    header_panel()
+    if not quiet:
+        welcome_banner()
+        header_panel()
     db_init()
     state.current_session_id = db_create_session(state.MODEL)
 
-    # Auto-connect MCP servers from config
     from .mcp.registry import auto_connect_servers
-    auto_connect_servers(console_print=console.print)
 
-    # Detect project instructions without injecting or reading their content.
+    if quiet:
+        auto_connect_servers(console_print=lambda *_a, **_k: None)
+    else:
+        auto_connect_servers(console_print=console.print)
+
     from .project_context import detect_project_context
+
     detect_project_context()
 
-    # Auto-activate coding agent when inside a coding project
-    # and the user hasn't explicitly set an agent yet.
     from .storage.agents import auto_activate_coding_agent
+
     auto_activate_coding_agent()
+
+
+def prepare_user_prompt(inp: str, *, include_clipboard: bool = True) -> str | None:
+    """Normalize one user prompt before sending (aliases, slash, @files, images)."""
+    inp = (inp or "").strip()
+    if not inp:
+        return None
+
+    if inp.startswith("/"):
+        head = inp.split(maxsplit=1)[0]
+        if head[1:] in state.aliases:
+            rest = inp[len(head):]
+            inp = state.aliases[head[1:]] + rest
+
+    if inp.startswith("!"):
+        cmd = inp[1:].strip()
+        if cmd:
+            prev = state.auto_approve
+            state.auto_approve = True
+            console.print(run_bash(cmd))
+            state.auto_approve = prev
+        return None
+
+    if inp.startswith("/"):
+        result, should_send, inp = handle_slash(inp)
+        if result == "exit":
+            return None
+        if not should_send:
+            return None
+
+    from .prompt_refs import expand_file_refs
+
+    expanded, attached = expand_file_refs(inp)
+    if attached:
+        console.print(f"[dim]▣ attached {len(attached)} file(s): {', '.join(attached)}[/]")
+    inp = expanded
+
+    hits = extract_image_paths(inp)
+    if hits:
+        names = ", ".join(p.name for _, p in hits)
+        console.print(f"[dim]▣ detected image(s): {names} — running OCR…[/]")
+        inp = process_input_for_images(inp)
+    elif include_clipboard:
+        img = clipboard_image_to_file()
+        if img is None:
+            state.last_clipboard_image_digest = ""
+        else:
+            digest = file_digest(img)
+            if digest != state.last_clipboard_image_digest:
+                state.last_clipboard_image_digest = digest
+                console.print(f"[dim]▣ fresh clipboard image detected → OCR ({img})[/]")
+                block, ocr = ocr_image_block(img, label="clipboard")
+                inp = append_image_block(inp, block)
+                console.print(
+                    Panel(
+                        ocr[:PANEL_PREVIEW_CHARS]
+                        + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
+                        title="▣ attached clipboard image (OCR)",
+                        border_style="cyan",
+                    )
+                )
+
+    return inp
+
+
+def run_headless(prompt: str) -> int:
+    """Run one task without launching the TUI, then exit."""
+    init_runtime(quiet=True)
+    state.auto_approve = True
+    console.print(f"[bold cyan]jarvis[/] [dim]→[/] {prompt}")
+    prepared = prepare_user_prompt(prompt, include_clipboard=False)
+    if not prepared:
+        return 1
+    try:
+        _send_and_loop(prepared)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]interrupted[/]")
+        return 130
+    except Exception as e:
+        console.print(f"[red]error: {type(e).__name__}: {e}[/]")
+        return 1
+    return 0
+
+
+def main():
+    init_runtime(quiet=False)
 
     pending_startup = state.startup_prompt.strip()
     state.startup_prompt = ""
@@ -78,57 +166,10 @@ def main():
         if not inp:
             continue
 
-        # alias expansion: first token may resolve to a saved alias
-        if inp.startswith("/"):
-            head = inp.split(maxsplit=1)[0]
-            if head[1:] in state.aliases:
-                rest = inp[len(head):]
-                inp = state.aliases[head[1:]] + rest
-
-        if inp.startswith("!"):
-            cmd = inp[1:].strip()
-            if cmd:
-                prev = state.auto_approve; state.auto_approve = True
-                console.print(run_bash(cmd))
-                state.auto_approve = prev
+        prepared = prepare_user_prompt(inp, include_clipboard=True)
+        if prepared is None:
             continue
-
-        if inp.startswith("/"):
-            result, should_send, inp = handle_slash(inp)
-            if result == "exit":
-                break
-            if not should_send:
-                continue
-            # fall through to send `inp` as a user message
-
-        from .prompt_refs import expand_file_refs
-
-        expanded, attached = expand_file_refs(inp)
-        if attached:
-            console.print(f"[dim]▣ attached {len(attached)} file(s): {', '.join(attached)}[/]")
-        inp = expanded
-
-        # auto-OCR any image paths (drag-and-drop drops a filepath into the terminal)
-        hits = extract_image_paths(inp)
-        if hits:
-            names = ", ".join(p.name for _, p in hits)
-            console.print(f"[dim]▣ detected image(s): {names} — running OCR…[/]")
-            inp = process_input_for_images(inp)
-        else:
-            img = clipboard_image_to_file()
-            if img is None:
-                state.last_clipboard_image_digest = ""
-            else:
-                digest = file_digest(img)
-                if digest != state.last_clipboard_image_digest:
-                    state.last_clipboard_image_digest = digest
-                    console.print(f"[dim]▣ fresh clipboard image detected → OCR ({img})[/]")
-                    block, ocr = ocr_image_block(img, label="clipboard")
-                    inp = append_image_block(inp, block)
-                    console.print(Panel(ocr[:PANEL_PREVIEW_CHARS] + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
-                                        title="▣ attached clipboard image (OCR)", border_style="cyan"))
-
-        _send_and_loop(inp)
+        _send_and_loop(prepared)
 
 
 def _send_and_loop(inp: str):
