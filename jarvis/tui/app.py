@@ -6,6 +6,7 @@ Layout
     │                                                                 │
     │                       transcript (RichLog)                      │
     │                                                                 │
+    ├──────────────── stash strip (queued prompts, FIFO) ─────────────┤
     ├──────────────── status strip (spinner · stats) ─────────────────┤
     │ ❯ composer                                                      │
     ├──────────────── hint bar (key cheatsheet) ──────────────────────┤
@@ -468,6 +469,7 @@ class JarvisTUI(App):
                 markup=True,
                 auto_scroll=True,
             )
+            yield Static("", id="queuebar", markup=True, shrink=False, classes="hidden")
             yield Static("", id="statusbar", markup=True, shrink=True)
             with Vertical(id="composer_block"):
                 with Vertical(id="file_ref_panel", classes="hidden"):
@@ -708,10 +710,6 @@ class JarvisTUI(App):
         if self._git_branch:
             segs.append(f"[{ui.ACCENT_2}]⑂ ({self._git_branch})[/]")
 
-        # ── prompt queue ──────────────────────────────────────────────
-        if state.prompt_queue:
-            segs.append(f"[{ui.WARN}]☰ {len(state.prompt_queue)}[/]")
-
         # ── internal trace ────────────────────────────────────────────
         if state.show_internal:
             segs.append(f"[{ui.FG_DIM}]trace:on[/]")
@@ -734,6 +732,48 @@ class JarvisTUI(App):
     def _set_status(self, msg: str):
         self._status_msg = msg or ""
         self._write_status_line(busy=self._busy and bool(self._activity_label))
+
+    # ─── prompt stash (FIFO queue above status bar) ──────────────────
+    @staticmethod
+    def _stash_preview(text: str, max_len: int = 56) -> str:
+        preview = (text or "").replace("\n", " ").strip()
+        if len(preview) > max_len:
+            preview = preview[: max_len - 1] + "…"
+        return _rich_escape(preview)
+
+    def _refresh_queue_bar(self) -> None:
+        """Render queued prompts in the bar above the status strip (not transcript)."""
+        try:
+            bar = self.query_one("#queuebar", Static)
+        except Exception:
+            return
+        q = state.prompt_queue
+        if not q:
+            bar.add_class("hidden")
+            bar.update("")
+            return
+        bar.remove_class("hidden")
+        n = len(q)
+        word = "message" if n == 1 else "messages"
+        header = (
+            f"[{ui.WARN}]☰ queued[/] "
+            f"[{ui.FG_DIM}]({n} {word} — sends when current turn finishes)[/]"
+        )
+        rows: list[str] = []
+        for i, msg in enumerate(q, 1):
+            tag = "next" if i == 1 else "wait"
+            rows.append(
+                f"  [{ui.WARN}]{tag}[/] [{ui.FG_DIM}]#{i}[/] "
+                f"[{ui.FG}]{self._stash_preview(msg, 96)}[/]"
+            )
+        bar.update(Text.from_markup(header + "\n" + "\n".join(rows)))
+
+    def _stash_prompt(self, text: str) -> None:
+        """Queue a prompt while the agent is busy (FIFO; shown only in #queuebar)."""
+        state.prompt_queue.append(text)
+        self._refresh_queue_bar()
+        if self._busy and self._activity_label:
+            self._write_status_line(busy=True)
 
     # ─── activity / spinner ──────────────────────────────────────────
     def _sync_activity_phase(self, label: str) -> None:
@@ -1191,10 +1231,7 @@ class JarvisTUI(App):
             text = state.aliases[head[1:]] + rest
 
         if self._busy:
-            state.prompt_queue.append(text)
-            idx = len(state.prompt_queue)
-            self._show_queue_panel(text, idx=idx)
-            self._set_status(f"queued #{idx} ({len(state.prompt_queue)} waiting)")
+            self._stash_prompt(text)
             return
 
         if head in ("/login", "/logout", "/auth", "/model", "/session", "/sessions"):
@@ -1333,7 +1370,7 @@ class JarvisTUI(App):
         # Default: treat as a normal turn (will show "thinking…")
         self._begin_turn(stripped)
 
-    # ─── panels (shared user / queue / dequeue renderers) ────────────
+    # ─── panels ──────────────────────────────────────────────────────
     @staticmethod
     def _user_panel(text: str) -> Panel:
         return Panel(
@@ -1342,38 +1379,6 @@ class JarvisTUI(App):
             title_align="left",
             border_style=ui.OK,
             padding=(0, 1),
-        )
-
-    def _show_queue_panel(self, text: str, idx: int = 0) -> None:
-        preview = text[:100].replace("\n", " ")
-        if len(text) > 100:
-            preview += "…"
-        tag = f"#{idx}" if idx else ""
-        log = self.query_one("#transcript", RichLog)
-        log.write(
-            Panel(
-                Text.from_markup(f"[{ui.FG_MUTE}]{preview}[/]"),
-                title=f"⟳ queued {tag}",
-                title_align="left",
-                border_style=ui.WARN,
-                padding=(0, 1),
-            )
-        )
-
-    def _show_dequeue_panel(self, text: str, remaining: int) -> None:
-        log = self.query_one("#transcript", RichLog)
-        log.write(
-            Panel(
-                Text.from_markup(f"[{ui.FG}]{text}[/]"),
-                title=(
-                    f"⏭ from queue ({remaining} remaining)"
-                    if remaining
-                    else "⏭ from queue"
-                ),
-                title_align="left",
-                border_style=ui.ACCENT,
-                padding=(0, 1),
-            )
         )
 
     def action_escape_action(self):
@@ -1456,10 +1461,7 @@ class JarvisTUI(App):
             return
 
         if self._busy:
-            state.prompt_queue.append(text)
-            idx = len(state.prompt_queue)
-            self._show_queue_panel(text, idx=idx)
-            self._set_status(f"queued #{idx} ({len(state.prompt_queue)} waiting)")
+            self._stash_prompt(text)
             return
 
         self._begin_turn(text)
@@ -1777,7 +1779,7 @@ class JarvisTUI(App):
         if state.prompt_queue:
             next_prompt = state.prompt_queue.pop(0).strip()
             remaining = len(state.prompt_queue)
-            self._show_dequeue_panel(next_prompt, remaining)
+            self._refresh_queue_bar()
 
             # Route modal-opening commands to their proper handler
             # instead of sending through _begin_turn → _run_turn

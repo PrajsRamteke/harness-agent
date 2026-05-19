@@ -54,7 +54,7 @@ total_tokens: int = 0
 # Persists across all phases so Escape works even when no stream is active.
 cancel_requested = threading.Event()
 
-# prompt queue — prompts received while busy are queued and auto-processed when the current turn finishes
+# prompt stash (FIFO) — prompts received while busy; released one-by-one when each turn finishes
 prompt_queue: list[str] = []
 startup_prompt: str = ""  # one-shot prompt from `jarvis "..."` CLI args
 auto_approve: bool = False

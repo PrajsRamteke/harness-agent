@@ -400,6 +400,29 @@ Screen {{
     scrollbar-corner-color: {BG_0};
 }}
 
+/* ── Message queue bar (above status strip, not in transcript) ───── */
+#queuebar {{
+    height: auto;
+    min-height: 1;
+    max-height: 10;
+    background: {BG_2};
+    color: {FG};
+    padding: 0 3;
+    margin: 0;
+    min-width: 0;
+    border-top: thick {WARN};
+    overflow-y: auto;
+    overflow-x: hidden;
+}}
+#queuebar.hidden {{
+    display: none;
+    height: 0;
+    min-height: 0;
+    max-height: 0;
+    padding: 0;
+    border: none;
+}}
+
 /* ── Status strip (single line above composer) ──────────────────── */
 #statusbar {{
     height: 2;
