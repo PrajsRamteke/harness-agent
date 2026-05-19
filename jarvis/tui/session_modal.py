@@ -171,8 +171,20 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         sid = self._current_id()
         if sid is None:
             return
+        opts = self.query_one("#session_list", OptionList)
+        prev_idx = opts.highlighted
+        if prev_idx is None:
+            return
         db_delete_session(sid)
-        self._populate()
+        self._loaded_ids.discard(sid)
+        opts.remove_option_at_index(prev_idx)
+        if opts.option_count == 0:
+            opts.add_option(Option("(no saved sessions yet)", id="__none__"))
+            opts.disabled = True
+            return
+        opts.highlighted = min(prev_idx, opts.option_count - 1)
+        opts.scroll_to_highlight()
+        opts.focus()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         try:
