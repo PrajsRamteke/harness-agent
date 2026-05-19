@@ -1,18 +1,9 @@
-<div align="center">
-  <img src="assets/jarvis-logo.png" alt="Jarvis" width="220"/>
-  <h1>Harness — Jarvis Terminal Agent</h1>
-  <p>
-    <strong>AI coding agent for your terminal.</strong><br/>
-    Chat, run tools, edit files, execute shell commands, and control macOS — all from one TUI.
-  </p>
+# Harness — Jarvis Terminal Agent
 
-  <p>
-    <img src="https://img.shields.io/badge/python-≥3.10-blue?logo=python&logoColor=white" alt="Python">
-    <img src="https://img.shields.io/badge/macOS-supported-brightgreen?logo=apple" alt="macOS">
-    <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="License">
-    <img src="https://img.shields.io/badge/model-sonnet--4--6-8A2BE2" alt="Model">
-  </p>
-</div>
+**AI coding agent for your terminal.**  
+Chat, run tools, edit files, execute shell commands, and control macOS — all from one TUI.
+
+
 
 ---
 
@@ -28,6 +19,7 @@ Harness is a **terminal-native AI agent** that lives in your terminal. You talk 
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
+source ~/.zshrc   # or ~/.zprofile on macOS
 jarvis
 ```
 
@@ -37,12 +29,11 @@ That's it. You'll be prompted to pick an auth method on first run.
 
 ## 🖼️ Screenshots
 
-<table>
-  <tr>
-    <td><img src="assets/agent.png" alt="Agent TUI" width="400"/></td>
-    <td><img src="assets/jarvis.png" alt="Jarvis session" width="400"/></td>
-  </tr>
-</table>
+
+|     |     |
+| --- | --- |
+|     |     |
+
 
 ---
 
@@ -61,65 +52,16 @@ That's it. You'll be prompted to pick an auth method on first run.
 
 ## 🧰 Features
 
-<table>
-  <tr>
-    <td width="50%">
-      <h4>💬 Interactive TUI</h4>
-      <p>Rich terminal UI with markdown rendering, syntax-highlighted code, panels, and streaming responses.</p>
-    </td>
-    <td width="50%">
-      <h4>🔐 Dual Auth</h4>
-      <p>Use an <strong>API key</strong> (sk-ant-…) or sign in with <strong>OAuth</strong> via PKCE.</p>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <h4>📁 File Operations</h4>
-      <p>Read, write, edit files. List directories, glob patterns, rank files by relevance, search code with ripgrep.</p>
-    </td>
-    <td>
-      <h4>🐚 Shell Access</h4>
-      <p>Run any shell command, view output inline — no context switching.</p>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <h4>⎇ Git Integration</h4>
-      <p>Status, diff, log — all from the chat. No need to tab out.</p>
-    </td>
-    <td>
-      <h4>🖥️ macOS Control</h4>
-      <p>Launch/focus/quit apps, click UI elements, type text, run AppleScript, use keyboard shortcuts, clipboard, notifications.</p>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <h4>🌐 Web Access</h4>
-      <p>Search the web and fetch URLs. Verified search cross-checks multiple sources for factual answers.</p>
-    </td>
-    <td>
-      <h4>🧠 Persistent Memory</h4>
-      <p>Remembers facts about you across sessions. Stores skills, notes, and aliases under <code>~/.config/claude-agent/</code>.</p>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <h4>📊 Cost Tracking</h4>
-      <p><code>/cost</code> shows token usage and estimated USD spend per session.</p>
-    </td>
-    <td>
-      <h4>🔌 MCP Support</h4>
-      <p>Model Context Protocol — connect external tools and data sources.</p>
-    </td>
-  </tr>
-  <tr>
-    <td>
-      <h4>🎨 Themes</h4>
-      <p>Built-in <strong>red</strong> and <strong>purple</strong> themes. Easily extensible.</p>
-    </td>
-    <td></td>
-  </tr>
-</table>
+
+|                                                                                                                                 |                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 💬 Interactive TUIRich terminal UI with markdown rendering, syntax-highlighted code, panels, and streaming responses.          | 🔐 Dual AuthUse an **API key** (sk-ant-…) or sign in with **OAuth** via PKCE.                                                             |
+| 📁 File OperationsRead, write, edit files. List directories, glob patterns, rank files by relevance, search code with ripgrep. | 🐚 Shell AccessRun any shell command, view output inline — no context switching.                                                          |
+| ⎇ Git IntegrationStatus, diff, log — all from the chat. No need to tab out.                                                    | 🖥️ macOS ControlLaunch/focus/quit apps, click UI elements, type text, run AppleScript, use keyboard shortcuts, clipboard, notifications. |
+| 🌐 Web AccessSearch the web and fetch URLs. Verified search cross-checks multiple sources for factual answers.                 | 🧠 Persistent MemoryRemembers facts about you across sessions. Stores skills, notes, and aliases under `~/.config/claude-agent/`.         |
+| 📊 Cost Tracking`/cost` shows token usage and estimated USD spend per session.                                                 | 🔌 MCP SupportModel Context Protocol — connect external tools and data sources.                                                           |
+| 🎨 ThemesBuilt-in **red** and **purple** themes. Easily extensible.                                                            |                                                                                                                                            |
+
 
 ---
 
@@ -148,8 +90,7 @@ After install, open a **new terminal**, go to any project, and run:
 jarvis
 ```
 
-<details>
-<summary><strong>Troubleshooting: "command not found: jarvis"</strong></summary>
+**Troubleshooting: "command not found: jarvis"**
 
 If your shell can't find `jarvis`, add `~/.local/bin` to your PATH:
 
@@ -159,7 +100,8 @@ jarvis
 ```
 
 Add that line to your `~/.zshrc` to make it permanent.
-</details>
+
+
 
 ### Development setup
 
@@ -193,40 +135,46 @@ Run it from the **folder you want it to work in**. The status bar shows the curr
 
 On first launch, you'll pick how to authenticate:
 
-| Option | How it works |
-|---|---|
+
+| Option      | How it works                                                                      |
+| ----------- | --------------------------------------------------------------------------------- |
 | **API key** | Paste an `sk-ant-…` key. Saved at `~/.config/claude-agent/key` (permissions: 600) |
-| **OAuth** | Opens your browser to sign in with your Pro/Max account via PKCE |
+| **OAuth**   | Opens your browser to sign in with your Pro/Max account via PKCE                  |
+
 
 ### ⌨️ Slash Commands
 
-| Command | What it does |
-|---|---|
-| `/help` | List all commands |
-| `/model <name>` | Switch models (e.g. `opus-4-7`, `haiku-4-5`) |
-| `/agent` | Open the agent picker — choose a project or global agent |
-| `/agent <name>` | Activate an agent by name (Tab cycles through agents) |
-| `/agent new <name>` | Scaffold a new agent in `.harness/agents/<name>.md` |
-| `/agent init` | Scaffold a `.harness/` tree in the current project |
-| `/skill` | Open the skill browser (LLM auto-invokes skills by description) |
-| `/verbose` / `F2` | Toggle internal thinking and tool traces (shown by default) |
-| `/cost` | Show token usage + estimated USD cost |
-| `/clear` | Reset the conversation |
-| `/logout` | Clear saved credentials |
-| `/theme` | Switch themes |
+
+| Command             | What it does                                                    |
+| ------------------- | --------------------------------------------------------------- |
+| `/help`             | List all commands                                               |
+| `/model <name>`     | Switch models (e.g. `opus-4-7`, `haiku-4-5`)                    |
+| `/agent`            | Open the agent picker — choose a project or global agent        |
+| `/agent <name>`     | Activate an agent by name (Tab cycles through agents)           |
+| `/agent new <name>` | Scaffold a new agent in `.harness/agents/<name>.md`             |
+| `/agent init`       | Scaffold a `.harness/` tree in the current project              |
+| `/skill`            | Open the skill browser (LLM auto-invokes skills by description) |
+| `/verbose` / `F2`   | Toggle internal thinking and tool traces (shown by default)     |
+| `/cost`             | Show token usage + estimated USD cost                           |
+| `/clear`            | Reset the conversation                                          |
+| `/logout`           | Clear saved credentials                                         |
+| `/theme`            | Switch themes                                                   |
+
 
 ---
 
 ## ⚙️ Environment Variables
 
-| Variable | What it does | Default |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | Use this key instead of the stored one | — |
-| `CLAUDE_MODEL` | Override default model | `sonnet-4-6` |
-| `HARNESS_MAX_PARALLEL_TOOLS` | Max concurrent tool workers | `64` (capped) |
-| `HARNESS_HTTP_READ_TIMEOUT` | Streaming response timeout (s) | `240` (OpenRouter), `600` (direct) |
-| `HARNESS_HTTP_CONNECT_TIMEOUT` | Connection timeout (s) | `30` |
-| `HARNESS_STREAM_REPLY` | Set to `0` to disable live streaming | `1` |
+
+| Variable                       | What it does                           | Default                            |
+| ------------------------------ | -------------------------------------- | ---------------------------------- |
+| `ANTHROPIC_API_KEY`            | Use this key instead of the stored one | —                                  |
+| `CLAUDE_MODEL`                 | Override default model                 | `sonnet-4-6`                       |
+| `HARNESS_MAX_PARALLEL_TOOLS`   | Max concurrent tool workers            | `64` (capped)                      |
+| `HARNESS_HTTP_READ_TIMEOUT`    | Streaming response timeout (s)         | `240` (OpenRouter), `600` (direct) |
+| `HARNESS_HTTP_CONNECT_TIMEOUT` | Connection timeout (s)                 | `30`                               |
+| `HARNESS_STREAM_REPLY`         | Set to `0` to disable live streaming   | `1`                                |
+
 
 ---
 
@@ -349,11 +297,6 @@ harness/
 
 ---
 
-<div align="center">
-  <p>Built with ❤️ by <a href="https://github.com/PrajsRamteke">Prajwal Ramteke</a></p>
-  <p>
-    <a href="https://github.com/PrajsRamteke/harness-agent">GitHub</a> ·
-    <a href="https://github.com/PrajsRamteke/harness-agent/issues">Issues</a> ·
-    <a href="https://github.com/PrajsRamteke/harness-agent/discussions">Discussions</a>
-  </p>
-</div>
+Built with ❤️ by [Prajwal Ramteke](https://github.com/PrajsRamteke)
+
+[GitHub](https://github.com/PrajsRamteke/harness-agent) · [Issues](https://github.com/PrajsRamteke/harness-agent/issues) · [Discussions](https://github.com/PrajsRamteke/harness-agent/discussions)
