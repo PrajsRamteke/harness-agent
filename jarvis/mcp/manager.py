@@ -447,35 +447,17 @@ def _cmd_global(args: list[str]):
         state.global_mcp = new
         state.save_mcp_config()
 
-    config = reload_config()
-    servers = config.list_servers()
-    auto = config.get_auto_connect()
-
-    # Reconcile live connections with the new scope.
-    visible = set(servers.keys())
-    for srv_name, _tools, _err in mcp_registry.list_connected():
-        if srv_name not in visible:
-            mcp_registry.disconnect(srv_name)
-
-    newly_connected: list[str] = []
-    failures: list[tuple[str, str]] = []
-    for srv_name in auto:
-        if mcp_registry.is_connected(srv_name):
-            continue
-        cfg = config.get_server(srv_name)
-        if cfg is None:
-            continue
-        err = mcp_registry.connect(srv_name, cfg)
-        if err:
-            failures.append((srv_name, err))
-        else:
-            newly_connected.append(srv_name)
+    from .scope import apply_mcp_scope_change
+    result = apply_mcp_scope_change(connect_all=new)
+    servers = result["visible"]
+    newly_connected = result["connected"]
+    failures = result["failed"]
 
     # Build a short status banner, then the full list below it.
     headline = (
         Text.from_markup(
             f"[green]✓[/] global scope [bold]enabled[/] "
-            f"[dim]({len(servers)} servers visible · {len(auto)} auto-connect)[/]"
+            f"[dim]({len(servers)} servers visible · {len(newly_connected)} connected)[/]"
         )
         if new else
         Text.from_markup(

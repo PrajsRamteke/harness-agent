@@ -36,6 +36,21 @@ _cached_cwd_branch: str = ""
 _cached_ctx_key: str = ""
 
 
+def invalidate_system_cache() -> None:
+    """Force the system prompt body to rebuild on the next turn."""
+    global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key
+    global _cached_mcp_key, _cached_agents_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
+    _cached_body = ""
+    _cached_mem_key = ""
+    _cached_sk_key = ""
+    _cached_skills_key = ""
+    _cached_mcp_key = ""
+    _cached_agents_key = ""
+    _cached_pinned = ""
+    _cached_cwd_branch = ""
+    _cached_ctx_key = ""
+
+
 def _get_git_branch(cwd: str) -> str | None:
     """Quickly detect the current git branch. Returns None if not in a repo."""
     import subprocess

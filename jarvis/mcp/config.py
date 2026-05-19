@@ -479,9 +479,14 @@ _config: MCPConfig | None = None
 
 
 def get_config() -> MCPConfig:
-    """Process-wide MCP config; loads on first call respecting current scope flag."""
+    """Process-wide MCP config; reloads when ``state.global_mcp`` scope changes."""
     global _config
-    if _config is None:
+    try:
+        from .. import state
+        desired_global = bool(getattr(state, "global_mcp", False))
+    except Exception:
+        desired_global = False
+    if _config is None or _config._include_global != desired_global:
         _config = MCPConfig()
         _config.load()
     return _config

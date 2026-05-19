@@ -464,7 +464,8 @@ class MCPModalScreen(TuiModalScreen[None]):
         self.query_one("#mcp_filter", Input).focus()
 
     def action_refresh(self) -> None:
-        reload_config()
+        from ..mcp.scope import apply_mcp_scope_change
+        apply_mcp_scope_change()
         self._refresh_rows()
         self._set_status("config reloaded", ok=True)
 
@@ -478,6 +479,8 @@ class MCPModalScreen(TuiModalScreen[None]):
             if err:
                 self._set_status(f"disconnect failed: {err}", ok=False)
             else:
+                from ..mcp.scope import invalidate_mcp_prompt_cache
+                invalidate_mcp_prompt_cache()
                 self._set_status(f"disconnected {name}", ok=True)
         else:
             cfg = config.get_server(name)
@@ -496,42 +499,35 @@ class MCPModalScreen(TuiModalScreen[None]):
         self._refresh_rows()
 
     def _after_connect(self, name: str, err: str | None) -> None:
+        from ..mcp.scope import invalidate_mcp_prompt_cache
+
         if err:
             self._set_status(f"connect failed: {err}", ok=False)
         else:
             tools = len(mcp_registry.get_server_tools(name))
             self._set_status(f"connected {name} — {tools} tools", ok=True)
+        invalidate_mcp_prompt_cache()
         self._refresh_rows()
 
     def action_toggle_global(self) -> None:
         state.global_mcp = not state.global_mcp
         state.save_mcp_config()
-        config = reload_config()
 
-        # Reconcile live connections with new scope.
-        visible = set(config.list_servers().keys())
-        for srv_name, _tools, _err in mcp_registry.list_connected():
-            if srv_name not in visible:
-                mcp_registry.disconnect(srv_name)
+        from ..mcp.scope import apply_mcp_scope_change
 
-        # Auto-connect anything newly visible in the background.
-        auto = config.get_auto_connect()
-
-        def _bulk_connect() -> None:
-            for n in auto:
-                if not mcp_registry.is_connected(n):
-                    cfg = config.get_server(n)
-                    if cfg:
-                        mcp_registry.connect(n, cfg)
-            self.app.call_from_thread(self._refresh_rows)
-
-        threading.Thread(target=_bulk_connect, daemon=True).start()
-        self._refresh_rows()
+        enabling = state.global_mcp
         self._set_status(
-            "global scope ON — connecting auto servers…" if state.global_mcp
+            "global scope ON — connecting servers…" if enabling
             else "global scope OFF — project servers only",
             ok=True,
         )
+
+        def _reconcile() -> None:
+            apply_mcp_scope_change(connect_all=enabling)
+            self.app.call_from_thread(self._refresh_rows)
+
+        threading.Thread(target=_reconcile, daemon=True).start()
+        self._refresh_rows()
 
     def action_import(self) -> None:
         def after(result: dict | None) -> None:

@@ -542,17 +542,14 @@ mcp_registry = MCPRegistry()
 
 
 def as_prompt_block() -> str:
-    """Format MCP server names into the system prompt as a minimal heading.
+    """Format configured MCP servers into the system prompt.
 
-    Just the server names so the agent knows what's available. Tools are
-    fetched on demand via mcp_registry when needed — not injected here.
-    When no MCP is available (global_mcp off or no servers), returns empty.
+    Project-scoped servers are always listed. Global sources appear when
+    ``state.global_mcp`` is on. Connection status is included so the agent
+    knows which tools are callable vs need ``/mcp`` connect first.
     """
     from .. import state as jarvis_state
     from .config import get_config
-
-    if not jarvis_state.global_mcp:
-        return ""
 
     config = get_config()
     servers = config.list_servers()
@@ -562,11 +559,22 @@ def as_prompt_block() -> str:
     connected = mcp_registry.list_connected()
     live_names = {name for name, _tools, _err in connected}
 
+    scope = "project + global" if jarvis_state.global_mcp else "project-only"
     names = sorted(servers.keys())
-    line = "MCP: " + ", ".join(
-        name if name in live_names else f"{name} (offline)"
+    line = f"MCP ({scope}): " + ", ".join(
+        name if name in live_names else f"{name} (offline — connect via /mcp)"
         for name in names
     )
+    if live_names:
+        line += (
+            "\nConnected MCP tools are callable as mcp__<server>__<tool>."
+            " Re-check after /mcp scope or connection changes in the same session."
+        )
+    else:
+        line += (
+            "\nNo MCP servers connected yet — open /mcp and connect a server"
+            " before calling MCP tools."
+        )
     return line
 
 

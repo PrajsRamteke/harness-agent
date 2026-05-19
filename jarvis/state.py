@@ -407,6 +407,7 @@ def apply_settings_to_state() -> None:
     """
     global MODEL
     _reload_saved_theme()
+    prev_mcp = global_mcp
     _reload_saved_skills()
     _reload_saved_mcp()
     _reload_saved_think()
@@ -424,6 +425,12 @@ def apply_settings_to_state() -> None:
         resolve_active_agent()
     except Exception:
         pass
+    if global_mcp != prev_mcp:
+        try:
+            from .mcp.scope import apply_mcp_scope_change
+            apply_mcp_scope_change(connect_all=global_mcp)
+        except Exception:
+            pass
 
 
 _reload_saved_theme()

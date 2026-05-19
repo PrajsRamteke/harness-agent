@@ -260,24 +260,36 @@ def render_assistant(resp) -> bool:
         outputs = {}  # b.id -> (icon, args_preview, out_str)
         parallel_batch = []
 
-        for b in tool_uses:
-            # Check cancel flag before each tool — allows Escape to abort
-            # even during a multi-tool batch.
-            if state.cancel_requested.is_set():
-                # Skip remaining tools: the turn is being cancelled.
-                break
+        try:
+            for b in tool_uses:
+                # Check cancel flag before each tool — allows Escape to abort
+                # even during a multi-tool batch.
+                if state.cancel_requested.is_set():
+                    # Skip remaining tools: the turn is being cancelled.
+                    break
 
-            if b.name in _SERIAL_TOOLS or is_mcp_tool(b.name):
-                _run_parallel_batch(parallel_batch, outputs)
-                parallel_batch = []
-                _, icon, ap, out_str = _run_tool(b)
-                outputs[b.id] = (icon, ap, out_str)
-            elif _should_flush_parallel_batch(parallel_batch, b):
-                _run_parallel_batch(parallel_batch, outputs)
-                parallel_batch = [b]
-            else:
-                parallel_batch.append(b)
-        _run_parallel_batch(parallel_batch, outputs)
+                if b.name in _SERIAL_TOOLS or is_mcp_tool(b.name):
+                    _run_parallel_batch(parallel_batch, outputs)
+                    parallel_batch = []
+                    _, icon, ap, out_str = _run_tool(b)
+                    outputs[b.id] = (icon, ap, out_str)
+                elif _should_flush_parallel_batch(parallel_batch, b):
+                    _run_parallel_batch(parallel_batch, outputs)
+                    parallel_batch = [b]
+                else:
+                    parallel_batch.append(b)
+            _run_parallel_batch(parallel_batch, outputs)
+        except (KeyboardInterrupt, Exception) as exc:
+            # Ensure every tool_use gets a tool_result even when execution is
+            # interrupted mid-batch — otherwise the next API call heals with
+            # a vague "state recovered" stub and the model loses context.
+            err_msg = (
+                "ERROR: tool execution cancelled before completion"
+                if isinstance(exc, KeyboardInterrupt)
+                else f"ERROR: {type(exc).__name__}: {exc}"
+            )
+            for b in tool_uses:
+                outputs.setdefault(b.id, ("⚙", "{}", err_msg))
 
         for b in tool_uses:
             if b.id in outputs:

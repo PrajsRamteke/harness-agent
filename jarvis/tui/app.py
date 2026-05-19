@@ -1011,6 +1011,8 @@ class JarvisTUI(App):
 
     def _open_mcp_modal(self):
         def after(_: object) -> None:
+            from ..mcp.scope import invalidate_mcp_prompt_cache
+            invalidate_mcp_prompt_cache()
             self._set_status("ready")
         self.push_screen(MCPModalScreen(), after)
 
