@@ -15,6 +15,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="start the older rich REPL instead of the default TUI",
     )
+    parser.add_argument(
+        "prompt",
+        nargs="*",
+        metavar="PROMPT",
+        help="optional prompt to send immediately on launch",
+    )
     return parser
 
 
@@ -32,6 +38,11 @@ def main() -> None:
     _update_thread.start()
 
     args = _build_parser().parse_args()
+    startup_prompt = " ".join(args.prompt).strip()
+    if startup_prompt:
+        from . import state
+
+        state.startup_prompt = startup_prompt
 
     if args.legacy:
         _update_thread.join(timeout=8)

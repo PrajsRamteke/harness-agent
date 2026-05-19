@@ -55,6 +55,7 @@ cancel_requested = threading.Event()
 
 # prompt queue — prompts received while busy are queued and auto-processed when the current turn finishes
 prompt_queue: list[str] = []
+startup_prompt: str = ""  # one-shot prompt from `jarvis "..."` CLI args
 auto_approve: bool = False
 session_start: float = time.time()
 tool_calls_count: int = 0

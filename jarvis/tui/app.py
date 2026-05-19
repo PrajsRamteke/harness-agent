@@ -567,7 +567,20 @@ class JarvisTUI(App):
 
         self.query_one("#prompt", PromptArea).focus()
 
-    # ─── hint bar ────────────────────────────────────────────────────
+        if state.startup_prompt:
+            self.set_timer(0.05, self._submit_startup_prompt)
+
+    def _submit_startup_prompt(self) -> None:
+        """Send a prompt passed on the CLI: jarvis \"your question here\"."""
+        text = state.startup_prompt.strip()
+        state.startup_prompt = ""
+        if not text or self._busy:
+            return
+        inp = self.query_one("#prompt", PromptArea)
+        inp.text = text
+        inp.refresh_file_ref_highlights()
+        self._last_input_value = text
+        self.on_prompt_area_submitted(PromptArea.Submitted(text))
     def _render_hintbar(self) -> None:
         try:
             hints = [

@@ -45,6 +45,9 @@ def main():
     from .storage.agents import auto_activate_coding_agent
     auto_activate_coding_agent()
 
+    pending_startup = state.startup_prompt.strip()
+    state.startup_prompt = ""
+
     while True:
         try:
             # Process queued prompts (from TUI /script injection) before fresh input
@@ -54,6 +57,15 @@ def main():
                 console.print(
                     f"[bold #58a6ff]⏭ from queue ({remaining} remaining)[/]"
                     if remaining else "[bold #58a6ff]⏭ from queue[/]"
+                )
+            elif pending_startup:
+                inp = pending_startup
+                pending_startup = ""
+                now_str = datetime.now().strftime("%H:%M")
+                console.rule(style="grey37")
+                console.print(
+                    f"[bold yellow]▎[/][dim] {now_str} [/][bold bright_yellow]you[/] "
+                    f"[bold yellow]❯[/] {inp}"
                 )
             else:
                 now_str = datetime.now().strftime("%H:%M")
