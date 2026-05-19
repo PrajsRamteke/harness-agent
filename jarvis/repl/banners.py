@@ -131,7 +131,7 @@ def welcome_banner(compact: bool = False):
     )
 
     body = f"{title}    {location}\n{hints}"
-    console.print(Panel(body, border_style=c['border'], padding=(0, 2)))
+    console.print(Panel(body, border_style=c['accent'], padding=(0, 2)))
 
     if state.update_result:
         info = state.update_result
