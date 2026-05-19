@@ -77,6 +77,32 @@ def _total_chars(messages: List[Dict]) -> int:
     return sum(_content_chars(m.get("content", "")) for m in messages)
 
 
+def estimate_session_tokens(messages: List[Dict]) -> tuple[int, int, int]:
+    """Rough token counts for the status bar when no live API usage is available.
+
+    Mirrors stream.py semantics:
+      - total_in: full conversation context (latest request input size)
+      - total_out: cumulative assistant output
+      - total_tokens: last-turn total (context + latest assistant reply)
+    """
+    if not messages:
+        return 0, 0, 0
+    total_in = _total_chars(messages) // 4
+    assistant_chars = sum(
+        _content_chars(m.get("content", ""))
+        for m in messages
+        if m.get("role") == "assistant"
+    )
+    total_out = assistant_chars // 4
+    last_asst = 0
+    for msg in reversed(messages):
+        if msg.get("role") == "assistant":
+            last_asst = _content_chars(msg.get("content", "")) // 4
+            break
+    total_tokens = total_in + last_asst
+    return total_in, total_out, total_tokens
+
+
 def _stub_tool_results(msg: Dict) -> Dict:
     """Return a copy of a user message with tool_result blocks collapsed.
 

@@ -11,6 +11,7 @@ from rich.text import Text
 
 from ..storage.sessions import db_list_sessions, db_delete_session, db_load_session
 from ..utils.time_fmt import _fmt_ts
+from ..repl.trim import estimate_session_tokens
 from .. import state
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
@@ -189,9 +190,7 @@ def resume_session_into_state(sid: int, console_print, preview: bool = True) -> 
     state.messages = loaded
     state.current_session_id = sid
     state.tool_calls_count = 0
-    state.total_in = 0
-    state.total_out = 0
-    state.total_tokens = 0
+    state.total_in, state.total_out, state.total_tokens = estimate_session_tokens(loaded)
     console_print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
     if not preview:
         return True

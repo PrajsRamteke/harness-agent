@@ -6,6 +6,7 @@ from ..storage.sessions import (
     db_list_sessions, db_create_session, db_delete_session, db_load_session,
 )
 from ..utils.time_fmt import _fmt_ts
+from ..repl.trim import estimate_session_tokens
 from .. import state
 
 
@@ -80,9 +81,7 @@ def _resume_session(sid: int) -> Optional[int]:
     state.messages = loaded
     state.current_session_id = sid
     state.tool_calls_count = 0
-    state.total_in = 0
-    state.total_out = 0
-    state.total_tokens = 0
+    state.total_in, state.total_out, state.total_tokens = estimate_session_tokens(loaded)
     console.print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
     # render a brief tail so the user has context
     tail = state.messages[-6:]

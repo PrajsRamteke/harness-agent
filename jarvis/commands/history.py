@@ -10,7 +10,11 @@ from .. import state
 def handle_history(c: str, arg: str):
     """Return (handled, new_inp_or_None)."""
     if c in ("/reset", "/new"):
-        state.messages = []; state.tool_calls_count = 0
+        state.messages = []
+        state.tool_calls_count = 0
+        state.total_in = 0
+        state.total_out = 0
+        state.total_tokens = 0
         state.current_session_id = db_create_session(state.MODEL)
         if c == "/new":
             console.clear(); welcome_banner(); header_panel()
