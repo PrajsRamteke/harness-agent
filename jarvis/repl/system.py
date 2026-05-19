@@ -113,18 +113,18 @@ def _build_static_body() -> str:
     body += (
         "\n\nLAZY-LOAD CONTEXT (full content loaded on demand unless noted):\n"
         "To save tokens, the following are NOT injected with full content:"
+        "\n- SKILLS (check first): headers listed below — scan before every task; call skill_load('<name>') when a description might match."
         "\n- MEMORY: use memory_list() only when saved user facts/preferences matter"
         "\n- LESSONS: use lesson_search('<topic>') only when prior experience could help"
-        "\n- SKILLS: headers (name + description) are listed below so you can match without skill_list(). Only call skill_load('<name>') for full body when a skill is usable."
         "\n- PROJECT CONTEXT: use read_file('<project_context_file>') only when repository instructions matter"
     )
 
+    if skills_block:
+        body += "\n" + skills_block
     if mem_block:
         body += "\n" + mem_block
     if sk_block:
         body += "\n" + sk_block
-    if skills_block:
-        body += "\n" + skills_block
     if mcp_block:
         body += "\n" + mcp_block
     if agents_block:
@@ -144,6 +144,14 @@ def _build_static_body() -> str:
         "- END of task → lesson_save if you learned something non-obvious.\n"
         "- The system prompt only shows a lesson count/topic cloud."
     )
+
+    if skills_block:
+        body += (
+            "\n\nSKILLS: skill_load('<name>').\n"
+            "- BEFORE responding or acting: scan the skill headers above.\n"
+            "- If there is even a small chance a skill applies, call skill_load FIRST and follow it.\n"
+            "- Do not skip skill checks for 'simple' tasks."
+        )
 
     _cached_body = body
     _cached_mem_key = mem_block

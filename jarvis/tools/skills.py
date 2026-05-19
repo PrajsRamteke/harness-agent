@@ -69,7 +69,8 @@ SKILL_TOOLS = [
         "description": (
             "Load the full content of a skill by its name. "
             "This returns the entire SKILL.md including frontmatter and body. "
-            "Call after skill_list() identifies a skill that matches the current task."
+            "Call BEFORE responding or acting when a skill header (in the system prompt) "
+            "might match the current task — even if the match is uncertain."
         ),
         "input_schema": {
             "type": "object",

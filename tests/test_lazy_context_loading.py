@@ -101,6 +101,8 @@ class LazyContextLoadingTests(unittest.TestCase):
         self.assertIn("debug-helper", block)
         # Instruction says to call skill_load for full body, not headers
         self.assertIn("skill_load", block)
+        self.assertIn("HIGH PRIORITY", block)
+        self.assertIn("call skill_load", block)
 
 
 if __name__ == "__main__":

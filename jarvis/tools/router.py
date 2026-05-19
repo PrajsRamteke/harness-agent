@@ -6,6 +6,7 @@ import re
 from typing import Iterable
 
 from . import TOOL_GROUPS, TOOL_NAME_TO_GROUP
+from ..storage.skills import skill_count
 from ..utils.schema import sanitize_tools
 
 WEB_RE = re.compile(
@@ -21,7 +22,7 @@ OCR_RE = re.compile(
     re.I,
 )
 MEMORY_RE = re.compile(r"\b(remember|memory|forget|my name|preference|about me)\b", re.I)
-LESSON_RE = re.compile(r"\b(lesson|skill|learned|remember how|same task)\b", re.I)
+LESSON_RE = re.compile(r"\b(lesson|learned|remember how|same task)\b", re.I)
 SKILL_RE = re.compile(r"\b(skill|skills|sk\.md|skill\.md|reusable instr|my skills|available skills)\b", re.I)
 
 
@@ -94,6 +95,12 @@ def select_tools(messages: list[dict]) -> list[dict]:
     groups = ["core"]
     active = _recent_tool_groups(messages)
 
+    # Skills — always include when any skill is discovered. Headers are injected
+    # into the system prompt and the model must be able to call skill_load on
+    # every turn, not only when the user mentions "skill" in their message.
+    if skill_count() > 0 or SKILL_RE.search(text) or "skills" in active:
+        groups.append("skills")
+
     if WEB_RE.search(text) or "internet" in active:
         groups.append("internet")
     if MAC_RE.search(text) or "mac" in active:
@@ -104,8 +111,6 @@ def select_tools(messages: list[dict]) -> list[dict]:
         groups.append("memory")
     if LESSON_RE.search(text) or "lessons" in active:
         groups.append("lessons")
-    if SKILL_RE.search(text) or "skills" in active:
-        groups.append("skills")
 
     # MCP group — always include when there are connected MCP tools
     mcp_tools = TOOL_GROUPS.get("mcp", [])

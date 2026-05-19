@@ -327,8 +327,9 @@ def as_prompt_block() -> str:
         counts += f", {global_count_value} global"
 
     lines = [f"SKILLS: {len(skills)} available ({counts}; scope: {scope})."]
-    lines.append("Headers (name + description) are listed below so you can match without skill_list().")
-    lines.append("Only call skill_load('<name>') when a skill's description matches the current task.")
+    lines.append("HIGH PRIORITY — before responding or acting, scan these headers.")
+    lines.append("If there is even a small chance a skill applies, call skill_load('<name>') FIRST and follow it.")
+    lines.append("Do not skip skill checks for 'simple' tasks. Headers are listed below so you can match without skill_list().")
     for s in skills:
         tag = " [global]" if s.get("scope") == "global" else ""
         lines.append(f"  • {s['name']}{tag}: {s['description']}")
