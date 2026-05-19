@@ -22,7 +22,8 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.message import Message
-from textual.widgets import RichLog, Static, TextArea
+from textual.widgets import RichLog, Static, TextArea, OptionList
+from textual.widgets.option_list import Option
 from textual import work
 
 from rich.markdown import Markdown
@@ -45,7 +46,13 @@ from .key_modal import KeyModalScreen
 from .theme_modal import ThemePickerScreen
 from .login_modal import LoginModalScreen
 from .local_cmd_modal import LocalCmdModalScreen
+from .file_ref_picker import filter_project_files, file_ref_option_label
 from .provider_modal import ProviderPickerScreen
+from .mouse_toggle import enable_mouse, disable_mouse
+from ..prompt_refs import (
+    active_file_ref_at_cursor,
+    replace_file_ref_at_cursor,
+)
 from . import theme as ui
 from .. import state
 
@@ -170,10 +177,21 @@ class PromptArea(TextArea):
             event.stop()
             event.prevent_default()
             try:
+                if getattr(self.app, "file_ref_picker_active", False):
+                    self.app.close_file_ref_picker()
+                    return
                 self.app.action_escape_action()
             except Exception:
                 pass
             return
+        if key in ("up", "down", "tab"):
+            try:
+                if self.app.handle_prompt_key_for_file_ref(key):
+                    event.stop()
+                    event.prevent_default()
+                    return
+            except Exception:
+                pass
         if key in ("shift+enter", "alt+enter", "ctrl+j", "ctrl+enter", "ctrl+n"):
             event.stop()
             event.prevent_default()
@@ -182,6 +200,11 @@ class PromptArea(TextArea):
         if key == "enter":
             event.stop()
             event.prevent_default()
+            try:
+                if self.app.try_accept_file_ref():
+                    return
+            except Exception:
+                pass
             buf = self.text or ""
             n = 0
             for ch in reversed(buf):
@@ -253,6 +276,8 @@ class JarvisTUI(App):
     def action_scroll_transcript(self, direction: str) -> None:
         if isinstance(self.screen, ModalScreen):
             raise SkipAction
+        if self._try_file_ref_scroll(direction):
+            return
         try:
             log = self.query_one("#transcript", RichLog)
         except Exception:
@@ -291,6 +316,49 @@ class JarvisTUI(App):
         self._git_branch: str | None = None
         self._git_branch_checked_at: float = 0.0
         self._git_branch_ttl: float = 5.0
+        self._file_ref_mention: tuple[int, int, str] | None = None
+        self._file_ref_mouse_on = False
+        self._file_ref_last_query: str | None = None
+
+    def _prompt_has_focus(self) -> bool:
+        try:
+            return self.query_one("#prompt", PromptArea).has_focus
+        except Exception:
+            return False
+
+    def _try_file_ref_scroll(self, direction: str) -> bool:
+        """Route ↑/↓/page keys to the @file picker when it is open."""
+        if not self.file_ref_picker_active or not self._prompt_has_focus():
+            return False
+        delta_map = {"up": -1, "down": 1, "pageup": -5, "pagedown": 5}
+        delta = delta_map.get(direction)
+        if delta is None:
+            return False
+        return self._navigate_file_ref_picker(delta)
+
+    def _navigate_file_ref_picker(self, delta: int) -> bool:
+        if not self.file_ref_picker_active:
+            return False
+        opts = self.query_one("#file_ref_picker", OptionList)
+        if opts.option_count == 0:
+            return True
+        cur = opts.highlighted if opts.highlighted is not None else 0
+        nxt = max(0, min(opts.option_count - 1, cur + delta))
+        opts.highlighted = nxt
+        try:
+            opts.scroll_to_highlight()
+        except Exception:
+            pass
+        opts.refresh()
+        return True
+
+    @property
+    def file_ref_picker_active(self) -> bool:
+        try:
+            panel = self.query_one("#file_ref_panel", Vertical)
+            return not panel.has_class("hidden")
+        except Exception:
+            return False
 
     def _refresh_git_branch(self) -> None:
         """Re-query the current git branch (with TTL caching)."""
@@ -342,9 +410,17 @@ class JarvisTUI(App):
                 auto_scroll=True,
             )
             yield Static("", id="statusbar", markup=True, shrink=True)
-            with Horizontal(id="composer"):
-                yield Static(ui.ARROW, id="prompt_prefix", markup=False)
-                yield PromptArea(id="prompt")
+            with Vertical(id="composer_block"):
+                with Vertical(id="file_ref_panel", classes="hidden"):
+                    yield Static(
+                        "📎  type @ in chat to search files",
+                        id="file_ref_hint",
+                        markup=False,
+                    )
+                    yield OptionList(id="file_ref_picker")
+                with Horizontal(id="composer"):
+                    yield Static(ui.ARROW, id="prompt_prefix", markup=False)
+                    yield PromptArea(id="prompt")
             yield Static("", id="hintbar", markup=True, shrink=True)
 
     # ─── lifecycle ───────────────────────────────────────────────────
@@ -448,6 +524,7 @@ class JarvisTUI(App):
                 f"[{ui.ACCENT_3}]↵[/] send",
                 f"[{ui.ACCENT_3}]⇧↵[/]/[{ui.ACCENT_3}]⌃J[/] newline",
                 f"[{ui.ACCENT_3}]/[/] commands",
+                f"[{ui.ACCENT_3}]@[/] file · ↑↓ tab",
                 f"[{ui.ACCENT_3}]⇥[/] agent",
                 f"[{ui.ACCENT_3}]esc[/] cancel",
                 f"[{ui.ACCENT_3}]^C[/] copy/cancel",
@@ -618,6 +695,137 @@ class JarvisTUI(App):
             event.text_area.clear()
             self._last_input_value = ""
             self._open_palette()
+            return
+        self._sync_file_ref_picker()
+
+    def _prompt_cursor(self) -> tuple[int, int]:
+        inp = self.query_one("#prompt", PromptArea)
+        try:
+            return inp.cursor_location
+        except Exception:
+            text = inp.text or ""
+            lines = text.split("\n")
+            return max(0, len(lines) - 1), len(lines[-1]) if lines else 0
+
+    def _populate_file_ref_picker(self, query: str, *, keep_highlight_id: str | None = None) -> None:
+        opts = self.query_one("#file_ref_picker", OptionList)
+        status = self.query_one("#file_ref_hint", Static)
+        paths = filter_project_files(query)
+        opts.clear_options()
+        if not paths:
+            q = (query or "").strip()
+            status.update(f"📎  no files match @{q or '…'} — keep typing in chat")
+            return
+        q = (query or "").strip()
+        status.update(
+            f"📎  @{q or '…'} — {len(paths)} match(es) · type in chat · ↑↓ pick · tab/↵ insert · esc close"
+        )
+        for path in paths:
+            opts.add_option(Option(file_ref_option_label(path), id=path))
+        if not opts.option_count:
+            return
+        pick = 0
+        if keep_highlight_id:
+            for i in range(opts.option_count):
+                opt = opts.get_option_at_index(i)
+                if opt and opt.id == keep_highlight_id:
+                    pick = i
+                    break
+        opts.highlighted = pick
+        try:
+            opts.scroll_to_highlight()
+        except Exception:
+            pass
+
+    def _sync_file_ref_picker(self) -> None:
+        inp = self.query_one("#prompt", PromptArea)
+        text = inp.text or ""
+        row, col = self._prompt_cursor()
+        active = active_file_ref_at_cursor(text, row, col)
+        panel = self.query_one("#file_ref_panel", Vertical)
+        if not active:
+            self.close_file_ref_picker()
+            return
+        self._file_ref_mention = active
+        panel.remove_class("hidden")
+        if not self._file_ref_mouse_on:
+            enable_mouse()
+            self._file_ref_mouse_on = True
+        _row, _start, query = active
+        opts = self.query_one("#file_ref_picker", OptionList)
+        keep_id = None
+        if opts.option_count and opts.highlighted is not None:
+            try:
+                opt = opts.get_option_at_index(opts.highlighted)
+                if opt and opt.id:
+                    keep_id = str(opt.id)
+            except Exception:
+                pass
+        if self._file_ref_last_query != query:
+            self._file_ref_last_query = query
+            self._populate_file_ref_picker(query, keep_highlight_id=keep_id)
+        elif opts.option_count == 0:
+            self._populate_file_ref_picker(query)
+
+    def close_file_ref_picker(self) -> None:
+        try:
+            panel = self.query_one("#file_ref_panel", Vertical)
+            panel.add_class("hidden")
+        except Exception:
+            pass
+        self._file_ref_mention = None
+        self._file_ref_last_query = None
+        if self._file_ref_mouse_on:
+            disable_mouse()
+            self._file_ref_mouse_on = False
+
+    def _accept_file_ref(self, rel_path: str) -> None:
+        inp = self.query_one("#prompt", PromptArea)
+        text = inp.text or ""
+        row, col = self._prompt_cursor()
+        new_text, (new_row, new_col) = replace_file_ref_at_cursor(
+            text, row, col, rel_path
+        )
+        inp.text = new_text
+        try:
+            inp.move_cursor((new_row, new_col))
+        except Exception:
+            pass
+        self._last_input_value = new_text
+        self.close_file_ref_picker()
+        inp.focus()
+
+    def try_accept_file_ref(self) -> bool:
+        if not self.file_ref_picker_active:
+            return False
+        opts = self.query_one("#file_ref_picker", OptionList)
+        if opts.option_count == 0 or opts.highlighted is None:
+            return False
+        opt = opts.get_option_at_index(opts.highlighted)
+        if not opt or not opt.id:
+            return False
+        self._accept_file_ref(str(opt.id))
+        return True
+
+    def handle_prompt_key_for_file_ref(self, key: str) -> bool:
+        if not self.file_ref_picker_active:
+            return False
+        if key == "up":
+            return self._navigate_file_ref_picker(-1)
+        if key == "down":
+            return self._navigate_file_ref_picker(1)
+        if key == "tab":
+            return self.try_accept_file_ref()
+        return False
+
+    def on_text_area_selection_changed(self, event: TextArea.SelectionChanged) -> None:
+        if event.text_area.id == "prompt":
+            self._sync_file_ref_picker()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id != "file_ref_picker" or not event.option.id:
+            return
+        self._accept_file_ref(str(event.option.id))
 
     def _open_palette(self):
         def after(cmd: str | None):
@@ -1062,6 +1270,7 @@ class JarvisTUI(App):
         inp = self.query_one("#prompt", PromptArea)
         inp.clear()
         self._last_input_value = ""
+        self.close_file_ref_picker()
         if not text:
             return
 
@@ -1382,6 +1591,18 @@ class JarvisTUI(App):
                 if not should_send:
                     return
 
+            from ..prompt_refs import expand_file_refs
+
+            expanded, attached = expand_file_refs(inp)
+            if attached:
+                names = ", ".join(attached)
+                self.call_from_thread(
+                    lambda n=names: self._tui_console.print(
+                        f"[{ui.FG_DIM}]▣ attached {len(attached)} file(s): {n}[/]"
+                    )
+                )
+            inp = expanded
+
             user_msg = {"role": "user", "content": inp}
             state.messages.append(user_msg)
             state.web_tool_used_this_turn = False
@@ -1447,6 +1668,9 @@ class JarvisTUI(App):
         self.query_one("#prompt", PromptArea).focus()
 
     def action_cycle_agent(self) -> None:
+        if self.file_ref_picker_active:
+            self.try_accept_file_ref()
+            return
         from ..storage import agents as ag
 
         try:

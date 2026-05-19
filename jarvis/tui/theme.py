@@ -414,6 +414,50 @@ Screen {{
 }}
 
 /* ── Composer ───────────────────────────────────────────────────── */
+#composer_block {{
+    height: auto;
+    margin: 0;
+    min-width: 0;
+}}
+#file_ref_panel {{
+    height: auto;
+    max-height: 12;
+    margin: 0 2 0 2;
+    background: {BG_3};
+    border: round {BORDER};
+    padding: 0 1;
+    min-width: 0;
+}}
+#file_ref_panel.hidden {{
+    display: none;
+}}
+#file_ref_hint {{
+    height: 1;
+    max-height: 1;
+    color: {FG_MUTE};
+    padding: 0 0;
+    margin: 0;
+    overflow: hidden;
+}}
+#file_ref_picker {{
+    height: auto;
+    max-height: 8;
+    min-height: 3;
+    background: {BG_3};
+    border: none;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    scrollbar-size-vertical: 1;
+}}
+#file_ref_picker > .option-list--option {{
+    padding: 0 1;
+}}
+#file_ref_picker > .option-list--option-highlighted {{
+    background: {BG_4};
+    color: #ffffff;
+    text-style: none;
+}}
 #composer {{
     height: auto;
     margin: 0 2 0 2;

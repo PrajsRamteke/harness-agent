@@ -89,6 +89,13 @@ def main():
                 continue
             # fall through to send `inp` as a user message
 
+        from .prompt_refs import expand_file_refs
+
+        expanded, attached = expand_file_refs(inp)
+        if attached:
+            console.print(f"[dim]▣ attached {len(attached)} file(s): {', '.join(attached)}[/]")
+        inp = expanded
+
         # auto-OCR any image paths (drag-and-drop drops a filepath into the terminal)
         hits = extract_image_paths(inp)
         if hits:
