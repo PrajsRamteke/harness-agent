@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# Test the Jarvis install script in an isolated environment.
+#
+# Does NOT touch your real ~/.local, ~/.zshrc, or existing jarvis install.
+# Uses a throwaway HOME under /tmp (or a Docker container if you pass --docker).
+#
+# Usage:
+#   # Test what's on GitHub main (same as curl | bash):
+#   bash scripts/test-install
+#
+#   # Test your local scripts/install before pushing:
+#   bash scripts/test-install --local
+#
+#   # Test in a fresh Ubuntu container (needs Docker):
+#   bash scripts/test-install --docker
+#
+#   # Test a specific branch:
+#   JARVIS_BRANCH=my-branch bash scripts/test-install
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="${1:-remote}"
+RUN_ID="jarvis-install-test-$(date +%s)"
+TEST_HOME="/tmp/${RUN_ID}"
+INSTALL_DIR="${TEST_HOME}/.local/share/harness-agent"
+BIN_DIR="${TEST_HOME}/.local/bin"
+LOG_FILE="/tmp/${RUN_ID}.log"
+
+cleanup() {
+  if [ "${KEEP:-0}" != "1" ]; then
+    rm -rf "${TEST_HOME}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+run_remote_install() {
+  mkdir -p "${TEST_HOME}/.local/bin"
+  export HOME="${TEST_HOME}"
+  export JARVIS_INSTALL_DIR="${INSTALL_DIR}"
+  export JARVIS_BIN_DIR="${BIN_DIR}"
+  export JARVIS_BRANCH="${JARVIS_BRANCH:-main}"
+
+  echo "==> isolated HOME: ${HOME}"
+  echo "==> install dir:   ${INSTALL_DIR}"
+  echo "==> bin dir:       ${BIN_DIR}"
+  echo "==> branch:        ${JARVIS_BRANCH}"
+  echo "==> log:           ${LOG_FILE}"
+  echo
+
+  curl -fsSL "https://raw.githubusercontent.com/PrajsRamteke/harness-agent/${JARVIS_BRANCH}/scripts/install" \
+    | bash 2>&1 | tee "${LOG_FILE}"
+}
+
+run_local_install() {
+  mkdir -p "${TEST_HOME}/.local/bin"
+  export HOME="${TEST_HOME}"
+  export JARVIS_INSTALL_DIR="${INSTALL_DIR}"
+  export JARVIS_BIN_DIR="${BIN_DIR}"
+  export JARVIS_REPO_URL="file://${ROOT}"
+  export JARVIS_BRANCH="$(git -C "${ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+
+  echo "==> testing LOCAL repo: ${ROOT}"
+  echo "==> isolated HOME:      ${HOME}"
+  echo "==> install dir:        ${INSTALL_DIR}"
+  echo "==> log:                ${LOG_FILE}"
+  echo
+
+  bash "${ROOT}/scripts/install" 2>&1 | tee "${LOG_FILE}"
+}
+
+verify() {
+  echo
+  echo "==> verifying install..."
+
+  if [ ! -x "${INSTALL_DIR}/.venv/bin/jarvis" ]; then
+    echo "FAIL: jarvis binary missing at ${INSTALL_DIR}/.venv/bin/jarvis" >&2
+    exit 1
+  fi
+
+  if [ ! -L "${BIN_DIR}/jarvis" ]; then
+    echo "FAIL: symlink missing at ${BIN_DIR}/jarvis" >&2
+    exit 1
+  fi
+
+  "${INSTALL_DIR}/.venv/bin/python" - <<'PY'
+import importlib
+import sys
+
+required = ("anthropic", "openai", "rich", "textual", "mcp", "jarvis")
+missing = []
+for name in required:
+    try:
+        importlib.import_module(name)
+    except ImportError:
+        missing.append(name)
+
+if missing:
+    print("FAIL: missing packages:", ", ".join(missing), file=sys.stderr)
+    raise SystemExit(1)
+print("OK: all required packages import")
+PY
+
+  "${INSTALL_DIR}/.venv/bin/jarvis" --help >/dev/null
+  echo "OK: jarvis --help"
+
+  # Confirm we did not touch the real home install paths
+  if [ -d "${HOME}/.local/share/harness-agent" ] && [ "${HOME}" != "${TEST_HOME}" ]; then
+    echo "WARN: unexpected real home path touched" >&2
+  fi
+
+  echo
+  echo "PASS: install test succeeded"
+  echo "Full log: ${LOG_FILE}"
+  if [ "${KEEP:-0}" = "1" ]; then
+    echo "Kept test home at: ${TEST_HOME}"
+    echo "Try: ${BIN_DIR}/jarvis --help"
+  else
+    echo "Test artifacts will be removed on exit (set KEEP=1 to keep them)."
+  fi
+}
+
+run_docker() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "error: docker not found. Install Docker or run without --docker." >&2
+    exit 1
+  fi
+
+  local branch="${JARVIS_BRANCH:-main}"
+  echo "==> running install inside ubuntu:24.04 (branch: ${branch})"
+  echo "==> log: ${LOG_FILE}"
+  echo
+
+  docker run --rm \
+    -e "JARVIS_BRANCH=${branch}" \
+    ubuntu:24.04 bash -lc '
+      set -euo pipefail
+      apt-get update -qq
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl git python3 python3-venv python3-pip ca-certificates >/dev/null
+      export HOME=/root
+      export JARVIS_INSTALL_DIR=/opt/jarvis-test
+      export JARVIS_BIN_DIR=/usr/local/bin
+      curl -fsSL "https://raw.githubusercontent.com/PrajsRamteke/harness-agent/${JARVIS_BRANCH}/scripts/install" | bash
+      jarvis --help >/dev/null
+      /opt/jarvis-test/.venv/bin/python -c "import openai, anthropic, jarvis; print(\"imports OK\")"
+      echo "PASS: docker install test succeeded"
+    ' 2>&1 | tee "${LOG_FILE}"
+}
+
+case "${MODE}" in
+  --local|local)  run_local_install; verify ;;
+  --docker|docker) run_docker ;;
+  --remote|remote|"")
+    run_remote_install
+    verify
+    ;;
+  -h|--help)
+    sed -n '2,20p' "$0"
+    exit 0
+    ;;
+  *)
+    echo "unknown mode: ${MODE} (use --remote, --local, or --docker)" >&2
+    exit 1
+    ;;
+esac

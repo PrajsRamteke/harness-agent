@@ -40,6 +40,7 @@ from ..constants import (
     THINK_CONFIG_FILE,
     MCP_PREFS_FILE,
     PROJECT_HARNESS_SETTINGS,
+    THINK_EFFORTS,
 )
 
 
@@ -122,7 +123,7 @@ def _atomic_write(path: pathlib.Path, text: str) -> None:
 # ── Settings class ───────────────────────────────────────────────────────
 
 _VALID_THEMES = ("red", "blue", "purple", "green", "orange", "yellow", "rose", "slate", "ocean", "cyberpunk", "monochrome", "forest", "dracula", "sunset", "dark")
-_VALID_THINK_EFFORTS = ("none", "low", "medium", "high")
+_VALID_THINK_EFFORTS = THINK_EFFORTS
 
 
 def _coerce(path: str, value: Any) -> Any:

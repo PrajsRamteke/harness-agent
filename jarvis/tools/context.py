@@ -12,6 +12,7 @@ Architecture:
 Graph is scoped to CWD and rebuilt automatically when source files change.
 """
 import ast
+import os
 import pathlib
 import re
 import time
@@ -100,22 +101,17 @@ def _rel_path(p: pathlib.Path) -> str:
 def _scan_source_files(root: pathlib.Path) -> List[pathlib.Path]:
     """Walk root and return all code/ config/ test files, skipping undesirables.
 
-    Uses Path.walk() (Python 3.12+) instead of rglob so we can PRUNE
-    hidden/skip dirs at traversal time instead of iterating every file inside them.
+    Uses os.walk with in-place dir pruning so we skip heavy dirs at traversal
+    time instead of iterating every file inside them (works on Python 3.10+).
     """
     files = []
-    for root_dir, dirs, file_names in root.walk():
+    for root_dir, dirs, file_names in os.walk(root, topdown=True):
         # Prune skip dirs in-place so walk() never descends into them
         # (must match _SKIP_DIR_NAMES and SKIP_DIRS from dirs.py)
-        pruned = []
-        for d in dirs:
-            if d in _SKIP_DIR_NAMES:
-                continue
-            pruned.append(d)
-        dirs[:] = pruned
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIR_NAMES]
 
         for name in file_names:
-            p = root_dir / name
+            p = pathlib.Path(root_dir) / name
             ext = p.suffix.lower()
             if ext in _SKIP_EXTS:
                 continue
