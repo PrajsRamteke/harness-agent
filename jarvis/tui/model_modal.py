@@ -46,6 +46,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         Binding("up", "cursor_up", show=False),
         Binding("pagedown", "page_down", show=False),
         Binding("pageup", "page_up", show=False),
+        Binding("slash", "focus_search", "Search", show=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -55,7 +56,8 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                 yield Input(value="", placeholder="search models…", id="model_search")
                 yield OptionList(id="model_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] select   [#f0b3ff]esc[/] cancel",
+                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] select   "
+                    "[#f0b3ff]/[/] search   [#f0b3ff]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -64,7 +66,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         self._prev_scroll_y = self.app.scroll_sensitivity_y
         self.app.scroll_sensitivity_y = 1.0
         self._populate()
-        self.query_one("#model_list", OptionList).focus()
+        self.query_one("#model_search", Input).focus()
 
     def on_unmount(self) -> None:
         disable_mouse()
@@ -112,7 +114,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             matched += 1
         if opts.option_count:
             opts.highlighted = 0
-            opts.focus()
+            opts.disabled = False
         elif matched == 0 and q:
             opts.add_option(Option(f"(no models matching \"{q}\")", id="__none__"))
             opts.disabled = True
@@ -127,7 +129,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "model_search":
             return
-        self._accept()
+        self.query_one("#model_list", OptionList).focus()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         oid = event.option.id
@@ -137,7 +139,19 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
 
     # ─── actions ───────────────────────────────────────────────────────
     def action_dismiss_cancel(self) -> None:
+        try:
+            sb = self.query_one("#model_search", Input)
+            if sb.value:
+                sb.value = ""
+                self._populate()
+                sb.focus()
+                return
+        except Exception:
+            pass
         self.dismiss(None)
+
+    def action_focus_search(self) -> None:
+        self.query_one("#model_search", Input).focus()
 
     def action_cursor_down(self) -> None:
         self.query_one("#model_list", OptionList).action_cursor_down()
