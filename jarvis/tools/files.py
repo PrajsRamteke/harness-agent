@@ -1,5 +1,8 @@
 """File tools: read_file, write_file, edit_file."""
 import pathlib
+import threading
+from collections import OrderedDict
+from contextlib import contextmanager
 
 from ..constants import CWD, MAX_FILE_READ, MAX_FILE_SIZE_BYTES, MAX_FILE_CHUNK_BYTES
 from .. import state
@@ -18,10 +21,73 @@ _BINARY_EXTS = {
     ".lock",  # yarn.lock / package-lock.json noise — usually not useful
 }
 
+# Known text/code extensions — skip the extra 4KB binary sniff on read.
+_TEXT_EXTS = {
+    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+    ".md", ".mdx", ".rst", ".txt", ".log", ".csv", ".tsv",
+    ".html", ".htm", ".xml", ".css", ".scss", ".sass", ".less",
+    ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+    ".sql", ".go", ".rs", ".java", ".kt", ".swift", ".rb", ".php",
+    ".c", ".h", ".cpp", ".hpp", ".cc", ".cs", ".vue", ".svelte",
+    ".dockerfile", ".env", ".gitignore", ".editorconfig",
+}
+
+_READ_CACHE_MAX = 96
+_read_cache: "OrderedDict[str, tuple[float, int, str]]" = OrderedDict()
+_path_locks: dict[str, threading.Lock] = {}
+_path_locks_guard = threading.Lock()
+_BACKUP_MAX_BYTES = 1_000_000
+
+
+@contextmanager
+def _path_lock(p: pathlib.Path):
+    """Serialize read/write/edit on the same resolved path; different paths run in parallel."""
+    key = str(p.resolve())
+    with _path_locks_guard:
+        lk = _path_locks.setdefault(key, threading.Lock())
+    with lk:
+        yield
+
+
+def _cache_get(p: pathlib.Path) -> str | None:
+    key = str(p.resolve())
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    hit = _read_cache.get(key)
+    if hit and hit[0] == st.st_mtime and hit[1] == st.st_size:
+        _read_cache.move_to_end(key)
+        return hit[2]
+    return None
+
+
+def _cache_put(p: pathlib.Path, content: str) -> None:
+    key = str(p.resolve())
+    try:
+        st = p.stat()
+    except OSError:
+        return
+    _read_cache[key] = (st.st_mtime, st.st_size, content)
+    _read_cache.move_to_end(key)
+    while len(_read_cache) > _READ_CACHE_MAX:
+        _read_cache.popitem(last=False)
+
+
+def _cache_invalidate(p: pathlib.Path) -> None:
+    _read_cache.pop(str(p.resolve()), None)
+
 
 def _save_backup(p: pathlib.Path):
-    if p.exists():
+    if not p.exists():
+        return
+    try:
+        if p.stat().st_size > _BACKUP_MAX_BYTES:
+            return
         state.backups.append((str(p), p.read_text(errors="ignore")))
+    except OSError:
+        pass
 
 
 def _in_skip_dir(p: pathlib.Path) -> str | None:
@@ -49,45 +115,77 @@ def _looks_binary(p: pathlib.Path) -> bool:
     return (printable / len(chunk)) < 0.85
 
 
+def _read_lines_slice(p: pathlib.Path, offset: int, limit: int) -> str:
+    """Read only the requested line range — avoids loading huge files whole."""
+    end = offset + limit if limit else None
+    out: list[str] = []
+    with p.open("r", encoding="utf-8", errors="ignore") as fh:
+        for i, line in enumerate(fh):
+            if i < offset:
+                continue
+            if end is not None and i >= end:
+                break
+            out.append(f"{i + 1}\t{line.rstrip(chr(10) + chr(13))}")
+    return "\n".join(out)
+
+
 def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -> str:
     p = robust_resolve(path)
-    if not p.exists(): return f"ERROR: {path} not found"
-    if p.is_dir(): return f"ERROR: {path} is a directory"
+    if not p.exists():
+        return f"ERROR: {path} not found"
+    if p.is_dir():
+        return f"ERROR: {path} is a directory"
 
-    if not force:
-        scope_err = project_scope_error(p, "read_file")
-        if scope_err:
-            return scope_err
-
-        skip = _in_skip_dir(p)
-        if skip:
-            return (f"ERROR: refused to read '{path}' — inside '{skip}/' "
-                    f"(node_modules, build artifacts, caches are blocked). "
-                    f"Pass force=true only if the user explicitly asked for this file.")
-
-        if p.suffix.lower() in _BINARY_EXTS:
-            return (f"ERROR: refused to read '{path}' — binary/non-text extension "
-                    f"'{p.suffix}'. Use `read_document` for PDF, images, CSV, "
-                    f"Excel, JSON, etc., or pass force=true if the user explicitly asked.")
-
+    with _path_lock(p):
         try:
-            if p.stat().st_size > MAX_FILE_SIZE_BYTES:
-                return (f"ERROR: '{path}' is {p.stat().st_size} bytes "
-                        f"(>{MAX_FILE_SIZE_BYTES:,} bytes). "
-                        f"Use offset/limit to page through it, or pass force=true.")
+            st = p.stat()
         except OSError:
-            pass
+            st = None
 
-        if _looks_binary(p):
-            return (f"ERROR: '{path}' appears to be a binary file. "
-                    f"Pass force=true only if you are sure it is text.")
+        if not force:
+            scope_err = project_scope_error(p, "read_file")
+            if scope_err:
+                return scope_err
 
-    txt = p.read_text(errors="ignore")
-    if offset or limit:
-        lines = txt.splitlines()
-        end = offset + limit if limit else len(lines)
-        return "\n".join(f"{i+1}\t{l}" for i, l in enumerate(lines[offset:end], start=offset))
-    return txt[:MAX_FILE_READ]
+            skip = _in_skip_dir(p)
+            if skip:
+                return (
+                    f"ERROR: refused to read '{path}' — inside '{skip}/' "
+                    f"(node_modules, build artifacts, caches are blocked). "
+                    f"Pass force=true only if the user explicitly asked for this file."
+                )
+
+            if p.suffix.lower() in _BINARY_EXTS:
+                return (
+                    f"ERROR: refused to read '{path}' — binary/non-text extension "
+                    f"'{p.suffix}'. Use `read_document` for PDF, images, CSV, "
+                    f"Excel, JSON, etc., or pass force=true if the user explicitly asked."
+                )
+
+            if st and st.st_size > MAX_FILE_SIZE_BYTES:
+                if not (offset or limit):
+                    return (
+                        f"ERROR: '{path}' is {st.st_size} bytes "
+                        f"(>{MAX_FILE_SIZE_BYTES:,} bytes). "
+                        f"Use offset/limit to page through it, or pass force=true."
+                    )
+
+            if p.suffix.lower() not in _TEXT_EXTS and _looks_binary(p):
+                return (
+                    f"ERROR: '{path}' appears to be a binary file. "
+                    f"Pass force=true only if you are sure it is text."
+                )
+
+        if offset or limit:
+            return _read_lines_slice(p, offset, limit)
+
+        cached = _cache_get(p)
+        if cached is not None:
+            return cached[:MAX_FILE_READ]
+
+        txt = p.read_text(errors="ignore")
+        _cache_put(p, txt)
+        return txt[:MAX_FILE_READ]
 
 
 def write_file(path: str, content: str, allow_outside_project: bool = False) -> str:
@@ -96,9 +194,11 @@ def write_file(path: str, content: str, allow_outside_project: bool = False) -> 
         scope_err = project_scope_error(p, "write_file", "allow_outside_project=true")
         if scope_err:
             return scope_err
-    _save_backup(p)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content)
+    with _path_lock(p):
+        _save_backup(p)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+        _cache_invalidate(p)
     return f"WROTE {p} ({len(content)} bytes)"
 
 
@@ -114,13 +214,19 @@ def edit_file(
         scope_err = project_scope_error(p, "edit_file", "allow_outside_project=true")
         if scope_err:
             return scope_err
-    if not p.exists(): return f"ERROR: {path} not found"
-    txt = p.read_text(errors="ignore")
-    n = txt.count(old_str)
-    if n == 0: return "ERROR: old_str not found"
-    if n > 1 and not replace_all:
-        return f"ERROR: old_str matches {n} times; pass replace_all=true or add more context"
-    _save_backup(p)
-    new_txt = txt.replace(old_str, new_str) if replace_all else txt.replace(old_str, new_str, 1)
-    p.write_text(new_txt)
-    return f"EDITED {p} ({n} replacement{'s' if n>1 else ''})"
+    with _path_lock(p):
+        if not p.exists():
+            return f"ERROR: {path} not found"
+        txt = p.read_text(errors="ignore")
+        n = txt.count(old_str)
+        if n == 0:
+            return "ERROR: old_str not found"
+        if n > 1 and not replace_all:
+            return (
+                f"ERROR: old_str matches {n} times; pass replace_all=true or add more context"
+            )
+        _save_backup(p)
+        new_txt = txt.replace(old_str, new_str) if replace_all else txt.replace(old_str, new_str, 1)
+        p.write_text(new_txt)
+        _cache_invalidate(p)
+    return f"EDITED {p} ({n} replacement{'s' if n > 1 else ''})"

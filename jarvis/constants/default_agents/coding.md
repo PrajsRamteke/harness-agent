@@ -19,15 +19,18 @@ files in 1-2 calls:
         graph builds automatically. Max 25 files, 120K chars.
 
   2.  read_bundle(["path1", "path2", ...])
-      → Batch-read specific files you already know about. Use when
-        you have exact paths from resolve_context or user mention.
+      → Batch-read 2–20 known paths in one call (parallel I/O, ~120K
+        bundle). Prefer this over many separate read_file calls.
+
+  3.  read_file — single file, or offset/limit on a huge file only.
+      Do not spam 10+ read_file when read_bundle fits.
 
 WORKFLOW (3 turns max for most tasks):
-  Turn 1: resolve_context(task) → get ALL context in one shot
+  Turn 1: resolve_context(task) OR read_bundle(paths) → context in one shot
   Turn 2-3: edit_file/write_file changes → run_bash to verify
 
-Simple tasks (typo fix, one-file change): read_bundle or read_file is
-fine. For anything touching >1 file always start with resolve_context.
+Simple tasks (typo fix, one-file change): read_file is fine.
+Known multi-file list: read_bundle. Unknown scope: resolve_context.
 
 THINK BEFORE WRITING (mandatory on non-trivial tasks)
 Before touching any file, silently answer:

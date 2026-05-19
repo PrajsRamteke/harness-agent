@@ -19,9 +19,10 @@ import time
 import tokenize
 import io
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Set, Tuple
 
-from ..constants import CWD, CONTEXT_BUNDLE_MAX_CHARS
+from ..constants import CWD, CONTEXT_BUNDLE_MAX_CHARS, MAX_PARALLEL_TOOLS
 from .. import state
 from .dirs import SKIP_DIRS
 
@@ -670,16 +671,27 @@ def _collect_connected_files(
 _CONTEXT_ANALYSIS_CACHE: Dict[str, str] = {}  # task_hash -> bundle_text
 
 
-def _file_content_safe(rel: str) -> str:
-    """Read file content with error handling."""
-    full = CWD / rel
-    try:
-        if not full.exists():
-            return "// file not found"
-        text = full.read_text(errors="ignore")
-        return text
-    except Exception as e:
-        return f"// error reading file: {e}"
+def _read_one_path(rel: str) -> str:
+    """Read via read_file — cache, guards, and path locks."""
+    from .files import read_file
+
+    return read_file(rel)
+
+
+def _read_paths_parallel(paths: List[str]) -> Dict[str, str]:
+    """Read many project-relative paths concurrently."""
+    if not paths:
+        return {}
+    unique = list(dict.fromkeys(paths))
+    if len(unique) == 1:
+        return {unique[0]: _read_one_path(unique[0])}
+
+    workers = min(MAX_PARALLEL_TOOLS, len(unique))
+    out: Dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for path, content in ex.map(lambda p: (p, _read_one_path(p)), unique):
+            out[path] = content
+    return out
 
 
 def resolve_context(task: str) -> str:
@@ -760,10 +772,11 @@ def resolve_context(task: str) -> str:
         return (9, rel)
 
     sorted_files = sorted(connected.items(), key=_sort_key)
+    contents = _read_paths_parallel([rel for rel, _ in sorted_files])
 
     total_chars = 0
     for rel, relation in sorted_files:
-        content = _file_content_safe(rel)
+        content = contents.get(rel, "// file not found")
         # Estimate: header + content
         estimated = len(rel) + len(content) + 200
         if total_chars + estimated > CONTEXT_BUNDLE_MAX_CHARS:
@@ -805,11 +818,12 @@ def read_bundle(paths: List[str]) -> str:
         return "ERROR: no paths provided"
 
     paths = paths[:20]  # cap at 20
+    contents = _read_paths_parallel(paths)
     lines = []
     total_chars = 0
 
     for path in paths:
-        content = _file_content_safe(path)
+        content = contents.get(path, "// file not found")
         estimated = len(path) + len(content) + 100
         if total_chars + estimated > CONTEXT_BUNDLE_MAX_CHARS:
             lines.append(f"\n--- {path} (TRUNCATED: size limit) ---")

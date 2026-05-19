@@ -22,10 +22,10 @@ CONTEXT_TOOLS = [
         )},
      }, "required": ["task"]}},
     {"name": "read_bundle", "description": (
-        "Batch-read multiple files at once. Provide up to 20 file paths and get "
-        "all their contents in one result. Use this when you already know which "
-        "files you need (from a previous resolve_context call, from the user, or "
-        "from search_code results). Saves 10-20 separate read_file calls."
+        "PREFERRED for 2–20 known paths: batch-read in one call with parallel disk "
+        "I/O and read cache (~120K char bundle). Use when you already know which "
+        "files you need (user list, search_code, glob_files, resolve_context follow-up). "
+        "Do NOT substitute 10+ separate read_file calls for the same paths."
     ),
      "input_schema": {"type": "object", "properties": {
         "paths": {"type": "array", "items": {"type": "string"},
@@ -35,11 +35,11 @@ CONTEXT_TOOLS = [
 
 CORE_TOOLS = CONTEXT_TOOLS + [
     {"name":"read_file","description":(
-        "Read a text file. Refuses node_modules/.venv/build/dist/caches, binary "
-        "files (images, archives, compiled), files > 2MB, and outside-project "
-        "paths. Use offset/limit for line ranges and avoid rereading files already "
-        "present in context. Only pass force=true if the user explicitly asked to "
-        "read that specific outside/blocked file."),
+        "Read ONE text file (or a line range via offset/limit). For 2–20 known "
+        "paths use read_bundle instead — faster and higher output cap. Refuses "
+        "node_modules/.venv/build/dist/caches, binary files, files > 2MB, and "
+        "outside-project paths. Avoid rereading files already in context. "
+        "Only pass force=true if the user explicitly asked for that blocked file."),
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},
         "offset":{"type":"integer","description":"0-indexed starting line"},

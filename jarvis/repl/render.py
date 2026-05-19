@@ -1,5 +1,5 @@
 """Render assistant response: text panels, thinking blocks, and tool calls."""
-import json, re
+import json, re, threading
 from concurrent.futures import ThreadPoolExecutor
 
 from rich.text import Text
@@ -37,8 +37,10 @@ def assistant_model_label() -> str:
 
 
 # Tools that must run single-threaded — they mutate shared state, cwd, or UI.
+# File writes use per-path locks in tools/files.py so different paths can run
+# in parallel; only truly global tools stay here.
 _SERIAL_TOOLS = {
-    "run_bash", "edit_file", "write_file",
+    "run_bash",
     "click_at", "click_element", "click_menu", "key_press", "type_text",
     "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
     "clipboard_set", "mac_control", "speck",
@@ -55,6 +57,43 @@ from ..mcp.registry import is_mcp_tool
 
 # Context tools get a much higher output limit since they bundle many files at once.
 _CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle", "lesson_list", "lesson_search"}
+
+_FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file"})
+_DISCOVERY_TOOLS = frozenset({"glob_files", "list_dir", "search_code", "fast_find", "rank_files"})
+
+_tool_pool: ThreadPoolExecutor | None = None
+_tool_pool_lock = threading.Lock()
+
+
+def _tool_executor() -> ThreadPoolExecutor:
+    global _tool_pool
+    with _tool_pool_lock:
+        if _tool_pool is None:
+            _tool_pool = ThreadPoolExecutor(max_workers=MAX_PARALLEL_TOOLS)
+        return _tool_pool
+
+
+def _batch_has_tool(batch, names: frozenset[str]) -> bool:
+    return any(b.name in names for b in batch)
+
+
+def _should_flush_parallel_batch(batch, new_block) -> bool:
+    """Split batches so discovery→read and read→write ordering stays safe."""
+    if not batch:
+        return False
+    if new_block.name == "read_file" and _batch_has_tool(batch, _DISCOVERY_TOOLS):
+        return True
+    if new_block.name in _FILE_WRITE_TOOLS and (
+        _batch_has_tool(batch, _DISCOVERY_TOOLS)
+        or any(b.name not in _FILE_WRITE_TOOLS for b in batch)
+    ):
+        return True
+    if new_block.name == "read_file" and _batch_has_tool(batch, _FILE_WRITE_TOOLS):
+        return True
+    if new_block.name not in _FILE_WRITE_TOOLS and _batch_has_tool(batch, _FILE_WRITE_TOOLS):
+        return True
+    return False
+
 
 def _run_tool(b):
     icon = TOOL_ICONS.get(b.name, "⚙")
@@ -117,13 +156,13 @@ def _run_parallel_batch(batch, outputs):
         workers = min(MAX_PARALLEL_TOOLS, len(batch))
         if state.show_internal:
             console.print(f"[cyan]⚡ running {len(batch)} tools in parallel (max {workers} workers)[/]")
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            for b, icon, ap, out_str in ex.map(_run_tool, batch):
-                # Check cancel after each parallel tool completes
-                if state.cancel_requested.is_set():
-                    # Don't bother storing results — we're aborting
-                    break
-                outputs[b.id] = (icon, ap, out_str)
+        ex = _tool_executor()
+        for b, icon, ap, out_str in ex.map(_run_tool, batch):
+            # Check cancel after each parallel tool completes
+            if state.cancel_requested.is_set():
+                # Don't bother storing results — we're aborting
+                break
+            outputs[b.id] = (icon, ap, out_str)
     else:
         b, icon, ap, out_str = _run_tool(batch[0])
         outputs[b.id] = (icon, ap, out_str)
@@ -233,6 +272,9 @@ def render_assistant(resp) -> bool:
                 parallel_batch = []
                 _, icon, ap, out_str = _run_tool(b)
                 outputs[b.id] = (icon, ap, out_str)
+            elif _should_flush_parallel_batch(parallel_batch, b):
+                _run_parallel_batch(parallel_batch, outputs)
+                parallel_batch = [b]
             else:
                 parallel_batch.append(b)
         _run_parallel_batch(parallel_batch, outputs)
