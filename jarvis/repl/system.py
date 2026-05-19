@@ -128,7 +128,7 @@ def _build_static_body() -> str:
     body += (
         "\n\nLAZY-LOAD CONTEXT (full content loaded on demand unless noted):\n"
         "To save tokens, the following are NOT injected with full content:"
-        "\n- SKILLS (check first): headers listed below — scan before every task; call skill_load('<name>') when a description might match."
+        "\n- SKILLS (check first): headers listed below — scan before every task; call skill_load for every header that might match (one or more)."
         "\n- MEMORY: use memory_list() only when saved user facts/preferences matter"
         "\n- LESSONS: use lesson_search('<topic>') only when prior experience could help"
         "\n- PROJECT CONTEXT: use read_file('<project_context_file>') only when repository instructions matter"
@@ -164,7 +164,9 @@ def _build_static_body() -> str:
         body += (
             "\n\nSKILLS: skill_load('<name>').\n"
             "- BEFORE responding or acting: scan the skill headers above.\n"
-            "- If there is even a small chance a skill applies, call skill_load FIRST and follow it.\n"
+            "- Load every skill whose description might apply — call skill_load once per match.\n"
+            "- Multiple skills can apply to the same task; load and follow all of them.\n"
+            "- Batch parallel skill_load calls in one turn when several match.\n"
             "- Do not skip skill checks for 'simple' tasks."
         )
 

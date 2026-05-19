@@ -49,7 +49,6 @@ _SERIAL_TOOLS = {
     # JSON-backed storage — file-level read/write races when run in parallel
     "memory_save", "memory_delete",
     "lesson_save", "lesson_delete",
-    "skill_list", "skill_load",
 }
 
 # All MCP-prefixed tools are treated as serial (stateful) too.

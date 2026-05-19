@@ -103,6 +103,7 @@ class LazyContextLoadingTests(unittest.TestCase):
         self.assertIn("skill_load", block)
         self.assertIn("HIGH PRIORITY", block)
         self.assertIn("call skill_load", block)
+        self.assertIn("each match", block.lower())
 
 
 if __name__ == "__main__":

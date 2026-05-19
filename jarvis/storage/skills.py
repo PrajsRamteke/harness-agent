@@ -328,7 +328,8 @@ def as_prompt_block() -> str:
 
     lines = [f"SKILLS: {len(skills)} available ({counts}; scope: {scope})."]
     lines.append("HIGH PRIORITY — before responding or acting, scan these headers.")
-    lines.append("If there is even a small chance a skill applies, call skill_load('<name>') FIRST and follow it.")
+    lines.append("If one or more skills might apply, call skill_load for EACH match — load all of them, not just one.")
+    lines.append("Batch multiple skill_load calls in the same turn when several headers match.")
     lines.append("Do not skip skill checks for 'simple' tasks. Headers are listed below so you can match without skill_list().")
     for s in skills:
         tag = " [global]" if s.get("scope") == "global" else ""

@@ -25,7 +25,7 @@ def skill_list() -> str:
         lines.append(f"  • {s['name']}: {s['description']}")
         lines.append(f"    (from {s['source_dir']})")
     
-    lines.append("\nUse skill_load('<name>') to load a skill's full content.")
+    lines.append("\nUse skill_load('<name>') for each match — load all applicable skills, not just one.")
     return "\n".join(lines)
 
 
@@ -55,8 +55,8 @@ SKILL_TOOLS = [
             "List all available project-base skills with their names and descriptions. "
             "These are reusable instructions defined in .skills/<name>/SKILL.md files. "
             "Each entry shows only the header (name + description). "
-            "Use this only when the current task may match a reusable skill, then "
-            "use skill_load('<name>') to read the full skill content for the match."
+            "Use this only when the current task may match reusable skills, then "
+            "use skill_load('<name>') for each match — load every applicable skill."
         ),
         "input_schema": {
             "type": "object",
@@ -67,10 +67,10 @@ SKILL_TOOLS = [
     {
         "name": "skill_load",
         "description": (
-            "Load the full content of a skill by its name. "
-            "This returns the entire SKILL.md including frontmatter and body. "
-            "Call BEFORE responding or acting when a skill header (in the system prompt) "
-            "might match the current task — even if the match is uncertain."
+            "Load the full content of one skill by name. "
+            "Call BEFORE responding or acting when a skill header might match — even if uncertain. "
+            "Multiple skills can apply: call skill_load once per matching skill and follow all of them. "
+            "Batch parallel skill_load calls in the same turn when several headers match."
         ),
         "input_schema": {
             "type": "object",
