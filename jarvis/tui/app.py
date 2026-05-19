@@ -165,12 +165,43 @@ class PromptArea(TextArea):
     - Ctrl+J / Alt+Enter / Ctrl+Enter / Shift+Enter / Ctrl+N insert a newline.
     - Trailing backslash before Enter inserts a newline (bash-style).
     - Ctrl+D / Ctrl+C bubble up to the App.
+    - @file mentions render with theme-colored background chips.
     """
 
     class Submitted(Message):
         def __init__(self, value: str) -> None:
             self.value = value
             super().__init__()
+
+    def on_mount(self) -> None:
+        from .prompt_highlight import PROMPT_THEME_NAME, build_prompt_text_area_theme
+
+        self.register_theme(build_prompt_text_area_theme())
+        self.theme = PROMPT_THEME_NAME
+        self.language = None
+        self.refresh_file_ref_highlights()
+
+    def refresh_file_ref_highlights(self) -> None:
+        from .prompt_highlight import build_file_ref_highlights
+
+        try:
+            row, col = self.cursor_location
+        except Exception:
+            row, col = 0, 0
+        self._highlights.clear()
+        for line_no, spans in build_file_ref_highlights(
+            self.text or "",
+            cursor_row=row,
+            cursor_col=col,
+        ).items():
+            self._highlights[line_no] = spans
+        self._line_cache.clear()
+        self.refresh()
+
+    def on_text_area_selection_changed(self, event: TextArea.SelectionChanged) -> None:
+        if event.text_area is not self:
+            return
+        self.refresh_file_ref_highlights()
 
     async def _on_key(self, event):  # type: ignore[override]
         key = event.key
@@ -439,7 +470,7 @@ class JarvisTUI(App):
                     yield OptionList(id="file_ref_picker")
                 with Horizontal(id="composer"):
                     yield Static(ui.ARROW, id="prompt_prefix", markup=False)
-                    yield PromptArea(id="prompt")
+                    yield PromptArea(id="prompt", highlight_cursor_line=False)
             yield Static("", id="hintbar", markup=True, shrink=True)
 
     # ─── lifecycle ───────────────────────────────────────────────────
@@ -717,6 +748,8 @@ class JarvisTUI(App):
             self._open_palette()
             return
         self._sync_file_ref_picker()
+        if isinstance(event.text_area, PromptArea):
+            event.text_area.refresh_file_ref_highlights()
 
     def _prompt_cursor(self) -> tuple[int, int]:
         inp = self.query_one("#prompt", PromptArea)
@@ -734,11 +767,16 @@ class JarvisTUI(App):
         opts.clear_options()
         if not paths:
             q = (query or "").strip()
-            status.update(f"📎  no files match @{q or '…'} — keep typing in chat")
+            status.update(
+                f"📎  no matches @{q or '…'} — root files/folders only until you type more"
+                if not q
+                else f"📎  no files match @{q} — keep typing in chat"
+            )
             return
         q = (query or "").strip()
+        scope = "project root" if not q else f"@{q}"
         status.update(
-            f"📎  @{q or '…'} — {len(paths)} match(es) · type in chat · ↑↓ pick · tab/↵ insert · esc close"
+            f"📎  {scope} — {len(paths)} match(es) · type in chat · ↑↓ pick · tab/↵ insert · esc close"
         )
         for path in paths:
             opts.add_option(Option(file_ref_option_label(path), id=path))
@@ -813,6 +851,7 @@ class JarvisTUI(App):
             pass
         self._last_input_value = new_text
         self.close_file_ref_picker()
+        inp.refresh_file_ref_highlights()
         inp.focus()
 
     def try_accept_file_ref(self) -> bool:
@@ -1008,6 +1047,16 @@ class JarvisTUI(App):
 
                 _tui_theme.set_theme(name)
                 reload_chrome_css()
+
+                try:
+                    prompt = self.query_one("#prompt", PromptArea)
+                    from .prompt_highlight import PROMPT_THEME_NAME, build_prompt_text_area_theme
+
+                    prompt.register_theme(build_prompt_text_area_theme())
+                    prompt._set_theme(PROMPT_THEME_NAME)
+                    prompt.refresh_file_ref_highlights()
+                except Exception:
+                    pass
 
                 # Rebuild the app's Textual stylesheet.
                 app_path = ""

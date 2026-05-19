@@ -48,15 +48,44 @@ class PromptRefsTests(unittest.TestCase):
         self.assertEqual(row, 0)
         self.assertEqual(col, len("See @README.md "))
 
+        new_text, (row, col) = prompt_refs.replace_file_ref_at_cursor(
+            "Open @", 0, 6, "pkg/"
+        )
+        self.assertEqual(new_text, "Open @pkg/")
+        self.assertEqual(col, len("Open @pkg/"))
+
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             set_cwd(root)
             (root / "alpha.py").write_text("x", encoding="utf-8")
+            (root / ".env").write_text("secret", encoding="utf-8")
+            (root / ".secret").mkdir()
+            (root / ".secret" / "hide.py").write_text("z", encoding="utf-8")
             sub = root / "pkg"
             sub.mkdir()
             (sub / "beta.py").write_text("y", encoding="utf-8")
+
+            root_hits = prompt_refs.search_project_files("")
+            self.assertIn("alpha.py", root_hits)
+            self.assertIn("pkg/", root_hits)
+            self.assertNotIn(".env", root_hits)
+            self.assertFalse(any(h.startswith(".") for h in root_hits))
+            self.assertNotIn("pkg/beta.py", root_hits)
+
             hits = prompt_refs.search_project_files("beta")
             self.assertIn("pkg/beta.py", hits)
+            self.assertFalse(any(".secret" in h for h in hits))
+
+    def test_build_file_ref_highlights(self):
+        from jarvis.tui.prompt_highlight import build_file_ref_highlights
+
+        text = "Fix @README.md and @jarvis/tui/app.py please"
+        highlights = build_file_ref_highlights(text, cursor_row=0, cursor_col=len(text))
+        self.assertIn("file_ref", [span[2] for spans in highlights.values() for span in spans])
+
+        partial = build_file_ref_highlights("See @rea", cursor_row=0, cursor_col=7)
+        active = partial[0]
+        self.assertTrue(any(span[2] == "file_ref_active" for span in active))
 
 
 if __name__ == "__main__":

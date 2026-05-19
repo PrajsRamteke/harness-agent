@@ -15,8 +15,13 @@ def filter_project_files(query: str) -> list[str]:
 
 
 def file_ref_option_label(path: str) -> Text:
-    name = path.rsplit("/", 1)[-1]
+    is_dir = path.endswith("/")
+    display = path.rstrip("/")
+    name = display.rsplit("/", 1)[-1] + ("/" if is_dir else "")
     label = Text()
     label.append(f"{name:<{ROW_NAME_WIDTH}}", style="bold")
-    label.append(path, style="dim")
+    if is_dir:
+        label.append("folder", style="dim")
+    else:
+        label.append(path, style="dim")
     return label
