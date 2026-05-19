@@ -556,7 +556,7 @@ class JarvisTUI(App):
                 Panel(
                     Text.from_markup(
                         f"{' & '.join(parts)} available — "
-                        f"[{ui.FG_MUTE}]auto-invoked from headers in system prompt[/]"
+                        f"[{ui.FG_MUTE}]auto-invoked when needed[/]"
                     ),
                     title=" & ".join(title_parts),
                     title_align="left",
@@ -1606,7 +1606,7 @@ class JarvisTUI(App):
                 Panel(
                     Text.from_markup(
                         f"{' & '.join(parts)} available — "
-                        f"[{ui.FG_MUTE}]auto-invoked from headers in system prompt[/]"
+                        f"[{ui.FG_MUTE}]auto-invoked when needed[/]"
                     ),
                     title=" & ".join(title_parts),
                     title_align="left",
