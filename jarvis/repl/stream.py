@@ -6,6 +6,16 @@ from typing import Any, Dict
 
 from anthropic import APITimeoutError
 
+try:
+    from openai import RateLimitError as OpenAIRateLimitError
+    from openai import APIStatusError as OpenAIAPIStatusError
+except ImportError:  # pragma: no cover
+    class OpenAIRateLimitError(Exception):
+        """Stub when openai is not installed."""
+
+    class OpenAIAPIStatusError(Exception):
+        """Stub when openai is not installed."""
+
 from ..console import console, APIStatusError, RateLimitError
 from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
@@ -108,6 +118,20 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
         stop_watch.set()
         if rich_live is not None:
             rich_live.stop()
+
+
+def _stop_on_rate_limit(detail: str = "") -> None:
+    """Print a clear rate-limit message and abort the turn (no backoff retries)."""
+    report_turn_phase("Rate limited — stopping")
+    console.print(
+        f"[red]Rate limited — Provider: {state.provider}[/]"
+        + (f" · model: {state.MODEL}" if state.MODEL else "")
+    )
+    if detail:
+        console.print(f"[dim]{detail}[/]")
+    console.print(
+        "[yellow]Wait and try again later, or switch models with /model.[/]"
+    )
 
 
 def _heal_orphan_tool_uses() -> None:
@@ -247,12 +271,9 @@ def call_claude_stream():
                 "for more patience, a faster model, or Esc to cancel earlier.[/]"
             )
             raise
-        except RateLimitError:
-            if attempt == len(delays): raise
-            w = delays[attempt]
-            report_turn_phase(f"Rate limited — waiting {w}s before retry…")
-            console.print(f"[yellow]rate-limited, retry in {w}s[/]")
-            time.sleep(w)
+        except RateLimitError as e:
+            _stop_on_rate_limit(str(e))
+            raise
         except APIStatusError as e:
             if e.status_code == 401:
                 if state.provider == "openrouter":
@@ -310,19 +331,25 @@ def call_claude_stream():
                     "[yellow]Run /model to pick a valid slug.[/]"
                 )
                 raise SystemExit(1)
-            if e.status_code == 429 and state.provider == "openrouter":
-                console.print(
-                    f"[yellow]OpenRouter rate limit on '{state.MODEL}'. "
-                    "Free models are heavily throttled — retry shortly or try another model.[/]"
-                )
-                if attempt < len(delays):
-                    w = delays[attempt]
-                    report_turn_phase(f"OpenRouter rate limit — waiting {w}s…")
-                    time.sleep(w)
-                    continue
+            if e.status_code == 429:
+                _stop_on_rate_limit(str(e))
                 raise
             if e.status_code >= 500 and attempt < len(delays):
                 report_turn_phase(f"Server {e.status_code} — retrying soon…")
                 console.print(f"[yellow]server {e.status_code}, retry...[/]")
                 time.sleep(delays[attempt]); continue
+            raise
+        except OpenAIRateLimitError as e:
+            _stop_on_rate_limit(str(e))
+            raise
+        except OpenAIAPIStatusError as e:
+            if getattr(e, "status_code", None) == 429:
+                _stop_on_rate_limit(str(e))
+                raise
+            if getattr(e, "status_code", None) == 400 and state.provider == PROVIDER_OPENAI_CODEX:
+                console.print(
+                    f"[red]Codex rejected model '{state.MODEL}'.[/]\n"
+                    "[yellow]Run /model to pick a Codex model (e.g. gpt-5.4), "
+                    "or /provider to switch provider.[/]"
+                )
             raise
