@@ -5,7 +5,7 @@ from rich.panel import Panel
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Static
 
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
@@ -41,21 +41,22 @@ class ShellApprovalScreen(TuiModalScreen[str]):
         self._cmd = (cmd or "").replace("\n", " ")[:4000]
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="modal"):
-            yield Static("⚡  Run Shell Command?", id="modal_title")
-            yield Static(
-                Panel(
-                    Text(self._cmd, overflow="fold"),
-                    title="sh",
-                    border_style=ui.FG_DIM,
-                    padding=(0, 1),
-                ),
-            )
-            yield Static(
-                f"[{ui.OK}]y / ↵[/] run     [{ui.ERR}]n / esc[/] cancel     "
-                f"[{ui.WARN}]a[/] always (this session)",
-                id="modal_hint",
-            )
+        with CenterMiddle():
+            with Vertical(id="modal"):
+                yield Static("⚡  Run Shell Command?", id="modal_title")
+                yield Static(
+                    Panel(
+                        Text(self._cmd, overflow="fold"),
+                        title="sh",
+                        border_style=ui.FG_DIM,
+                        padding=(0, 1),
+                    ),
+                )
+                yield Static(
+                    f"[{ui.OK}]y / ↵[/] run     [{ui.ERR}]n / esc[/] cancel     "
+                    f"[{ui.WARN}]a[/] always (this session)",
+                    id="modal_hint",
+                )
 
     def on_mount(self) -> None:
         enable_mouse()
