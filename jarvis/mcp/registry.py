@@ -11,11 +11,13 @@ import logging
 import os
 import pathlib
 import re
+import shutil
 import sys
 import threading
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Callable, TextIO
+from typing import Any, Callable, Literal, TextIO
 
 from mcp import Tool
 from mcp.client.session import ClientSession
@@ -72,6 +74,58 @@ def _stdio_env(config: dict[str, Any]) -> dict[str, str]:
     if isinstance(user_env, dict):
         env.update({str(k): str(v) for k, v in user_env.items()})
     return env
+
+
+_MCP_SLOW_TOOL_MS = 5_000
+_ENV_REF_RE = re.compile(r"\$\{([^}]+)\}")
+
+
+@dataclass
+class MCPHealthRecord:
+    """Persistent health metadata for one MCP server (survives disconnect)."""
+
+    last_connect_error: str | None = None
+    last_connect_at: float | None = None
+    last_disconnect_reason: str | None = None
+    last_tool_error: str | None = None
+    last_tool_at: float | None = None
+    last_tool_ms: float | None = None
+    last_tool_name: str | None = None
+    tool_calls_ok: int = 0
+    tool_calls_err: int = 0
+
+
+MCPHealthStatus = Literal["connecting", "live", "idle", "failed", "warn"]
+
+
+def _preflight_hints(name: str, config: dict[str, Any]) -> list[str]:
+    """Surface likely setup problems before the user connects."""
+    hints: list[str] = []
+    transport = config.get("type", "stdio")
+    if transport == "stdio":
+        cmd = str(config.get("command", "")).strip()
+        if cmd and shutil.which(cmd) is None:
+            hints.append(f"command not found: {cmd}")
+    env_cfg = config.get("env")
+    if isinstance(env_cfg, dict):
+        for key, raw in env_cfg.items():
+            key_s = str(key)
+            val = str(raw)
+            if val.startswith("${") and val.endswith("}"):
+                ref = val[2:-1]
+                if ref and not os.environ.get(ref):
+                    hints.append(f"missing env: {ref}")
+            elif not os.environ.get(key_s):
+                hints.append(f"missing env: {key_s}")
+    for match in _ENV_REF_RE.finditer(str(config.get("args", []))):
+        ref = match.group(1)
+        if ref and not os.environ.get(ref):
+            hint = f"missing env: {ref}"
+            if hint not in hints:
+                hints.append(hint)
+    if not hints and transport == "sse" and not config.get("url"):
+        hints.append("missing url for sse server")
+    return hints
 
 
 # ── server state ─────────────────────────────────────────────────────────
@@ -173,6 +227,7 @@ class MCPRegistry:
 
     def __init__(self) -> None:
         self._servers: dict[str, MCPServerState] = {}
+        self._health: dict[str, MCPHealthRecord] = {}
         self._lock = threading.Lock()
 
         # References to the Jarvis tool system — set via init_jarvis()
@@ -204,6 +259,138 @@ class MCPRegistry:
         if self._console_print:
             color = {"info": "dim", "warn": "yellow", "error": "red"}.get(level, "dim")
             self._console_print(f"[{color}]mcp: {msg}[/]")
+
+    def _health_record(self, server_name: str) -> MCPHealthRecord:
+        rec = self._health.get(server_name)
+        if rec is None:
+            rec = MCPHealthRecord()
+            self._health[server_name] = rec
+        return rec
+
+    def _record_connect_error(self, server_name: str, error: str) -> None:
+        with self._lock:
+            rec = self._health_record(server_name)
+            rec.last_connect_error = error
+            rec.last_disconnect_reason = None
+
+    def _record_connect_ok(self, server_name: str) -> None:
+        with self._lock:
+            rec = self._health_record(server_name)
+            rec.last_connect_error = None
+            rec.last_connect_at = time.monotonic()
+            rec.last_disconnect_reason = None
+
+    def _record_disconnect(self, server_name: str, reason: str | None = None) -> None:
+        with self._lock:
+            rec = self._health_record(server_name)
+            if reason:
+                rec.last_disconnect_reason = reason
+
+    def _record_runtime_error(self, server_name: str, error: str) -> None:
+        with self._lock:
+            rec = self._health_record(server_name)
+            rec.last_disconnect_reason = error
+
+    def get_server_health(
+        self,
+        server_name: str,
+        config: dict[str, Any] | None = None,
+        *,
+        connecting: bool = False,
+    ) -> dict[str, Any]:
+        """Return UI-friendly health for one server."""
+        with self._lock:
+            rec = self._health_record(server_name)
+            connected = (
+                server_name in self._servers
+                and self._servers[server_name].connected
+            )
+            tool_count = (
+                len(self._servers[server_name].tools)
+                if connected
+                else 0
+            )
+            last_connect_error = rec.last_connect_error
+            last_tool_error = rec.last_tool_error
+            last_tool_ms = rec.last_tool_ms
+            last_tool_name = rec.last_tool_name
+            last_tool_at = rec.last_tool_at
+            last_disconnect = rec.last_disconnect_reason
+            tool_calls_err = rec.tool_calls_err
+
+        hints = _preflight_hints(server_name, config) if config else []
+
+        if connecting:
+            status: MCPHealthStatus = "connecting"
+        elif connected:
+            if last_tool_error and tool_calls_err > 0:
+                status = "warn"
+            elif last_tool_ms is not None and last_tool_ms >= _MCP_SLOW_TOOL_MS:
+                status = "warn"
+            else:
+                status = "live"
+        elif last_connect_error:
+            status = "failed"
+        elif hints:
+            status = "warn"
+        else:
+            status = "idle"
+
+        detail_parts: list[str] = []
+        if last_connect_error:
+            detail_parts.append(f"connect failed: {last_connect_error}")
+        if last_disconnect and not connected:
+            detail_parts.append(f"disconnected: {last_disconnect}")
+        if last_tool_error:
+            detail_parts.append(f"last tool error: {last_tool_error}")
+        elif last_tool_name and last_tool_ms is not None and connected:
+            detail_parts.append(
+                f"last tool {last_tool_name} ({last_tool_ms:.0f}ms)"
+            )
+        if hints:
+            detail_parts.append(" · ".join(hints))
+
+        summary = {
+            "live": f"live · {tool_count} tools",
+            "idle": "idle · not connected",
+            "connecting": "connecting…",
+            "failed": "connect failed",
+            "warn": "needs attention",
+        }[status]
+
+        return {
+            "status": status,
+            "summary": summary,
+            "detail": " · ".join(detail_parts) if detail_parts else "",
+            "hints": hints,
+            "connected": connected,
+            "tool_count": tool_count,
+            "last_connect_error": last_connect_error,
+        }
+
+    def health_counts(
+        self,
+        names: Iterable[str],
+        *,
+        connecting: set[str] | None = None,
+    ) -> dict[str, int]:
+        """Aggregate health states for a list of configured server names."""
+        connecting = connecting or set()
+        counts = {"live": 0, "idle": 0, "failed": 0, "warn": 0, "connecting": 0}
+        config = None
+        try:
+            from .config import get_config
+            config = get_config()
+        except Exception:
+            pass
+        for name in names:
+            if name in connecting:
+                counts["connecting"] += 1
+                continue
+            cfg = config.get_server(name) if config else None
+            h = self.get_server_health(name, cfg)
+            counts[h["status"]] = counts.get(h["status"], 0) + 1
+        return counts
 
     # ── tool schema management ───────────────────────────────────────────
 
@@ -303,6 +490,7 @@ class MCPRegistry:
                     state.cleanup()
                     if server_name in self._servers:
                         del self._servers[server_name]
+                self._record_connect_error(server_name, error)
                 self._log(f"failed to connect '{server_name}': {error}", "error")
                 return error
 
@@ -315,6 +503,7 @@ class MCPRegistry:
                 state.connected = True
 
             self._register_tools(server_name, tools)
+            self._record_connect_ok(server_name)
             self._log(f"connected '{server_name}' ({len(tools)} tools)", "info")
             return None
 
@@ -327,6 +516,7 @@ class MCPRegistry:
                     state.error = error
                     state.cleanup()
                     del self._servers[server_name]
+            self._record_connect_error(server_name, error)
             self._log(f"error connecting '{server_name}': {error}", "error")
             return error
 
@@ -390,6 +580,7 @@ class MCPRegistry:
             pass
         except Exception as e:
             self._log(f"connection lost for '{server_name}': {e}", "warn")
+            self._record_runtime_error(server_name, f"{type(e).__name__}: {e}")
         finally:
             # Cleanup
             try:
@@ -451,6 +642,7 @@ class MCPRegistry:
             pass
         except Exception as e:
             self._log(f"SSE connection lost for '{server_name}': {e}", "warn")
+            self._record_runtime_error(server_name, f"{type(e).__name__}: {e}")
         finally:
             try:
                 await session.__aexit__(None, None, None)
@@ -493,6 +685,7 @@ class MCPRegistry:
                 pass
 
         self._unregister_tools(server_name, tools)
+        self._record_disconnect(server_name)
         self._log(f"disconnected '{server_name}'", "info")
         return None
 
@@ -513,16 +706,49 @@ class MCPRegistry:
             session = state.session
 
         loop = _get_loop()
+        t0 = time.monotonic()
         try:
             result = loop.run_coro(
                 session.call_tool(tool_name, arguments=args),
                 timeout=120,
             )
-            return self._format_tool_result(result)
+            out = self._format_tool_result(result)
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            is_err = out.startswith("ERROR:")
+            with self._lock:
+                rec = self._health_record(server_name)
+                rec.last_tool_at = time.monotonic()
+                rec.last_tool_ms = elapsed_ms
+                rec.last_tool_name = tool_name
+                if is_err:
+                    rec.last_tool_error = out[:240]
+                    rec.tool_calls_err += 1
+                else:
+                    rec.last_tool_error = None
+                    rec.tool_calls_ok += 1
+            return out
         except TimeoutError:
-            return f"ERROR: MCP tool '{server_name}/{tool_name}' timed out (120s)"
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            err = f"ERROR: MCP tool '{server_name}/{tool_name}' timed out (120s)"
+            with self._lock:
+                rec = self._health_record(server_name)
+                rec.last_tool_at = time.monotonic()
+                rec.last_tool_ms = elapsed_ms
+                rec.last_tool_name = tool_name
+                rec.last_tool_error = err
+                rec.tool_calls_err += 1
+            return err
         except Exception as e:
-            return f"ERROR: {type(e).__name__}: {e}"
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            err = f"ERROR: {type(e).__name__}: {e}"
+            with self._lock:
+                rec = self._health_record(server_name)
+                rec.last_tool_at = time.monotonic()
+                rec.last_tool_ms = elapsed_ms
+                rec.last_tool_name = tool_name
+                rec.last_tool_error = err
+                rec.tool_calls_err += 1
+            return err
 
     def _format_tool_result(self, result) -> str:
         """Format an MCP CallToolResult into a string."""

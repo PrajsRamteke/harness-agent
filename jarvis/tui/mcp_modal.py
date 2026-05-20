@@ -79,15 +79,27 @@ def _row_label(
     *,
     connecting: bool = False,
     spinner: str = "⠋",
+    health: dict | None = None,
 ) -> Text:
-    connected = mcp_registry.is_connected(name)
-    tool_count = len(mcp_registry.get_server_tools(name))
-    if connecting:
+    health = health or mcp_registry.get_server_health(name, cfg, connecting=connecting)
+    status = health.get("status", "idle")
+    tool_count = health.get("tool_count", 0)
+
+    if connecting or status == "connecting":
         status_dot = (spinner, "bold yellow")
         status_word = (" connecting", "yellow")
-    elif connected:
+    elif status == "live":
         status_dot = ("●", "bold green")
         status_word = (f" live {tool_count}t", "green")
+    elif status == "failed":
+        status_dot = ("✗", "bold red")
+        status_word = (" failed", "red")
+    elif status == "warn":
+        status_dot = ("⚠", "bold yellow")
+        if health.get("connected"):
+            status_word = (f" warn {tool_count}t", "yellow")
+        else:
+            status_word = (" check", "yellow")
     else:
         status_dot = ("○", "dim")
         status_word = (" idle", "dim")
@@ -307,6 +319,12 @@ class MCPModalScreen(TuiModalScreen[None]):
     MCPModalScreen #mcp_status.ok { color: {ui.OK}; }
     MCPModalScreen #mcp_status.err { color: {ui.ERR}; }
     MCPModalScreen #mcp_status.connecting { color: {ui.WARN}; }
+    MCPModalScreen #mcp_health {
+        padding: 0 1;
+        margin-top: 1;
+        color: {ui.FG_MUTE};
+        min-height: 1;
+    }
     MCPModalScreen Input { margin-bottom: 1; }
     """
     )
@@ -344,6 +362,7 @@ class MCPModalScreen(TuiModalScreen[None]):
                 yield Static("", id="mcp_header")
                 yield Input(placeholder="filter…  (press / to focus)", id="mcp_filter")
                 yield OptionList(id="mcp_list")
+                yield Static("", id="mcp_health")
                 yield Static("", id="mcp_status")
                 yield Static(
                     f"[{ui.ACCENT_3}]space[/] toggle   [{ui.ACCENT_3}]g[/] global   "
@@ -364,6 +383,14 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._prev_scroll = None
         self._refresh_rows()
         self.query_one("#mcp_list", OptionList).focus()
+        self._refresh_health_detail()
+
+    def on_option_list_option_highlighted(
+        self, event: OptionList.OptionHighlighted
+    ) -> None:
+        if event.option_list.id != "mcp_list":
+            return
+        self._refresh_health_detail()
 
     def on_unmount(self) -> None:
         disable_mouse()
@@ -427,6 +454,59 @@ class MCPModalScreen(TuiModalScreen[None]):
                 connecting=True,
             )
 
+    def _health_color(self, status: str) -> str:
+        return {
+            "live": ui.OK,
+            "idle": ui.FG_MUTE,
+            "failed": ui.ERR,
+            "warn": ui.WARN,
+            "connecting": ui.WARN,
+        }.get(status, ui.FG_MUTE)
+
+    def _header_health_bits(self, names: list[str]) -> Text:
+        counts = mcp_registry.health_counts(names, connecting=self._connecting_names)
+        parts: list[tuple[str, str]] = []
+        if counts.get("live"):
+            parts.append((f"{counts['live']} live", "green"))
+        if counts.get("connecting"):
+            parts.append((f"{counts['connecting']} connecting", "yellow"))
+        if counts.get("failed"):
+            parts.append((f"{counts['failed']} failed", "red"))
+        if counts.get("warn"):
+            parts.append((f"{counts['warn']} warn", "yellow"))
+        if counts.get("idle"):
+            parts.append((f"{counts['idle']} idle", "dim"))
+        if not parts:
+            return Text("")
+        segs: list[tuple[str, str]] = [(" · ", "dim")]
+        for i, (label, style) in enumerate(parts):
+            if i:
+                segs.append((" · ", "dim"))
+            segs.append((label, style))
+        return Text.assemble(*segs)
+
+    def _refresh_health_detail(self) -> None:
+        name = self._selected_name()
+        try:
+            widget = self.query_one("#mcp_health", Static)
+        except Exception:
+            return
+        if not name:
+            widget.update("")
+            return
+        config = get_config()
+        cfg = config.get_server(name)
+        health = mcp_registry.get_server_health(
+            name, cfg, connecting=name in self._connecting_names
+        )
+        detail = health.get("detail") or health.get("summary", "")
+        hint = ""
+        if health["status"] == "failed":
+            hint = " — space to retry"
+        elif health["status"] == "warn" and health.get("hints"):
+            hint = " — fix hints then space to connect"
+        widget.update(Text(detail + hint, style=self._health_color(health["status"])))
+
     def _refresh_rows(self, keep_highlight: bool = True) -> None:
         """Re-read config and re-render the option list."""
         config = get_config()
@@ -451,16 +531,15 @@ class MCPModalScreen(TuiModalScreen[None]):
             scope_text = Text.assemble(
                 ("scope: ", "dim"),
                 ("◉ global on  ", "bold blue"),
-                (f"{len(servers)} servers · ", "dim"),
-                (f"{len(auto_connect)} auto · ", "dim"),
-                (f"{mcp_registry.tool_count()} tools live", "green"),
+                (f"{len(servers)} servers", "dim"),
+                self._header_health_bits(sorted(servers.keys())),
             )
         else:
             scope_text = Text.assemble(
                 ("scope: ", "dim"),
                 ("▣ project-only  ", "bold magenta"),
-                (f"{len(servers)} servers · ", "dim"),
-                (f"{mcp_registry.tool_count()} tools live", "green"),
+                (f"{len(servers)} servers", "dim"),
+                self._header_health_bits(sorted(servers.keys())),
                 ("  ", ""),
                 ("(press g to load Claude Code / OpenCode / Cursor / …)", "dim"),
             )
@@ -498,6 +577,10 @@ class MCPModalScreen(TuiModalScreen[None]):
             source = config.get_source(name) or scope
             row_id = f"srv::{name}"
             self._row_ids.append(name)
+            is_connecting = name in self._connecting_names
+            health = mcp_registry.get_server_health(
+                name, cfg, connecting=is_connecting
+            )
             opts.add_option(
                 Option(
                     _row_label(
@@ -506,8 +589,9 @@ class MCPModalScreen(TuiModalScreen[None]):
                         scope,
                         source,
                         name in auto_connect,
-                        connecting=name in self._connecting_names,
+                        connecting=is_connecting,
                         spinner=spinner,
+                        health=health,
                     ),
                     id=row_id,
                 )
@@ -517,6 +601,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             opts.highlighted = prev_idx
         elif self._row_ids:
             opts.highlighted = 0
+        self._refresh_health_detail()
 
     def _selected_name(self) -> str | None:
         opts = self.query_one("#mcp_list", OptionList)
@@ -601,6 +686,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._set_status(f"connected {name} — {tools} tools", ok=True)
         invalidate_mcp_prompt_cache()
         self._refresh_rows()
+        self._refresh_health_detail()
 
     def _begin_global_connect(self, pending: list[str], server_count: int) -> None:
         self._connecting_names = set(pending)
