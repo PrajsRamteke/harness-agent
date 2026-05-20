@@ -37,9 +37,14 @@ _THEMES = [
 
 class ThemePickerScreen(TuiModalScreen[str | None]):
     DEFAULT_CSS = get_modal_chrome_css() + """
-    ThemePickerScreen #modal { width: 56%; max-width: 80; max-height: 50%; }
-    ThemePickerScreen OptionList { height: 16; }
+    ThemePickerScreen #modal { width: 56%; max-width: 80; max-height: 80%; }
+    ThemePickerScreen OptionList { height: 14; }
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._original_theme = state.theme
+        self._selected_theme = state.theme
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=True),
@@ -53,7 +58,8 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
                 yield Static("✦  Theme", id="modal_title")
                 yield OptionList(id="theme_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] apply   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↑↓[/] preview   [{ui.ACCENT_3}]↵[/] save   "
+                    f"[{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -61,25 +67,56 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
         enable_mouse()
         opts = self.query_one("#theme_list", OptionList)
         active_idx = 0
-        accent_color = ui.ACCENT_2  # current theme's accent-2
-        ok_color = ui.OK
         for i, (name, desc) in enumerate(_THEMES):
             is_active = name == state.theme
             marker = "● " if is_active else "  "
-            row = Text.assemble(
-                (marker, f"bold {ok_color}"),
-                (f"{name:<10s}", f"bold {accent_color}" if is_active else accent_color),
-                ("  ", ""),
-                (desc, "#8b949e"),
-            )
+            row = self._format_row(name, desc, is_active=is_active)
             opts.add_option(Option(row, id=name))
             if is_active:
                 active_idx = i
         opts.highlighted = active_idx
+        self._selected_theme = state.theme
         opts.focus()
 
     def on_unmount(self) -> None:
         disable_mouse()
+
+    def _format_row(self, name: str, desc: str, *, is_active: bool) -> Text:
+        marker = "● " if is_active else "  "
+        return Text.assemble(
+            (marker, f"bold {ui.OK}"),
+            (f"{name:<10s}", f"bold {ui.ACCENT_2}" if is_active else ui.ACCENT_2),
+            ("  ", ""),
+            (desc, ui.FG_MUTE),
+        )
+
+    def _refresh_rows(self) -> None:
+        opts = self.query_one("#theme_list", OptionList)
+        highlighted = opts.highlighted
+        scroll_y = opts.scroll_y
+        opts.clear_options()
+        for name, desc in _THEMES:
+            opts.add_option(
+                Option(self._format_row(name, desc, is_active=name == self._selected_theme), id=name)
+            )
+        if opts.option_count:
+            opts.highlighted = highlighted if highlighted is not None else 0
+            opts.scroll_y = scroll_y
+            opts.scroll_to_highlight()
+            opts.focus()
+
+    def _preview_theme(self, name: str | None) -> None:
+        if not name or name == self._selected_theme:
+            return
+        self._selected_theme = name
+        try:
+            self.app._apply_theme_runtime(name, rebuild_transcript=False)
+        except Exception:
+            ui.set_theme(name)
+        self._refresh_rows()
+
+    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        self._preview_theme(str(event.option.id) if event.option.id else None)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         name = event.option.id
@@ -94,6 +131,8 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
             self.dismiss(None)
 
     def action_cancel(self) -> None:
+        if self._selected_theme != self._original_theme:
+            self._preview_theme(self._original_theme)
         self.dismiss(None)
 
     def action_cursor_down(self) -> None:

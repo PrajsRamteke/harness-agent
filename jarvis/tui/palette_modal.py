@@ -12,6 +12,7 @@ from rich.text import Text
 from .commands_catalog import filter_commands
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 class CommandPaletteScreen(TuiModalScreen[str | None]):
@@ -51,7 +52,8 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
                 yield Input(value=self._initial, placeholder="type to filter…", id="palette_input")
                 yield OptionList(id="palette_options")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] run   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↑↓[/] navigate   [{ui.ACCENT_3}]↵[/] run   "
+                    f"[{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -78,9 +80,9 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
         for cmd, desc in matches[:60]:
             label = Text.assemble(
                 ("  ", ""),
-                (f"{cmd:<{ROW_NAME_WIDTH}s}", "bold #79c0ff"),
+                (f"{cmd:<{ROW_NAME_WIDTH}s}", f"bold {ui.ACCENT}"),
                 ("  ", ""),
-                (desc, "#8b949e"),
+                (desc, ui.FG_MUTE),
             )
             opts.add_option(Option(label, id=cmd))
         if opts.option_count:

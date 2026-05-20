@@ -1247,48 +1247,60 @@ class JarvisTUI(App):
             self._set_status("ready")
         self.push_screen(SettingsModalScreen(), after)
 
+    def _apply_theme_runtime(self, name: str, *, rebuild_transcript: bool) -> None:
+        """Apply a TUI theme immediately without requiring a restart."""
+        from . import theme as _tui_theme
+        from .modal_chrome import reload_chrome_css
+        import inspect
+
+        _tui_theme.set_theme(name)
+        reload_chrome_css()
+        if name in state.THEMES:
+            state.theme = name
+            state.theme_colors = dict(state.THEMES[name])
+
+        try:
+            prompt = self.query_one("#prompt", PromptArea)
+            from .prompt_highlight import PROMPT_THEME_NAME, build_prompt_text_area_theme
+
+            prompt.register_theme(build_prompt_text_area_theme())
+            prompt._set_theme(PROMPT_THEME_NAME)
+            prompt.refresh_file_ref_highlights()
+        except Exception:
+            pass
+
+        # Rebuild the app stylesheet with both global and modal chrome CSS so
+        # the currently open /theme modal previews the color change instantly.
+        app_path = ""
+        try:
+            app_path = inspect.getfile(self.__class__)
+        except (TypeError, OSError):
+            pass
+        read_from = (app_path, f"{self.__class__.__name__}.CSS")
+        self.stylesheet.add_source(
+            _tui_theme.GLOBAL_CSS + _tui_theme.MODAL_CSS,
+            read_from=read_from,
+            is_default_css=False,
+        )
+        self.stylesheet.reparse()
+        self.stylesheet.update(self)
+        self.refresh(layout=True)
+        try:
+            self.screen.refresh(layout=True)
+        except Exception:
+            pass
+
+        if rebuild_transcript:
+            self._rebuild_transcript()
+        else:
+            self._render_hintbar()
+            self._write_status_line(busy=self._busy and bool(self._activity_label))
+
     def _open_theme_modal(self):
         def after(name: object) -> None:
             if name and isinstance(name, str):
-                # Theme was selected — rebuild UI with new colors.
-                from . import theme as _tui_theme
-                from .modal_chrome import reload_chrome_css
-                import inspect
-
-                _tui_theme.set_theme(name)
-                reload_chrome_css()
-
-                try:
-                    prompt = self.query_one("#prompt", PromptArea)
-                    from .prompt_highlight import PROMPT_THEME_NAME, build_prompt_text_area_theme
-
-                    prompt.register_theme(build_prompt_text_area_theme())
-                    prompt._set_theme(PROMPT_THEME_NAME)
-                    prompt.refresh_file_ref_highlights()
-                except Exception:
-                    pass
-
-                # Rebuild the app's Textual stylesheet.
-                app_path = ""
-                try:
-                    app_path = inspect.getfile(self.__class__)
-                except (TypeError, OSError):
-                    pass
-                read_from = (app_path, f"{self.__class__.__name__}.CSS")
-                self.stylesheet.add_source(
-                    _tui_theme.GLOBAL_CSS, read_from=read_from, is_default_css=False
-                )
-                self.stylesheet.reparse()
-                self.stylesheet.update(self)
-                self.refresh()
-
-                # Re-render the welcome banner & any existing messages with new
-                # theme so the full display reflects the switch.
-                self._rebuild_transcript()
-
-                self._tui_console.print(
-                    f"[{_tui_theme.OK}]✓ switched to [bold]{name}[/] theme[/]"
-                )
+                self._apply_theme_runtime(name, rebuild_transcript=True)
+                self._tui_console.print(f"[{ui.OK}]✓ switched to [bold]{name}[/] theme[/]")
             self._set_status("ready")
         self.push_screen(ThemePickerScreen(), after)
 

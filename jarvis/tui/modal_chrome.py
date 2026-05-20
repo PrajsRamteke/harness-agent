@@ -52,9 +52,26 @@ def reload_chrome_css() -> None:
 
 
 class TuiModalScreen(ModalScreen[TDismiss]):
-    """Adds ``tui-modal-screen`` for shared chrome in ``TUI_MODAL_CHROME_CSS``."""
+    """Adds ``tui-modal-screen`` and refreshes shared chrome per instance.
+
+    Most modal classes build ``DEFAULT_CSS`` at import time by prefixing
+    ``TUI_MODAL_CHROME_CSS``. Theme changes happen later at runtime, so keep
+    only each subclass's modal-specific suffix and prepend the active theme's
+    chrome when a modal is opened.
+    """
+
+    __modal_css_suffix__: str | None = None
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        default_css = getattr(cls, "DEFAULT_CSS", "")
+        if isinstance(default_css, str) and default_css.startswith(TUI_MODAL_CHROME_CSS):
+            cls.__modal_css_suffix__ = default_css[len(TUI_MODAL_CHROME_CSS):]
 
     def __init__(self, *args: object, **kwargs: object) -> None:
+        suffix = getattr(type(self), "__modal_css_suffix__", None)
+        if suffix is not None:
+            type(self).DEFAULT_CSS = get_modal_chrome_css() + suffix
         super().__init__(*args, **kwargs)
         self.add_class("tui-modal-screen")
 
