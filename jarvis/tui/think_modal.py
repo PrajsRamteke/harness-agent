@@ -11,8 +11,9 @@ from rich.text import Text
 
 from ..constants import THINK_EFFORTS
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, active_marker, modal_key, primary_style
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 _DESCRIPTIONS = {
@@ -54,7 +55,7 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
                 yield Static("✦  Thinking Effort", id="modal_title")
                 yield OptionList(id="think_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] select   [#f0b3ff]esc[/] cancel",
+                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} select   {modal_key('esc')} cancel",
                     id="modal_hint",
                 )
 
@@ -67,12 +68,12 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
             selected = (
                 state.think_mode and effort == state.think_effort
             ) or (not state.think_mode and effort == "none")
-            marker = "● " if selected else "  "
+            marker, marker_style = active_marker(selected)
             label = Text.assemble(
-                (marker, "bold #3fb950"),
-                (f"{effort:<9s}", "bold #79c0ff" if selected else "#79c0ff"),
+                (marker, marker_style),
+                (f"{effort:<9s}", primary_style(selected)),
                 ("  ", ""),
-                (_DESCRIPTIONS.get(effort, ""), "#8b949e"),
+                (_DESCRIPTIONS.get(effort, ""), ui.FG_MUTE),
             )
             opts.add_option(Option(label, id=effort))
         opts.highlighted = list(THINK_EFFORTS).index(

@@ -42,6 +42,7 @@ from ..constants.models import OAUTH_DEFAULT_EXPIRY
 from ..utils.io import _secure_write
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 def _parse_code_input(raw: str, fallback_state: str) -> tuple[str, str]:
@@ -104,10 +105,10 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
         margin-bottom: 1;
     }
     LoginModalScreen #login_url {
-        background: #0d1117;
-        color: #58a6ff;
+        background: {ui.BG_1};
+        color: {ui.ACCENT};
         padding: 0 1;
-        border: round #21262d;
+        border: round {ui.SEP};
         margin-bottom: 1;
     }
     LoginModalScreen #login_prompt {
@@ -117,10 +118,10 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
     LoginModalScreen #login_status {
         padding: 0 1;
         margin-top: 1;
-        color: #8b949e;
+        color: {ui.FG_MUTE};
     }
-    LoginModalScreen #login_status.ok  { color: #3fb950; }
-    LoginModalScreen #login_status.err { color: #f85149; }
+    LoginModalScreen #login_status.ok  { color: {ui.OK}; }
+    LoginModalScreen #login_status.err { color: {ui.ERR}; }
     """
     )
 
@@ -144,13 +145,13 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⬟  Log In   [#6e7681]Claude Pro / Max OAuth[/]", id="modal_title")
+                yield Static(f"⬟  Log In   [{ui.FG_DIM}]Claude Pro / Max OAuth[/]", id="modal_title")
                 yield Static("", id="login_info")
                 yield Static("", id="login_url")
                 yield Static(
                     Text.from_markup(
                         "Paste the code shown after sign-in "
-                        "[dim](looks like[/] [cyan]abc123#xyz789[/][dim])[/]:"
+                        f"[dim](looks like[/] [{ui.ACCENT}]abc123#xyz789[/][dim])[/]:"
                     ),
                     id="login_prompt",
                 )
@@ -161,8 +162,8 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
                 )
                 yield Static("", id="login_status")
                 yield Static(
-                    "[#f0b3ff]ctrl+s[/] submit   [#f0b3ff]ctrl+o[/] re-open browser   "
-                    "[#f0b3ff]ctrl+r[/] fresh code   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]ctrl+s[/] submit   [{ui.ACCENT_3}]ctrl+o[/] re-open browser   "
+                    f"[{ui.ACCENT_3}]ctrl+r[/] fresh code   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 

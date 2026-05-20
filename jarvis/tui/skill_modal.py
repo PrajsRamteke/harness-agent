@@ -24,8 +24,9 @@ from rich.text import Text
 
 from ..storage import skills as sk
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, _ellipsis
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, _ellipsis, modal_key, primary_style
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 class SkillBrowserScreen(TuiModalScreen[str | None]):
@@ -64,9 +65,9 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
                 yield Input(placeholder="search name or description…", id="skill_search")
                 yield OptionList(id="skill_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] preview   "
-                    "[#f0b3ff]/[/] search   [#f0b3ff]g[/] global   "
-                    "[#f0b3ff]r[/] refresh   [#f0b3ff]esc[/] close",
+                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} preview   "
+                    f"{modal_key('/')} search   {modal_key('g')} global   "
+                    f"{modal_key('r')} refresh   {modal_key('esc')} close",
                     id="modal_hint",
                 )
 
@@ -121,7 +122,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         if project:
             opts.add_option(Option(
                 Text("  PROJECT  ·  .harness/skills/  .skills/  .claude/skills/",
-                     style="bold #6e7681"),
+                     style=f"bold {ui.FG_DIM}"),
                 disabled=True,
             ))
             for s in project:
@@ -131,7 +132,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
             opts.add_option(Option(Text(" ", style="dim"), disabled=True))
             opts.add_option(Option(
                 Text("  GLOBAL   ·  ~/.harness/skills/  ~/.claude/skills/",
-                     style="bold #6e7681"),
+                     style=f"bold {ui.FG_DIM}"),
                 disabled=True,
             ))
             for s in glob:
@@ -143,7 +144,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
                 opts.add_option(Option(Text(" ", style="dim"), disabled=True))
                 opts.add_option(Option(
                     Text(f"  {gc} global skill{'s' if gc != 1 else ''} hidden — press 'g' to show",
-                         style="italic #6e7681"),
+                         style=f"italic {ui.FG_DIM}"),
                     disabled=True,
                 ))
 
@@ -156,7 +157,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         count = len(sk.discover_skills())
         try:
             self.query_one("#modal_title", Static).update(
-                f"⚙  Skills   [#6e7681]{count} available · scope: {scope} · LLM auto-invokes[/]"
+                f"⚙  Skills   [{ui.FG_DIM}]{count} available · scope: {scope} · LLM auto-invokes[/]"
             )
         except Exception:
             pass
@@ -230,7 +231,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
 
     def _notify(self, msg: str, error: bool = False) -> None:
         try:
-            color = "#f85149" if error else "#3fb950"
+            color = ui.ERR if error else ui.OK
             self.query_one("#modal_status", Static).update(f"[{color}]{msg}[/]")
         except Exception:
             pass
@@ -241,7 +242,7 @@ def _format_skill_row(skill: dict) -> Text:
     desc = skill.get("description", "")
     return Text.assemble(
         ("  ", ""),
-        (f"{name:<{ROW_NAME_WIDTH}s}", "bold #79c0ff"),
+        (f"{name:<{ROW_NAME_WIDTH}s}", primary_style(True)),
         ("  ", ""),
-        (_ellipsis(desc), "#8b949e"),
+        (_ellipsis(desc), ui.FG_MUTE),
     )

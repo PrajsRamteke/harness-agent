@@ -6,42 +6,22 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Static
 
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
-class ShellApprovalScreen(ModalScreen[str]):
+class ShellApprovalScreen(TuiModalScreen[str]):
     """User picks run (Y), deny (N), or always approve (A). Dismisses with y/n/a."""
 
-    DEFAULT_CSS = """
-    ShellApprovalScreen {
-        align: center middle;
-        background: rgba(0, 0, 0, 0.62);
-    }
-    ShellApprovalScreen > #sh_modal {
+    DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
+    ShellApprovalScreen #modal {
         width: 86%;
         max-width: 120;
         height: auto;
-        background: #161b22;
-        border: round #d29922;
-        padding: 1 2;
-    }
-    ShellApprovalScreen #sh_title {
-        color: #d29922;
-        text-style: bold;
-        padding: 0 1 1 1;
-        border-bottom: hkey #21262d;
-        margin-bottom: 1;
-        width: 100%;
-    }
-    ShellApprovalScreen #sh_hint {
-        color: #6e7681;
-        padding: 1 1 0 1;
-        border-top: hkey #21262d;
-        margin-top: 1;
-        width: 100%;
+        border: round {ui.WARN};
     }
     """
 
@@ -61,20 +41,20 @@ class ShellApprovalScreen(ModalScreen[str]):
         self._cmd = (cmd or "").replace("\n", " ")[:4000]
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="sh_modal"):
-            yield Static("⚡  Run Shell Command?", id="sh_title")
+        with Vertical(id="modal"):
+            yield Static("⚡  Run Shell Command?", id="modal_title")
             yield Static(
                 Panel(
                     Text(self._cmd, overflow="fold"),
                     title="sh",
-                    border_style="dim",
+                    border_style=ui.FG_DIM,
                     padding=(0, 1),
                 ),
             )
             yield Static(
-                "[#3fb950]y / ↵[/] run     [#f85149]n / esc[/] cancel     "
-                "[#d29922]a[/] always (this session)",
-                id="sh_hint",
+                f"[{ui.OK}]y / ↵[/] run     [{ui.ERR}]n / esc[/] cancel     "
+                f"[{ui.WARN}]a[/] always (this session)",
+                id="modal_hint",
             )
 
     def on_mount(self) -> None:

@@ -11,8 +11,9 @@ from rich.text import Text
 
 from ..constants import PROVIDERS, PROVIDER_LABELS, connected_providers
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, active_marker, modal_key, primary_style
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 _PROVIDER_DESCRIPTIONS = {
@@ -53,7 +54,7 @@ class ProviderPickerScreen(TuiModalScreen[str | None]):
                 yield Static("◎  Provider", id="modal_title")
                 yield OptionList(id="provider_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] select   [#f0b3ff]esc[/] cancel",
+                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} select   {modal_key('esc')} cancel",
                     id="modal_hint",
                 )
 
@@ -79,15 +80,15 @@ class ProviderPickerScreen(TuiModalScreen[str | None]):
             desc = _PROVIDER_DESCRIPTIONS.get(prov, "")
             is_active = prov == state.provider
             is_connected = prov in connected
-            marker = "● " if is_active else "  "
-            name_style = "bold #79c0ff" if is_active else "#79c0ff"
-            status = "  connected" if is_connected else "  [dim]not configured[/]"
+            marker, marker_style = active_marker(is_active)
+            status = "  connected" if is_connected else "  not configured"
+            status_style = ui.OK if is_connected else ui.FG_DIM
             row = Text.assemble(
-                (marker, "bold #3fb950"),
-                (f"{label:<14s}", name_style),
+                (marker, marker_style),
+                (f"{label:<14s}", primary_style(is_active)),
                 ("  ", ""),
-                (desc, "#8b949e"),
-                (status, ""),
+                (desc, ui.FG_MUTE),
+                (status, status_style),
             )
             opts.add_option(Option(row, id=prov))
         if opts.option_count:

@@ -8,6 +8,7 @@ from textual.widgets import Static
 
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 _SHORTCUTS = """
 [bold]Chat[/]
@@ -52,7 +53,7 @@ class ShortcutsHelpScreen(TuiModalScreen[None]):
         height: 1fr;
         min-height: 14;
         margin-top: 1;
-        border: round #2a323d;
+        border: round {ui.BORDER};
         padding: 0 1;
     }
     ShortcutsHelpScreen #shortcuts_body {
@@ -74,7 +75,7 @@ class ShortcutsHelpScreen(TuiModalScreen[None]):
                 with ScrollableContainer():
                     yield Static(_SHORTCUTS.strip(), id="shortcuts_body", markup=True)
                 yield Static(
-                    "[#f0b3ff]esc[/] or [#f0b3ff]?[/] close",
+                    f"[{ui.ACCENT_3}]esc[/] or [{ui.ACCENT_3}]?[/] close",
                     id="modal_hint",
                 )
 

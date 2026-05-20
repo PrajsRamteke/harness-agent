@@ -16,6 +16,7 @@ from ..repl.tool_display import viewer_text
 from ..repl.tool_output_backfill import build_inspector_entries
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 def _status_glyph(status: str | None) -> str:
@@ -86,7 +87,7 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
         height: 1fr;
         min-height: 12;
         margin-top: 1;
-        border: round #2a323d;
+        border: round {ui.BORDER};
         padding: 0 1;
         scrollbar-size-vertical: 1;
     }
@@ -118,8 +119,8 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
                     auto_scroll=False,
                 )
                 yield Static(
-                    f"[#f0b3ff]↑↓[/] pick   [#f0b3ff]tab[/] scroll output   "
-                    f"[#f0b3ff]v[/] trace:{trace}   [#f0b3ff]esc[/] close",
+                    f"[{ui.ACCENT_3}]↑↓[/] pick   [{ui.ACCENT_3}]tab[/] scroll output   "
+                    f"[{ui.ACCENT_3}]v[/] trace:{trace}   [{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -199,8 +200,8 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
         mode = "on" if state.show_internal else "off"
         hint = self.query_one("#modal_hint", Static)
         hint.update(
-            f"[#f0b3ff]↑↓[/] pick   [#f0b3ff]tab[/] scroll output   "
-            f"[#f0b3ff]v[/] trace:{mode}   [#f0b3ff]esc[/] close"
+            f"[{ui.ACCENT_3}]↑↓[/] pick   [{ui.ACCENT_3}]tab[/] scroll output   "
+            f"[{ui.ACCENT_3}]v[/] trace:{mode}   [{ui.ACCENT_3}]esc[/] close"
         )
         status = self.query_one("#modal_status", Static)
         if self.app._busy:

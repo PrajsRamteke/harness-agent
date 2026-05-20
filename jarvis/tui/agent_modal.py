@@ -32,8 +32,17 @@ from rich.text import Text
 from ..storage import agents as ag
 from ..commands import agent as agent_cmd
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, _ellipsis
+from .modal_chrome import (
+    TUI_MODAL_CHROME_CSS,
+    TuiModalScreen,
+    ROW_NAME_WIDTH,
+    _ellipsis,
+    active_marker,
+    modal_key,
+    primary_style,
+)
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 _OFF_ID = "__off__"
@@ -55,7 +64,7 @@ class _NewAgentScreen(TuiModalScreen[tuple[str, str] | None]):
     }
     _NewAgentScreen #newagent_name_label,
     _NewAgentScreen #newagent_desc_label {
-        color: #8b949e;
+        color: {ui.FG_MUTE};
         padding: 0 1;
     }
     _NewAgentScreen #newagent_desc_label { margin-top: 1; }
@@ -72,21 +81,21 @@ class _NewAgentScreen(TuiModalScreen[tuple[str, str] | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static(
-                    f"➕  New Agent   [#6e7681]writes to {self._scope} scope[/]",
+                    f"➕  New Agent   [{ui.FG_DIM}]writes to {self._scope} scope[/]",
                     id="modal_title",
                 )
                 yield Static(
-                    "Name  [#6e7681](lowercase-kebab — e.g. python-debugger)[/]",
+                    f"Name  [{ui.FG_DIM}](lowercase-kebab — e.g. python-debugger)[/]",
                     id="newagent_name_label",
                 )
                 yield Input(placeholder="agent-name", id="newagent_name")
                 yield Static(
-                    "Description  [#6e7681](one line)[/]",
+                    f"Description  [{ui.FG_DIM}](one line)[/]",
                     id="newagent_desc_label",
                 )
                 yield Input(placeholder="what this agent does", id="newagent_desc")
                 yield Static(
-                    "[#f0b3ff]↵[/] on description to create   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↵[/] on description to create   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -154,10 +163,10 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
                 yield Static("", id="modal_status")
                 yield OptionList(id="agent_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] nav   [#f0b3ff]↵[/] activate   [#f0b3ff]o[/] default   "
-                    "[#f0b3ff]n[/] new   [#f0b3ff]e[/] edit   [#f0b3ff]p[/] preview   "
-                    "[#f0b3ff]g[/] global   [#f0b3ff]s[/] scope   [#f0b3ff]r[/] refresh   "
-                    "[#f0b3ff]esc[/] close",
+                    f"{modal_key('↑↓')} nav   {modal_key('↵')} activate   {modal_key('o')} default   "
+                    f"{modal_key('n')} new   {modal_key('e')} edit   {modal_key('p')} preview   "
+                    f"{modal_key('g')} global   {modal_key('s')} scope   {modal_key('r')} refresh   "
+                    f"{modal_key('esc')} close",
                     id="modal_hint",
                 )
 
@@ -186,13 +195,13 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         active = state.active_agent_name
 
         # "default" row (no agent → base system prompt)
+        marker, marker_style = active_marker(not active)
         off_text = Text.assemble(
-            ("● " if not active else "  ", "bold #3fb950"),
+            (marker, marker_style),
             ("    ", ""),  # icon slot — keeps alignment with rows that have one
-            (f"{'default':<{ROW_NAME_WIDTH}s}",
-             "bold #79c0ff" if not active else "#79c0ff"),
+            (f"{'default':<{ROW_NAME_WIDTH}s}", primary_style(not active)),
             ("  ", ""),
-            ("base system prompt only", "#8b949e"),
+            ("base system prompt only", ui.FG_MUTE),
         )
         opts.add_option(Option(off_text, id=_OFF_ID))
 
@@ -203,7 +212,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
                 Text(
                     "  no agents found — press 'n' to create one, "
                     "or drop files in .harness/agents/",
-                    style="italic #6e7681",
+                    style=f"italic {ui.FG_DIM}",
                 ),
                 disabled=True,
             ))
@@ -219,7 +228,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
             opts.add_option(Option(Text(" ", style="dim"), disabled=True))
             opts.add_option(Option(
                 Text("  PROJECT  ·  .harness/agents/  .claude/agents/",
-                     style="bold #6e7681"),
+                     style=f"bold {ui.FG_DIM}"),
                 disabled=True,
             ))
             for a in project:
@@ -229,7 +238,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
             opts.add_option(Option(Text(" ", style="dim"), disabled=True))
             opts.add_option(Option(
                 Text("  GLOBAL   ·  ~/.harness/agents/  ~/.claude/agents/",
-                     style="bold #6e7681"),
+                     style=f"bold {ui.FG_DIM}"),
                 disabled=True,
             ))
             for a in glob:
@@ -241,7 +250,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
                 opts.add_option(Option(Text(" ", style="dim"), disabled=True))
                 opts.add_option(Option(
                     Text(f"  {gc} global agent{'s' if gc != 1 else ''} hidden — press 'g' to show",
-                         style="italic #6e7681"),
+                         style=f"italic {ui.FG_DIM}"),
                     disabled=True,
                 ))
 
@@ -256,10 +265,10 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         active = state.active_agent_name or "default"
         try:
             self.query_one("#modal_title", Static).update(
-                f"⚙  Agents   [#6e7681]{count} available · scope: {scope}[/]"
+                f"⚙  Agents   [{ui.FG_DIM}]{count} available · scope: {scope}[/]"
             )
             self.query_one("#modal_status", Static).update(
-                f"active: [bold #79c0ff]{active}[/]   ·   new writes to: [bold #e6edf3]{new_scope}[/]"
+                f"active: [bold {ui.ACCENT}]{active}[/]   ·   new writes to: [bold {ui.FG}]{new_scope}[/]"
             )
         except Exception:
             pass
@@ -400,7 +409,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
 
     def _notify(self, msg: str, error: bool = False) -> None:
         try:
-            color = "#f85149" if error else "#8b949e"
+            color = ui.ERR if error else ui.FG_MUTE
             self.query_one("#modal_status", Static).update(f"[{color}]{msg}[/]")
         except Exception:
             pass
@@ -409,15 +418,15 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
 def _format_agent_row(agent: dict, active_name: str) -> Text:
     is_active = agent["name"] == active_name
     icon = (agent.get("icon") or "").strip()
-    color = (agent.get("color") or "").strip() or "#79c0ff"
-    marker = "● " if is_active else "  "
+    color = (agent.get("color") or "").strip() or ui.ACCENT
+    marker, marker_style = active_marker(is_active)
     icon_part = f"{icon}  " if icon else "    "
     name_style = f"bold {color}" if is_active else color
     desc = agent.get("description", "")
     return Text.assemble(
-        (marker, "bold #3fb950"),
+        (marker, marker_style),
         (icon_part, color),
         (f"{agent['name']:<{ROW_NAME_WIDTH}s}", name_style),
         ("  ", ""),
-        (_ellipsis(desc), "#8b949e"),
+        (_ellipsis(desc), ui.FG_MUTE),
     )

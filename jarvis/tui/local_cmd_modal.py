@@ -12,8 +12,9 @@ from textual.widgets.option_list import Option
 
 from rich.text import Text
 
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, modal_key, primary_style
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 # ─── local command catalog ───────────────────────────────────────────────
@@ -94,8 +95,8 @@ class LocalCmdModalScreen(TuiModalScreen[str | None]):
                 )
                 yield OptionList(id="local_options")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] nav   [#f0b3ff]/[/] search   "
-                    "[#f0b3ff]↵[/] run   [#f0b3ff]esc[/] close",
+                    f"{modal_key('↑↓')} nav   {modal_key('/')} search   "
+                    f"{modal_key('↵')} run   {modal_key('esc')} close",
                     id="modal_hint",
                 )
 
@@ -115,7 +116,7 @@ class LocalCmdModalScreen(TuiModalScreen[str | None]):
     def _update_status(self, msg: str = "") -> None:
         count = len(LOCAL_COMMANDS)
         try:
-            status = f"[#8b949e]{count} local command{'s' if count != 1 else ''}[/]"
+            status = f"[{ui.FG_MUTE}]{count} local command{'s' if count != 1 else ''}[/]"
             if msg:
                 status += f"  ·  {msg}"
             self.query_one("#modal_status", Static).update(status)
@@ -129,9 +130,9 @@ class LocalCmdModalScreen(TuiModalScreen[str | None]):
         for cmd_label, desc in matches:
             label = Text.assemble(
                 ("  ", ""),
-                (f"{cmd_label:<{ROW_NAME_WIDTH}s}", "bold #79c0ff"),
+                (f"{cmd_label:<{ROW_NAME_WIDTH}s}", primary_style(True)),
                 ("  ", ""),
-                (desc, "#8b949e"),
+                (desc, ui.FG_MUTE),
             )
             opts.add_option(Option(label, id=cmd_label))
         if opts.option_count:

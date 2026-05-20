@@ -45,6 +45,17 @@ def get_modal_chrome_css() -> str:
     return _theme.MODAL_CSS
 
 
+def _render_theme_placeholders(css: str) -> str:
+    """Replace ``{ui.TOKEN}`` placeholders in modal-specific CSS suffixes."""
+    for name in (
+        "BG_0", "BG_1", "BG_2", "BG_3", "BG_4",
+        "BORDER", "BORDER_FC", "FG", "FG_MUTE", "FG_DIM", "SEP",
+        "OK", "WARN", "ERR", "ACCENT", "ACCENT_2", "ACCENT_3",
+    ):
+        css = css.replace(f"{{ui.{name}}}", getattr(_theme, name))
+    return css
+
+
 def reload_chrome_css() -> None:
     """Re-read modal CSS from the current theme (call after ``set_theme``)."""
     global TUI_MODAL_CHROME_CSS
@@ -71,12 +82,34 @@ class TuiModalScreen(ModalScreen[TDismiss]):
     def __init__(self, *args: object, **kwargs: object) -> None:
         suffix = getattr(type(self), "__modal_css_suffix__", None)
         if suffix is not None:
-            type(self).DEFAULT_CSS = get_modal_chrome_css() + suffix
+            type(self).DEFAULT_CSS = get_modal_chrome_css() + _render_theme_placeholders(suffix)
         super().__init__(*args, **kwargs)
         self.add_class("tui-modal-screen")
 
 
 # ── Shared row formatters ─────────────────────────────────────────────────
+
+
+def modal_key(text: str) -> str:
+    """Return Rich markup for a themed modal shortcut key/hint token."""
+    return f"[{_theme.ACCENT_3}]{text}[/]"
+
+
+def active_marker(active: bool) -> tuple[str, str]:
+    """Return (text, style) for active row markers."""
+    if active:
+        return ("● ", f"bold {_theme.OK}")
+    return ("  ", "")
+
+
+def primary_style(active: bool = False) -> str:
+    """Return the themed primary row style."""
+    return f"bold {_theme.ACCENT}" if active else _theme.ACCENT
+
+
+def secondary_style(active: bool = False) -> str:
+    """Return the themed secondary row style."""
+    return f"bold {_theme.ACCENT_2}" if active else _theme.ACCENT_2
 
 
 def marker_for(active: bool) -> tuple[str, str]:
@@ -85,6 +118,4 @@ def marker_for(active: bool) -> tuple[str, str]:
     ``●`` for active vs. two-space placeholder so every row keeps the same
     two-column gutter regardless of state.
     """
-    if active:
-        return ("● ", f"bold {_theme.OK}")
-    return ("  ", "")
+    return active_marker(active)

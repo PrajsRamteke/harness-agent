@@ -17,8 +17,16 @@ from ..constants import (
     AUTH_API_KEY, AUTH_OAUTH,
 )
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import (
+    TUI_MODAL_CHROME_CSS,
+    TuiModalScreen,
+    active_marker,
+    modal_key,
+    primary_style,
+    secondary_style,
+)
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 class ModelPickerScreen(TuiModalScreen[str | None]):
@@ -56,8 +64,8 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                 yield Input(value="", placeholder="search models…", id="model_search")
                 yield OptionList(id="model_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] select   "
-                    "[#f0b3ff]/[/] search   [#f0b3ff]esc[/] cancel",
+                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} select   "
+                    f"{modal_key('/')} search   {modal_key('esc')} cancel",
                     id="modal_hint",
                 )
 
@@ -100,15 +108,14 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             if q and q not in m.lower() and q not in desc.lower() and q not in label_name.lower():
                 continue
             is_active = self._is_active(src, m)
-            marker = "● " if is_active else "  "
-            name_style = "bold #79c0ff" if is_active else "#79c0ff"
+            marker, marker_style = active_marker(is_active)
             label = Text.assemble(
-                (marker, "bold #3fb950"),
-                (f"{m:<40s}", name_style),
+                (marker, marker_style),
+                (f"{m:<40s}", primary_style(is_active)),
                 ("  ", ""),
-                (f"{label_name:<14s}", "#bc8cff"),
+                (f"{label_name:<14s}", secondary_style()),
                 ("  ", ""),
-                (desc[:60], "#8b949e"),
+                (desc[:60], ui.FG_MUTE),
             )
             opts.add_option(Option(label, id=model_option_id(src, m)))
             matched += 1

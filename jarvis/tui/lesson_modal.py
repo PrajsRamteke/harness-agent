@@ -22,13 +22,14 @@ from rich.text import Text
 from ..storage import lessons as ls
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 class _AddLessonScreen(TuiModalScreen[tuple[str, str, str] | None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
     _AddLessonScreen #modal { width: 72%; max-width: 110; max-height: 65%; }
     _AddLessonScreen #lab1, _AddLessonScreen #lab2, _AddLessonScreen #lab3 {
-        color: #8b949e;
+        color: {ui.FG_MUTE};
         padding: 0 1;
     }
     _AddLessonScreen #lab2, _AddLessonScreen #lab3 { margin-top: 1; }
@@ -39,14 +40,14 @@ class _AddLessonScreen(TuiModalScreen[tuple[str, str, str] | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static("➕  New Lesson", id="modal_title")
-                yield Static("Task  [#6e7681](what were you doing)[/]", id="lab1")
+                yield Static(f"Task  [{ui.FG_DIM}](what were you doing)[/]", id="lab1")
                 yield Input(placeholder="e.g. wiring Redux Saga with TypeScript", id="add_task")
-                yield Static("Lesson  [#6e7681](what you learned)[/]", id="lab2")
+                yield Static(f"Lesson  [{ui.FG_DIM}](what you learned)[/]", id="lab2")
                 yield Input(placeholder="e.g. always wrap dispatch in put()", id="add_lesson")
-                yield Static("Tags  [#6e7681](comma-separated, optional)[/]", id="lab3")
+                yield Static(f"Tags  [{ui.FG_DIM}](comma-separated, optional)[/]", id="lab3")
                 yield Input(placeholder="redux,saga,typescript", id="add_tags")
                 yield Static(
-                    "[#f0b3ff]↵[/] on tags to save   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↵[/] on tags to save   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -75,7 +76,7 @@ class _ConfirmClearLessonsScreen(TuiModalScreen[bool]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
     _ConfirmClearLessonsScreen #modal { width: 52%; max-width: 70; max-height: 32%; }
     _ConfirmClearLessonsScreen #confirm_prompt {
-        padding: 0 1; color: #e6edf3; margin-bottom: 1;
+        padding: 0 1; color: {ui.FG}; margin-bottom: 1;
     }
     """
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=True)]
@@ -85,12 +86,12 @@ class _ConfirmClearLessonsScreen(TuiModalScreen[bool]):
             with Vertical(id="modal"):
                 yield Static("⚠  Wipe All Lessons?", id="modal_title")
                 yield Static(
-                    "Type [bold #d29922]yes[/] to confirm.",
+                    f"Type [bold {ui.WARN}]yes[/] to confirm.",
                     id="confirm_prompt",
                 )
                 yield Input(placeholder="yes", id="confirm_input")
                 yield Static(
-                    "[#f0b3ff]↵[/] confirm   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↵[/] confirm   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -131,10 +132,10 @@ class LessonModalScreen(TuiModalScreen[None]):
                 yield Input(placeholder="search…  (esc clears, focuses list)", id="lesson_search")
                 yield OptionList(id="lesson_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] nav   [#f0b3ff]/[/] search   "
-                    "[#f0b3ff]a[/] add   [#f0b3ff]d[/] delete   "
-                    "[#f0b3ff]c[/] clear   [#f0b3ff]r[/] refresh   "
-                    "[#f0b3ff]esc[/] close",
+                    f"[{ui.ACCENT_3}]↑↓[/] nav   [{ui.ACCENT_3}]/[/] search   "
+                    f"[{ui.ACCENT_3}]a[/] add   [{ui.ACCENT_3}]d[/] delete   "
+                    f"[{ui.ACCENT_3}]c[/] clear   [{ui.ACCENT_3}]r[/] refresh   "
+                    f"[{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -153,7 +154,7 @@ class LessonModalScreen(TuiModalScreen[None]):
         if not rows:
             opts.add_option(Option(
                 Text("  no lessons yet — press 'a' to add one",
-                     style="italic #6e7681"),
+                     style=f"italic {ui.FG_DIM}"),
                 disabled=True,
             ))
         else:
@@ -163,18 +164,18 @@ class LessonModalScreen(TuiModalScreen[None]):
                     tag_part = f"   [{', '.join(r['tags'])}]"
                 row = Text.assemble(
                     ("  ", ""),
-                    (f"#{r['id']:<5d}", "#6e7681"),
-                    (f"  ×{r.get('hits', 0):<3d}", "#8b949e"),
+                    (f"#{r['id']:<5d}", ui.FG_DIM),
+                    (f"  ×{r.get('hits', 0):<3d}", ui.FG_MUTE),
                     ("  ", ""),
-                    (_ellipsis(r["task"], 28), "bold #e6edf3"),
-                    ("  → ", "#6e7681"),
-                    (_ellipsis(r["lesson"], 50), "#e6edf3"),
-                    (_ellipsis(tag_part, 25), "#bc8cff"),
+                    (_ellipsis(r["task"], 28), f"bold {ui.FG}"),
+                    ("  → ", ui.FG_DIM),
+                    (_ellipsis(r["lesson"], 50), ui.FG),
+                    (_ellipsis(tag_part, 25), ui.ACCENT_2),
                 )
                 opts.add_option(Option(row, id=f"lesson:{r['id']}"))
         try:
             self.query_one("#modal_title", Static).update(
-                f"≡  Lessons   [#6e7681]{len(rows)} entr{'ies' if len(rows) != 1 else 'y'}[/]"
+                f"≡  Lessons   [{ui.FG_DIM}]{len(rows)} entr{'ies' if len(rows) != 1 else 'y'}[/]"
             )
         except Exception:
             pass
@@ -182,7 +183,7 @@ class LessonModalScreen(TuiModalScreen[None]):
 
     def _notify(self, msg: str, error: bool = False) -> None:
         try:
-            color = "#f85149" if error else "#3fb950"
+            color = ui.ERR if error else ui.OK
             self.query_one("#modal_status", Static).update(f"[{color}]{msg}[/]")
         except Exception:
             pass

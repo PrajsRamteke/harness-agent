@@ -9,6 +9,7 @@ from textual.widgets import Input, Static
 
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 class TextInputScreen(TuiModalScreen[str | None]):
@@ -25,7 +26,7 @@ class TextInputScreen(TuiModalScreen[str | None]):
         max-width: 120;
     }
     TextInputScreen #modal_body {
-        color: #c9d1d9;
+        color: {ui.FG};
         padding: 0 1;
         margin-bottom: 1;
     }
@@ -61,7 +62,7 @@ class TextInputScreen(TuiModalScreen[str | None]):
                     id="text_input",
                 )
                 yield Static(
-                    "[#f0b3ff]↵[/] submit   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↵[/] submit   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 

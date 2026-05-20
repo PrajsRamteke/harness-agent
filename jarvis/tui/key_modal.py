@@ -41,6 +41,7 @@ from ..utils.io import _secure_write
 from .. import state
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 from .text_input_modal import TextInputScreen
 
 
@@ -127,15 +128,15 @@ def _provider_from_id(oid: str) -> str | None:
 def _format_row(info: dict, is_current_provider: bool) -> Text:
     """Build a rich Text row for the key list."""
     marker = "● " if is_current_provider else "  "
-    marker_style = "bold #3fb950" if is_current_provider else "#6e7681"
-    label_style = "bold #79c0ff" if is_current_provider else "#79c0ff"
+    marker_style = f"bold {ui.OK}" if is_current_provider else ui.FG_DIM
+    label_style = f"bold {ui.ACCENT}" if is_current_provider else ui.ACCENT
 
     source_text = info["source_text"]
     source_style = {
-        "env": "#e3b341",
-        "file": "#58a6ff",
-        "none": "#6e7681",
-    }.get(info["source"], "#6e7681")
+        "env": ui.WARN,
+        "file": ui.ACCENT,
+        "none": ui.FG_DIM,
+    }.get(info["source"], ui.FG_DIM)
 
     suffix = info["suffix"]
     suffix_part = f"{'…' if suffix else ''}{suffix}" if suffix else "—"
@@ -146,7 +147,7 @@ def _format_row(info: dict, is_current_provider: bool) -> Text:
         (f"{info['label']:<16s}", label_style),
         (source_text, source_style),
         ("  ", ""),
-        (suffix_part, "#6e7681"),
+        (suffix_part, ui.FG_DIM),
     )
 
 
@@ -180,9 +181,9 @@ class _ConfirmDeleteScreen(TuiModalScreen[bool]):
                     id="modal_title",
                 )
                 yield Static(
-                    f"[#8b949e]This will remove:[/]\n"
-                    f"[#e6edf3]{self._file_name}[/]\n\n"
-                    f"[#f0b3ff]y[/] yes   [#f0b3ff]n[/] no   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.FG_MUTE}]This will remove:[/]\n"
+                    f"[{ui.FG}]{self._file_name}[/]\n\n"
+                    f"[{ui.ACCENT_3}]y[/] yes   [{ui.ACCENT_3}]n[/] no   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -225,9 +226,9 @@ class KeyModalScreen(TuiModalScreen[None]):
                 yield Static("", id="modal_status")
                 yield OptionList(id="key_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] nav   [#f0b3ff]↵/e[/] edit   "
-                    "[#f0b3ff]d[/] delete   [#f0b3ff]a[/] add   "
-                    "[#f0b3ff]esc[/] close",
+                    f"[{ui.ACCENT_3}]↑↓[/] nav   [{ui.ACCENT_3}]↵/e[/] edit   "
+                    f"[{ui.ACCENT_3}]d[/] delete   [{ui.ACCENT_3}]a[/] add   "
+                    f"[{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -261,7 +262,7 @@ class KeyModalScreen(TuiModalScreen[None]):
         total = len(_KEY_DEFS)
         try:
             self.query_one("#modal_title", Static).update(
-                f"⬟  API Keys   [#6e7681]{total} providers · "
+                f"⬟  API Keys   [{ui.FG_DIM}]{total} providers · "
                 f"{configured} configured[/]"
             )
         except Exception:
@@ -288,7 +289,7 @@ class KeyModalScreen(TuiModalScreen[None]):
 
     def _notify(self, msg: str, error: bool = False) -> None:
         try:
-            color = "#f85149" if error else "#3fb950"
+            color = ui.ERR if error else ui.OK
             self.query_one("#modal_status", Static).update(f"[{color}]{msg}[/]")
         except Exception:
             pass
@@ -330,7 +331,7 @@ class KeyModalScreen(TuiModalScreen[None]):
         title = f"✎  Edit {info['label']} API Key"
         body = (
             f"Paste your new {info['label']} API key.\n"
-            f"Saved to: [#58a6ff]{info['file_path']}[/] (chmod 600)"
+            f"Saved to: [{ui.ACCENT}]{info['file_path']}[/] (chmod 600)"
         )
         # Pre-fill with current value if it exists
         current = ""
@@ -420,7 +421,7 @@ class KeyModalScreen(TuiModalScreen[None]):
         title = f"➕  Add {info['label']} API Key"
         body = (
             f"Paste your {info['label']} API key.\n"
-            f"Saved to: [#58a6ff]{info['file_path']}[/] (chmod 600)"
+            f"Saved to: [{ui.ACCENT}]{info['file_path']}[/] (chmod 600)"
         )
 
         self.app.push_screen(

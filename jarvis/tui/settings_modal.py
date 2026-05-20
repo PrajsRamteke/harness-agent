@@ -27,6 +27,7 @@ from ..storage.settings import get_settings, SETTINGS_FILE, DEFAULTS
 from .. import state
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 _DESCRIPTIONS: dict[str, str] = {
@@ -69,7 +70,7 @@ def _fmt_value(v: Any) -> str:
 class _EditValueScreen(TuiModalScreen[str | None]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
     _EditValueScreen #modal { width: 62%; max-width: 90; max-height: 42%; }
-    _EditValueScreen #edit_hint { padding: 0 1; color: #8b949e; margin-bottom: 1; }
+    _EditValueScreen #edit_hint { padding: 0 1; color: {ui.FG_MUTE}; margin-bottom: 1; }
     """
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=True)]
 
@@ -82,15 +83,15 @@ class _EditValueScreen(TuiModalScreen[str | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static(
-                    f"✎  Set   [bold #79c0ff]{self._key}[/]",
+                    f"✎  Set   [bold {ui.ACCENT}]{self._key}[/]",
                     id="modal_title",
                 )
                 hint = _DESCRIPTIONS.get(self._key, "")
                 if hint:
-                    yield Static(f"[#8b949e]{hint}[/]", id="edit_hint")
+                    yield Static(f"[{ui.FG_MUTE}]{hint}[/]", id="edit_hint")
                 yield Input(value=_fmt_value(self._current), id="value_input")
                 yield Static(
-                    "[#f0b3ff]↵[/] save   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↵[/] save   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -137,10 +138,10 @@ class SettingsModalScreen(TuiModalScreen[None]):
                 yield Static("", id="modal_status")
                 yield OptionList(id="settings_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] nav   [#f0b3ff]↵/e[/] edit   "
-                    "[#f0b3ff]r[/] reset   [#f0b3ff]R[/] reload   "
-                    "[#f0b3ff]p[/] path   [#f0b3ff]o[/] $EDITOR   "
-                    "[#f0b3ff]esc[/] close",
+                    f"[{ui.ACCENT_3}]↑↓[/] nav   [{ui.ACCENT_3}]↵/e[/] edit   "
+                    f"[{ui.ACCENT_3}]r[/] reset   [{ui.ACCENT_3}]R[/] reload   "
+                    f"[{ui.ACCENT_3}]p[/] path   [{ui.ACCENT_3}]o[/] $EDITOR   "
+                    f"[{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -163,29 +164,29 @@ class SettingsModalScreen(TuiModalScreen[None]):
             is_override = path in overrides
             default_val = defaults_flat.get(path, "")
             same_as_default = value == default_val
-            key_style = "bold #79c0ff" if is_override else "#79c0ff"
+            key_style = f"bold {ui.ACCENT}" if is_override else ui.ACCENT
             value_style = (
-                "bold #3fb950" if isinstance(value, bool) and value
-                else "bold #f85149" if isinstance(value, bool)
-                else "italic #6e7681" if (isinstance(value, str) and not value)
-                else "#e6edf3"
+                f"bold {ui.OK}" if isinstance(value, bool) and value
+                else f"bold {ui.ERR}" if isinstance(value, bool)
+                else f"italic {ui.FG_DIM}" if (isinstance(value, str) and not value)
+                else ui.FG
             )
             tail = (
-                "  [#6e7681](default)[/]" if same_as_default
-                else f"  [#6e7681]· default {_fmt_value(default_val)}[/]"
+                f"  [{ui.FG_DIM}](default)[/]" if same_as_default
+                else f"  [{ui.FG_DIM}]· default {_fmt_value(default_val)}[/]"
             )
             desc = _DESCRIPTIONS.get(path, "")
             row = Text.from_markup(
                 f"  [{key_style}]{path:<22}[/]  "
                 f"[{value_style}]{_ellipsis(_fmt_value(value), 28):<28}[/]"
-                f"{_ellipsis(tail, 30)}  [#6e7681]{_ellipsis(desc, 45)}[/]"
+                f"{_ellipsis(tail, 30)}  [{ui.FG_DIM}]{_ellipsis(desc, 45)}[/]"
             )
             opts.add_option(Option(row, id=f"k:{path}"))
         try:
             n_over = len(overrides)
             n_keys = len(rows)
             self.query_one("#modal_title", Static).update(
-                f"⚙  Settings   [#6e7681]{n_keys} keys · {n_over} override{'s' if n_over != 1 else ''}[/]"
+                f"⚙  Settings   [{ui.FG_DIM}]{n_keys} keys · {n_over} override{'s' if n_over != 1 else ''}[/]"
             )
         except Exception:
             pass
@@ -193,7 +194,7 @@ class SettingsModalScreen(TuiModalScreen[None]):
 
     def _notify(self, msg: str, error: bool = False) -> None:
         try:
-            color = "#f85149" if error else "#3fb950"
+            color = ui.ERR if error else ui.OK
             self.query_one("#modal_status", Static).update(f"[{color}]{msg}[/]")
         except Exception:
             pass

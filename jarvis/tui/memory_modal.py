@@ -21,6 +21,7 @@ from rich.text import Text
 from ..storage import memory as mem
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 # ── add-fact sub-modal ────────────────────────────────────────────────────
@@ -38,7 +39,7 @@ class _AddFactScreen(TuiModalScreen[str | None]):
                 yield Static("➕  New Memory Fact", id="modal_title")
                 yield Input(placeholder="e.g. user prefers TypeScript over JavaScript", id="fact_text")
                 yield Static(
-                    "[#f0b3ff]↵[/] save   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↵[/] save   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -61,7 +62,7 @@ class _AddFactScreen(TuiModalScreen[str | None]):
 class _ConfirmClearScreen(TuiModalScreen[bool]):
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
     _ConfirmClearScreen #modal { width: 52%; max-width: 70; max-height: 32%; }
-    _ConfirmClearScreen #confirm_prompt { padding: 0 1; color: #e6edf3; margin-bottom: 1; }
+    _ConfirmClearScreen #confirm_prompt { padding: 0 1; color: {ui.FG}; margin-bottom: 1; }
     """
     BINDINGS = [Binding("escape", "cancel", "Cancel", show=True)]
 
@@ -70,12 +71,12 @@ class _ConfirmClearScreen(TuiModalScreen[bool]):
             with Vertical(id="modal"):
                 yield Static("⚠  Wipe All Memory?", id="modal_title")
                 yield Static(
-                    "Type [bold #d29922]yes[/] to confirm, anything else cancels.",
+                    f"Type [bold {ui.WARN}]yes[/] to confirm, anything else cancels.",
                     id="confirm_prompt",
                 )
                 yield Input(placeholder="yes", id="confirm_input")
                 yield Static(
-                    "[#f0b3ff]↵[/] confirm   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]↵[/] confirm   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -116,9 +117,9 @@ class MemoryModalScreen(TuiModalScreen[None]):
                 yield Static("", id="modal_status")
                 yield OptionList(id="fact_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]a[/] add   "
-                    "[#f0b3ff]d[/] delete   [#f0b3ff]c[/] clear   "
-                    "[#f0b3ff]r[/] refresh   [#f0b3ff]esc[/] close",
+                    f"[{ui.ACCENT_3}]↑↓[/] navigate   [{ui.ACCENT_3}]a[/] add   "
+                    f"[{ui.ACCENT_3}]d[/] delete   [{ui.ACCENT_3}]c[/] clear   "
+                    f"[{ui.ACCENT_3}]r[/] refresh   [{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -136,21 +137,21 @@ class MemoryModalScreen(TuiModalScreen[None]):
         if not facts:
             opts.add_option(Option(
                 Text("  memory is empty — press 'a' to add a fact",
-                     style="italic #6e7681"),
+                     style=f"italic {ui.FG_DIM}"),
                 disabled=True,
             ))
         else:
             for f in facts:
                 row = Text.assemble(
                     ("  ", ""),
-                    (f"#{f['id']:<5d}", "#6e7681"),
+                    (f"#{f['id']:<5d}", ui.FG_DIM),
                     ("  ", ""),
-                    (_ellipsis(f["text"], 78), "#e6edf3"),
+                    (_ellipsis(f["text"], 78), ui.FG),
                 )
                 opts.add_option(Option(row, id=f"fact:{f['id']}"))
         try:
             self.query_one("#modal_title", Static).update(
-                f"◆  Memory   [#6e7681]{len(facts)} fact{'s' if len(facts) != 1 else ''}[/]"
+                f"◆  Memory   [{ui.FG_DIM}]{len(facts)} fact{'s' if len(facts) != 1 else ''}[/]"
             )
         except Exception:
             pass
@@ -158,7 +159,7 @@ class MemoryModalScreen(TuiModalScreen[None]):
 
     def _notify(self, msg: str, error: bool = False) -> None:
         try:
-            color = "#f85149" if error else "#3fb950"
+            color = ui.ERR if error else ui.OK
             self.query_one("#modal_status", Static).update(f"[{color}]{msg}[/]")
         except Exception:
             pass

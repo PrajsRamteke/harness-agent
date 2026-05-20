@@ -35,6 +35,7 @@ from ..constants.providers import CODEX_DEFAULT_MODEL, CODEX_MODELS, PROVIDER_OP
 from ..utils.io import _secure_write
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import disable_mouse, enable_mouse
+from . import theme as ui
 
 
 def _explain_codex_error(status: int, body: object) -> str:
@@ -62,10 +63,10 @@ class CodexLoginModalScreen(TuiModalScreen[list[str] | None]):
     CodexLoginModalScreen #login_status {
         padding: 0 1;
         margin-top: 1;
-        color: #8b949e;
+        color: {ui.FG_MUTE};
     }
-    CodexLoginModalScreen #login_status.ok  { color: #3fb950; }
-    CodexLoginModalScreen #login_status.err { color: #f85149; }
+    CodexLoginModalScreen #login_status.ok  { color: {ui.OK}; }
+    CodexLoginModalScreen #login_status.err { color: {ui.ERR}; }
     """
     )
 
@@ -86,13 +87,13 @@ class CodexLoginModalScreen(TuiModalScreen[list[str] | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static(
-                    "⬟  Sign In   [#6e7681]OpenAI Codex · ChatGPT OAuth[/]",
+                    f"⬟  Sign In   [{ui.FG_DIM}]OpenAI Codex · ChatGPT OAuth[/]",
                     id="modal_title",
                 )
                 yield Static("", id="login_info")
                 yield Static("", id="login_status")
                 yield Static(
-                    "[#f0b3ff]ctrl+o[/] re-open browser   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]ctrl+o[/] re-open browser   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -114,7 +115,7 @@ class CodexLoginModalScreen(TuiModalScreen[list[str] | None]):
             Text.from_markup(
                 "Sign in with your [bold]ChatGPT / Codex[/] subscription. "
                 "Your browser will open; after approving, you'll be redirected to "
-                f"[cyan]localhost:{CODEX_OAUTH_CALLBACK_PORT}[/] automatically.\n"
+                f"[{ui.ACCENT}]localhost:{CODEX_OAUTH_CALLBACK_PORT}[/] automatically.\n"
             )
         )
         self._start_flow()

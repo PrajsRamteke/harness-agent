@@ -13,8 +13,16 @@ from ..storage.sessions import db_list_sessions, db_delete_session, db_load_sess
 from ..utils.time_fmt import _fmt_ts
 from ..repl.trim import estimate_session_tokens
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import (
+    TUI_MODAL_CHROME_CSS,
+    TuiModalScreen,
+    active_marker,
+    modal_key,
+    primary_style,
+    secondary_style,
+)
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 class SessionPickerScreen(TuiModalScreen[int | None]):
@@ -51,8 +59,8 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
                 yield Static("▤  Sessions", id="modal_title")
                 yield OptionList(id="session_list")
                 yield Static(
-                    "[#f0b3ff]↑↓[/] navigate   [#f0b3ff]↵[/] resume   "
-                    "[#f0b3ff]d[/] delete   [#f0b3ff]esc[/] cancel",
+                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} resume   "
+                    f"{modal_key('d')} delete   {modal_key('esc')} cancel",
                     id="modal_hint",
                 )
 
@@ -100,19 +108,19 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
                 continue
             self._loaded_ids.add(sid)
             is_active = sid == state.current_session_id
-            marker = "● " if is_active else "  "
+            marker, marker_style = active_marker(is_active)
             title = r["title"] or "(untitled)"
             label = Text.assemble(
-                (marker, "bold #3fb950"),
-                (f"#{sid:<5d}", "bold #79c0ff" if is_active else "#79c0ff"),
+                (marker, marker_style),
+                (f"#{sid:<5d}", primary_style(is_active)),
                 ("  ", ""),
-                (f"{title[:50]:<50s}", "#e6edf3"),
+                (f"{title[:50]:<50s}", ui.FG),
                 ("  ", ""),
-                (f"{r['msg_count']:>4d} msgs", "#8b949e"),
+                (f"{r['msg_count']:>4d} msgs", ui.FG_MUTE),
                 ("   ", ""),
-                (f"{(r['model'] or '-'):<24s}", "#bc8cff"),
+                (f"{(r['model'] or '-'):<24s}", secondary_style()),
                 ("  ", ""),
-                (_fmt_ts(r["updated_at"]), "#8b949e"),
+                (_fmt_ts(r["updated_at"]), ui.FG_MUTE),
             )
             opts.add_option(Option(label, id=str(sid)))
         self._offset += len(rows)

@@ -30,6 +30,7 @@ from rich.text import Text
 
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 from .. import state
 from ..mcp.config import (
     MCP_GLOBAL_CONFIG_FILE,
@@ -117,11 +118,11 @@ class JSONImportScreen(TuiModalScreen[dict | None]):
         margin: 1 0;
     }
     JSONImportScreen #import_status {
-        color: #f85149;
+        color: {ui.ERR};
         padding: 0 1;
         margin-top: 1;
     }
-    JSONImportScreen #import_status.ok { color: #3fb950; }
+    JSONImportScreen #import_status.ok { color: {ui.OK}; }
     JSONImportScreen #import_help { padding: 0 1; }
     """
     )
@@ -137,17 +138,17 @@ class JSONImportScreen(TuiModalScreen[dict | None]):
                 yield Static("▶  Import MCP Server", id="modal_title")
                 yield Static(
                     Text.from_markup(
-                        "[#8b949e]Paste one of:[/]\n"
-                        '  [#79c0ff]{"mcpServers": {"my-srv": {"command": "npx", "args": ["-y", "@..."]}}}[/]\n'
-                        '  [#79c0ff]{"servers": {"my-srv": {"type": "stdio", "command": "..."}}, "auto_connect": ["my-srv"]}[/]\n'
-                        '  [#79c0ff]{"name": "my-srv", "command": "npx", "args": [...]}[/]   [#6e7681](bare form)[/]'
+                        f"[{ui.FG_MUTE}]Paste one of:[/]\n"
+                        f'  [{ui.ACCENT}]{"mcpServers": {"my-srv": {"command": "npx", "args": ["-y", "@..."]}}}[/]\n'
+                        f'  [{ui.ACCENT}]{"servers": {"my-srv": {"type": "stdio", "command": "..."}}, "auto_connect": ["my-srv"]}[/]\n'
+                        f'  [{ui.ACCENT}]{"name": "my-srv", "command": "npx", "args": [...]}[/]   [{ui.FG_DIM}](bare form)[/]'
                     ),
                     id="import_help",
                 )
                 yield TextArea("", id="import_input", show_line_numbers=False)
                 yield Static("", id="import_status")
                 yield Static(
-                    "[#f0b3ff]ctrl+s[/] import   [#f0b3ff]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]ctrl+s[/] import   [{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -297,10 +298,10 @@ class MCPModalScreen(TuiModalScreen[None]):
     MCPModalScreen #mcp_status {
         padding: 0 1;
         margin-top: 1;
-        color: #8b949e;
+        color: {ui.FG_MUTE};
     }
-    MCPModalScreen #mcp_status.ok { color: #3fb950; }
-    MCPModalScreen #mcp_status.err { color: #f85149; }
+    MCPModalScreen #mcp_status.ok { color: {ui.OK}; }
+    MCPModalScreen #mcp_status.err { color: {ui.ERR}; }
     MCPModalScreen Input { margin-bottom: 1; }
     """
     )
@@ -334,9 +335,9 @@ class MCPModalScreen(TuiModalScreen[None]):
                 yield OptionList(id="mcp_list")
                 yield Static("", id="mcp_status")
                 yield Static(
-                    "[#f0b3ff]space[/] toggle   [#f0b3ff]g[/] global   "
-                    "[#f0b3ff]i[/] import   [#f0b3ff]r[/] refresh   "
-                    "[#f0b3ff]d[/] delete   [#f0b3ff]esc[/] close",
+                    f"[{ui.ACCENT_3}]space[/] toggle   [{ui.ACCENT_3}]g[/] global   "
+                    f"[{ui.ACCENT_3}]i[/] import   [{ui.ACCENT_3}]r[/] refresh   "
+                    f"[{ui.ACCENT_3}]d[/] delete   [{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 

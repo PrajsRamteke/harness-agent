@@ -15,6 +15,7 @@ from ..repl.tool_display import viewer_text
 from ..repl.tool_output_backfill import peekable_file_runs
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 
 def _status_glyph(status: str) -> str:
@@ -74,7 +75,7 @@ class FileActivityPickerScreen(TuiModalScreen[None]):
         height: 1fr;
         min-height: 12;
         margin-top: 1;
-        border: round #2a323d;
+        border: round {ui.BORDER};
         padding: 0 1;
         scrollbar-size-vertical: 1;
     }
@@ -104,8 +105,8 @@ class FileActivityPickerScreen(TuiModalScreen[None]):
                     auto_scroll=False,
                 )
                 yield Static(
-                    "[#f0b3ff]↑↓[/] pick file   [#f0b3ff]tab[/] scroll output   "
-                    "[#f0b3ff]esc[/] close",
+                    f"[{ui.ACCENT_3}]↑↓[/] pick file   [{ui.ACCENT_3}]tab[/] scroll output   "
+                    f"[{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 

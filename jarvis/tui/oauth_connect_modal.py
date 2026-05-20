@@ -22,6 +22,7 @@ from ..auth.connect.oauth_status import oauth_connection_status
 from ..constants.oauth_providers import OAUTH_PROVIDERS, OAuthProviderSpec, oauth_provider
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
+from . import theme as ui
 
 ID_PREFIX = "oauth:"
 
@@ -63,7 +64,7 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
     OAuthConnectModalScreen #oauth_status {
         padding: 0 1;
         margin-top: 1;
-        color: #8b949e;
+        color: {ui.FG_MUTE};
     }
     """
     )
@@ -88,15 +89,15 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
                 yield Static(
                     Text.from_markup(
                         "[bold]OAuth login[/] — subscription accounts only.\n"
-                        "[dim]API keys (Anthropic billing, OpenRouter, OpenCode) → [/][cyan]/key[/]"
+                        f"[dim]API keys (Anthropic billing, OpenRouter, OpenCode) → [/][{ui.ACCENT}]/key[/]"
                     ),
                     id="oauth_info",
                 )
                 yield OptionList(id="oauth_list")
                 yield Static("", id="oauth_status")
                 yield Static(
-                    "[#f0b3ff]↵[/] sign in   [#f0b3ff]d[/] sign out   "
-                    "[#f0b3ff]a[/] activate   [#f0b3ff]esc[/] close",
+                    f"[{ui.ACCENT_3}]↵[/] sign in   [{ui.ACCENT_3}]d[/] sign out   "
+                    f"[{ui.ACCENT_3}]a[/] activate   [{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -120,7 +121,7 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
         return _spec_from_option_id(str(oid)) if oid else None
 
     def _set_status(self, msg: str, *, error: bool = False) -> None:
-        color = "#f85149" if error else "#3fb950" if msg.startswith("✓") else "#8b949e"
+        color = ui.ERR if error else ui.OK if msg.startswith("✓") else ui.FG_MUTE
         self.query_one("#oauth_status", Static).update(Text(msg, style=color))
 
     def _populate(self) -> None:
@@ -135,16 +136,16 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
             if not spec.available:
                 marker = "  "
                 status_text = "coming soon"
-                status_style = "#6e7681"
+                status_style = ui.FG_DIM
             else:
                 marker = "● " if active else ("◉ " if st.connected else "  ")
-                status_style = "#3fb950" if st.connected else "#6e7681"
+                status_style = ui.OK if st.connected else ui.FG_DIM
                 status_text = st.detail
-            marker_style = "bold #3fb950" if active else ("#58a6ff" if st.connected else "#6e7681")
+            marker_style = f"bold {ui.OK}" if active else (ui.ACCENT if st.connected else ui.FG_DIM)
             row = Text.assemble(
                 (marker, marker_style),
-                (f"{spec.label:<16s}", "bold #79c0ff" if active else "#79c0ff"),
-                ("OAuth login     ", "#bc8cff"),
+                (f"{spec.label:<16s}", f"bold {ui.ACCENT}" if active else ui.ACCENT),
+                ("OAuth login     ", ui.ACCENT_2),
                 (status_text[:32], status_style),
             )
             opts.add_option(Option(row, id=_option_id(spec.id)))
@@ -152,7 +153,7 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
             opts.highlighted = 0
             opts.focus()
         self.query_one("#modal_title", Static).update(
-            f"⬟  {self._title}   [#6e7681]{signed_in} signed in[/]"
+            f"⬟  {self._title}   [{ui.FG_DIM}]{signed_in} signed in[/]"
         )
 
     def _handle_spec(self, spec: OAuthProviderSpec) -> None:
