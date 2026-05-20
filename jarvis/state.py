@@ -370,6 +370,27 @@ def set_active_agent(record: Optional[dict]) -> None:
 # ── think_mode persistence ──────────────────────────────────────────────────
 
 
+def save_trace_config() -> None:
+    """Persist trace.on (show_internal) to settings.json."""
+    try:
+        from .storage.settings import get_settings
+        get_settings().set("trace.on", show_internal)
+    except Exception:
+        pass
+
+
+def _reload_saved_trace() -> None:
+    """Restore trace.on → show_internal from settings.json."""
+    global show_internal
+    try:
+        from .storage.settings import get_settings
+        v = get_settings().get("trace.on")
+        if isinstance(v, bool):
+            show_internal = v
+    except Exception:
+        pass
+
+
 def save_think_config() -> None:
     """Persist think.mode + think.effort to settings.json."""
     try:
@@ -412,6 +433,7 @@ def apply_settings_to_state() -> None:
     _reload_saved_skills()
     _reload_saved_mcp()
     _reload_saved_think()
+    _reload_saved_trace()
     _reload_saved_agent_name()
     try:
         from .storage.settings import get_settings
@@ -437,5 +459,6 @@ def apply_settings_to_state() -> None:
 _reload_saved_theme()
 _reload_saved_skills()
 _reload_saved_think()
+_reload_saved_trace()
 _reload_saved_mcp()
 _reload_saved_agent_name()

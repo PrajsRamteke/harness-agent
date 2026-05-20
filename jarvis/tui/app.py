@@ -50,6 +50,7 @@ from .oauth_connect_modal import OAuthConnectModalScreen, OAuthConnectResult
 from .local_cmd_modal import LocalCmdModalScreen
 from .file_ref_picker import filter_project_files, file_ref_option_label
 from .tools_inspector_modal import ToolsInspectorScreen
+from .shortcuts_modal import ShortcutsHelpScreen
 from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_has_entries
 from ..repl.tool_runs import (
     _display_for_tool,
@@ -301,6 +302,14 @@ class PromptArea(TextArea):
             except Exception:
                 pass
             return
+        if key in ("question_mark", "f1") and not (self.text or "").strip():
+            event.stop()
+            event.prevent_default()
+            try:
+                self.app.action_show_shortcuts()
+            except Exception:
+                pass
+            return
 
 
 def _swap_console_everywhere(tui_console):
@@ -329,6 +338,8 @@ class JarvisTUI(App):
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Quit", show=True),
         Binding("ctrl+t", "toggle_internal", "Trace", show=True),
         Binding("ctrl+f", "open_tools_inspector", "Tools", show=True),
+        Binding("f1", "show_shortcuts", "Help", show=False),
+        Binding("question_mark", "show_shortcuts", "Help", show=False),
         Binding("f2", "toggle_internal", "Trace", show=False),
         Binding("f3", "open_tools_inspector", "Tools", show=False),
         Binding("tab", "cycle_agent", "Agent", show=True),
@@ -611,6 +622,7 @@ class JarvisTUI(App):
         self.on_prompt_area_submitted(PromptArea.Submitted(text))
     def _render_hintbar(self) -> None:
         try:
+            trace = "on" if state.show_internal else "off"
             hints = [
                 f"[{ui.ACCENT_3}]↵[/] send",
                 f"[{ui.ACCENT_3}]⇧↵[/]/[{ui.ACCENT_3}]⌃J[/] newline",
@@ -619,9 +631,10 @@ class JarvisTUI(App):
                 f"[{ui.ACCENT_3}]⇥[/] agent",
                 f"[{ui.ACCENT_3}]esc[/] cancel",
                 f"[{ui.ACCENT_3}]^C[/] copy/cancel",
-                f"[{ui.ACCENT_3}]^T[/] trace",
+                f"[{ui.ACCENT_3}]^T[/] trace:{trace}",
                 f"[{ui.ACCENT_3}]^F[/] tools",
                 f"[{ui.ACCENT_3}]^D[/] quit",
+                f"[{ui.ACCENT_3}]?[/] help",
             ]
             line = f"  [{ui.SEP}]{ui.DOT}[/]  ".join(hints)
             self.query_one("#hintbar", Static).update(Text.from_markup(line))
@@ -2007,15 +2020,33 @@ class JarvisTUI(App):
 
     def action_toggle_internal(self):
         state.show_internal = not state.show_internal
-        mode = "shown" if state.show_internal else "hidden"
-        self._set_status(f"internals {mode}")
-        if state.current_session_id and state.messages and not self._busy:
+        state.save_trace_config()
+        on = state.show_internal
+        mode = "on" if on else "off"
+        self._render_hintbar()
+
+        if self._busy:
+            self._set_status(f"trace {mode} — applies after this turn")
+            try:
+                self._tui_console.print(
+                    f"[{ui.FG_DIM}]trace {mode} — transcript updates when this turn finishes[/]"
+                )
+            except Exception:
+                pass
+            return
+
+        shown = "shown" if on else "hidden"
+        self._set_status(f"trace {shown}")
+        if state.current_session_id and state.messages:
             self._render_loaded_session()
         else:
             try:
-                self._tui_console.print(f"[{ui.FG_DIM}]internal tool trace {mode}[/]")
+                self._tui_console.print(f"[{ui.FG_DIM}]internal tool trace {shown}[/]")
             except Exception:
                 pass
+
+    def action_show_shortcuts(self) -> None:
+        self.push_screen(ShortcutsHelpScreen())
 
     def action_open_tools_inspector(self) -> None:
         """^F — browse file reads and all tool output in one modal."""

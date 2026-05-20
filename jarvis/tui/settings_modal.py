@@ -38,6 +38,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "mcp.global":    "Include MCP servers from Claude/OpenCode/Cursor/Windsurf/VS Code",
     "think.mode":    "Enable extended thinking",
     "think.effort":  "Thinking effort — none / low / medium / high",
+    "trace.on":      "Show thinking + tool panels in chat (^T trace)",
 }
 
 

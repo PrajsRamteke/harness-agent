@@ -194,7 +194,7 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
         return f"trace {trace}"
 
     def action_toggle_verbose(self) -> None:
-        """Same as ^T — rebuild transcript so thinking/tool panels show or hide."""
+        """Same as ^T — rebuild transcript when idle."""
         self.app.action_toggle_internal()
         mode = "on" if state.show_internal else "off"
         hint = self.query_one("#modal_hint", Static)
@@ -202,7 +202,11 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
             f"[#f0b3ff]↑↓[/] pick   [#f0b3ff]tab[/] scroll output   "
             f"[#f0b3ff]v[/] trace:{mode}   [#f0b3ff]esc[/] close"
         )
-        self.query_one("#modal_status", Static).update(self._status_line())
+        status = self.query_one("#modal_status", Static)
+        if self.app._busy:
+            status.update(f"{self._status_line()} · applies after turn")
+        else:
+            status.update(self._status_line())
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         if event.option_list.id != "tools_inspector_list":

@@ -51,6 +51,7 @@ def handle_control(c: str, arg: str):
         state.auto_approve = not state.auto_approve; header_panel(); return True, None
     if c in ("/verbose", "/debug"):
         state.show_internal = not state.show_internal
+        state.save_trace_config()
         mode = "shown" if state.show_internal else "hidden"
         console.print(f"[green]internal tool trace {mode}[/]")
         header_panel()

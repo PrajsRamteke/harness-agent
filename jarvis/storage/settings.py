@@ -13,7 +13,8 @@ run ``/settings reload`` (or restart) to pick up changes::
       "theme": "red",
       "skills": { "global": false },
       "mcp":    { "global": false },
-      "think":  { "mode": true, "effort": "medium" }
+      "think":  { "mode": true, "effort": "medium" },
+      "trace":  { "on": true }
     }
 
 On first load, values are migrated from the legacy per-feature files
@@ -58,6 +59,7 @@ DEFAULTS: dict[str, Any] = {
     "skills": {"global": False},
     "mcp":    {"global": False},
     "think":  {"mode": True, "effort": "medium"},
+    "trace":  {"on": True},   # show thinking + tool panels in TUI transcript
 }
 
 
