@@ -8,17 +8,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import pathlib
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, TextIO
 
 from mcp import Tool
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.stdio import stdio_client, StdioServerParameters
+from mcp.client.stdio import get_default_environment, stdio_client, StdioServerParameters
 
 logger = logging.getLogger("jarvis.mcp")
 
@@ -45,6 +47,33 @@ def is_mcp_tool(jarvis_tool_name: str) -> bool:
     return jarvis_tool_name.startswith(_MCP_TOOL_PREFIX)
 
 
+def _mcp_stderr_to_terminal() -> bool:
+    """When True, MCP stdio server stderr is inherited (can corrupt the TUI)."""
+    return os.getenv("HARNESS_MCP_STDERR", "").strip().lower() in ("1", "true", "yes")
+
+
+def _open_stdio_errlog(server_name: str) -> TextIO:
+    """Sink for MCP server stderr — devnull by default to keep the TUI clean."""
+    if _mcp_stderr_to_terminal():
+        return sys.stderr
+    log_flag = os.getenv("HARNESS_MCP_STDERR_LOG", "").strip().lower()
+    if log_flag in ("1", "true", "yes"):
+        log_dir = pathlib.Path.home() / ".config" / "harness-agent" / "mcp-logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        safe = re.sub(r"[^\w.-]+", "_", server_name) or "server"
+        return open(log_dir / f"{safe}.log", "a", encoding="utf-8")
+    return open(os.devnull, "w")
+
+
+def _stdio_env(config: dict[str, Any]) -> dict[str, str]:
+    """Build subprocess env: MCP defaults + per-server overrides."""
+    env = get_default_environment()
+    user_env = config.get("env")
+    if isinstance(user_env, dict):
+        env.update({str(k): str(v) for k, v in user_env.items()})
+    return env
+
+
 # ── server state ─────────────────────────────────────────────────────────
 
 @dataclass
@@ -57,6 +86,7 @@ class MCPServerState:
     connected: bool = False
     error: str | None = None
     _keep_alive_task: asyncio.Task | None = None
+    _stderr_sink: TextIO | None = None
     _cleanup_fns: list[Callable[[], None]] = field(default_factory=list)
 
     def add_cleanup(self, fn: Callable[[], None]) -> None:
@@ -71,6 +101,12 @@ class MCPServerState:
             except Exception:
                 pass
         self._cleanup_fns.clear()
+        if self._stderr_sink is not None and self._stderr_sink not in (sys.stderr, sys.stdout):
+            try:
+                self._stderr_sink.close()
+            except Exception:
+                pass
+            self._stderr_sink = None
 
 
 # ── event loop bridge ────────────────────────────────────────────────────
@@ -302,10 +338,12 @@ class MCPRegistry:
     ) -> str | None:
         """Phase 1: create stdio process, session, initialize. Returns None on success, error string on failure."""
         try:
+            errlog = _open_stdio_errlog(server_name)
+            state._stderr_sink = errlog
             params = StdioServerParameters(
                 command=config["command"],
                 args=config.get("args", []),
-                env=config.get("env"),
+                env=_stdio_env(config),
                 cwd=config.get("cwd"),
             )
 
@@ -313,7 +351,7 @@ class MCPRegistry:
             streams: list[Any] = []
 
             async def _inner() -> tuple[ClientSession, Any, Any]:
-                ctx = stdio_client(params)
+                ctx = stdio_client(params, errlog=errlog)
                 read_stream, write_stream = await ctx.__aenter__()
                 streams.extend([ctx, read_stream, write_stream])
                 session = ClientSession(read_stream, write_stream)
