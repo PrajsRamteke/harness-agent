@@ -10,10 +10,17 @@ Theme colors are resolved *live* inside each function so they pick up
 runtime ``set_theme()`` calls.  We never capture ``_ui.ACCENT`` at module
 level — that would freeze one theme for the lifetime of the import.
 """
+import re
+
 from rich.markup import escape
 
 from ..console import console, Panel
 from .. import state
+
+# Measured display widths for ``WELCOME_ART`` variants (Unicode block chars).
+_WELCOME_ART_FULL_WIDTH = 108   # side-by-side art is 107 cols; need 1 col margin
+_WELCOME_ART_STACKED_WIDTH = 62  # stacked HARNESS column is 60 cols
+_WELCOME_ART_COMPACT_MIN_WIDTH = 44
 
 
 def _current_git_branch(cwd) -> str | None:
@@ -81,6 +88,58 @@ WELCOME_ART = r"""
   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝╚══════╝   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
 """
 
+WELCOME_ART_COMPACT = """
+  ◆  HARNESS  ·  AGENT  ◆
+"""
+
+
+def _console_width() -> int:
+    """Best-effort terminal / transcript width for responsive banner art."""
+    try:
+        tw = getattr(console, "_terminal_width", None)
+        if callable(tw):
+            return max(24, int(tw()))
+    except Exception:
+        pass
+    try:
+        return max(24, int(console.size.width))
+    except Exception:
+        return 80
+
+
+def _split_welcome_art(full: str) -> tuple[list[str], list[str]]:
+    """Split side-by-side art into HARNESS and AGENT block columns."""
+    harness_lines: list[str] = []
+    agent_lines: list[str] = []
+    for line in full.strip().splitlines():
+        # The two words are separated by 3–4 spaces around column 58–62.
+        match = re.search(r" {3,}", line[40:])
+        if match:
+            idx = 40 + match.start()
+            harness_lines.append(line[:idx].rstrip())
+            agent_lines.append(line[idx:].lstrip())
+        else:
+            harness_lines.append(line.rstrip())
+            agent_lines.append("")
+    return harness_lines, agent_lines
+
+
+def _stacked_welcome_art(full: str) -> str:
+    """Stack HARNESS above AGENT for medium-width terminals."""
+    harness, agent = _split_welcome_art(full)
+    return "\n".join(harness + [""] + agent)
+
+
+def welcome_art_for_width(width: int) -> str | None:
+    """Pick banner art that fits *width* without wrapping."""
+    if width >= _WELCOME_ART_FULL_WIDTH:
+        return WELCOME_ART
+    if width >= _WELCOME_ART_STACKED_WIDTH:
+        return "\n" + _stacked_welcome_art(WELCOME_ART) + "\n"
+    if width >= _WELCOME_ART_COMPACT_MIN_WIDTH:
+        return WELCOME_ART_COMPACT
+    return None
+
 
 def welcome_banner(compact: bool = False):
     """Render the welcome card into the active console (transcript in TUI).
@@ -108,7 +167,9 @@ def welcome_banner(compact: bool = False):
     #   dracula   → #8be9fd (cyan)
     #   sunset    → #f7c08a (peach)
     #   dark      → #ce9178 (warm orange)
-    console.print(f"[{c['accent_3']}]{WELCOME_ART}[/]")
+    art = None if compact else welcome_art_for_width(_console_width())
+    if art:
+        console.print(f"[{c['accent_3']}]{art}[/]")
 
     title = f"[bold {c['accent']}]JARVIS v{VERSION}[/]"
     cwd_path = pathlib.Path.cwd()
