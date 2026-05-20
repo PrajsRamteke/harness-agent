@@ -12,6 +12,16 @@ from .. import state
 from .hallucination import _scrub_hallucinations
 from .tool_activity import describe_tool_activity
 from .tool_display import format_tool_output_preview
+from .tool_runs import (
+    begin_wave,
+    cancel_pending,
+    compact_file_tool_ui,
+    flush_tool_ui,
+    is_dock_tool,
+    register_queued,
+    set_done,
+    set_running,
+)
 from .turn_progress import report_turn_phase
 
 try:
@@ -95,16 +105,24 @@ def _should_flush_parallel_batch(batch, new_block) -> bool:
 
 
 def _run_tool(b):
+    dock = is_dock_tool(b.name)
+    if dock:
+        set_running(b.id)
     icon = TOOL_ICONS.get(b.name, "⚙")
     args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
     report_turn_phase(describe_tool_activity(b.name, b.input))
+
+    def _finish(out_str: str):
+        if dock:
+            set_done(b.id, out_str)
+        return b, icon, args_preview, out_str
 
     # OpenCode/OpenAI-compatible providers occasionally stream truncated or
     # empty JSON tool arguments. opencode_client._build_final() flags those
     # with a __stream_error__ sentinel so we can return an actionable error
     # instead of trying to invoke the tool with garbage.
     if isinstance(b.input, dict) and "__stream_error__" in b.input:
-        return b, icon, args_preview, f"ERROR: {b.input['__stream_error__']}"
+        return _finish(f"ERROR: {b.input['__stream_error__']}")
 
     # Strip unknown kwargs that some models hallucinate (e.g. `language`,
     # `description`) which would otherwise crash the tool with a confusing
@@ -134,8 +152,7 @@ def _run_tool(b):
                 )
         else:
             out = f"ERROR: tool '{b.name}' is not available in this session"
-        out_str = str(out)
-        return b, icon, args_preview, out_str
+        return _finish(str(out))
 
     try:
         out = FUNC[b.name](**call_input)
@@ -162,7 +179,7 @@ def _run_tool(b):
     out_str = str(out)
     if repair_log:
         out_str += "\n[repair note: " + "; ".join(repair_log) + "]"
-    return b, icon, args_preview, out_str
+    return _finish(out_str)
 
 
 def _run_parallel_batch(batch, outputs):
@@ -276,6 +293,11 @@ def render_assistant(resp) -> bool:
     # unsafe/stateful ones serially in their original order. Results are
     # emitted back in the original order so tool_use_id pairing stays intact.
     if tool_uses:
+        begin_wave()
+        for b in tool_uses:
+            register_queued(b.id, b.name, b.input, notify=False)
+        flush_tool_ui()
+
         outputs = {}  # b.id -> (icon, args_preview, out_str)
         parallel_batch = []
 
@@ -309,12 +331,13 @@ def render_assistant(resp) -> bool:
             )
             for b in tool_uses:
                 outputs.setdefault(b.id, ("⚙", "{}", err_msg))
+            cancel_pending([b.id for b in tool_uses if b.id not in outputs])
 
         for b in tool_uses:
             if b.id in outputs:
                 icon, ap, out_str = outputs[b.id]
                 state.record_tool_output(b.name, ap, out_str)
-                if state.show_internal:
+                if state.show_internal and not compact_file_tool_ui():
                     console.print(f"{icon} [{_ui.WARN}]{b.name}[/] [{_ui.FG_DIM}]{ap}[/]")
                     if re.search(r"\S", out_str):
                         body, _trunc = format_tool_output_preview(out_str)

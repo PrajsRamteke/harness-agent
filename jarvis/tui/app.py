@@ -15,6 +15,7 @@ Layout
 from __future__ import annotations
 
 import sys
+import threading
 import time
 
 from textual.actions import SkipAction
@@ -48,7 +49,14 @@ from .theme_modal import ThemePickerScreen
 from .oauth_connect_modal import OAuthConnectModalScreen, OAuthConnectResult
 from .local_cmd_modal import LocalCmdModalScreen
 from .file_ref_picker import filter_project_files, file_ref_option_label
-from .tool_output_modal import ToolOutputViewerScreen
+from .tools_inspector_modal import ToolsInspectorScreen
+from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_has_entries
+from ..repl.tool_runs import (
+    _display_for_tool,
+    is_dock_tool,
+    list_runs,
+    show_parallel_file_panel,
+)
 from .provider_modal import ProviderPickerScreen
 from .mouse_toggle import enable_mouse, disable_mouse
 from ..prompt_refs import (
@@ -281,7 +289,7 @@ class PromptArea(TextArea):
             event.stop()
             event.prevent_default()
             try:
-                self.app.action_open_tool_output()
+                self.app.action_open_tools_inspector()
             except Exception:
                 pass
             return
@@ -319,10 +327,10 @@ class JarvisTUI(App):
     BINDINGS = [
         Binding("ctrl+d", "quit", "Quit", show=True),
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Quit", show=True),
-        Binding("ctrl+t", "toggle_internal", "Logs", show=True),
-        Binding("ctrl+f", "open_tool_output", "Tool out", show=True),
-        Binding("f2", "toggle_internal", "Internals", show=False),
-        Binding("f3", "open_tool_output", "Tool out", show=False),
+        Binding("ctrl+t", "toggle_internal", "Trace", show=True),
+        Binding("ctrl+f", "open_tools_inspector", "Tools", show=True),
+        Binding("f2", "toggle_internal", "Trace", show=False),
+        Binding("f3", "open_tools_inspector", "Tools", show=False),
         Binding("tab", "cycle_agent", "Agent", show=True),
         Binding("escape", "escape_action", show=False),
         Binding("up", "scroll_transcript('up')", show=False, priority=True),
@@ -379,6 +387,10 @@ class JarvisTUI(App):
         self._file_ref_mention: tuple[int, int, str] | None = None
         self._file_ref_mouse_on = False
         self._file_ref_last_query: str | None = None
+        # RichLog line index where the live parallel-files panel starts (None = frozen in transcript).
+        self._tool_activity_anchor: int | None = None
+        self._tool_activity_frozen: bool = False
+        self._tool_activity_lock = threading.Lock()
 
     def _prompt_has_focus(self) -> bool:
         try:
@@ -607,8 +619,8 @@ class JarvisTUI(App):
                 f"[{ui.ACCENT_3}]⇥[/] agent",
                 f"[{ui.ACCENT_3}]esc[/] cancel",
                 f"[{ui.ACCENT_3}]^C[/] copy/cancel",
-                f"[{ui.ACCENT_3}]^T[/] logs",
-                f"[{ui.ACCENT_3}]^F[/] tool",
+                f"[{ui.ACCENT_3}]^T[/] trace",
+                f"[{ui.ACCENT_3}]^F[/] tools",
                 f"[{ui.ACCENT_3}]^D[/] quit",
             ]
             line = f"  [{ui.SEP}]{ui.DOT}[/]  ".join(hints)
@@ -768,6 +780,109 @@ class JarvisTUI(App):
             )
         bar.update(Text.from_markup(header + "\n" + "\n".join(rows)))
 
+    @staticmethod
+    def _tool_run_glyph(status: str) -> str:
+        return {
+            "queued": "○",
+            "running": "◐",
+            "done": "✓",
+            "error": "✗",
+            "cancelled": "⊘",
+        }.get(status, "·")
+
+    def _format_tool_dock_row(self, run: dict) -> str:
+        status = run.get("status") or "queued"
+        glyph = self._tool_run_glyph(status)
+        if status == "error":
+            g_style = ui.ERR
+        elif status == "done":
+            g_style = ui.OK
+        elif status == "running":
+            g_style = ui.ACCENT
+        else:
+            g_style = ui.FG_DIM
+        name = run.get("name") or "tool"
+        label = (run.get("label") or "").strip() or "…"
+        if "/" in label:
+            base, _, parent = label.rpartition("/")
+            path_bit = f"[{ui.FG}]{_rich_escape(base)}[/] [{ui.FG_DIM}]{_rich_escape(parent)}[/]"
+        else:
+            path_bit = f"[{ui.FG}]{_rich_escape(label)}[/]"
+        tail = ""
+        if status in ("done", "error") and run.get("chars"):
+            tail = f" [{ui.FG_DIM}]{int(run['chars']):,} chars[/]"
+        elif status == "running":
+            elapsed = max(0.0, time.monotonic() - float(run.get("started") or 0))
+            tail = f" [{ui.FG_DIM}]{elapsed:.1f}s[/]"
+        return (
+            f"  [{g_style}]{glyph}[/] [{ui.FG_MUTE}]{name:<14}[/] {path_bit}{tail}"
+        )
+
+    def reset_tool_activity_panel(self) -> None:
+        """Next tool wave appends a fresh panel in the transcript."""
+        self._tool_activity_anchor = None
+        self._tool_activity_frozen = False
+
+    def _build_tool_activity_panel(self, runs: list[dict]) -> Panel:
+        n = len(runs)
+        n_run = sum(1 for r in runs if r.get("status") == "running")
+        n_q = sum(1 for r in runs if r.get("status") == "queued")
+        title = f"⚡ {n} parallel file{'s' if n != 1 else ''}"
+        if n_run or n_q:
+            bits = []
+            if n_run:
+                bits.append(f"{n_run} reading")
+            if n_q:
+                bits.append(f"{n_q} queued")
+            title += f" · {' · '.join(bits)}"
+        body_lines = [self._format_tool_dock_row(r) for r in runs]
+        body_lines.append(f"[{ui.FG_DIM}]^F inspect files[/]")
+        return Panel(
+            Text.from_markup("\n".join(body_lines)),
+            title=title,
+            title_align="left",
+            border_style=ui.ACCENT,
+            padding=(0, 1),
+        )
+
+    def _refresh_tool_dock(self) -> None:
+        """Live-update a parallel-files panel inside the conversation transcript."""
+        from .console_shim import _truncate_rich_log_lines
+
+        with self._tool_activity_lock:
+            if self._tool_activity_frozen:
+                return
+            runs = list_runs()
+            try:
+                log = self.query_one("#transcript", RichLog)
+            except Exception:
+                return
+
+            if not show_parallel_file_panel():
+                if self._tool_activity_anchor is not None:
+                    _truncate_rich_log_lines(log, self._tool_activity_anchor)
+                    self._tool_activity_anchor = None
+                self._tool_activity_frozen = False
+                return
+
+            panel = self._build_tool_activity_panel(runs)
+            anchor = self._tool_activity_anchor
+            all_settled = all(
+                r.get("status") in ("done", "error", "cancelled") for r in runs
+            )
+
+            if anchor is None:
+                anchor = len(log.lines)
+                self._tool_activity_anchor = anchor
+                log.write(panel, scroll_end=True)
+            else:
+                _truncate_rich_log_lines(log, anchor)
+                log.write(panel, scroll_end=True)
+
+            if all_settled:
+                self._tool_activity_anchor = None
+                self._tool_activity_frozen = True
+
     def _stash_prompt(self, text: str) -> None:
         """Queue a prompt while the agent is busy (FIFO; shown only in #queuebar)."""
         state.prompt_queue.append(text)
@@ -786,6 +901,12 @@ class JarvisTUI(App):
         if self._busy and self._activity_label:
             self._activity_spinner_i += 1
             self._refresh_activity_widgets()
+        if (
+            not self._tool_activity_frozen
+            and show_parallel_file_panel()
+            and any(r.get("status") == "running" for r in list_runs())
+        ):
+            self._refresh_tool_dock()
 
     def _refresh_activity_widgets(self) -> None:
         label = self._activity_label
@@ -1505,10 +1626,58 @@ class JarvisTUI(App):
                 texts.append("[image]")
         return "\n\n".join(t for t in texts if t)
 
+    def _compact_file_blocks(self, content) -> tuple[list[dict], int]:
+        """File tool_use blocks and count of tool_result blocks in this message."""
+        if isinstance(content, str):
+            return [], 0
+        uses: list[dict] = []
+        n_results = 0
+        for block in content:
+            data = self._block_dict(block)
+            kind = data.get("type")
+            if kind == "tool_use" and is_dock_tool(data.get("name", "")):
+                uses.append(data)
+            elif kind == "tool_result":
+                n_results += 1
+        return uses, n_results
+
+    def _write_compact_file_summary_panel(self, file_uses: list[dict]) -> None:
+        """One summary panel for session replay (replaces N tool: / tool result panels)."""
+        if len(file_uses) < 2:
+            return
+        log = self.query_one("#transcript", RichLog)
+        rows: list[str] = []
+        for data in file_uses:
+            name = data.get("name", "tool")
+            label, _ = _display_for_tool(name, data.get("input"))
+            if "/" in label:
+                base, _, parent = label.rpartition("/")
+                path_bit = f"[{ui.FG}]{_rich_escape(base)}[/] [{ui.FG_DIM}]{_rich_escape(parent)}[/]"
+            else:
+                path_bit = f"[{ui.FG}]{_rich_escape(label)}[/]"
+            rows.append(f"  [{ui.OK}]✓[/] [{ui.FG_MUTE}]{name:<14}[/] {path_bit}")
+        rows.append(f"[{ui.FG_DIM}]^F inspect files[/]")
+        log.write(
+            Panel(
+                Text.from_markup("\n".join(rows)),
+                title=f"⚡ {len(file_uses)} parallel files",
+                title_align="left",
+                border_style=ui.ACCENT,
+                padding=(0, 1),
+            )
+        )
+
     def _render_internal_blocks(self, content) -> None:
         if isinstance(content, str):
             return
         log = self.query_one("#transcript", RichLog)
+        file_uses, n_tool_results = self._compact_file_blocks(content)
+        hide_file_tool_uses = len(file_uses) >= 2
+        hide_tool_results = n_tool_results >= 2
+
+        if hide_file_tool_uses and state.show_internal:
+            self._write_compact_file_summary_panel(file_uses)
+
         for block in content:
             data = self._block_dict(block)
             kind = data.get("type")
@@ -1531,6 +1700,8 @@ class JarvisTUI(App):
                 continue
             if kind == "tool_use":
                 name = data.get("name", "tool")
+                if hide_file_tool_uses and is_dock_tool(name):
+                    continue
                 args = str(data.get("input", ""))[:800]
                 log.write(
                     Panel(
@@ -1542,6 +1713,8 @@ class JarvisTUI(App):
                     )
                 )
             elif kind == "tool_result":
+                if hide_tool_results:
+                    continue
                 body = data.get("content", "")
                 if isinstance(body, list):
                     body = "\n".join(
@@ -1587,6 +1760,7 @@ class JarvisTUI(App):
                             padding=(0, 1),
                         )
                     )
+        backfill_tool_output_history()
         self._set_status("session loaded")
 
     def _rebuild_transcript(self) -> None:
@@ -1843,16 +2017,23 @@ class JarvisTUI(App):
             except Exception:
                 pass
 
-    def action_open_tool_output(self) -> None:
-        if not state.tool_output_history:
+    def action_open_tools_inspector(self) -> None:
+        """^F — browse file reads and all tool output in one modal."""
+        if not inspector_has_entries():
             try:
                 self._tui_console.print(
-                    f"[{ui.FG_DIM}]no tool output yet — enable internals (^T) and run a tool[/]"
+                    f"[{ui.FG_DIM}]no tool output yet — run a tool, then ^F[/]"
                 )
             except Exception:
                 pass
             return
-        self.push_screen(ToolOutputViewerScreen())
+        self.push_screen(ToolsInspectorScreen())
+
+    def action_open_tool_output(self) -> None:
+        self.action_open_tools_inspector()
+
+    def action_open_file_activity(self) -> None:
+        self.action_open_tools_inspector()
 
     def _copy_to_system_clipboard(self, text: str) -> bool:
         if not text:

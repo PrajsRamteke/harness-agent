@@ -107,7 +107,7 @@ class ToolOutputViewerScreen(TuiModalScreen[None]):
         opts.clear_options()
         entries = list(state.tool_output_history)
         if not entries:
-            status.update("No tool output yet — run a tool with internals shown (^T).")
+            status.update("No tool output yet — run a tool, then open ^F again.")
             return
         status.update(f"{len(entries)} recent tool result(s)")
         for i, entry in enumerate(entries):

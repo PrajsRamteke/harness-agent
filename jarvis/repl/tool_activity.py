@@ -34,6 +34,16 @@ def describe_tool_activity(name: str, raw_input) -> str:
         return f"Shell: {c(d.get('cmd', ''))}"
     if name == "read_file":
         return f"Reading file: {c(d.get('path', ''))}"
+    if name == "read_bundle":
+        paths = d.get("paths")
+        if paths and isinstance(paths, list):
+            return f"Reading bundle: {len(paths)} file(s)"
+        return "Reading bundle"
+    if name == "resolve_context":
+        paths = d.get("paths")
+        if paths and isinstance(paths, list):
+            return f"Resolving context: {len(paths)} path(s)"
+        return f"Resolve context: {c(d.get('path', '') or d.get('root', ''))}"
     if name == "read_document":
         if d.get("path"):
             return f"Read document: {c(d.get('path', ''))}"

@@ -181,6 +181,41 @@ class TUIConsole:
         except Exception:
             pass
 
+    def refresh_tool_activity(self) -> None:
+        """Refresh the parallel-files panel in the transcript (worker-thread safe)."""
+        app = self._app
+        if not hasattr(app, "_refresh_tool_dock"):
+            return
+
+        def _go() -> None:
+            app._refresh_tool_dock()
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _go()
+            else:
+                app.call_from_thread(_go)
+        except Exception:
+            pass
+
+    refresh_tool_dock = refresh_tool_activity  # backwards compat
+
+    def reset_tool_activity_panel(self) -> None:
+        app = self._app
+        if not hasattr(app, "reset_tool_activity_panel"):
+            return
+
+        def _go() -> None:
+            app.reset_tool_activity_panel()
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _go()
+            else:
+                app.call_from_thread(_go)
+        except Exception:
+            pass
+
     def assistant_stream_abort(self) -> None:
         """Remove a partial in-log stream (cancel / error)."""
         from .. import state as _state
