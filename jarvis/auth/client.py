@@ -12,12 +12,12 @@ import httpx
 from ..console import console, Anthropic, APIStatusError, APIConnectionError
 from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_ZEN_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
-    OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL,
+    OPENROUTER_BASE_URL,
     OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
-    MODEL as _DEFAULT_ANTHROPIC_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
+    normalize_model_for_provider,
 )
 from ..utils.io import _secure_write
 from .. import state
@@ -228,10 +228,16 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     state.provider = _resolve_provider(interactive=interactive)
     _secure_write(PROVIDER_FILE, state.provider)
 
+    prev_model = state.MODEL
+    state.MODEL = normalize_model_for_provider(state.MODEL, state.provider)
+    if state.MODEL != prev_model:
+        try:
+            from ..storage.prefs import save_last_model
+            save_last_model()
+        except Exception:
+            pass
+
     if state.provider == PROVIDER_OPENCODE:
-        from ..constants import OPENCODE_DEFAULT_MODEL
-        if not state.MODEL or state.MODEL.startswith("claude-") or "/" in state.MODEL:
-            state.MODEL = OPENCODE_DEFAULT_MODEL
         if not interactive and not _has_opencode_key():
             return None
         for attempt in range(DEFAULT_RETRIES):
@@ -250,9 +256,6 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         console.print("[red]Too many OpenCode auth failures[/]"); sys.exit(1)
 
     if state.provider == PROVIDER_OPENCODE_ZEN:
-        from ..constants import OPENCODE_ZEN_DEFAULT_MODEL
-        if not state.MODEL or state.MODEL.startswith("claude-") or "/" in state.MODEL:
-            state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
         if not interactive and not _has_opencode_zen_key():
             return None
         for attempt in range(DEFAULT_RETRIES):
@@ -270,9 +273,6 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         console.print("[red]Too many OpenCode Zen auth failures[/]"); sys.exit(1)
 
     if state.provider == PROVIDER_OPENAI_CODEX:
-        from ..constants import CODEX_DEFAULT_MODEL
-        if not state.MODEL or state.MODEL.startswith("claude-"):
-            state.MODEL = CODEX_DEFAULT_MODEL
         state.auth_mode = AUTH_OAUTH
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
         c = _build_codex_client()
@@ -306,8 +306,6 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         console.print("[red]Too many OpenAI Codex auth failures[/]"); sys.exit(1)
 
     if state.provider == PROVIDER_OPENROUTER:
-        if "/" not in state.MODEL:
-            state.MODEL = OPENROUTER_DEFAULT_MODEL
         if not interactive and not _has_openrouter_key():
             return None
         for attempt in range(DEFAULT_RETRIES):
@@ -335,10 +333,6 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         return None
     state.auth_mode = mode
     _secure_write(AUTH_MODE_FILE, state.auth_mode)
-
-    # If returning from OpenRouter, restore a valid Anthropic default model.
-    if "/" in state.MODEL:
-        state.MODEL = _DEFAULT_ANTHROPIC_MODEL
 
     for attempt in range(DEFAULT_RETRIES):
         try:

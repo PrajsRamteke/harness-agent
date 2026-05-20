@@ -152,6 +152,15 @@ OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m2.5:free"
 OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
 OPENCODE_ZEN_DEFAULT_MODEL = "minimax-m2.5-free"
 CODEX_DEFAULT_MODEL = "gpt-5.5"
+ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
+
+_PROVIDER_DEFAULT_MODEL = {
+    PROVIDER_ANTHROPIC: ANTHROPIC_DEFAULT_MODEL,
+    PROVIDER_OPENROUTER: OPENROUTER_DEFAULT_MODEL,
+    PROVIDER_OPENCODE: OPENCODE_DEFAULT_MODEL,
+    PROVIDER_OPENCODE_ZEN: OPENCODE_ZEN_DEFAULT_MODEL,
+    PROVIDER_OPENAI_CODEX: CODEX_DEFAULT_MODEL,
+}
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
@@ -309,3 +318,25 @@ def models_for(provider: str):
     if provider == PROVIDER_OPENAI_CODEX:
         return CODEX_MODELS
     return list(ANTHROPIC_MODELS)
+
+
+def model_belongs_to_provider(model: str, provider: str) -> bool:
+    """Return True when ``model`` can be sent on ``provider``."""
+    m = (model or "").strip()
+    if not m:
+        return False
+    info = MODEL_INFO.get(m)
+    if info:
+        return info[1] == provider
+    if provider == PROVIDER_OPENROUTER:
+        return "/" in m
+    if provider == PROVIDER_ANTHROPIC:
+        return m.startswith("claude-")
+    return False
+
+
+def normalize_model_for_provider(model: str, provider: str) -> str:
+    """Use ``model`` when valid for ``provider``; otherwise the provider default."""
+    if model_belongs_to_provider(model, provider):
+        return model.strip()
+    return _PROVIDER_DEFAULT_MODEL.get(provider, ANTHROPIC_DEFAULT_MODEL)

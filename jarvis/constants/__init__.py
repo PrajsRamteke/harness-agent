@@ -43,6 +43,7 @@ from .providers import (
     MODEL_INFO, PRICING,
     models_for, models_for_source, connected_providers, connected_model_sources,
     model_option_id, parse_model_option_id,
+    model_belongs_to_provider, normalize_model_for_provider,
     CODEX_DEFAULT_MODEL, CODEX_MODELS, CODEX_BASE_URL,
 )
 from .api_keys import API_KEY_SPECS, api_key_spec, api_key_spec_for_provider
