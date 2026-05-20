@@ -30,6 +30,12 @@ def describe_tool_activity(name: str, raw_input) -> str:
     d = _norm_input(raw_input)
     c = _clip
 
+    if name == "ask_user_question":
+        qs = d.get("questions")
+        if isinstance(qs, list) and qs:
+            first = qs[0] if isinstance(qs[0], dict) else {}
+            return f"Ask user: {c(first.get('prompt', ''))}"
+        return "Waiting for your answer"
     if name == "run_bash":
         return f"Shell: {c(d.get('cmd', ''))}"
     if name == "read_file":

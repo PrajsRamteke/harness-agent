@@ -82,6 +82,8 @@ There is no automated test suite — `tests/` is empty. Manual testing is done b
 4. If specialized, add a regex trigger in `tools/router.py:select_tools()`.
 5. Wire the tool name → handler by adding it to the `FUNC` dict in `tools/__init__.py` — this is what `repl/render.py` uses to dispatch `tool_use` blocks.
 
+**`ask_user_question`**: Structured multiple-choice prompts for the LLM. TUI shows options in `#askbar` above the status strip (↑/↓, Enter; space toggles when `allow_multiple`). Blocks in `_SERIAL_TOOLS`; uses `TUIConsole.prompt_ask_user_question` from worker threads.
+
 ### Themes and agents
 
 - **Themes**: Two built-in (`"red"`, `"purple"`) stored in `state.THEMES`; persisted to `~/.config/harness-agent/settings.json` under `theme`.

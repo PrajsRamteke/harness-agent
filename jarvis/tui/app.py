@@ -7,6 +7,7 @@ Layout
     │                       transcript (RichLog)                      │
     │                                                                 │
     ├──────────────── stash strip (queued prompts, FIFO) ─────────────┤
+    ├──────────────── ask strip (LLM multiple-choice, ↑↓ ↵) ─────────┤
     ├──────────────── status strip (spinner · stats) ─────────────────┤
     │ ❯ composer                                                      │
     ├──────────────── hint bar (key cheatsheet) ──────────────────────┤
@@ -59,6 +60,7 @@ from ..repl.tool_runs import (
     show_parallel_file_panel,
 )
 from .provider_modal import ProviderPickerScreen
+from .ask_user import AskUserController, AskQuestion, normalize_questions
 from .mouse_toggle import enable_mouse, disable_mouse
 from ..prompt_refs import (
     active_file_ref_at_cursor,
@@ -235,6 +237,14 @@ class PromptArea(TextArea):
             except Exception:
                 pass
             return
+        if key in ("up", "down", "enter", "space", "escape"):
+            try:
+                if self.app._ask_user.handle_key(key):
+                    event.stop()
+                    event.prevent_default()
+                    return
+            except Exception:
+                pass
         if key in ("up", "down", "tab"):
             try:
                 if self.app.handle_prompt_key_for_file_ref(key):
@@ -355,6 +365,9 @@ class JarvisTUI(App):
     def action_scroll_transcript(self, direction: str) -> None:
         if isinstance(self.screen, ModalScreen):
             raise SkipAction
+        if self._ask_user.active and direction in ("up", "down"):
+            if self._ask_user.handle_key(direction):
+                return
         if self._try_file_ref_scroll(direction):
             return
         try:
@@ -402,6 +415,20 @@ class JarvisTUI(App):
         self._tool_activity_anchor: int | None = None
         self._tool_activity_frozen: bool = False
         self._tool_activity_lock = threading.Lock()
+        self._ask_user = AskUserController(self)
+
+    def begin_ask_user_question(self, questions, on_done) -> None:
+        """Start status-bar Q&A (called from worker thread via console shim)."""
+        if questions and isinstance(questions[0], AskQuestion):
+            qs = questions
+        else:
+            try:
+                qs = normalize_questions(questions)
+            except ValueError as e:
+                import json
+                on_done(json.dumps({"answers": [], "error": str(e)}))
+                return
+        self._ask_user.begin(qs, on_done)
 
     def _prompt_has_focus(self) -> bool:
         try:
@@ -457,6 +484,11 @@ class JarvisTUI(App):
             self._git_branch = None
 
     async def _on_key(self, event):  # type: ignore[override]
+        key = getattr(event, "key", "")
+        if self._ask_user.active and self._ask_user.handle_key(key):
+            event.stop()
+            event.prevent_default()
+            return
         if self._key_debug:
             self._key_debug = False
             try:
@@ -493,6 +525,7 @@ class JarvisTUI(App):
                 auto_scroll=True,
             )
             yield Static("", id="queuebar", markup=True, shrink=False, classes="hidden")
+            yield Static("", id="askbar", markup=True, shrink=False, classes="hidden")
             yield Static("", id="statusbar", markup=True, shrink=True)
             with Vertical(id="composer_block"):
                 with Vertical(id="file_ref_panel", classes="hidden"):

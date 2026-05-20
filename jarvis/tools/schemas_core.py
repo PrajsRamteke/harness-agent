@@ -43,6 +43,47 @@ CONTEXT_TOOLS = [
 ]
 
 CORE_TOOLS = CONTEXT_TOOLS + [
+    {"name": "ask_user_question", "description": (
+        "Ask the user one or more multiple-choice questions when you need their "
+        "input to proceed — architecture choices, scope, preferences, or "
+        "disambiguation. Do NOT guess when the answer materially changes the "
+        "plan. The UI shows options above the status bar; user selects with "
+        "↑/↓ and Enter. Returns JSON with selected option ids and labels."
+    ),
+     "input_schema": {"type": "object", "properties": {
+        "questions": {
+            "type": "array",
+            "description": "One or more questions to ask in order.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Stable id for this question."},
+                    "prompt": {"type": "string", "description": "Full question text shown to the user."},
+                    "header": {"type": "string", "description": "Short label (e.g. 'Auth approach')."},
+                    "options": {
+                        "type": "array",
+                        "minItems": 2,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string", "description": "Option title."},
+                                "description": {"type": "string",
+                                                 "description": "Optional one-line detail."},
+                            },
+                            "required": ["id", "label"],
+                        },
+                    },
+                    "allow_multiple": {
+                        "type": "boolean",
+                        "description": "If true, user can toggle multiple with space, confirm with Enter.",
+                    },
+                },
+                "required": ["id", "prompt", "options"],
+            },
+            "minItems": 1,
+        },
+     }, "required": ["questions"]}},
     {"name":"read_file","description":(
         "Read ONE text file (or a line range via offset/limit). For 2–20 known "
         "paths use read_bundle instead — faster and higher output cap. Refuses "

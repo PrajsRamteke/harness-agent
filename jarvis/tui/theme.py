@@ -423,6 +423,29 @@ Screen {{
     border: none;
 }}
 
+/* ── Ask-user bar (above status strip, LLM multiple-choice) ───── */
+#askbar {{
+    height: auto;
+    min-height: 1;
+    max-height: 12;
+    background: {BG_2};
+    color: {FG};
+    padding: 0 3;
+    margin: 0;
+    min-width: 0;
+    border-top: thick {ACCENT};
+    overflow-y: auto;
+    overflow-x: hidden;
+}}
+#askbar.hidden {{
+    display: none;
+    height: 0;
+    min-height: 0;
+    max-height: 0;
+    padding: 0;
+    border: none;
+}}
+
 /* ── Status strip (single line above composer) ──────────────────── */
 #statusbar {{
     height: 2;

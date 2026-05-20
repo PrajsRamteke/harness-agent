@@ -1,7 +1,8 @@
 """Rich-Console-compatible shim that routes output to a Textual RichLog.
 
 Implemented: ``print``, ``rule``, ``status`` (no-op context manager),
-``prompt_shell_approval`` (blocking Y/n/a modal), and ``input`` (blocking
+``prompt_shell_approval`` (blocking Y/n/a modal), ``prompt_ask_user_question``
+(status-bar multiple choice), and ``input`` (blocking
 text-input modal for worker threads). Renderables are forwarded to the app's
 RichLog from any thread via ``App.call_from_thread``.
 """
@@ -324,6 +325,29 @@ class TUIConsole:
             return q.get(timeout=3600)
         except queue.Empty:
             return "n"
+
+    def prompt_ask_user_question(self, questions) -> str:
+        """Block until the user answers structured multiple-choice questions.
+
+        Returns JSON from ``ask_user_question`` (answers + optional cancelled).
+        """
+        q: queue.Queue[str] = queue.Queue(maxsize=1)
+
+        def on_done(result: str | None) -> None:
+            try:
+                q.put_nowait(result if result is not None else "")
+            except Exception:
+                pass
+
+        def push() -> None:
+            self._app.begin_ask_user_question(questions, on_done)
+
+        self._app.call_from_thread(push)
+        try:
+            return q.get(timeout=3600)
+        except queue.Empty:
+            import json
+            return json.dumps({"answers": [], "cancelled": True})
 
     def input(self, prompt: str = "", *, password: bool = False, **kwargs) -> str:  # noqa: D401
         """Show a text input modal and return the entered text.

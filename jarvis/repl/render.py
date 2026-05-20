@@ -56,6 +56,7 @@ _SERIAL_TOOLS = {
     "clipboard_set", "mac_control", "speck",
     # context — builds/shared state
     "resolve_context", "read_bundle",
+    "ask_user_question",
     # JSON-backed storage — file-level read/write races when run in parallel
     "memory_save", "memory_delete",
     "lesson_save", "lesson_delete",

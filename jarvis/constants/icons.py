@@ -17,4 +17,5 @@ TOOL_ICONS = {
     "web_search": "◎", "fetch_url": "⌗", "verified_search": "✦",
     "memory_save": "◆", "memory_list": "◆", "memory_delete": "✕",
     "read_image_text": "▣", "read_images_text": "▣",
+    "ask_user_question": "?",
 }

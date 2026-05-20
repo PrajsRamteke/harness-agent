@@ -18,6 +18,7 @@ from .ocr import read_image_text, read_images_text
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .lessons import lesson_save, lesson_search, lesson_list, lesson_delete, LESSON_TOOLS
 from .skills import skill_list, skill_load, SKILL_TOOLS
+from .ask_user import ask_user_question
 from .schemas_core import CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
@@ -77,6 +78,8 @@ FUNC = {
     # ocr
     "read_image_text": read_image_text,
     "read_images_text": read_images_text,
+    # user input
+    "ask_user_question": ask_user_question,
 }
 
 # ── MCP registry integration ─────────────────────────────────────────────
