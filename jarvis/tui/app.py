@@ -34,7 +34,7 @@ from rich.markup import escape as _rich_escape
 from rich.panel import Panel
 from rich.text import Text
 
-from .console_shim import TUIConsole
+from .console_shim import TUIConsole, _truncate_rich_log_lines, _replace_rich_log_block, _append_rich_log_block
 from .session_modal import SessionPickerScreen, resume_session_into_state
 from .palette_modal import CommandPaletteScreen
 from .model_modal import ModelPickerScreen
@@ -413,6 +413,7 @@ class JarvisTUI(App):
         self._file_ref_last_query: str | None = None
         # RichLog line index where the live parallel-files panel starts (None = frozen in transcript).
         self._tool_activity_anchor: int | None = None
+        self._tool_activity_line_count: int = 0
         self._tool_activity_frozen: bool = False
         self._tool_activity_lock = threading.Lock()
         self._ask_user = AskUserController(self)
@@ -871,6 +872,7 @@ class JarvisTUI(App):
     def reset_tool_activity_panel(self) -> None:
         """Next tool wave appends a fresh panel in the transcript."""
         self._tool_activity_anchor = None
+        self._tool_activity_line_count = 0
         self._tool_activity_frozen = False
 
     def _build_tool_activity_panel(self, runs: list[dict]) -> Panel:
@@ -897,8 +899,6 @@ class JarvisTUI(App):
 
     def _refresh_tool_dock(self) -> None:
         """Live-update a parallel-files panel inside the conversation transcript."""
-        from .console_shim import _truncate_rich_log_lines
-
         with self._tool_activity_lock:
             if self._tool_activity_frozen:
                 return
@@ -912,6 +912,7 @@ class JarvisTUI(App):
                 if self._tool_activity_anchor is not None:
                     _truncate_rich_log_lines(log, self._tool_activity_anchor)
                     self._tool_activity_anchor = None
+                    self._tool_activity_line_count = 0
                 self._tool_activity_frozen = False
                 return
 
@@ -924,13 +925,18 @@ class JarvisTUI(App):
             if anchor is None:
                 anchor = len(log.lines)
                 self._tool_activity_anchor = anchor
-                log.write(panel, scroll_end=True)
+                self._tool_activity_line_count = _append_rich_log_block(
+                    log, panel, scroll_end=True
+                )
             else:
-                _truncate_rich_log_lines(log, anchor)
-                log.write(panel, scroll_end=True)
+                self._tool_activity_line_count = _replace_rich_log_block(
+                    log, anchor, self._tool_activity_line_count, panel
+                )
+                log.scroll_end(animate=False)
 
             if all_settled:
                 self._tool_activity_anchor = None
+                self._tool_activity_line_count = 0
                 self._tool_activity_frozen = True
 
     def _stash_prompt(self, text: str) -> None:

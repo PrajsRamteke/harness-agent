@@ -16,7 +16,11 @@ from rich.console import Console as _RichConsole
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.measure import measure_renderables
+from rich.segment import Segment
 from rich.text import Text
+from textual.geometry import Size
+from textual.strip import Strip
 from textual.widgets import RichLog, Static
 
 
@@ -35,6 +39,81 @@ def _truncate_rich_log_lines(log: RichLog, line_count: int) -> None:
     if hasattr(log, '_render_cache'):
         log._render_cache = {}
     log.refresh(layout=True)
+
+
+def _render_to_strips(
+    log: RichLog,
+    content,
+    *,
+    expand: bool = False,
+    shrink: bool = True,
+) -> tuple[list[Strip], int]:
+    """Render *content* the same way ``RichLog.write`` would, without mutating the log."""
+    renderable = log._make_renderable(content)
+    console = log.app.console
+    render_options = console.options
+
+    if isinstance(renderable, Text) and not log.wrap:
+        render_options = render_options.update(overflow="ignore", no_wrap=True)
+
+    renderable_width = measure_renderables(
+        console, render_options, [renderable]
+    ).maximum
+    scrollable_content_width = log.scrollable_content_region.width
+    render_width = renderable_width
+    if expand and renderable_width < scrollable_content_width:
+        render_width = max(renderable_width, scrollable_content_width)
+    if shrink and renderable_width > scrollable_content_width:
+        render_width = min(renderable_width, scrollable_content_width)
+    render_width = max(render_width, log.min_width)
+
+    render_options = render_options.update_width(render_width)
+    segments = console.render(renderable, render_options)
+    lines = list(Segment.split_lines(segments))
+    if not lines:
+        strips = [Strip.blank(render_width)]
+    else:
+        strips = Strip.from_lines(lines)
+        for strip in strips:
+            strip.adjust_cell_length(render_width)
+    return strips, render_width
+
+
+def _refresh_rich_log_layout(log: RichLog) -> None:
+    log._line_cache.clear()
+    if hasattr(log, "_render_cache"):
+        log._render_cache = {}
+    log.virtual_size = Size(log._widest_line_width, len(log.lines))
+    log.refresh()
+
+
+def _replace_rich_log_block(
+    log: RichLog,
+    anchor: int,
+    old_line_count: int,
+    content,
+) -> int:
+    """Swap ``old_line_count`` lines at *anchor* for newly rendered *content*."""
+    new_strips, render_width = _render_to_strips(log, content)
+    anchor = max(0, min(anchor, len(log.lines)))
+    log.lines = log.lines[:anchor] + new_strips + log.lines[anchor + old_line_count:]
+    log._widest_line_width = max(log._widest_line_width, render_width)
+    for strip in new_strips:
+        log._widest_line_width = max(log._widest_line_width, strip.cell_length)
+    _refresh_rich_log_layout(log)
+    return len(new_strips)
+
+
+def _append_rich_log_block(
+    log: RichLog,
+    content,
+    *,
+    scroll_end: bool | None = None,
+) -> int:
+    """Append *content* and return how many lines were added."""
+    before = len(log.lines)
+    log.write(content, scroll_end=scroll_end)
+    return len(log.lines) - before
 
 
 class TUIConsole:
