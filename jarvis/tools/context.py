@@ -15,6 +15,7 @@ import ast
 import hashlib
 import os
 import pathlib
+import pickle
 import re
 import time
 import tokenize
@@ -25,6 +26,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from ..constants import (
     CWD,
+    CONFIG_DIR,
     CONTEXT_BUNDLE_MAX_CHARS,
     CONTEXT_BUNDLE_PER_FILE_MAX,
     BUNDLE_DEFAULT_MODE,
@@ -86,6 +88,9 @@ _graph: Optional[FileGraph] = None
 _graph_mtimes: Dict[FileRel, float] = {}  # rel_path -> last mtime
 _graph_root_mtime: float = 0.0
 
+_GRAPH_CACHE_VERSION = 2
+_GRAPH_CACHE_DIR = CONFIG_DIR / "graph-cache"
+
 
 # =============================================================================
 #  REPO GRAPH BUILDER
@@ -132,12 +137,27 @@ def _scan_source_files(root: pathlib.Path) -> List[pathlib.Path]:
     return files
 
 
-def _resolve_local_import(import_name: str, source_file: pathlib.Path) -> Optional[str]:
+def _resolve_local_import(
+    import_name: str,
+    source_file: pathlib.Path,
+    module_index: Optional[Dict[str, str]] = None,
+    path_index: Optional[Dict[str, str]] = None,
+) -> Optional[str]:
     """Resolve a Python import name to a relative file path within the project.
 
     e.g. "jarvis.tools.context" -> "jarvis/tools/context.py"
          ".tools.context"       -> resolved relative to source_file
     """
+    if module_index is not None and not import_name.startswith("."):
+        hit = module_index.get(import_name)
+        if hit:
+            return hit
+
+    if path_index is not None and import_name.startswith("."):
+        hit = _resolve_relative_import_indexed(import_name, source_file, path_index)
+        if hit:
+            return hit
+
     # Absolute import relative to project root
     if not import_name.startswith("."):
         # Try as module path relative to CWD
@@ -179,6 +199,121 @@ def _resolve_local_import(import_name: str, source_file: pathlib.Path) -> Option
     return None
 
 
+def _resolve_relative_import_indexed(
+    import_name: str,
+    source_file: pathlib.Path,
+    path_index: Dict[str, str],
+) -> Optional[str]:
+    """Resolve a relative import using a pre-built path index (no stat calls)."""
+    level = 0
+    mod = import_name
+    while mod.startswith("."):
+        level += 1
+        mod = mod[1:]
+
+    base = source_file.parent
+    for _ in range(level - 1):
+        base = base.parent
+
+    try:
+        base_rel = base.relative_to(CWD)
+    except ValueError:
+        return None
+
+    base_key = str(base_rel).replace("\\", "/")
+    if base_key == ".":
+        base_key = ""
+
+    if not mod:
+        return path_index.get(base_key)
+
+    rel_path = f"{base_key}/{mod.replace('.', '/')}" if base_key else mod.replace(".", "/")
+    hit = path_index.get(rel_path)
+    if hit:
+        return hit
+
+    # Package directory (mod may point at a package __init__)
+    return path_index.get(f"{rel_path}/__init__".replace("/__init__/__init__", "/__init__"))
+
+
+def _build_python_module_index(
+    all_files: List[pathlib.Path],
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Build dotted-module and slash-path indexes for O(1) import resolution."""
+    module_index: Dict[str, str] = {}
+    path_index: Dict[str, str] = {}
+
+    for f in all_files:
+        if f.suffix.lower() != ".py":
+            continue
+        rel = _rel_path(f)
+        p = pathlib.Path(rel)
+        if p.name == "__init__.py":
+            pkg_key = str(p.parent).replace("\\", "/")
+            if pkg_key == ".":
+                pkg_key = ""
+            mod_key = pkg_key.replace("/", ".")
+            if mod_key:
+                module_index[mod_key] = rel
+            path_index[pkg_key] = rel
+        else:
+            path_key = str(p.with_suffix("")).replace("\\", "/")
+            mod_key = path_key.replace("/", ".")
+            module_index[mod_key] = rel
+            path_index[path_key] = rel
+
+    return module_index, path_index
+
+
+def _build_file_indexes(
+    all_files: List[pathlib.Path],
+) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """Pre-index files by parent directory and stem for O(1) sibling/test lookup."""
+    by_parent: Dict[str, List[str]] = defaultdict(list)
+    by_stem: Dict[str, List[str]] = defaultdict(list)
+
+    for f in all_files:
+        rel = _rel_path(f)
+        parent = str(pathlib.Path(rel).parent).replace("\\", "/")
+        if parent == ".":
+            parent = ""
+        by_parent[parent].append(rel)
+        by_stem[f.stem].append(rel)
+
+    return by_parent, by_stem
+
+
+def _find_tests_indexed(rel: str, by_stem: Dict[str, List[str]]) -> List[str]:
+    """Find test files for *rel* using a stem index."""
+    stem = pathlib.Path(rel).stem
+    tests: List[str] = []
+    seen: Set[str] = set()
+
+    def _add(candidate: str) -> None:
+        if candidate != rel and candidate not in seen:
+            seen.add(candidate)
+            tests.append(candidate)
+
+    for variant in (f"test_{stem}", f"{stem}_test", f"{stem}.spec", f"{stem}.test"):
+        for candidate in by_stem.get(variant, []):
+            _add(candidate)
+
+    for candidate in by_stem.get(stem, []):
+        parts = pathlib.Path(candidate).parts
+        if "__tests__" in parts or "tests" in parts:
+            _add(candidate)
+
+    return tests
+
+
+def _find_siblings_indexed(rel: str, by_parent: Dict[str, List[str]]) -> List[str]:
+    """Find same-folder files excluding *rel* using a parent index."""
+    parent = str(pathlib.Path(rel).parent).replace("\\", "/")
+    if parent == ".":
+        parent = ""
+    return [r for r in by_parent.get(parent, []) if r != rel]
+
+
 def _find_js_import(import_path: str, source_file: pathlib.Path) -> Optional[str]:
     """Resolve a JS/TS import path to a project file."""
     if import_path.startswith(".") or import_path.startswith("/"):
@@ -203,26 +338,89 @@ def _find_js_import(import_path: str, source_file: pathlib.Path) -> Optional[str
     return None
 
 
-def _extract_python_imports(source: str, filepath: pathlib.Path) -> List[str]:
-    """Extract local imports from a Python file using AST."""
+def _extract_python_info(
+    source: str,
+    filepath: pathlib.Path,
+    module_index: Optional[Dict[str, str]] = None,
+    path_index: Optional[Dict[str, str]] = None,
+) -> Tuple[List[str], List[str], List[str]]:
+    """Single-pass AST extract: imports, symbols, types."""
     imports: List[str] = []
+    symbols: List[str] = []
+    types: List[str] = []
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return imports
+        return imports, symbols, types
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                resolved = _resolve_local_import(alias.name, filepath)
+                resolved = _resolve_local_import(
+                    alias.name, filepath, module_index, path_index,
+                )
                 if resolved:
                     imports.append(resolved)
         elif isinstance(node, ast.ImportFrom):
             if node.module:
-                resolved = _resolve_local_import(node.module, filepath)
+                resolved = _resolve_local_import(
+                    node.module, filepath, module_index, path_index,
+                )
                 if resolved:
                     imports.append(resolved)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            symbols.append(node.name)
+            for arg in node.args.args + node.args.kwonlyargs + node.args.posonlyargs:
+                if arg.annotation:
+                    ann = _extract_annotation_name(arg.annotation)
+                    if ann and ann[0].isupper():
+                        types.append(ann)
+            if node.returns:
+                ann = _extract_annotation_name(node.returns)
+                if ann and ann[0].isupper():
+                    types.append(ann)
+        elif isinstance(node, ast.ClassDef):
+            symbols.append(node.name)
+            for base in node.bases:
+                if isinstance(base, ast.Name) and base.id in {"TypedDict", "NamedTuple", "Protocol"}:
+                    types.append(node.name)
+                    break
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    val = node.value
+                    if isinstance(val, ast.Call):
+                        if isinstance(val.func, ast.Name) and val.func.id in {
+                            "TypeVar", "NewType", "TypeAlias",
+                        }:
+                            types.append(target.id)
+                        elif isinstance(val.func, ast.Attribute):
+                            if val.func.attr in {"TypeVar", "NewType"}:
+                                types.append(target.id)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.annotation:
+                ann = _extract_annotation_name(node.annotation)
+                if ann and ann[0].isupper():
+                    types.append(node.target.id)
+
+    return imports, list(set(symbols)), list(set(types))
+
+
+def _extract_python_imports(
+    source: str,
+    filepath: pathlib.Path,
+    module_index: Optional[Dict[str, str]] = None,
+    path_index: Optional[Dict[str, str]] = None,
+) -> List[str]:
+    """Extract local imports from a Python file using AST."""
+    imports, _, _ = _extract_python_info(source, filepath, module_index, path_index)
     return imports
+
+
+def _extract_python_symbols(source: str) -> Tuple[List[str], List[str]]:
+    """Extract (symbols, types) from a Python file using AST."""
+    _, symbols, types = _extract_python_info(source, pathlib.Path("__dummy__.py"))
+    return symbols, types
 
 
 def _extract_js_imports(source: str, filepath: pathlib.Path) -> List[str]:
@@ -241,63 +439,6 @@ def _extract_js_imports(source: str, filepath: pathlib.Path) -> List[str]:
         if resolved:
             imports.append(resolved)
     return list(set(imports))
-
-
-def _extract_python_symbols(source: str) -> Tuple[List[str], List[str]]:
-    """Extract (symbols, types) from a Python file using AST."""
-    symbols: List[str] = []
-    types: List[str] = []
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return symbols, types
-
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            symbols.append(node.name)
-        elif isinstance(node, ast.ClassDef):
-            symbols.append(node.name)
-            # Check for TypeVar, TypedDict, etc.
-            for base in node.bases:
-                if isinstance(base, ast.Name) and base.id in {"TypedDict", "NamedTuple", "Protocol"}:
-                    types.append(node.name)
-                    break
-        elif isinstance(node, ast.Assign):
-            # type aliases: X = TypeVar('X'), X = Type[...]
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    val = node.value
-                    if isinstance(val, ast.Call):
-                        if isinstance(val.func, ast.Name) and val.func.id in {
-                            "TypeVar", "NewType", "TypeAlias",
-                        }:
-                            types.append(target.id)
-                        elif isinstance(val.func, ast.Attribute):
-                            if val.func.attr in {"TypeVar", "NewType"}:
-                                types.append(target.id)
-                    elif isinstance(val, ast.Subscript):
-                        # x: Type[X] — covered by annotations
-                        pass
-
-    # Collect type annotations from function signatures and assignments
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for arg in node.args.args + node.args.kwonlyargs + node.args.posonlyargs:
-                if arg.annotation:
-                    ann = _extract_annotation_name(arg.annotation)
-                    if ann and ann[0].isupper():
-                        types.append(ann)
-            if node.returns:
-                ann = _extract_annotation_name(node.returns)
-                if ann and ann[0].isupper():
-                    types.append(ann)
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.annotation:
-                ann = _extract_annotation_name(node.annotation)
-                if ann and ann[0].isupper():
-                    types.append(node.target.id)
-
-    return list(set(symbols)), list(set(types))
 
 
 def _extract_annotation_name(node) -> Optional[str]:
@@ -337,45 +478,96 @@ def _extract_js_symbols(source: str) -> Tuple[List[str], List[str]]:
     return list(set(symbols)), list(set(types))
 
 
-def _find_tests_for_file(rel: str, all_files: List[pathlib.Path]) -> List[str]:
-    """Find test files that correspond to a given source file.
+def _parse_file_for_graph(
+    f: pathlib.Path,
+    module_index: Dict[str, str],
+    path_index: Dict[str, str],
+) -> Tuple[str, List[str], List[str], List[str]]:
+    """Read and parse one source file for graph construction."""
+    rel = _rel_path(f)
+    ext = f.suffix.lower()
+    try:
+        source = f.read_text(errors="ignore")
+    except Exception:
+        return rel, [], [], []
 
-    Rules:
-      - same basename but in a test/ or __tests__/ dir
-      - test_ prefix or _test suffix
-      - spec file with same basename
-    """
-    p = pathlib.Path(rel)
-    stem = p.stem  # without extension
-    tests: List[str] = []
-
-    for f in all_files:
-        f_rel = _rel_path(f)
-        f_stem = f.stem
-        # test_<name> or <name>_test
-        if f_stem == f"test_{stem}" or f_stem == f"{stem}_test":
-            tests.append(f_rel)
-        elif f_stem == f"{stem}.spec" or f_stem == f"{stem}.test":
-            tests.append(f_rel)
-        # Same name in __tests__/ or tests/ directory
-        parts = set(f.parts)
-        if stem == f_stem and ("__tests__" in parts or "tests" in parts):
-            if f_rel != rel:
-                tests.append(f_rel)
-    return tests
+    if ext == ".py":
+        return (rel, *_extract_python_info(source, f, module_index, path_index))
+    if ext in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"}:
+        imports = _extract_js_imports(source, f)
+        symbols, types = _extract_js_symbols(source)
+        return rel, imports, symbols, types
+    return rel, [], [], []
 
 
-def _find_siblings(rel: str, all_files: List[pathlib.Path]) -> List[str]:
-    """Find same-folder files excluding self."""
-    parent = pathlib.Path(rel).parent
-    siblings = []
-    for f in all_files:
-        f_rel = _rel_path(f)
-        if f_rel == rel:
-            continue
-        if pathlib.Path(f_rel).parent == parent:
-            siblings.append(f_rel)
-    return siblings
+def _graph_cache_path() -> pathlib.Path:
+    key = hashlib.sha256(str(CWD.resolve()).encode()).hexdigest()[:24]
+    return _GRAPH_CACHE_DIR / f"{key}.pkl"
+
+
+def _load_graph_cache() -> Optional[Tuple[FileGraph, Dict[FileRel, float]]]:
+    path = _graph_cache_path()
+    if not path.is_file():
+        return None
+    try:
+        with open(path, "rb") as fh:
+            payload = pickle.load(fh)
+        if payload.get("version") != _GRAPH_CACHE_VERSION:
+            return None
+        if payload.get("cwd") != str(CWD.resolve()):
+            return None
+        graph = payload.get("graph")
+        mtimes = payload.get("mtimes")
+        if not isinstance(graph, dict) or not isinstance(mtimes, dict):
+            return None
+        return graph, mtimes
+    except Exception:
+        return None
+
+
+def _save_graph_cache(graph: FileGraph, mtimes: Dict[FileRel, float]) -> None:
+    try:
+        _GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": _GRAPH_CACHE_VERSION,
+            "cwd": str(CWD.resolve()),
+            "graph": graph,
+            "mtimes": mtimes,
+        }
+        tmp = _graph_cache_path().with_suffix(".tmp")
+        with open(tmp, "wb") as fh:
+            pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp.replace(_graph_cache_path())
+    except Exception:
+        pass
+
+
+def _mtimes_from_scan(files: List[pathlib.Path]) -> Dict[FileRel, float]:
+    mtimes: Dict[FileRel, float] = {}
+    for f in files:
+        rel = _rel_path(f)
+        try:
+            mtimes[rel] = f.stat().st_mtime
+        except OSError:
+            mtimes[rel] = 0.0
+    return mtimes
+
+
+def _graph_is_stale(
+    cached_mtimes: Dict[FileRel, float],
+    files: List[pathlib.Path],
+    current_mtimes: Dict[FileRel, float],
+) -> bool:
+    """True if cached graph does not match the current file set or mtimes."""
+    if len(files) != len(cached_mtimes):
+        return True
+    if set(current_mtimes.keys()) != set(cached_mtimes.keys()):
+        return True
+    for rel, cur in current_mtimes.items():
+        prev = cached_mtimes.get(rel)
+        if prev is None or abs(cur - prev) > 0.001:
+            return True
+    return False
 
 
 def _extract_content_keywords(source: str, max_words: int = 30) -> List[str]:
@@ -401,7 +593,7 @@ def build_graph(
 ) -> FileGraph:
     """Build (or rebuild) the repo graph by scanning all source files.
 
-    Results are cached globally.
+    Results are cached globally and persisted to disk for fast cold starts.
     Pass pre-scanned ``source_files`` and ``mtimes`` to avoid a redundant
     re-scan when the caller already has them (e.g. from _get_or_build_graph).
     """
@@ -418,25 +610,13 @@ def build_graph(
     if mtimes is not None:
         _mtimes = mtimes
     else:
-        _mtimes = {}
-        for f in all_files:
-            rel = _rel_path(f)
-            try:
-                _mtimes[rel] = f.stat().st_mtime
-            except OSError:
-                _mtimes[rel] = 0.0
+        _mtimes = _mtimes_from_scan(all_files)
+
+    module_index, path_index = _build_python_module_index(all_files)
+    by_parent, by_stem = _build_file_indexes(all_files)
 
     for f in all_files:
         rel = _rel_path(f)
-        # If mtimes was passed in, skip re-stat (already done by caller)
-        if mtimes is not None and rel in _mtimes:
-            pass
-        elif rel not in _mtimes:
-            try:
-                _mtimes[rel] = f.stat().st_mtime
-            except OSError:
-                _mtimes[rel] = 0.0
-
         ext = f.suffix.lower()
         graph[rel] = {
             "imports": [],
@@ -451,24 +631,25 @@ def build_graph(
             "ext": ext,
         }
 
-    # Pass 2: extract imports and symbols per file
-    for f in all_files:
-        rel = _rel_path(f)
-        ext = f.suffix.lower()
-        try:
-            source = f.read_text(errors="ignore")
-        except Exception:
+    # Pass 2: extract imports and symbols (parallel when worthwhile)
+    parse_args = [(f, module_index, path_index) for f in all_files]
+    workers = min(MAX_PARALLEL_TOOLS, len(all_files), 32)
+
+    def _work(args: Tuple[pathlib.Path, Dict[str, str], Dict[str, str]]):
+        f, mod_idx, pth_idx = args
+        return _parse_file_for_graph(f, mod_idx, pth_idx)
+
+    parsed: List[Tuple[str, List[str], List[str], List[str]]] = []
+    if workers <= 1 or len(all_files) <= 3:
+        for args in parse_args:
+            parsed.append(_work(args))
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            parsed = list(ex.map(_work, parse_args))
+
+    for rel, imports, symbols, types in parsed:
+        if rel not in graph:
             continue
-
-        if ext == ".py":
-            imports = _extract_python_imports(source, f)
-            symbols, types = _extract_python_symbols(source)
-        elif ext in {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"}:
-            imports = _extract_js_imports(source, f)
-            symbols, types = _extract_js_symbols(source)
-        else:
-            imports, symbols, types = [], [], []
-
         graph[rel]["imports"] = imports
         graph[rel]["symbols"] = symbols
         graph[rel]["types"] = types
@@ -480,22 +661,21 @@ def build_graph(
                 if rel not in graph[imp]["imported_by"]:
                     graph[imp]["imported_by"].append(rel)
 
-    # Pass 4: tests, siblings, configs, routes
-    for rel in list(graph.keys()):
-        graph[rel]["tests"] = _find_tests_for_file(rel, all_files)
-        graph[rel]["siblings"] = _find_siblings(rel, all_files)
+    # Pass 4: tests, siblings, configs, routes (indexed — O(n))
+    for rel in graph:
+        graph[rel]["tests"] = _find_tests_indexed(rel, by_stem)
+        graph[rel]["siblings"] = _find_siblings_indexed(rel, by_parent)
 
-        # Route detection
         if _ROUTE_FILE_PATTERNS.search(rel):
             graph[rel]["routes"] = [rel]
 
-        # Config detection
         if _CONFIG_FILE_PATTERNS.search(rel):
             graph[rel]["configs"] = [rel]
 
     _graph = graph
     _graph_mtimes = _mtimes
     _graph_root_mtime = time.time()
+    _save_graph_cache(graph, _mtimes)
     return graph
 
 
@@ -503,29 +683,23 @@ def _get_or_build_graph() -> FileGraph:
     """Return cached graph, rebuilding if stale (single scan even on rebuild)."""
     global _graph, _graph_mtimes
 
-    if _graph is None:
-        return build_graph()
-
-    # Scan once. If mtimes match, reuse cache. Otherwise rebuild from same scan.
     files = _scan_source_files(CWD)
-    mtimes: Dict[FileRel, float] = {}
-    stale = False
-    for f in files:
-        rel = _rel_path(f)
-        try:
-            cur = f.stat().st_mtime
-        except OSError:
-            continue
-        mtimes[rel] = cur
-        prev = _graph_mtimes.get(rel)
-        if prev is None or abs(cur - prev) > 0.001:
-            stale = True
+    current_mtimes = _mtimes_from_scan(files)
 
-    if not stale:
-        return _graph  # type: ignore
+    if _graph is not None:
+        if not _graph_is_stale(_graph_mtimes, files, current_mtimes):
+            return _graph  # type: ignore
+        return build_graph(source_files=files, mtimes=current_mtimes)
 
-    # Rebuild from already-scanned file list (avoids a second scan)
-    return build_graph(source_files=files, mtimes=mtimes)
+    cached = _load_graph_cache()
+    if cached is not None:
+        graph, mtimes = cached
+        if not _graph_is_stale(mtimes, files, current_mtimes):
+            _graph = graph
+            _graph_mtimes = mtimes
+            return graph
+
+    return build_graph(source_files=files, mtimes=current_mtimes)
 
 
 # =============================================================================
@@ -693,8 +867,8 @@ def _normalize_mode(mode: str, default: str) -> str:
 def _graph_fingerprint() -> str:
     if not _graph_mtimes:
         return "empty"
-    sample = sorted(_graph_mtimes.items())[-200:]
-    raw = repr(sample).encode("utf-8", errors="replace")
+    items = sorted(_graph_mtimes.items())
+    raw = f"{len(items)}|{repr(items)}".encode("utf-8", errors="replace")
     return hashlib.sha256(raw).hexdigest()[:12]
 
 
