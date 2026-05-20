@@ -556,53 +556,7 @@ class JarvisTUI(App):
         from ..storage.agents import auto_activate_coding_agent
         auto_activate_coding_agent()
 
-        if state.project_context_file:
-            log.write(
-                Panel(
-                    Text.from_markup(
-                        f"≡ [bold {ui.ACCENT}]{state.project_context_file}[/] "
-                        f"detected — [{ui.FG_MUTE}]loaded on demand via read_file[/]"
-                    ),
-                    title="project context",
-                    title_align="left",
-                    border_style=ui.ACCENT,
-                    padding=(0, 1),
-                )
-            )
-
-        from ..storage import skills as _skills
-        from ..mcp.config import get_config as _get_mcp_config
-        _sk_count = _skills.skill_count()
-        # Count configured MCP servers from config — no connection/tool-fetching.
-        _mcp_count = len(_get_mcp_config().list_servers())
-
-        _show_sk = _sk_count > 0
-        _show_mcp = _mcp_count > 0
-        if _show_sk or _show_mcp:
-            parts = []
-            if _show_sk:
-                parts.append(
-                    f"✦ [bold {ui.ACCENT_2}]{_sk_count} skill"
-                    f"{'s' if _sk_count != 1 else ''}[/]"
-                )
-            if _show_mcp:
-                parts.append(
-                    f"⚙ [bold {ui.ACCENT}]{_mcp_count} MCP"
-                    f"{'s' if _mcp_count != 1 else ''}[/]"
-                )
-            title_parts = [p for p in ("skills", "MCPs") if (_show_sk and p == "skills") or (_show_mcp and p == "MCPs")]
-            log.write(
-                Panel(
-                    Text.from_markup(
-                        f"{' & '.join(parts)} available — "
-                        f"[{ui.FG_MUTE}]auto-invoked when needed[/]"
-                    ),
-                    title=" & ".join(title_parts),
-                    title_align="left",
-                    border_style=ui.ACCENT_2,
-                    padding=(0, 1),
-                )
-            )
+        self._write_context_strip(log)
 
         self.query_one("#prompt", PromptArea).focus()
 
@@ -640,6 +594,56 @@ class JarvisTUI(App):
             self.query_one("#hintbar", Static).update(Text.from_markup(line))
         except Exception:
             pass
+
+    def _context_strip_markup(self) -> str | None:
+        """One-line project context + skills/MCP summary for the welcome strip."""
+        parts: list[str] = []
+        if state.project_context_file:
+            parts.append(
+                f"≡ [bold {ui.ACCENT}]{state.project_context_file}[/] "
+                f"[{ui.FG_MUTE}]on demand[/]"
+            )
+        from ..storage import skills as _skills
+        from ..mcp.config import get_config as _get_mcp_config
+
+        sk_count = _skills.skill_count()
+        mcp_count = len(_get_mcp_config().list_servers())
+        sk_mcp: list[str] = []
+        if sk_count > 0:
+            sk_mcp.append(
+                f"✦ [bold {ui.ACCENT_2}]{sk_count} skill"
+                f"{'s' if sk_count != 1 else ''}[/]"
+            )
+        if mcp_count > 0:
+            sk_mcp.append(
+                f"⚙ [bold {ui.ACCENT}]{mcp_count} MCP"
+                f"{'s' if mcp_count != 1 else ''}[/]"
+            )
+        if sk_mcp:
+            parts.append(
+                f"{' & '.join(sk_mcp)} [{ui.FG_MUTE}]auto-invoked when needed[/]"
+            )
+        if not parts:
+            return None
+        sep = f" [{ui.SEP}]·[/] "
+        return sep.join(parts)
+
+    def _write_context_strip(self, log: RichLog | None = None) -> None:
+        """Render the combined context / skills / MCP welcome line."""
+        markup = self._context_strip_markup()
+        if not markup:
+            return
+        if log is None:
+            log = self.query_one("#transcript", RichLog)
+        log.write(
+            Panel(
+                Text.from_markup(markup),
+                title="context",
+                title_align="left",
+                border_style=ui.ACCENT,
+                padding=(0, 1),
+            )
+        )
 
     # ─── width monitor (reflow on resize) ─────────────────────────────
     def _start_width_monitor(self) -> None:
@@ -1791,55 +1795,7 @@ class JarvisTUI(App):
         # Welcome art + panel — uses live theme colors via banners._theme_colors()
         welcome_banner()
 
-        # Project-context panel (same rendering as on_mount).
-        if state.project_context_file:
-            log.write(
-                Panel(
-                    Text.from_markup(
-                        f"≡ [bold {ui.ACCENT}]{state.project_context_file}[/] "
-                        f"detected — [{ui.FG_MUTE}]loaded on demand via read_file[/]"
-                    ),
-                    title="project context",
-                    title_align="left",
-                    border_style=ui.ACCENT,
-                    padding=(0, 1),
-                )
-            )
-
-        # Skills panel (same rendering as on_mount).
-        from ..storage import skills as _skills
-        from ..mcp.config import get_config as _get_mcp_config
-        _sk_count = _skills.skill_count()
-        # Count configured MCP servers from config — no connection/tool-fetching.
-        _mcp_count = len(_get_mcp_config().list_servers())
-
-        _show_sk = _sk_count > 0
-        _show_mcp = _mcp_count > 0
-        if _show_sk or _show_mcp:
-            parts = []
-            if _show_sk:
-                parts.append(
-                    f"✦ [bold {ui.ACCENT_2}]{_sk_count} skill"
-                    f"{'s' if _sk_count != 1 else ''}[/]"
-                )
-            if _show_mcp:
-                parts.append(
-                    f"⚙ [bold {ui.ACCENT}]{_mcp_count} MCP"
-                    f"{'s' if _mcp_count != 1 else ''}[/]"
-                )
-            title_parts = [p for p in ("skills", "MCPs") if (_show_sk and p == "skills") or (_show_mcp and p == "MCPs")]
-            log.write(
-                Panel(
-                    Text.from_markup(
-                        f"{' & '.join(parts)} available — "
-                        f"[{ui.FG_MUTE}]auto-invoked when needed[/]"
-                    ),
-                    title=" & ".join(title_parts),
-                    title_align="left",
-                    border_style=ui.ACCENT_2,
-                    padding=(0, 1),
-                )
-            )
+        self._write_context_strip(log)
 
         # Re-play existing messages (border styles pick up current ui.* tokens).
         for msg in state.messages:
