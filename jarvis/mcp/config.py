@@ -473,6 +473,191 @@ class MCPConfig:
         return result
 
 
+# ── project import / merge ────────────────────────────────────────────────
+
+def _normalize_server_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """Accept Jarvis-native or Claude-Code-style server entries."""
+    if cfg.get("type") in ("stdio", "sse") and ("command" in cfg or "url" in cfg):
+        return {k: v for k, v in cfg.items() if not k.startswith("_")}
+    return _normalize_claude_code_entry(cfg)
+
+
+def _json_to_server_candidates(parsed: Any) -> tuple[list[tuple[str, dict[str, Any]]], list[str]]:
+    """Extract ``(name, cfg)`` pairs from pasted/import JSON."""
+    if not isinstance(parsed, dict):
+        raise ValueError("JSON root must be an object")
+
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    auto_names: list[str] = []
+
+    if isinstance(parsed.get("mcpServers"), dict):
+        for n, c in parsed["mcpServers"].items():
+            candidates.append((str(n), c))
+            auto_names.append(str(n))
+    elif isinstance(parsed.get("servers"), dict):
+        for n, c in parsed["servers"].items():
+            candidates.append((str(n), c))
+        auto_raw = parsed.get("auto_connect", [])
+        if isinstance(auto_raw, list):
+            auto_names = [str(x) for x in auto_raw]
+    elif "command" in parsed or "url" in parsed:
+        name = parsed.get("name") or parsed.get("id")
+        if not name:
+            raise ValueError("bare-form JSON needs a 'name' field")
+        candidates.append((str(name), parsed))
+        auto_names.append(str(name))
+    else:
+        raise ValueError(
+            "JSON must contain 'mcpServers', 'servers', or a bare 'command'/'url'"
+        )
+    return candidates, auto_names
+
+
+def collect_global_servers() -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Scan every global MCP source (Cursor, Claude, Jarvis, …)."""
+    servers: dict[str, dict[str, Any]] = {}
+    auto: list[str] = []
+    for _label, file_path, pointer in _global_sources():
+        file_servers, file_auto = _parse_config_file(file_path, pointer)
+        for name, entry in file_servers.items():
+            if name not in servers:
+                servers[name] = entry
+        for n in file_auto:
+            if n in servers and n not in auto:
+                auto.append(n)
+    return servers, auto
+
+
+def save_project_mcp_file(
+    servers: dict[str, dict[str, Any]],
+    auto_connect: list[str],
+    project_path: str | pathlib.Path | None = None,
+) -> pathlib.Path:
+    """Write ``.mcp.json`` in the project directory."""
+    path = pathlib.Path(project_path) if project_path else _project_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    servers_out = {
+        name: {k: v for k, v in entry.items() if not k.startswith("_")}
+        for name, entry in servers.items()
+    }
+    auto_out = [n for n in auto_connect if n in servers_out]
+    path.write_text(
+        json.dumps(
+            {"servers": servers_out, "auto_connect": auto_out},
+            indent=2,
+            ensure_ascii=False,
+        ) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def import_server_to_project(
+    name: str,
+    *,
+    project_path: str | pathlib.Path | None = None,
+) -> dict[str, Any]:
+    """Copy one global MCP server into the project ``.mcp.json`` file."""
+    path = pathlib.Path(project_path) if project_path else _project_config_path()
+    project_servers, project_auto = (
+        _parse_config_file(path) if path.exists() else ({}, [])
+    )
+
+    if name in project_servers:
+        return {"added": [], "skipped": [name], "path": str(path)}
+
+    global_servers, global_auto = collect_global_servers()
+    entry = global_servers.get(name)
+    if entry is None:
+        return {
+            "added": [],
+            "skipped": [],
+            "path": str(path),
+            "error": f"'{name}' not found in global MCP configs",
+        }
+
+    project_servers[name] = entry
+    if name in global_auto and name not in project_auto:
+        project_auto.append(name)
+    save_project_mcp_file(project_servers, project_auto, path)
+
+    return {"added": [name], "skipped": [], "path": str(path)}
+
+
+def import_global_to_project(
+    project_path: str | pathlib.Path | None = None,
+) -> dict[str, Any]:
+    """Copy global MCP servers into the project ``.mcp.json`` file."""
+    path = pathlib.Path(project_path) if project_path else _project_config_path()
+    project_servers, project_auto = (
+        _parse_config_file(path) if path.exists() else ({}, [])
+    )
+    global_servers, global_auto = collect_global_servers()
+
+    added: list[str] = []
+    skipped: list[str] = []
+    for name, entry in global_servers.items():
+        if name in project_servers:
+            skipped.append(name)
+            continue
+        project_servers[name] = entry
+        added.append(name)
+
+    for n in global_auto:
+        if n in project_servers and n not in project_auto:
+            project_auto.append(n)
+
+    if added:
+        save_project_mcp_file(project_servers, project_auto, path)
+
+    return {
+        "added": added,
+        "skipped": skipped,
+        "path": str(path),
+        "global_count": len(global_servers),
+    }
+
+
+def merge_json_into_project(
+    parsed: Any,
+    *,
+    project_path: str | pathlib.Path | None = None,
+    skip_existing: bool = True,
+) -> dict[str, Any]:
+    """Merge pasted JSON server definitions into the project ``.mcp.json``."""
+    candidates, auto_names = _json_to_server_candidates(parsed)
+    if not candidates:
+        return {"added": [], "skipped": [], "path": str(_project_config_path())}
+
+    path = pathlib.Path(project_path) if project_path else _project_config_path()
+    project_servers, project_auto = (
+        _parse_config_file(path) if path.exists() else ({}, [])
+    )
+
+    added: list[str] = []
+    skipped: list[str] = []
+    for name, cfg in candidates:
+        if name in project_servers:
+            if skip_existing:
+                skipped.append(name)
+                continue
+            raise ValueError(f"server '{name}' already exists in project")
+        normalized = _normalize_server_entry(cfg)
+        if normalized is None:
+            raise ValueError(f"server '{name}': missing command or url")
+        project_servers[name] = normalized
+        added.append(name)
+
+    for n in auto_names:
+        if n in project_servers and n not in project_auto:
+            project_auto.append(n)
+
+    if added:
+        save_project_mcp_file(project_servers, project_auto, path)
+
+    return {"added": added, "skipped": skipped, "path": str(path)}
+
+
 # ── module-level singleton ───────────────────────────────────────────────
 
 _config: MCPConfig | None = None

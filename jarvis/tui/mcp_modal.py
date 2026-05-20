@@ -5,7 +5,8 @@ User interaction:
 * ↑/↓        navigate the server list
 * Space/Enter  toggle the highlighted server (connect ↔ disconnect)
 * g           toggle global scope (project-only ↔ project + global)
-* i           open the JSON-import sub-modal to add a new server
+* i           import the highlighted global server into this project's .mcp.json
+* a           manually add MCP JSON (paste/type in input area)
 * r           re-scan all config files
 * d           delete a Jarvis-managed global server (refuses other tools' entries)
 * /           focus the filter input
@@ -18,11 +19,11 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import CenterMiddle, Vertical
+from textual.timer import Timer
 from textual.widgets import Input, OptionList, Static, TextArea
 from textual.widgets.option_list import Option
 
@@ -33,13 +34,15 @@ from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 from .. import state
 from ..mcp.config import (
-    MCP_GLOBAL_CONFIG_FILE,
     MCP_PROJECT_CONFIG_FILENAME,
     get_config,
+    import_server_to_project,
+    merge_json_into_project,
     reload_config,
     _project_config_path,
 )
 from ..mcp.registry import mcp_registry
+from ..tools.mac.clipboard import clipboard_get
 
 
 _SOURCE_ICONS = {
@@ -67,13 +70,27 @@ def _endpoint_text(cfg: dict, max_len: int = 64) -> str:
     return s
 
 
-def _row_label(name: str, cfg: dict, scope: str, source: str, is_auto: bool) -> Text:
+def _row_label(
+    name: str,
+    cfg: dict,
+    scope: str,
+    source: str,
+    is_auto: bool,
+    *,
+    connecting: bool = False,
+    spinner: str = "⠋",
+) -> Text:
     connected = mcp_registry.is_connected(name)
     tool_count = len(mcp_registry.get_server_tools(name))
-    status_dot = ("●", "bold green") if connected else ("○", "dim")
-    status_word = (
-        (f" live {tool_count}t", "green") if connected else (" idle", "dim")
-    )
+    if connecting:
+        status_dot = (spinner, "bold yellow")
+        status_word = (" connecting", "yellow")
+    elif connected:
+        status_dot = ("●", "bold green")
+        status_word = (f" live {tool_count}t", "green")
+    else:
+        status_dot = ("○", "dim")
+        status_word = (" idle", "dim")
     scope_color = "magenta" if scope == "project" else "blue"
     src_icon = _SOURCE_ICONS.get(source, "•")
     auto_tag = (" auto", "cyan") if is_auto else ("     ", "")
@@ -95,62 +112,113 @@ def _row_label(name: str, cfg: dict, scope: str, source: str, is_auto: bool) -> 
     )
 
 
-# ── JSON import sub-modal ────────────────────────────────────────────────
+# ── manual add sub-modal ─────────────────────────────────────────────────
 
-class JSONImportScreen(TuiModalScreen[dict | None]):
-    """Paste a JSON snippet that adds servers to the Jarvis global file.
+_CLAUDE_EXAMPLE = json.dumps(
+    {
+        "mcpServers": {
+            "filesystem": {
+                "command": "npx",
+                "args": [
+                    "-y",
+                    "@modelcontextprotocol/server-filesystem",
+                    "/Users/you/projects",
+                ],
+            }
+        }
+    },
+    indent=2,
+)
 
-    Accepts either Claude Code style ``{"mcpServers": {...}}`` or Jarvis
-    style ``{"servers": {...}, "auto_connect": [...]}``. A single bare server
-    entry also works — the user is prompted for the name.
-    """
+_JARVIS_EXAMPLE = json.dumps(
+    {
+        "servers": {
+            "filesystem": {
+                "type": "stdio",
+                "command": "npx",
+                "args": [
+                    "-y",
+                    "@modelcontextprotocol/server-filesystem",
+                    "/Users/you/projects",
+                ],
+            }
+        },
+        "auto_connect": ["filesystem"],
+    },
+    indent=2,
+)
+
+
+class ManualAddScreen(TuiModalScreen[dict | None]):
+    """Paste or type MCP JSON into the project ``.mcp.json``."""
 
     DEFAULT_CSS = (
         TUI_MODAL_CHROME_CSS
         + """
-    JSONImportScreen #modal {
-        width: 82%;
-        max-width: 110;
-        max-height: 80%;
+    ManualAddScreen #modal {
+        width: 86%;
+        max-width: 120;
+        max-height: 88%;
     }
-    JSONImportScreen TextArea {
-        height: 16;
+    ManualAddScreen #import_help {
+        padding: 0 1;
+        color: {ui.FG_MUTE};
+    }
+    ManualAddScreen #import_examples {
+        padding: 0 1;
         margin: 1 0;
+        color: {ui.FG_DIM};
+        max-height: 10;
+        overflow-y: auto;
     }
-    JSONImportScreen #import_status {
+    ManualAddScreen TextArea {
+        height: 14;
+        margin: 0 0 1 0;
+    }
+    ManualAddScreen #import_status {
         color: {ui.ERR};
         padding: 0 1;
         margin-top: 1;
     }
-    JSONImportScreen #import_status.ok { color: {ui.OK}; }
-    JSONImportScreen #import_help { padding: 0 1; }
+    ManualAddScreen #import_status.ok { color: {ui.OK}; }
     """
     )
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=True),
-        Binding("ctrl+s", "save", "Import", show=True),
+        Binding("ctrl+s", "submit", "Submit", show=True),
+        Binding("p", "paste_clipboard", "Paste", show=True),
     ]
 
     def compose(self) -> ComposeResult:
+        project_file = _project_config_path()
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("▶  Import MCP Server", id="modal_title")
+                yield Static("▶  Add MCP Server", id="modal_title")
                 yield Static(
                     Text.from_markup(
-                        f"[{ui.FG_MUTE}]Paste one of:[/]\n"
-                        f'  [{ui.ACCENT}]{"mcpServers": {"my-srv": {"command": "npx", "args": ["-y", "@..."]}}}[/]\n'
-                        f'  [{ui.ACCENT}]{"servers": {"my-srv": {"type": "stdio", "command": "..."}}, "auto_connect": ["my-srv"]}[/]\n'
-                        f'  [{ui.ACCENT}]{"name": "my-srv", "command": "npx", "args": [...]}[/]   [{ui.FG_DIM}](bare form)[/]'
+                        f"[{ui.FG_MUTE}]Paste or edit JSON below — saved to[/]\n"
+                        f"[{ui.ACCENT}]{project_file}[/]"
                     ),
                     id="import_help",
                 )
+                yield Static(self._examples_text(), id="import_examples")
                 yield TextArea("", id="import_input", show_line_numbers=False)
                 yield Static("", id="import_status")
                 yield Static(
-                    f"[{ui.ACCENT_3}]ctrl+s[/] import   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[{ui.ACCENT_3}]ctrl+s[/] submit   [{ui.ACCENT_3}]p[/] paste clipboard   "
+                    f"[{ui.ACCENT_3}]esc[/] cancel",
                     id="modal_hint",
                 )
+
+    @staticmethod
+    def _examples_text() -> Text:
+        return Text.assemble(
+            ("Claude Code\n", "bold"),
+            (_CLAUDE_EXAMPLE, "dim"),
+            ("\n\nJarvis / project .mcp.json\n", "bold"),
+            (_JARVIS_EXAMPLE, "dim"),
+        )
 
     def on_mount(self) -> None:
         enable_mouse()
@@ -159,14 +227,24 @@ class JSONImportScreen(TuiModalScreen[dict | None]):
     def on_unmount(self) -> None:
         disable_mouse()
 
-    # ── actions ──────────────────────────────────────────────────────────
     def action_cancel(self) -> None:
         self.dismiss(None)
 
-    def action_save(self) -> None:
+    def action_paste_clipboard(self) -> None:
+        raw = clipboard_get()
+        if not raw.strip():
+            self._set_status("clipboard is empty", ok=False)
+            return
+        self.query_one("#import_input", TextArea).text = raw
+        self._set_status("pasted from clipboard — review and press ctrl+s", ok=True)
+
+    def action_submit(self) -> None:
         raw = self.query_one("#import_input", TextArea).text.strip()
+        self._import_raw(raw)
+
+    def _import_raw(self, raw: str) -> None:
         if not raw:
-            self._set_status("paste a JSON snippet first", ok=False)
+            self._set_status("paste or type JSON first (or press p)", ok=False)
             return
         try:
             parsed = json.loads(raw)
@@ -175,103 +253,29 @@ class JSONImportScreen(TuiModalScreen[dict | None]):
             return
 
         try:
-            added = _ingest_json(parsed)
+            result = merge_json_into_project(parsed)
         except ValueError as e:
             self._set_status(str(e), ok=False)
             return
 
+        added = result.get("added", [])
         if not added:
-            self._set_status("no servers found in that JSON", ok=False)
+            skipped = result.get("skipped", [])
+            if skipped:
+                self._set_status(
+                    f"no new servers — already in project: {', '.join(skipped[:5])}",
+                    ok=False,
+                )
+            else:
+                self._set_status("no servers found in that JSON", ok=False)
             return
 
-        self.dismiss({"added": added})
+        self.dismiss(result)
 
     def _set_status(self, msg: str, ok: bool) -> None:
         widget = self.query_one("#import_status", Static)
         widget.update(Text(msg, style="bold green" if ok else "bold red"))
         widget.set_class(ok, "ok")
-
-
-def _ingest_json(parsed: Any) -> list[str]:
-    """Merge user-pasted JSON into the Jarvis global mcp.json. Returns added names."""
-    if not isinstance(parsed, dict):
-        raise ValueError("JSON root must be an object")
-
-    candidates: list[tuple[str, dict]] = []
-    auto_names: list[str] = []
-
-    # ── Format 1: Claude Code ── {"mcpServers": {...}}
-    if isinstance(parsed.get("mcpServers"), dict):
-        for n, c in parsed["mcpServers"].items():
-            candidates.append((str(n), c))
-            auto_names.append(str(n))
-
-    # ── Format 2: Jarvis ── {"servers": {...}, "auto_connect": [...]}
-    elif isinstance(parsed.get("servers"), dict):
-        for n, c in parsed["servers"].items():
-            candidates.append((str(n), c))
-        auto_raw = parsed.get("auto_connect", [])
-        if isinstance(auto_raw, list):
-            auto_names = [str(x) for x in auto_raw]
-
-    # ── Format 3: bare object ── {"name": "...", "command": "...", ...}
-    elif "command" in parsed or "url" in parsed:
-        name = parsed.get("name") or parsed.get("id")
-        if not name:
-            raise ValueError("bare-form JSON needs a 'name' field")
-        candidates.append((str(name), parsed))
-        auto_names.append(str(name))
-
-    else:
-        raise ValueError(
-            "JSON must contain 'mcpServers', 'servers', or a bare 'command'/'url'"
-        )
-
-    if not candidates:
-        return []
-
-    # Load existing global file (or start fresh).
-    existing: dict[str, Any] = {"servers": {}, "auto_connect": []}
-    if MCP_GLOBAL_CONFIG_FILE.exists():
-        try:
-            on_disk = json.loads(MCP_GLOBAL_CONFIG_FILE.read_text(encoding="utf-8"))
-            if isinstance(on_disk, dict):
-                if isinstance(on_disk.get("servers"), dict):
-                    existing["servers"] = dict(on_disk["servers"])
-                if isinstance(on_disk.get("auto_connect"), list):
-                    existing["auto_connect"] = list(on_disk["auto_connect"])
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    from ..mcp.config import _normalize_claude_code_entry
-
-    added: list[str] = []
-    for name, cfg in candidates:
-        if name in existing["servers"]:
-            raise ValueError(f"server '{name}' already exists — remove it first")
-        normalized = _normalize_claude_code_entry(cfg) if not isinstance(cfg.get("type"), str) or cfg.get("type") in (
-            "stdio", "sse", "local", "remote", "http"
-        ) else None
-        # If the entry already looks like a Jarvis schema, accept verbatim.
-        if cfg.get("type") in ("stdio", "sse") and ("command" in cfg or "url" in cfg):
-            normalized = dict(cfg)
-        if normalized is None:
-            normalized = _normalize_claude_code_entry(cfg)
-        if normalized is None:
-            raise ValueError(f"server '{name}': missing command or url")
-        existing["servers"][name] = normalized
-        added.append(name)
-
-    for n in auto_names:
-        if n in existing["servers"] and n not in existing["auto_connect"]:
-            existing["auto_connect"].append(n)
-
-    MCP_GLOBAL_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    MCP_GLOBAL_CONFIG_FILE.write_text(
-        json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    return added
 
 
 # ── main MCP modal ───────────────────────────────────────────────────────
@@ -302,6 +306,7 @@ class MCPModalScreen(TuiModalScreen[None]):
     }
     MCPModalScreen #mcp_status.ok { color: {ui.OK}; }
     MCPModalScreen #mcp_status.err { color: {ui.ERR}; }
+    MCPModalScreen #mcp_status.connecting { color: {ui.WARN}; }
     MCPModalScreen Input { margin-bottom: 1; }
     """
     )
@@ -311,7 +316,8 @@ class MCPModalScreen(TuiModalScreen[None]):
         Binding("space",  "toggle",   "Toggle", show=True),
         Binding("enter",  "toggle",   "Toggle", show=False),
         Binding("g",      "toggle_global", "Global", show=True),
-        Binding("i",      "import",   "Import", show=True),
+        Binding("i",      "import_global", "Import", show=True),
+        Binding("a",      "manual_add",    "Add",    show=True),
         Binding("r",      "refresh",  "Refresh", show=True),
         Binding("d",      "delete",   "Delete", show=True),
         Binding("slash",  "focus_filter", "Filter", show=False),
@@ -325,6 +331,11 @@ class MCPModalScreen(TuiModalScreen[None]):
         super().__init__()
         self._filter: str = ""
         self._row_ids: list[str] = []   # parallel to OptionList rows
+        self._connecting_names: set[str] = set()
+        self._connect_status_msg: str = ""
+        self._scope_busy: bool = False
+        self._spinner_i: int = 0
+        self._spinner_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         with CenterMiddle():
@@ -336,8 +347,9 @@ class MCPModalScreen(TuiModalScreen[None]):
                 yield Static("", id="mcp_status")
                 yield Static(
                     f"[{ui.ACCENT_3}]space[/] toggle   [{ui.ACCENT_3}]g[/] global   "
-                    f"[{ui.ACCENT_3}]i[/] import   [{ui.ACCENT_3}]r[/] refresh   "
-                    f"[{ui.ACCENT_3}]d[/] delete   [{ui.ACCENT_3}]esc[/] close",
+                    f"[{ui.ACCENT_3}]i[/] import selected   [{ui.ACCENT_3}]a[/] add   "
+                    f"[{ui.ACCENT_3}]r[/] refresh   [{ui.ACCENT_3}]d[/] delete   "
+                    f"[{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -355,6 +367,7 @@ class MCPModalScreen(TuiModalScreen[None]):
 
     def on_unmount(self) -> None:
         disable_mouse()
+        self._stop_connect_spinner()
         if self._prev_scroll is not None:
             try:
                 self.app.scroll_sensitivity_y = self._prev_scroll
@@ -363,11 +376,56 @@ class MCPModalScreen(TuiModalScreen[None]):
 
     # ── helpers ──────────────────────────────────────────────────────────
 
-    def _set_status(self, msg: str, *, ok: bool | None = None) -> None:
+    def _set_status(
+        self,
+        msg: str,
+        *,
+        ok: bool | None = None,
+        connecting: bool = False,
+    ) -> None:
         widget = self.query_one("#mcp_status", Static)
         widget.update(Text(msg))
         widget.set_class(ok is True, "ok")
         widget.set_class(ok is False, "err")
+        widget.set_class(connecting, "connecting")
+
+    def _spinner_char(self) -> str:
+        frames = ui.SPINNER_FRAMES
+        return frames[self._spinner_i % len(frames)]
+
+    def _start_connect_spinner(self) -> None:
+        if self._spinner_timer is not None:
+            return
+        self._spinner_i = 0
+        self._spinner_timer = self.set_interval(0.1, self._tick_connect_spinner)
+
+    def _stop_connect_spinner(self) -> None:
+        if self._spinner_timer is not None:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
+
+    def _tick_connect_spinner(self) -> None:
+        if not self._connecting_names and not self._scope_busy:
+            self._stop_connect_spinner()
+            return
+        self._spinner_i += 1
+        self._refresh_rows()
+        if self._connect_status_msg:
+            self._set_status(
+                f"{self._spinner_char()} {self._connect_status_msg}",
+                connecting=True,
+            )
+
+    def _update_connect_status(self) -> None:
+        pending = len(self._connecting_names)
+        if pending:
+            self._connect_status_msg = (
+                f"connecting {pending} server{'s' if pending != 1 else ''}…"
+            )
+            self._set_status(
+                f"{self._spinner_char()} {self._connect_status_msg}",
+                connecting=True,
+            )
 
     def _refresh_rows(self, keep_highlight: bool = True) -> None:
         """Re-read config and re-render the option list."""
@@ -376,16 +434,29 @@ class MCPModalScreen(TuiModalScreen[None]):
         auto_connect = set(config.get_auto_connect())
 
         # Header line
-        scope_text = (
-            Text.assemble(
+        spinner = self._spinner_char()
+        connecting_count = len(self._connecting_names)
+        if connecting_count:
+            scope_text = Text.assemble(
+                ("scope: ", "dim"),
+                (
+                    ("◉ global on  ", "bold blue")
+                    if config.include_global()
+                    else ("▣ project-only  ", "bold magenta")
+                ),
+                (f"{spinner} connecting {connecting_count} server", "bold yellow"),
+                ("s…" if connecting_count != 1 else "…", "bold yellow"),
+            )
+        elif config.include_global():
+            scope_text = Text.assemble(
                 ("scope: ", "dim"),
                 ("◉ global on  ", "bold blue"),
                 (f"{len(servers)} servers · ", "dim"),
                 (f"{len(auto_connect)} auto · ", "dim"),
                 (f"{mcp_registry.tool_count()} tools live", "green"),
             )
-            if config.include_global()
-            else Text.assemble(
+        else:
+            scope_text = Text.assemble(
                 ("scope: ", "dim"),
                 ("▣ project-only  ", "bold magenta"),
                 (f"{len(servers)} servers · ", "dim"),
@@ -393,7 +464,6 @@ class MCPModalScreen(TuiModalScreen[None]):
                 ("  ", ""),
                 ("(press g to load Claude Code / OpenCode / Cursor / …)", "dim"),
             )
-        )
         self.query_one("#mcp_header", Static).update(scope_text)
 
         # Apply filter
@@ -429,7 +499,18 @@ class MCPModalScreen(TuiModalScreen[None]):
             row_id = f"srv::{name}"
             self._row_ids.append(name)
             opts.add_option(
-                Option(_row_label(name, cfg, scope, source, name in auto_connect), id=row_id)
+                Option(
+                    _row_label(
+                        name,
+                        cfg,
+                        scope,
+                        source,
+                        name in auto_connect,
+                        connecting=name in self._connecting_names,
+                        spinner=spinner,
+                    ),
+                    id=row_id,
+                )
             )
 
         if prev_idx is not None and prev_idx < len(self._row_ids):
@@ -472,7 +553,7 @@ class MCPModalScreen(TuiModalScreen[None]):
 
     def action_toggle(self) -> None:
         name = self._selected_name()
-        if not name:
+        if not name or name in self._connecting_names or self._scope_busy:
             return
         config = get_config()
         if mcp_registry.is_connected(name):
@@ -488,8 +569,14 @@ class MCPModalScreen(TuiModalScreen[None]):
             if cfg is None:
                 self._set_status(f"{name}: not in current scope (press g)", ok=False)
                 return
-            # Run the (potentially slow) connect off the UI thread.
-            self._set_status(f"connecting {name}…")
+            self._connecting_names.add(name)
+            self._connect_status_msg = f"connecting {name}…"
+            self._start_connect_spinner()
+            self._set_status(
+                f"{self._spinner_char()} connecting {name}…",
+                connecting=True,
+            )
+            self._refresh_rows()
 
             def _do_connect() -> None:
                 err = mcp_registry.connect(name, cfg)
@@ -502,6 +589,11 @@ class MCPModalScreen(TuiModalScreen[None]):
     def _after_connect(self, name: str, err: str | None) -> None:
         from ..mcp.scope import invalidate_mcp_prompt_cache
 
+        self._connecting_names.discard(name)
+        if not self._connecting_names and not self._scope_busy:
+            self._stop_connect_spinner()
+            self._connect_status_msg = ""
+
         if err:
             self._set_status(f"connect failed: {err}", ok=False)
         else:
@@ -510,38 +602,160 @@ class MCPModalScreen(TuiModalScreen[None]):
         invalidate_mcp_prompt_cache()
         self._refresh_rows()
 
+    def _begin_global_connect(self, pending: list[str], server_count: int) -> None:
+        self._connecting_names = set(pending)
+        if pending:
+            self._connect_status_msg = (
+                f"connecting {len(pending)} of {server_count} server"
+                f"{'s' if server_count != 1 else ''}…"
+            )
+            self._update_connect_status()
+        self._refresh_rows()
+
+    def _on_connect_start(self, name: str) -> None:
+        self._connecting_names.add(name)
+        self._update_connect_status()
+        self._refresh_rows()
+
+    def _on_connect_done(self, name: str, _err: str | None) -> None:
+        self._connecting_names.discard(name)
+        self._update_connect_status()
+        self._refresh_rows()
+
+    def _after_global_reconcile(self, result: dict) -> None:
+        self._connecting_names.clear()
+        self._connect_status_msg = ""
+        self._scope_busy = False
+        self._stop_connect_spinner()
+
+        connected = result.get("connected", [])
+        failed = result.get("failed", [])
+        if state.global_mcp:
+            if connected and failed:
+                self._set_status(
+                    f"global ON — connected {len(connected)}, failed {len(failed)}",
+                    ok=False,
+                )
+            elif failed:
+                names = ", ".join(n for n, _ in failed[:3])
+                suffix = "…" if len(failed) > 3 else ""
+                self._set_status(
+                    f"global ON — connect failed: {names}{suffix}",
+                    ok=False,
+                )
+            elif connected:
+                self._set_status(
+                    f"global ON — connected {len(connected)} server"
+                    f"{'s' if len(connected) != 1 else ''}",
+                    ok=True,
+                )
+            else:
+                self._set_status("global scope ON", ok=True)
+        else:
+            self._set_status("global scope OFF — project servers only", ok=True)
+        self._refresh_rows()
+
     def action_toggle_global(self) -> None:
+        if self._scope_busy or self._connecting_names:
+            return
+
         state.global_mcp = not state.global_mcp
         state.save_mcp_config()
 
         from ..mcp.scope import apply_mcp_scope_change
 
         enabling = state.global_mcp
+        self._scope_busy = True
+        self._connect_status_msg = (
+            "loading global MCP config…" if enabling else "updating scope…"
+        )
+        self._start_connect_spinner()
         self._set_status(
-            "global scope ON — connecting servers…" if enabling
-            else "global scope OFF — project servers only",
-            ok=True,
+            f"{self._spinner_char()} {self._connect_status_msg}",
+            connecting=True,
         )
 
         def _reconcile() -> None:
-            apply_mcp_scope_change(connect_all=enabling)
-            self.app.call_from_thread(self._refresh_rows)
+            from ..mcp.config import reload_config
+
+            config = reload_config()
+            visible = set(config.list_servers().keys())
+            if enabling:
+                pending = [
+                    n for n in sorted(visible)
+                    if not mcp_registry.is_connected(n)
+                ]
+                self.app.call_from_thread(
+                    self._begin_global_connect,
+                    pending,
+                    len(visible),
+                )
+
+            def on_start(name: str) -> None:
+                self.app.call_from_thread(self._on_connect_start, name)
+
+            def on_done(name: str, err: str | None) -> None:
+                self.app.call_from_thread(self._on_connect_done, name, err)
+
+            result = apply_mcp_scope_change(
+                connect_all=enabling,
+                on_connect_start=on_start if enabling else None,
+                on_connect_done=on_done if enabling else None,
+            )
+            self.app.call_from_thread(self._after_global_reconcile, result)
 
         threading.Thread(target=_reconcile, daemon=True).start()
+
+    def action_import_global(self) -> None:
+        """Copy the highlighted global MCP server into project .mcp.json."""
+        if self._scope_busy or self._connecting_names:
+            return
+        name = self._selected_name()
+        if not name:
+            return
+
+        config = get_config()
+        if config.get_scope(name) == "project":
+            self._set_status(f"{name} is already in project .mcp.json", ok=False)
+            return
+
+        try:
+            result = import_server_to_project(name)
+        except OSError as e:
+            self._set_status(f"import failed: {e}", ok=False)
+            return
+
+        if result.get("error"):
+            self._set_status(str(result["error"]), ok=False)
+            return
+
+        reload_config()
         self._refresh_rows()
 
-    def action_import(self) -> None:
+        dest = result.get("path", MCP_PROJECT_CONFIG_FILENAME)
+        if result.get("added"):
+            self._set_status(f"imported {name} → {dest}", ok=True)
+        elif result.get("skipped"):
+            self._set_status(f"{name} already in project", ok=True)
+        else:
+            self._set_status("nothing to import", ok=False)
+
+    def action_manual_add(self) -> None:
         def after(result: dict | None) -> None:
             if not result:
                 return
             added = result.get("added", [])
+            skipped = result.get("skipped", [])
             reload_config()
             self._refresh_rows()
-            self._set_status(
-                f"imported {len(added)}: {', '.join(added)}", ok=True
-            )
+            msg = f"added {len(added)} to project: {', '.join(added[:6])}"
+            if len(added) > 6:
+                msg += "…"
+            if skipped:
+                msg += f" ({len(skipped)} skipped)"
+            self._set_status(msg, ok=True)
 
-        self.app.push_screen(JSONImportScreen(), after)
+        self.app.push_screen(ManualAddScreen(), after)
 
     def action_delete(self) -> None:
         name = self._selected_name()

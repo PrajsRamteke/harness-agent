@@ -1,11 +1,18 @@
 """Reconcile MCP config, connections, and system prompt after scope changes."""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from .config import reload_config
 from .registry import mcp_registry
 
 
-def apply_mcp_scope_change(*, connect_all: bool = False) -> dict:
+def apply_mcp_scope_change(
+    *,
+    connect_all: bool = False,
+    on_connect_start: Callable[[str], None] | None = None,
+    on_connect_done: Callable[[str, str | None], None] | None = None,
+) -> dict:
     """Reload MCP config for the current ``state.global_mcp`` flag.
 
     Disconnects servers that fall outside the new scope. Optionally connects
@@ -32,7 +39,11 @@ def apply_mcp_scope_change(*, connect_all: bool = False) -> dict:
         cfg = config.get_server(name)
         if cfg is None:
             continue
+        if on_connect_start:
+            on_connect_start(name)
         err = mcp_registry.connect(name, cfg)
+        if on_connect_done:
+            on_connect_done(name, err)
         if err:
             failed.append((name, err))
         else:
