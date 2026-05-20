@@ -394,6 +394,34 @@ def scaffold_agent(name: str, scope: str = "project", description: str = "") -> 
     return True, str(target)
 
 
+def import_agent_to_project(name: str) -> dict:
+    """Copy one global agent into the project ``.harness/agents/`` directory."""
+    name_l = name.strip().lower()
+    agents = discover_agents(force=True, include_global=True)
+    rec = next((a for a in agents if a["name"] == name_l), None)
+    if rec is None:
+        return {"added": [], "skipped": [], "error": f"'{name_l}' not found"}
+
+    root = _find_project_root()
+    target_dir = root / PROJECT_AGENTS_DIRNAME
+    target = target_dir / f"{name_l}.md"
+
+    if rec.get("scope") == SCOPE_PROJECT:
+        return {"added": [], "skipped": [name_l], "path": str(target if target.exists() else rec["path"])}
+
+    if target.exists():
+        return {"added": [], "skipped": [name_l], "path": str(target)}
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(rec["path"], target)
+    except OSError as e:
+        return {"added": [], "skipped": [], "error": str(e)}
+
+    invalidate_cache()
+    return {"added": [name_l], "skipped": [], "path": str(target)}
+
+
 def auto_activate_coding_agent() -> None:
     """On **every** ``jarvis`` launch: check the current directory.
 

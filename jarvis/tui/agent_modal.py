@@ -4,6 +4,7 @@ User interaction:
 
 * ↑/↓        navigate the agent list
 * Enter      activate the highlighted agent (or pick "default" to deactivate)
+* i          import the highlighted global agent into this project
 * o          deactivate — base system prompt only
 * g          toggle global scope (project-only ↔ project + global)
 * s          toggle which scope `new` writes to (project ↔ global)
@@ -148,6 +149,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         Binding("down", "cursor_down", show=False),
         Binding("up", "cursor_up", show=False),
         Binding("g", "toggle_global", "Global", show=True),
+        Binding("i", "import_to_project", "Import", show=True),
         Binding("s", "toggle_new_scope", "Scope", show=True),
         Binding("n", "new_agent", "New", show=True),
         Binding("e", "edit_agent", "Edit", show=True),
@@ -165,8 +167,8 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
                 yield Static(
                     f"{modal_key('↑↓')} nav   {modal_key('↵')} activate   {modal_key('o')} default   "
                     f"{modal_key('n')} new   {modal_key('e')} edit   {modal_key('p')} preview   "
-                    f"{modal_key('g')} global   {modal_key('s')} scope   {modal_key('r')} refresh   "
-                    f"{modal_key('esc')} close",
+                    f"{modal_key('i')} import   {modal_key('g')} global   {modal_key('s')} scope   "
+                    f"{modal_key('r')} refresh   {modal_key('esc')} close",
                     id="modal_hint",
                 )
 
@@ -330,6 +332,24 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         state.save_agent_config()
         ag.invalidate_cache()
         self._populate()
+
+    def action_import_to_project(self) -> None:
+        name = self._current_agent_name()
+        if not name:
+            self._notify("(highlight a global agent to import)")
+            return
+        result = ag.import_agent_to_project(name)
+        if result.get("error"):
+            self._notify(str(result["error"]), error=True)
+            return
+        ag.invalidate_cache()
+        self._populate()
+        if result.get("added"):
+            self._notify(f"imported {name} → {result['path']}")
+        elif result.get("skipped"):
+            self._notify(f"{name} already in project")
+        else:
+            self._notify("nothing to import", error=True)
 
     def action_refresh(self) -> None:
         ag.invalidate_cache()

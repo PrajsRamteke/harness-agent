@@ -8,6 +8,7 @@ NOT change any persistent activation state.
 
 * ↑/↓ to navigate
 * Enter to preview the highlighted skill's body in the transcript
+* i to import the highlighted global skill into this project
 * g to toggle global-scope visibility (re-scans + reloads list)
 * r to refresh (re-scan disk)
 * Esc to close
@@ -53,6 +54,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         Binding("down", "cursor_down", show=False),
         Binding("up", "cursor_up", show=False),
         Binding("g", "toggle_global", "Global", show=True),
+        Binding("i", "import_to_project", "Import", show=True),
         Binding("r", "refresh", "Refresh", show=True),
         Binding("slash", "focus_search", "Search", show=True),
     ]
@@ -65,7 +67,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
                 yield Input(placeholder="search name or description…", id="skill_search")
                 yield OptionList(id="skill_list")
                 yield Static(
-                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} preview   "
+                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} preview   {modal_key('i')} import   "
                     f"{modal_key('/')} search   {modal_key('g')} global   "
                     f"{modal_key('r')} refresh   {modal_key('esc')} close",
                     id="modal_hint",
@@ -205,6 +207,17 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
     def action_cursor_up(self) -> None:
         self.query_one("#skill_list", OptionList).action_cursor_up()
 
+    def _current_skill_name(self) -> str | None:
+        opts = self.query_one("#skill_list", OptionList)
+        if opts.highlighted is None:
+            return None
+        try:
+            opt = opts.get_option_at_index(opts.highlighted)
+        except Exception:
+            return None
+        oid = getattr(opt, "id", None)
+        return oid if oid else None
+
     def action_toggle_global(self) -> None:
         state.global_skills = not state.global_skills
         state.save_skills_config()
@@ -212,6 +225,24 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         self._notify(
             "◎ global skills shown" if state.global_skills else "▣ project-only skills"
         )
+
+    def action_import_to_project(self) -> None:
+        name = self._current_skill_name()
+        if not name:
+            self._notify("(highlight a global skill to import)", error=True)
+            return
+        result = sk.import_skill_to_project(name)
+        if result.get("error"):
+            self._notify(str(result["error"]), error=True)
+            return
+        sk.invalidate_cache()
+        self._populate()
+        if result.get("added"):
+            self._notify(f"imported {name} → {result['path']}")
+        elif result.get("skipped"):
+            self._notify(f"{name} already in project")
+        else:
+            self._notify("nothing to import", error=True)
 
     def action_refresh(self) -> None:
         try:

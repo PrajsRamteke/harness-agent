@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import shutil
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -306,6 +307,46 @@ def global_count() -> int:
     project_names = {s["name"] for s in project_skills}
     all_skills = discover_skills(force=True, include_global=True)
     return sum(1 for s in all_skills if s["name"] not in project_names)
+
+
+def invalidate_cache() -> None:
+    """Force the next discover_skills() call to re-scan."""
+    global _cache, _cache_ts, _cache_key
+    _cache = []
+    _cache_ts = 0.0
+    _cache_key = ""
+
+
+def import_skill_to_project(name: str) -> dict:
+    """Copy one global skill directory into the project ``.harness/skills/`` tree."""
+    name_l = name.strip().lower()
+    skills = discover_skills(force=True, include_global=True)
+    rec = next((s for s in skills if s["name"] == name_l), None)
+    if rec is None:
+        return {"added": [], "skipped": [], "error": f"'{name_l}' not found"}
+
+    root = _find_project_root()
+    target_dir = root / PROJECT_SKILLS_DIRNAME / name_l
+
+    if rec.get("scope") == "project":
+        return {
+            "added": [],
+            "skipped": [name_l],
+            "path": str(target_dir if target_dir.exists() else rec["path"]),
+        }
+
+    if target_dir.exists():
+        return {"added": [], "skipped": [name_l], "path": str(target_dir)}
+
+    src_dir = pathlib.Path(rec["path"]).parent
+    try:
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src_dir, target_dir)
+    except OSError as e:
+        return {"added": [], "skipped": [], "error": str(e)}
+
+    invalidate_cache()
+    return {"added": [name_l], "skipped": [], "path": str(target_dir / "SKILL.md")}
 
 
 def as_prompt_block() -> str:
