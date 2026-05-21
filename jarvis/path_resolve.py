@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import unicodedata
 
 from .constants import CWD
@@ -15,6 +16,13 @@ from .constants import CWD
 def _unicode_space_key(name: str) -> str:
     """Map filename to a form comparable across Zs (space separator) code points."""
     return "".join(" " if unicodedata.category(ch) == "Zs" else ch for ch in name)
+
+
+def _loose_name_key(name: str) -> str:
+    """Looser filename key — also treats ``4.34.17PM`` and ``4.34.17 PM`` as equal."""
+    s = _unicode_space_key(name).casefold()
+    s = re.sub(r"(\d)\s*(am|pm)\b", r"\1 \2", s)
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def robust_resolve(path: str, cwd: pathlib.Path | None = None) -> pathlib.Path:
@@ -29,9 +37,12 @@ def robust_resolve(path: str, cwd: pathlib.Path | None = None) -> pathlib.Path:
     if not name or not parent.is_dir():
         return base
     key = _unicode_space_key(name)
+    loose = _loose_name_key(name)
     try:
         for ent in parent.iterdir():
             if _unicode_space_key(ent.name) == key:
+                return ent.resolve()
+            if _loose_name_key(ent.name) == loose:
                 return ent.resolve()
     except OSError:
         pass

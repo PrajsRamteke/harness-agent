@@ -188,6 +188,7 @@ class PromptArea(TextArea):
     - Trailing backslash before Enter inserts a newline (bash-style).
     - Ctrl+D / Ctrl+C bubble up to the App.
     - @file mentions render with theme-colored background chips.
+    - Dropped media/docs render as numbered chips like [image 1], [document 2].
     """
 
     class Submitted(Message):
@@ -204,14 +205,14 @@ class PromptArea(TextArea):
         self.refresh_file_ref_highlights()
 
     def refresh_file_ref_highlights(self) -> None:
-        from .prompt_highlight import build_file_ref_highlights
+        from .prompt_highlight import build_prompt_highlights
 
         try:
             row, col = self.cursor_location
         except Exception:
             row, col = 0, 0
         self._highlights.clear()
-        for line_no, spans in build_file_ref_highlights(
+        for line_no, spans in build_prompt_highlights(
             self.text or "",
             cursor_row=row,
             cursor_col=col,
@@ -224,6 +225,24 @@ class PromptArea(TextArea):
         if event.text_area is not self:
             return
         self.refresh_file_ref_highlights()
+
+    async def _on_paste(self, event) -> None:  # type: ignore[override]
+        """Insert tokenized attachment chips instead of raw dropped paths."""
+        if self.read_only:
+            return
+        from ..prompt_attachments import tokenize_dropped_paths
+
+        paste = event.text or ""
+        tokenized, _, _ = tokenize_dropped_paths(paste)
+        insert_text = tokenized if tokenized != paste else paste
+        if result := self._replace_via_keyboard(insert_text, *self.selection):
+            self.move_cursor(result.end_location)
+            self.focus()
+        try:
+            self.app._last_input_value = self.text or ""
+            self.refresh_file_ref_highlights()
+        except Exception:
+            pass
 
     async def _on_key(self, event):  # type: ignore[override]
         key = event.key
@@ -412,6 +431,7 @@ class JarvisTUI(App):
         self._file_ref_mention: tuple[int, int, str] | None = None
         self._file_ref_mouse_on = False
         self._file_ref_last_query: str | None = None
+        self._tokenizing_attachments = False
         # RichLog line index where the live parallel-files panel starts (None = frozen in transcript).
         self._tool_activity_anchor: int | None = None
         self._tool_activity_line_count: int = 0
@@ -799,7 +819,8 @@ class JarvisTUI(App):
 
     # ─── prompt stash (FIFO queue above status bar) ──────────────────
     @staticmethod
-    def _stash_preview(text: str, max_len: int = 56) -> str:
+    def _stash_preview(msg, max_len: int = 56) -> str:
+        text = msg[0] if isinstance(msg, tuple) else msg
         preview = (text or "").replace("\n", " ").strip()
         if len(preview) > max_len:
             preview = preview[: max_len - 1] + "…"
@@ -948,7 +969,9 @@ class JarvisTUI(App):
 
     def _stash_prompt(self, text: str) -> None:
         """Queue a prompt while the agent is busy (FIFO; shown only in #queuebar)."""
-        state.prompt_queue.append(text)
+        from ..prompt_attachments import snapshot_registry
+
+        state.prompt_queue.append((text, snapshot_registry()))
         self._refresh_queue_bar()
         if self._busy and self._activity_label:
             self._write_status_line(busy=True)
@@ -987,6 +1010,37 @@ class JarvisTUI(App):
             self._activity_timer = None
 
     # ─── palette ─────────────────────────────────────────────────────
+    def _run_attachment_tokenize(self) -> None:
+        if self._tokenizing_attachments:
+            return
+        try:
+            inp = self.query_one("#prompt", PromptArea)
+        except Exception:
+            return
+        val = inp.text or ""
+        from ..prompt_attachments import extract_droppable_paths, tokenize_dropped_paths
+
+        if not extract_droppable_paths(val):
+            return
+
+        row, col = self._prompt_cursor()
+        tokenized, new_row, new_col = tokenize_dropped_paths(
+            val,
+            cursor_row=row,
+            cursor_col=col,
+        )
+        if tokenized == val:
+            return
+        self._tokenizing_attachments = True
+        try:
+            inp.text = tokenized
+            if new_row is not None and new_col is not None:
+                inp.move_cursor((new_row, new_col))
+            self._last_input_value = tokenized
+            inp.refresh_file_ref_highlights()
+        finally:
+            self._tokenizing_attachments = False
+
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id != "prompt":
             return
@@ -998,6 +1052,8 @@ class JarvisTUI(App):
             self._last_input_value = ""
             self._open_palette()
             return
+        if not self._tokenizing_attachments:
+            self._run_attachment_tokenize()
         self._sync_file_ref_picker()
         if isinstance(event.text_area, PromptArea):
             event.text_area.refresh_file_ref_highlights()
@@ -1427,7 +1483,9 @@ class JarvisTUI(App):
             text = state.aliases[head[1:]] + rest
 
         if self._busy:
+            from ..prompt_attachments import reset_registry
             self._stash_prompt(text)
+            reset_registry()
             return
 
         if head in ("/login", "/logout", "/auth", "/model", "/session", "/sessions"):
@@ -1594,6 +1652,8 @@ class JarvisTUI(App):
         self._last_input_value = ""
         self.close_file_ref_picker()
         if not text:
+            from ..prompt_attachments import reset_registry
+            reset_registry()
             return
 
         if _is_bare_model_command(text):
@@ -1657,7 +1717,9 @@ class JarvisTUI(App):
             return
 
         if self._busy:
+            from ..prompt_attachments import reset_registry
             self._stash_prompt(text)
+            reset_registry()
             return
 
         self._begin_turn(text)
@@ -1918,6 +1980,7 @@ class JarvisTUI(App):
                     return
 
             from ..prompt_refs import expand_file_refs
+            from ..prompt_attachments import expand_attachment_tokens, reset_registry
 
             expanded, attached = expand_file_refs(inp)
             if attached:
@@ -1928,6 +1991,17 @@ class JarvisTUI(App):
                     )
                 )
             inp = expanded
+
+            expanded, dropped = expand_attachment_tokens(inp)
+            if dropped:
+                labels = ", ".join(dropped)
+                self.call_from_thread(
+                    lambda n=labels: self._tui_console.print(
+                        f"[{ui.FG_DIM}]▣ dropped {len(dropped)} file(s): {n}[/]"
+                    )
+                )
+            inp = expanded
+            reset_registry()
 
             if state.client is None:
                 from ..auth.client import make_client
@@ -1980,7 +2054,18 @@ class JarvisTUI(App):
         self._sync_activity_phase("")
 
         if state.prompt_queue:
-            next_prompt = state.prompt_queue.pop(0).strip()
+            item = state.prompt_queue.pop(0)
+            if isinstance(item, tuple):
+                next_prompt = item[0]
+                if len(item) > 1 and isinstance(item[1], tuple):
+                    attachments, llm_paths = item[1]
+                else:
+                    attachments, llm_paths = item[1], None
+                from ..prompt_attachments import restore_registry
+                restore_registry(attachments, llm_paths)
+            else:
+                next_prompt = item
+            next_prompt = next_prompt.strip()
             remaining = len(state.prompt_queue)
             self._refresh_queue_bar()
 

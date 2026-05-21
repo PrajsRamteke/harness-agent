@@ -77,36 +77,44 @@ def prepare_user_prompt(inp: str, *, include_clipboard: bool = True) -> str | No
             return None
 
     from .prompt_refs import expand_file_refs
+    from .prompt_attachments import expand_attachment_tokens, reset_registry
 
     expanded, attached = expand_file_refs(inp)
     if attached:
         console.print(f"[dim]▣ attached {len(attached)} file(s): {', '.join(attached)}[/]")
     inp = expanded
 
-    hits = extract_image_paths(inp)
-    if hits:
-        names = ", ".join(p.name for _, p in hits)
-        console.print(f"[dim]▣ detected image(s): {names} — running OCR…[/]")
-        inp = process_input_for_images(inp)
-    elif include_clipboard:
-        img = clipboard_image_to_file()
-        if img is None:
-            state.last_clipboard_image_digest = ""
-        else:
-            digest = file_digest(img)
-            if digest != state.last_clipboard_image_digest:
-                state.last_clipboard_image_digest = digest
-                console.print(f"[dim]▣ fresh clipboard image detected → OCR ({img})[/]")
-                block, ocr = ocr_image_block(img, label="clipboard")
-                inp = append_image_block(inp, block)
-                console.print(
-                    Panel(
-                        ocr[:PANEL_PREVIEW_CHARS]
-                        + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
-                        title="▣ attached clipboard image (OCR)",
-                        border_style="cyan",
+    expanded, dropped = expand_attachment_tokens(inp)
+    if dropped:
+        console.print(f"[dim]▣ dropped {len(dropped)} file(s): {', '.join(dropped)}[/]")
+    inp = expanded
+    reset_registry()
+
+    if not dropped:
+        hits = extract_image_paths(inp)
+        if hits:
+            names = ", ".join(p.name for _, p in hits)
+            console.print(f"[dim]▣ detected image(s): {names} — running OCR…[/]")
+            inp = process_input_for_images(inp)
+        elif include_clipboard:
+            img = clipboard_image_to_file()
+            if img is None:
+                state.last_clipboard_image_digest = ""
+            else:
+                digest = file_digest(img)
+                if digest != state.last_clipboard_image_digest:
+                    state.last_clipboard_image_digest = digest
+                    console.print(f"[dim]▣ fresh clipboard image detected → OCR ({img})[/]")
+                    block, ocr = ocr_image_block(img, label="clipboard")
+                    inp = append_image_block(inp, block)
+                    console.print(
+                        Panel(
+                            ocr[:PANEL_PREVIEW_CHARS]
+                            + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
+                            title="▣ attached clipboard image (OCR)",
+                            border_style="cyan",
+                        )
                     )
-                )
 
     return inp
 
@@ -140,7 +148,17 @@ def main():
         try:
             # Process queued prompts (from TUI /script injection) before fresh input
             if state.prompt_queue:
-                inp = state.prompt_queue.pop(0)
+                item = state.prompt_queue.pop(0)
+                if isinstance(item, tuple):
+                    inp = item[0]
+                    if len(item) > 1 and isinstance(item[1], tuple):
+                        attachments, llm_paths = item[1]
+                    else:
+                        attachments, llm_paths = item[1], None
+                    from .prompt_attachments import restore_registry
+                    restore_registry(attachments, llm_paths)
+                else:
+                    inp = item
                 remaining = len(state.prompt_queue)
                 console.print(
                     f"[bold #58a6ff]⏭ from queue ({remaining} remaining)[/]"

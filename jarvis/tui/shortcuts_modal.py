@@ -20,6 +20,7 @@ _SHORTCUTS = """
 [bold]Navigation[/]
   /              command palette
   @              attach file (type @path in prompt)
+  drag-drop      drop whitelisted media/docs into composer → [image 1], …
   ⇥              cycle agent
   ↑↓             scroll transcript (or @file picker)
 

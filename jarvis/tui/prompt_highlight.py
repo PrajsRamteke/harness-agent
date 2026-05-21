@@ -1,4 +1,4 @@
-"""@file mention highlighting for the composer TextArea."""
+"""Composer highlighting for @file mentions and dropped-file attachment chips."""
 from __future__ import annotations
 
 import re
@@ -8,6 +8,7 @@ from typing import DefaultDict, List, Tuple
 from rich.style import Style
 from textual._text_area_theme import TextAreaTheme
 
+from ..prompt_attachments import ATTACHMENT_TOKEN_RE
 from ..prompt_refs import active_file_ref_at_cursor
 
 Highlight = Tuple[int, int | None, str]
@@ -29,12 +30,29 @@ def build_prompt_text_area_theme() -> TextAreaTheme:
         syntax_styles={
             "file_ref": Style(color=ui.ACCENT_2, bgcolor=ui.BG_4, bold=True),
             "file_ref_active": Style(color=ui.FG, bgcolor=ui.ACCENT, bold=True),
+            "attachment_image": Style(color=ui.FG, bgcolor=ui.ACCENT_3, bold=True),
+            "attachment_video": Style(color=ui.FG, bgcolor=ui.ACCENT, bold=True),
+            "attachment_audio": Style(color=ui.FG, bgcolor=ui.WARN, bold=True),
+            "attachment_document": Style(color=ui.FG, bgcolor=ui.ACCENT_2, bold=True),
+            "attachment_csv": Style(color=ui.FG, bgcolor=ui.OK, bold=True),
         },
     )
 
 
 def _spans_overlap(start: int, end: int, o_start: int, o_end: int) -> bool:
     return start < o_end and o_start < end
+
+
+def build_attachment_highlights(text: str) -> HighlightMap:
+    """Map line numbers to highlight spans for dropped-file chips."""
+    highlights: DefaultDict[int, List[Highlight]] = defaultdict(list)
+    lines = (text or "").split("\n")
+    for row, line in enumerate(lines):
+        for match in ATTACHMENT_TOKEN_RE.finditer(line):
+            kind = (match.group(1) or "file").lower()
+            style = f"attachment_{kind}"
+            highlights[row].append((match.start(), match.end(), style))
+    return dict(highlights)
 
 
 def build_file_ref_highlights(
@@ -68,4 +86,23 @@ def build_file_ref_highlights(
     row_spans.append((start_col, end_col, "file_ref_active"))
     row_spans.sort(key=lambda span: span[0])
     highlights[row] = row_spans
+    return dict(highlights)
+
+
+def build_prompt_highlights(
+    text: str,
+    *,
+    cursor_row: int | None = None,
+    cursor_col: int | None = None,
+) -> HighlightMap:
+    """Combined @file and dropped-file attachment highlights."""
+    highlights: DefaultDict[int, List[Highlight]] = defaultdict(list)
+    for source in (
+        build_file_ref_highlights(text, cursor_row=cursor_row, cursor_col=cursor_col),
+        build_attachment_highlights(text),
+    ):
+        for row, spans in source.items():
+            highlights[row].extend(spans)
+    for row in highlights:
+        highlights[row].sort(key=lambda span: span[0])
     return dict(highlights)
