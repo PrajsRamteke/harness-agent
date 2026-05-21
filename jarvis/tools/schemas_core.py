@@ -11,7 +11,7 @@ CONTEXT_TOOLS = [
         "  2. Call resolve_context with the task (be specific about the feature/file)\n"
         "  3. Read the bundle — it contains all files + their relationships\n"
         "  4. Plan your edits using the bundle\n"
-        "  5. Call edit_file/write_file to make changes\n"
+        "  5. Call edit_file/write_file (or multi_edit for several patches) to make changes\n"
         "  6. Verify with run_bash (tests/lint)\n\n"
         "Modes (default skeleton): full = all bodies (capped); skeleton = full root "
         "targets + symbol/import summaries for related files; manifest = file list only "
@@ -118,12 +118,28 @@ CORE_TOOLS = CONTEXT_TOOLS + [
         "path":{"type":"string"},"content":{"type":"string"},
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to write outside the current project."}},
         "required":["path","content"]}},
-    {"name":"edit_file","description":"Replace old_str with new_str. old_str must be unique unless replace_all=true.",
+    {"name":"edit_file","description":"Replace old_str with new_str in ONE file. old_str must be unique unless replace_all=true. For 2+ edits (same or different files), prefer multi_edit.",
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},"old_str":{"type":"string"},
         "new_str":{"type":"string"},"replace_all":{"type":"boolean"},
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
         "required":["path","old_str","new_str"]}},
+    {"name":"multi_edit","description":(
+        "Apply multiple search-replace edits in ONE call — same rules as edit_file per entry. "
+        "Use instead of many separate edit_file calls when changing 2–30 locations across one "
+        "or more files. Edits run in array order; consecutive edits on the same path share "
+        "one read/write. Returns per-edit status plus a success/fail summary."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "edits":{"type":"array","maxItems":30,"description":"Edits in order. Max 30.",
+                 "items":{"type":"object","properties":{
+                    "path":{"type":"string"},
+                    "old_str":{"type":"string"},
+                    "new_str":{"type":"string"},
+                    "replace_all":{"type":"boolean"}},
+                    "required":["path","old_str","new_str"]}},
+        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
+        "required":["edits"]}},
     {"name":"list_dir","description":(
         "List project directory entries with full paths. Refuses outside-project "
         "paths unless allow_outside_project=true. By default hides node_modules/"

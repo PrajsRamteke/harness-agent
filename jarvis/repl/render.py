@@ -68,7 +68,7 @@ from ..mcp.registry import is_mcp_tool
 # Context tools get a much higher output limit since they bundle many files at once.
 _CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle", "lesson_list", "lesson_search"}
 
-_FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file"})
+_FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
 _DISCOVERY_TOOLS = frozenset({"glob_files", "list_dir", "search_code", "fast_find", "rank_files"})
 
 _tool_pool: ThreadPoolExecutor | None = None

@@ -63,6 +63,10 @@ def describe_tool_activity(name: str, raw_input) -> str:
         return f"Writing file: {c(d.get('path', ''))}"
     if name == "edit_file":
         return f"Editing file: {c(d.get('path', ''))}"
+    if name == "multi_edit":
+        raw = d.get("edits")
+        n = len(raw) if isinstance(raw, list) else 0
+        return f"Multi-edit: {n} change(s)" if n else "Multi-edit"
     if name == "list_dir":
         return f"Listing directory: {c(d.get('path', '') or '.')}"
     if name == "glob_files":

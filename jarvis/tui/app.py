@@ -55,6 +55,7 @@ from .shortcuts_modal import ShortcutsHelpScreen
 from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_has_entries
 from ..repl.tool_runs import (
     _display_for_tool,
+    expand_dock_tool_use,
     is_dock_tool,
     list_runs,
     show_parallel_file_panel,
@@ -875,15 +876,21 @@ class JarvisTUI(App):
         self._tool_activity_line_count = 0
         self._tool_activity_frozen = False
 
+    def _parallel_panel_verb(self, runs: list[dict]) -> str:
+        if any(r.get("name") in ("multi_edit", "edit_file", "write_file") for r in runs):
+            return "editing"
+        return "reading"
+
     def _build_tool_activity_panel(self, runs: list[dict]) -> Panel:
         n = len(runs)
         n_run = sum(1 for r in runs if r.get("status") == "running")
         n_q = sum(1 for r in runs if r.get("status") == "queued")
+        verb = self._parallel_panel_verb(runs)
         title = f"⚡ {n} parallel file{'s' if n != 1 else ''}"
         if n_run or n_q:
             bits = []
             if n_run:
-                bits.append(f"{n_run} reading")
+                bits.append(f"{n_run} {verb}")
             if n_q:
                 bits.append(f"{n_q} queued")
             title += f" · {' · '.join(bits)}"
@@ -1704,7 +1711,7 @@ class JarvisTUI(App):
             data = self._block_dict(block)
             kind = data.get("type")
             if kind == "tool_use" and is_dock_tool(data.get("name", "")):
-                uses.append(data)
+                uses.extend(expand_dock_tool_use(data))
             elif kind == "tool_result":
                 n_results += 1
         return uses, n_results
@@ -1717,7 +1724,9 @@ class JarvisTUI(App):
         rows: list[str] = []
         for data in file_uses:
             name = data.get("name", "tool")
-            label, _ = _display_for_tool(name, data.get("input"))
+            label = data.get("_dock_label")
+            if not label:
+                label, _ = _display_for_tool(name, data.get("input"))
             if "/" in label:
                 base, _, parent = label.rpartition("/")
                 path_bit = f"[{ui.FG}]{_rich_escape(base)}[/] [{ui.FG_DIM}]{_rich_escape(parent)}[/]"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from typing import Any
@@ -18,6 +19,7 @@ FILE_DOCK_TOOLS = frozenset({
     "read_document",
     "write_file",
     "edit_file",
+    "multi_edit",
     "read_bundle",
     "resolve_context",
     "glob_files",
@@ -29,6 +31,110 @@ FILE_DOCK_TOOLS = frozenset({
     "read_images_text",
     "read_image_text",
 })
+
+
+def multi_edit_paths(raw_input: Any) -> list[str]:
+    """Unique file paths from a multi_edit call, in first-seen order."""
+    d = _norm_input(raw_input)
+    raw = d.get("edits")
+    if not isinstance(raw, list):
+        return []
+    paths: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        p = str(item.get("path") or "").strip()
+        if p and p not in seen:
+            seen.add(p)
+            paths.append(p)
+    return paths
+
+
+def _children_of(parent_id: str) -> list[str]:
+    with _lock:
+        return [tid for tid in _order if _runs.get(tid, {}).get("parent_id") == parent_id]
+
+
+def _target_run_ids(tool_id: str) -> list[str]:
+    """Parent multi_edit id → expanded child rows; otherwise the id itself."""
+    children = _children_of(tool_id)
+    return children if children else [tool_id]
+
+
+def _split_multi_edit_output(content: str, paths: list[str]) -> dict[str, tuple[str, bool]]:
+    """Map each path to (per-file output snippet, is_error)."""
+    summary_lines: list[str] = []
+    per_path: dict[str, list[str]] = {p: [] for p in paths}
+    for line in (content or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if re.match(r"^\d+\s+succeeded,\s+\d+\s+failed\s*$", stripped):
+            summary_lines.append(stripped)
+            continue
+        matched = False
+        for path in paths:
+            if f" EDITED {path}" in stripped or f" ERROR {path}:" in stripped:
+                per_path[path].append(stripped)
+                matched = True
+                break
+        if not matched and stripped.upper().startswith("ERROR"):
+            summary_lines.append(stripped)
+
+    summary = "\n".join(summary_lines)
+    out: dict[str, tuple[str, bool]] = {}
+    for path in paths:
+        lines = per_path.get(path) or []
+        has_edit = any(" EDITED " in ln for ln in lines)
+        has_err = any(" ERROR " in ln for ln in lines)
+        body = "\n".join(lines)
+        if summary and body:
+            text = f"{summary}\n{body}"
+        else:
+            text = body or summary or content
+        out[path] = (text, has_err and not has_edit)
+    return out
+
+
+def _register_run_entry(
+    tool_id: str,
+    name: str,
+    label: str,
+    paths: list[str],
+    *,
+    parent_id: str = "",
+    notify: bool = False,
+) -> None:
+    with _lock:
+        _runs[tool_id] = {
+            "id": tool_id,
+            "name": name,
+            "status": "queued",
+            "label": label,
+            "paths": paths,
+            "parent_id": parent_id,
+            "started": time.time(),
+            "ended": None,
+            "chars": 0,
+            "content": "",
+            "error": False,
+        }
+        if tool_id not in _order:
+            _order.append(tool_id)
+    if notify:
+        _notify_ui()
+
+
+def expand_dock_tool_use(data: dict) -> list[dict]:
+    """Expand one tool_use into N dock rows when it touches multiple files."""
+    name = str(data.get("name") or "")
+    if name != "multi_edit":
+        return [data]
+    paths = multi_edit_paths(data.get("input"))
+    if len(paths) < 2:
+        return [data]
+    return [{**data, "_dock_label": path} for path in paths]
 
 
 def _notify_ui() -> None:
@@ -64,6 +170,13 @@ def _display_for_tool(name: str, raw_input: Any) -> tuple[str, list[str]]:
     if name in ("write_file", "edit_file", "read_image_text", "git_diff"):
         p = str(d.get("path") or "").strip()
         return (p, [p] if p else [])
+    if name == "multi_edit":
+        paths = multi_edit_paths(raw_input)
+        if len(paths) == 1:
+            return (paths[0], paths)
+        if paths:
+            return (f"{len(paths)} files", paths)
+        return ("multi_edit", [])
     if name == "read_document":
         raw_paths = d.get("paths")
         if isinstance(raw_paths, list) and raw_paths:
@@ -151,37 +264,58 @@ def flush_tool_ui() -> None:
 def register_queued(tool_id: str, name: str, raw_input: Any, *, notify: bool = True) -> None:
     if not is_dock_tool(name):
         return
+    if name == "multi_edit":
+        paths = multi_edit_paths(raw_input)
+        if len(paths) >= 2:
+            for i, path in enumerate(paths):
+                _register_run_entry(
+                    f"{tool_id}#{i}",
+                    name,
+                    path,
+                    [path],
+                    parent_id=tool_id,
+                )
+            if notify:
+                _notify_ui()
+            return
     label, paths = _display_for_tool(name, raw_input)
-    with _lock:
-        _runs[tool_id] = {
-            "id": tool_id,
-            "name": name,
-            "status": "queued",
-            "label": label,
-            "paths": paths,
-            "started": time.time(),
-            "ended": None,
-            "chars": 0,
-            "content": "",
-            "error": False,
-        }
-        if tool_id not in _order:
-            _order.append(tool_id)
-    if notify:
-        _notify_ui()
+    _register_run_entry(tool_id, name, label, paths, notify=notify)
 
 
 def set_running(tool_id: str) -> None:
+    ids = _target_run_ids(tool_id)
     with _lock:
-        run = _runs.get(tool_id)
-        if run:
-            run["status"] = "running"
-            run["started"] = time.time()
+        now = time.time()
+        for tid in ids:
+            run = _runs.get(tid)
+            if run:
+                run["status"] = "running"
+                run["started"] = now
     _notify_ui()
 
 
 def set_done(tool_id: str, content: str) -> None:
     raw = content or ""
+    children = _children_of(tool_id)
+    if children:
+        paths = [_runs[tid]["label"] for tid in children if tid in _runs]
+        per_path = _split_multi_edit_output(raw, paths)
+        now = time.time()
+        with _lock:
+            for tid in children:
+                run = _runs.get(tid)
+                if not run:
+                    continue
+                path = run.get("label") or ""
+                snippet, err = per_path.get(path, (raw, raw.lstrip().upper().startswith("ERROR")))
+                run["status"] = "error" if err else "done"
+                run["ended"] = now
+                run["chars"] = len(snippet)
+                run["content"] = snippet
+                run["error"] = err
+        _notify_ui()
+        return
+
     err = raw.lstrip().upper().startswith("ERROR")
     with _lock:
         run = _runs.get(tool_id)
@@ -195,22 +329,29 @@ def set_done(tool_id: str, content: str) -> None:
 
 
 def set_cancelled(tool_id: str) -> None:
+    ids = _target_run_ids(tool_id)
     with _lock:
-        run = _runs.get(tool_id)
-        if run:
-            run["status"] = "cancelled"
-            run["ended"] = time.time()
-            run["error"] = True
+        now = time.time()
+        for tid in ids:
+            run = _runs.get(tid)
+            if run:
+                run["status"] = "cancelled"
+                run["ended"] = now
+                run["error"] = True
     _notify_ui()
 
 
 def cancel_pending(tool_ids: list[str]) -> None:
+    pending: set[str] = set()
+    for tid in tool_ids:
+        pending.update(_target_run_ids(tid))
     with _lock:
-        for tid in tool_ids:
+        now = time.time()
+        for tid in pending:
             run = _runs.get(tid)
             if run and run["status"] in ("queued", "running"):
                 run["status"] = "cancelled"
-                run["ended"] = time.time()
+                run["ended"] = now
                 run["error"] = True
     _notify_ui()
 

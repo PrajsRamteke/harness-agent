@@ -202,6 +202,27 @@ def write_file(path: str, content: str, allow_outside_project: bool = False) -> 
     return f"WROTE {p} ({len(content)} bytes)"
 
 
+def _apply_text_edit(
+    txt: str,
+    old_str: str,
+    new_str: str,
+    replace_all: bool = False,
+) -> tuple[str | None, str | None, int]:
+    """Return (new_text, error_message, match_count)."""
+    n = txt.count(old_str)
+    if n == 0:
+        return None, "old_str not found", 0
+    if n > 1 and not replace_all:
+        return (
+            None,
+            f"old_str matches {n} times; pass replace_all=true or add more context",
+            n,
+        )
+    new_txt = txt.replace(old_str, new_str) if replace_all else txt.replace(old_str, new_str, 1)
+    replacements = n if replace_all else 1
+    return new_txt, None, replacements
+
+
 def edit_file(
     path: str,
     old_str: str,
@@ -218,15 +239,106 @@ def edit_file(
         if not p.exists():
             return f"ERROR: {path} not found"
         txt = p.read_text(errors="ignore")
-        n = txt.count(old_str)
-        if n == 0:
-            return "ERROR: old_str not found"
-        if n > 1 and not replace_all:
-            return (
-                f"ERROR: old_str matches {n} times; pass replace_all=true or add more context"
-            )
+        new_txt, err, n = _apply_text_edit(txt, old_str, new_str, replace_all)
+        if err:
+            return f"ERROR: {err}"
         _save_backup(p)
-        new_txt = txt.replace(old_str, new_str) if replace_all else txt.replace(old_str, new_str, 1)
         p.write_text(new_txt)
         _cache_invalidate(p)
     return f"EDITED {p} ({n} replacement{'s' if n > 1 else ''})"
+
+
+_MULTI_EDIT_MAX = 30
+
+
+def multi_edit(
+    edits: list | None = None,
+    allow_outside_project: bool = False,
+) -> str:
+    """Apply multiple search-replace edits in one call (same rules as edit_file)."""
+    if not edits:
+        return "ERROR: no edits provided"
+    if not isinstance(edits, list):
+        return "ERROR: edits must be an array"
+    if len(edits) > _MULTI_EDIT_MAX:
+        return f"ERROR: max {_MULTI_EDIT_MAX} edits per call (got {len(edits)})"
+
+    lines: list[str] = []
+    ok = fail = 0
+    i = 0
+    while i < len(edits):
+        raw = edits[i]
+        if not isinstance(raw, dict):
+            fail += 1
+            lines.append(f"{i + 1}/{len(edits)} ERROR: edit must be an object")
+            i += 1
+            continue
+
+        path = str(raw.get("path") or "").strip()
+        if not path:
+            fail += 1
+            lines.append(f"{i + 1}/{len(edits)} ERROR: path is required")
+            i += 1
+            continue
+
+        block: list[dict] = [raw]
+        j = i + 1
+        while j < len(edits) and isinstance(edits[j], dict) and str(edits[j].get("path") or "").strip() == path:
+            block.append(edits[j])
+            j += 1
+
+        p = robust_resolve(path)
+        if not allow_outside_project:
+            scope_err = project_scope_error(p, "multi_edit", "allow_outside_project=true")
+            if scope_err:
+                for k, _ in enumerate(block):
+                    fail += 1
+                    lines.append(f"{i + k + 1}/{len(edits)} ERROR {path}: {scope_err}")
+                i = j
+                continue
+
+        with _path_lock(p):
+            if not p.exists():
+                for k, _ in enumerate(block):
+                    fail += 1
+                    lines.append(f"{i + k + 1}/{len(edits)} ERROR {path}: not found")
+                i = j
+                continue
+
+            txt = p.read_text(errors="ignore")
+            backed_up = False
+            for k, edit in enumerate(block):
+                idx = i + k + 1
+                old_str = edit.get("old_str")
+                new_str = edit.get("new_str")
+                if old_str is None or new_str is None:
+                    fail += 1
+                    lines.append(f"{idx}/{len(edits)} ERROR {path}: old_str and new_str are required")
+                    continue
+
+                new_txt, err, n = _apply_text_edit(
+                    txt,
+                    str(old_str),
+                    str(new_str),
+                    bool(edit.get("replace_all")),
+                )
+                if err:
+                    fail += 1
+                    lines.append(f"{idx}/{len(edits)} ERROR {path}: {err}")
+                    continue
+
+                if not backed_up:
+                    _save_backup(p)
+                    backed_up = True
+                txt = new_txt
+                ok += 1
+                lines.append(f"{idx}/{len(edits)} EDITED {path} ({n} replacement{'s' if n > 1 else ''})")
+
+            if backed_up:
+                p.write_text(txt)
+                _cache_invalidate(p)
+
+        i = j
+
+    summary = f"{ok} succeeded, {fail} failed"
+    return summary + ("\n" + "\n".join(lines) if lines else "")

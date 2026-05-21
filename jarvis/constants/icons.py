@@ -1,6 +1,6 @@
 """Terminal-friendly glyphs per tool category — makes the event log skimmable."""
 TOOL_ICONS = {
-    "read_file": "≡", "read_document": "≣", "write_file": "✚", "edit_file": "✎",
+    "read_file": "≡", "read_document": "≣", "write_file": "✚", "edit_file": "✎", "multi_edit": "✎",
     "list_dir": "▣", "run_bash": "⚡", "search_code": "◎",
     "glob_files": "◇", "rank_files": "◆",
     "resolve_context": "✦", "read_bundle": "▤",
