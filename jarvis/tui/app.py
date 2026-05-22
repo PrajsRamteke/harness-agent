@@ -2039,7 +2039,13 @@ class JarvisTUI(App):
                     db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
         except KeyboardInterrupt:
             self._tui_console.assistant_stream_abort()
+        except SystemExit:
+            self._tui_console.assistant_stream_abort()
         except Exception as e:
+            from ..console import HarnessAPIError
+            if isinstance(e, HarnessAPIError):
+                self._tui_console.assistant_stream_abort()
+                return
             self._tui_console.assistant_stream_abort()
             self._tui_console.print(f"[{ui.ERR}]error: {_rich_escape(type(e).__name__)}: {_rich_escape(str(e))}[/]")
         finally:

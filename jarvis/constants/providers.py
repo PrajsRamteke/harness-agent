@@ -66,9 +66,9 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     "claude-opus-4-7":   ("Opus 4.7 — most capable",           PROVIDER_ANTHROPIC, (5.0, 25.0)),
 
     # ── OpenRouter free-tier (all :free suffix → $0) ─────────────────────────
-    "minimax/minimax-m2.5:free":              ("MiniMax M2.5 — default",            PROVIDER_OPENROUTER, (0.0, 0.0)),
+    "openai/gpt-oss-120b:free":               ("GPT-OSS 120B — default",            PROVIDER_OPENROUTER, (0.0, 0.0)),
+    "minimax/minimax-m2.5:free":              ("MiniMax M2.5 (may be unavailable)", PROVIDER_OPENROUTER, (0.0, 0.0)),
     "qwen/qwen3-coder:free":                  ("Qwen3 Coder 480B — best for code",  PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "openai/gpt-oss-120b:free":               ("GPT-OSS 120B — OpenAI open weights", PROVIDER_OPENROUTER, (0.0, 0.0)),
     "openai/gpt-oss-20b:free":                ("GPT-OSS 20B — smaller, faster",     PROVIDER_OPENROUTER, (0.0, 0.0)),
     "meta-llama/llama-3.3-70b-instruct:free": ("Llama 3.3 70B Instruct",            PROVIDER_OPENROUTER, (0.0, 0.0)),
     "qwen/qwen3-next-80b-a3b-instruct:free":  ("Qwen3 Next 80B A3B Instruct",       PROVIDER_OPENROUTER, (0.0, 0.0)),
@@ -148,7 +148,7 @@ PRICING: dict[str, tuple[float, float]] = {
 }
 
 # ── Default models per provider ───────────────────────────────────────────────
-OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m2.5:free"
+OPENROUTER_DEFAULT_MODEL = "openai/gpt-oss-120b:free"
 OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
 OPENCODE_ZEN_DEFAULT_MODEL = "minimax-m2.5-free"
 CODEX_DEFAULT_MODEL = "gpt-5.5"

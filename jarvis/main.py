@@ -221,6 +221,9 @@ def _send_and_loop(inp: str):
     except KeyboardInterrupt:
         console.print("\n[yellow]interrupted[/]")
     except Exception as e:
+        from .console import HarnessAPIError
+        if isinstance(e, HarnessAPIError):
+            return
         console.print(f"[red]error: {type(e).__name__}: {e}[/]")
 
 

@@ -29,3 +29,7 @@ except ModuleNotFoundError:
     raise SystemExit(1)
 
 console = Console()
+
+
+class HarnessAPIError(Exception):
+    """API failure after user-facing message was printed; do not exit the TUI."""

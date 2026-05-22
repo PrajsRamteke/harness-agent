@@ -16,10 +16,13 @@ except ImportError:  # pragma: no cover
     class OpenAIAPIStatusError(Exception):
         """Stub when openai is not installed."""
 
-from ..console import console, APIStatusError, RateLimitError
+from ..console import console, APIStatusError, RateLimitError, HarnessAPIError
 from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
-from ..constants import PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX
+from ..constants import (
+    PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+    PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
+)
 from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
 from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refresh
 from ..auth.client import _build_client_from_mode
@@ -232,6 +235,7 @@ def call_claude_stream():
     _worker_thread_id = threading.current_thread().ident or 0
     delays = [1, 3, 6]
     oauth_refreshed = False
+    openrouter_model_retried = False
     panel_title = f"jarvis · {assistant_model_label()}"
     for attempt in range(len(delays) + 1):
         try:
@@ -316,7 +320,7 @@ def call_claude_stream():
                 else:
                     console.print("[red]Auth error — Provider: Anthropic (API key)[/]\n"
                                   "[yellow]Run /key reset (or /login) and restart.[/]")
-                raise SystemExit(1)
+                raise HarnessAPIError("auth error")
             if e.status_code == 402:
                 console.print(
                     f"[red]Payment required — Provider: {state.provider}[/]\n"
@@ -324,13 +328,28 @@ def call_claude_stream():
                     "Try a [cyan]:free[/] model via /model, or top up at "
                     "https://openrouter.ai/credits[/]"
                 )
-                raise SystemExit(1)
-            if e.status_code == 404 and state.provider == "openrouter":
+                raise HarnessAPIError("payment required")
+            if e.status_code == 404 and state.provider == PROVIDER_OPENROUTER:
+                fallback = OPENROUTER_DEFAULT_MODEL
+                if not openrouter_model_retried and state.MODEL != fallback:
+                    openrouter_model_retried = True
+                    console.print(
+                        f"[yellow]OpenRouter: model '{state.MODEL}' not found — "
+                        f"switching to [cyan]{fallback}[/][/]"
+                    )
+                    state.MODEL = fallback
+                    kwargs["model"] = fallback
+                    try:
+                        from ..storage.prefs import save_last_model
+                        save_last_model()
+                    except Exception:
+                        pass
+                    continue
                 console.print(
                     f"[red]OpenRouter: model '{state.MODEL}' not found.[/]\n"
                     "[yellow]Run /model to pick a valid slug.[/]"
                 )
-                raise SystemExit(1)
+                raise HarnessAPIError("model not found")
             if e.status_code == 429:
                 _stop_on_rate_limit(str(e))
                 raise
