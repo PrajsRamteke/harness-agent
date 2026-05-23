@@ -15,6 +15,8 @@ PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_OPENCODE_ZEN = "opencode_zen"
 PROVIDER_OPENAI_CODEX = "openai_codex"
+# Model-picker only — free OpenCode Zen tier (no API key). Backend: opencode_zen.
+PROVIDER_HARNESS_AGENT = "harness_agent"
 
 # Model-picker sources (Anthropic splits API key vs OAuth subscription).
 PROVIDER_ANTHROPIC_API = "anthropic_api"
@@ -35,6 +37,7 @@ PROVIDER_LABELS = {
 }
 
 MODEL_SOURCE_LABELS = {
+    PROVIDER_HARNESS_AGENT: "Harness Agent",
     PROVIDER_ANTHROPIC_API: "Anthropic API",
     PROVIDER_ANTHROPIC_AUTH: "Anthropic Auth",
     PROVIDER_OPENROUTER: "OpenRouter",
@@ -43,8 +46,9 @@ MODEL_SOURCE_LABELS = {
     PROVIDER_OPENAI_CODEX_AUTH: "OpenAI Codex Auth",
 }
 
-# Picker display order (Anthropic API + Auth first when configured).
+# Picker display order (Harness Agent first — always free, no setup).
 MODEL_SOURCES = (
+    PROVIDER_HARNESS_AGENT,
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_OPENROUTER,
@@ -94,12 +98,15 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     "qwen3.6-plus":     ("Qwen3.6 Plus",                               PROVIDER_OPENCODE, (0.50,   3.00)),
     "qwen3.5-plus":     ("Qwen3.5 Plus",                               PROVIDER_OPENCODE, (0.20,   1.20)),
 
-    # ── OpenCode Zen models (free tier) ─────────────────────────────────────────
-    # "minimax-m2.5-free":      ("MiniMax M2.5 Free — default",   PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
-    # "hy3-preview-free":       ("HY3 Preview Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
-    "nemotron-3-super-free":  ("Nemotron 3 Super Free",         PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
-    # "ring-2.6-1t-free":       ("Ring 2.6 1T Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
-    "deepseek-v4-flash-free": ("DeepSeek V4 Flash Free",       PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
+    # ── Harness Agent (free OpenCode Zen — no API key, /model only) ─────────
+    "deepseek-v4-flash-free": ("DeepSeek V4 Flash Free — default", PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
+    "nemotron-3-super-free":  ("Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
+    "big-pickle":             ("Big Pickle",                       PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
+
+    # ── OpenCode Zen models (API key via /provider opencode_zen) ──────────────
+    "minimax-m2.5-free":      ("MiniMax M2.5 Free — default",   PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
+    "hy3-preview-free":       ("HY3 Preview Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
+    "ring-2.6-1t-free":       ("Ring 2.6 1T Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
 
     "gpt-5.5":                ("GPT-5.5 — Codex recommended",  PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
     "gpt-5.4":                ("GPT-5.4 — Codex fallback",       PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
@@ -131,11 +138,33 @@ OPENCODE_MODELS = [
     for mid, info in MODEL_INFO.items()
     if info[1] == PROVIDER_OPENCODE
 ]
-OPENCODE_ZEN_MODELS = [
+HARNESS_AGENT_MODELS = [
     (mid, info[0])
     for mid, info in MODEL_INFO.items()
-    if info[1] == PROVIDER_OPENCODE_ZEN
+    if info[1] == PROVIDER_HARNESS_AGENT
 ]
+HARNESS_AGENT_MODEL_IDS = frozenset(m for m, _ in HARNESS_AGENT_MODELS)
+
+
+def opencode_zen_models_for_picker() -> list[tuple[str, str]]:
+    """OpenCode Zen picker list: zen-exclusive models + shared Harness Agent slugs."""
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for mid, info in MODEL_INFO.items():
+        if info[1] != PROVIDER_OPENCODE_ZEN:
+            continue
+        if mid not in seen:
+            seen.add(mid)
+            out.append((mid, info[0]))
+    for mid, desc in HARNESS_AGENT_MODELS:
+        if mid not in seen:
+            seen.add(mid)
+            out.append((mid, desc))
+    return out
+
+
+OPENCODE_ZEN_MODELS = opencode_zen_models_for_picker()
+OPENCODE_ZEN_MODEL_IDS = frozenset(m for m, _ in OPENCODE_ZEN_MODELS)
 CODEX_MODELS = [
     (mid, info[0])
     for mid, info in MODEL_INFO.items()
@@ -152,6 +181,7 @@ PRICING: dict[str, tuple[float, float]] = {
 OPENROUTER_DEFAULT_MODEL = "openai/gpt-oss-120b:free"
 OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
 OPENCODE_ZEN_DEFAULT_MODEL = "minimax-m2.5-free"
+HARNESS_AGENT_DEFAULT_MODEL = "deepseek-v4-flash-free"
 CODEX_DEFAULT_MODEL = "gpt-5.5"
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
 
@@ -197,9 +227,14 @@ def _has_openai_codex_oauth() -> bool:
         return False
 
 
+def is_harness_agent_model(model: str) -> bool:
+    """True when ``model`` is a free Harness Agent (OpenCode Zen public) model."""
+    return (model or "").strip() in HARNESS_AGENT_MODEL_IDS
+
+
 def connected_model_sources() -> list[str]:
     """Model-picker sources that have credentials configured."""
-    sources: list[str] = []
+    sources: list[str] = [PROVIDER_HARNESS_AGENT]
     if _has_anthropic_api():
         sources.append(PROVIDER_ANTHROPIC_API)
     if _has_anthropic_oauth():
@@ -250,6 +285,8 @@ def parse_model_option_id(option_id: str) -> tuple[str, str]:
 
 
 def models_for_source(source: str):
+    if source == PROVIDER_HARNESS_AGENT:
+        return list(HARNESS_AGENT_MODELS)
     if source == PROVIDER_ANTHROPIC_API:
         return list(ANTHROPIC_MODELS)
     if source == PROVIDER_ANTHROPIC_AUTH:
@@ -315,7 +352,7 @@ def models_for(provider: str):
     if provider == PROVIDER_OPENCODE:
         return OPENCODE_MODELS
     if provider == PROVIDER_OPENCODE_ZEN:
-        return OPENCODE_ZEN_MODELS
+        return opencode_zen_models_for_picker()
     if provider == PROVIDER_OPENAI_CODEX:
         return CODEX_MODELS
     return list(ANTHROPIC_MODELS)
@@ -326,6 +363,8 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
     m = (model or "").strip()
     if not m:
         return False
+    if provider == PROVIDER_OPENCODE_ZEN and is_harness_agent_model(m):
+        return True
     info = MODEL_INFO.get(m)
     if info:
         return info[1] == provider
@@ -340,4 +379,6 @@ def normalize_model_for_provider(model: str, provider: str) -> str:
     """Use ``model`` when valid for ``provider``; otherwise the provider default."""
     if model_belongs_to_provider(model, provider):
         return model.strip()
+    if provider == PROVIDER_OPENCODE_ZEN:
+        return OPENCODE_ZEN_DEFAULT_MODEL
     return _PROVIDER_DEFAULT_MODEL.get(provider, ANTHROPIC_DEFAULT_MODEL)

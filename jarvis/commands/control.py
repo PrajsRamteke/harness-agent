@@ -6,9 +6,11 @@ from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, MODEL_SOURCE_LABELS,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
+    HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS, OPENCODE_ZEN_MODEL_IDS,
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
-    models_for,
+    models_for, is_harness_agent_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
+    PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
@@ -22,8 +24,12 @@ from ..auth.oauth_flow import oauth_login
 from ..auth.anthropic_models import sync_anthropic_model_ids, format_anthropic_model_lines
 from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
 from ..auth.opencode import prompt_for_opencode_key, load_opencode_key
-from ..auth.opencode_zen import prompt_for_opencode_zen_key, load_opencode_zen_key
-from ..auth.client import _build_client_from_mode, _build_opencode_client, _build_opencode_zen_client
+from ..auth.opencode_zen import prompt_for_opencode_zen_key, has_opencode_zen_key
+from ..auth.harness_agent import should_use_harness_agent_client
+from ..auth.client import (
+    _build_client_from_mode, _build_opencode_client,
+    _build_opencode_zen_client_for_model,
+)
 from ..repl.banners import header_panel
 from ..repl.stats import estimated_cost
 from ..storage.prefs import save_last_model
@@ -178,7 +184,8 @@ def _all_models():
 
 
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
-_OPENCODE_ZEN_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE_ZEN)}
+_OPENCODE_ZEN_MODEL_IDS = set(OPENCODE_ZEN_MODEL_IDS)
+_HARNESS_AGENT_MODEL_IDS = set(HARNESS_AGENT_MODEL_IDS)
 _CODEX_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENAI_CODEX)}
 
 
@@ -186,6 +193,8 @@ def _provider_for_model(model: str) -> str:
     """Determine provider from model id."""
     if model in _CODEX_MODEL_IDS:
         return PROVIDER_OPENAI_CODEX
+    if model in _HARNESS_AGENT_MODEL_IDS:
+        return PROVIDER_OPENCODE_ZEN
     if model in _OPENCODE_MODEL_IDS:
         return PROVIDER_OPENCODE
     if model in _OPENCODE_ZEN_MODEL_IDS:
@@ -197,15 +206,30 @@ def _provider_for_model(model: str) -> str:
 
 def _apply_model_selection(chosen: str, *, source: str = ""):
     target_provider = _provider_for_model(chosen)
+    if source == PROVIDER_HARNESS_AGENT:
+        target_provider = PROVIDER_OPENCODE_ZEN
+    elif source == PROVIDER_OPENCODE_ZEN:
+        target_provider = PROVIDER_OPENCODE_ZEN
     if source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
         target_provider = PROVIDER_ANTHROPIC
     elif source == PROVIDER_OPENAI_CODEX_AUTH:
         target_provider = PROVIDER_OPENAI_CODEX
 
+    skip_key = source == PROVIDER_HARNESS_AGENT
     if target_provider != state.provider:
-        _handle_provider(target_provider)
+        _handle_provider(target_provider, skip_key_prompt=skip_key)
         if state.provider != target_provider:
             return  # switch failed (e.g. user cancelled key prompt)
+
+    if state.provider == PROVIDER_OPENCODE_ZEN and source in (
+        PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN,
+    ):
+        try:
+            state.client = _build_opencode_zen_client_for_model(chosen, source=source)
+        except Exception as e:
+            label = "Harness Agent" if should_use_harness_agent_client(chosen, source=source) else "OpenCode Zen"
+            console.print(f"[red]failed to connect {label}: {e}[/]")
+            return
 
     if state.provider == PROVIDER_ANTHROPIC and source:
         target_auth = AUTH_OAUTH if source == PROVIDER_ANTHROPIC_AUTH else AUTH_API_KEY
@@ -276,10 +300,12 @@ def _handle_model(arg: str):
     for i, (src, m, desc) in enumerate(rows, 1):
         marker = "[green]● current[/]" if (
             m == state.MODEL and (
-                (src == PROVIDER_ANTHROPIC_AUTH and state.auth_mode == AUTH_OAUTH and state.provider == PROVIDER_ANTHROPIC)
+                (src == PROVIDER_HARNESS_AGENT and state.provider == PROVIDER_OPENCODE_ZEN and state.harness_agent_free)
+                or (src == PROVIDER_OPENCODE_ZEN and state.provider == PROVIDER_OPENCODE_ZEN and not state.harness_agent_free)
+                or (src == PROVIDER_ANTHROPIC_AUTH and state.auth_mode == AUTH_OAUTH and state.provider == PROVIDER_ANTHROPIC)
                 or (src == PROVIDER_ANTHROPIC_API and state.auth_mode == AUTH_API_KEY and state.provider == PROVIDER_ANTHROPIC)
                 or (src == PROVIDER_OPENAI_CODEX_AUTH and state.provider == PROVIDER_OPENAI_CODEX)
-                or (src not in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH, PROVIDER_OPENAI_CODEX_AUTH) and src == state.provider)
+                or (src not in (PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH, PROVIDER_OPENAI_CODEX_AUTH) and src == state.provider)
             )
         ) else ""
         t.add_row(str(i), m, desc, MODEL_SOURCE_LABELS.get(src, src), marker)
@@ -326,12 +352,15 @@ def _handle_auth():
             lines.append(f"key: …{k[-6:]}")
         lines.append(f"model: [cyan]{state.MODEL}[/]")
     elif state.provider == PROVIDER_OPENCODE_ZEN:
-        has_env = bool(os.getenv("OPENCODE_ZEN_API_KEY"))
-        lines.append("auth: [bold]API key[/]")
-        lines.append("source: " + ("env OPENCODE_ZEN_API_KEY" if has_env else f"{OPENCODE_ZEN_KEY_FILE}"))
-        if not has_env and OPENCODE_ZEN_KEY_FILE.exists():
-            k = OPENCODE_ZEN_KEY_FILE.read_text().strip()
-            lines.append(f"key: …{k[-6:]}")
+        if state.harness_agent_free and is_harness_agent_model(state.MODEL):
+            lines.append("auth: [bold]Harness Agent[/] [dim](free — no API key)[/]")
+        else:
+            has_env = bool(os.getenv("OPENCODE_ZEN_API_KEY"))
+            lines.append("auth: [bold]OpenCode Zen API key[/]")
+            lines.append("source: " + ("env OPENCODE_ZEN_API_KEY" if has_env else f"{OPENCODE_ZEN_KEY_FILE}"))
+            if not has_env and OPENCODE_ZEN_KEY_FILE.exists():
+                k = OPENCODE_ZEN_KEY_FILE.read_text().strip()
+                lines.append(f"key: …{k[-6:]}")
         lines.append(f"model: [cyan]{state.MODEL}[/]")
     else:
         lines.append(f"auth: [bold]{state.auth_mode}[/]")
@@ -351,7 +380,7 @@ def _handle_auth():
     console.print(Panel("\n".join(lines), title="⬟ auth", border_style="cyan"))
 
 
-def _handle_provider(arg: str):
+def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
     """/provider [anthropic|openrouter|opencode] — switch provider mid-session."""
     target = arg.strip().lower() if arg else ""
     if not target:
@@ -403,8 +432,9 @@ def _handle_provider(arg: str):
     elif target == PROVIDER_OPENCODE_ZEN:
         if state.MODEL not in _OPENCODE_ZEN_MODEL_IDS:
             state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
-        if not os.getenv("OPENCODE_ZEN_API_KEY") and not OPENCODE_ZEN_KEY_FILE.exists():
+        if not skip_key_prompt and not has_opencode_zen_key():
             prompt_for_opencode_zen_key()
+        state.harness_agent_free = skip_key_prompt
     elif target == PROVIDER_OPENAI_CODEX:
         from ..constants import CODEX_DEFAULT_MODEL
         if state.MODEL not in _CODEX_MODEL_IDS:
@@ -424,7 +454,10 @@ def _handle_provider(arg: str):
         if target == PROVIDER_OPENCODE:
             state.client = _build_opencode_client()
         elif target == PROVIDER_OPENCODE_ZEN:
-            state.client = _build_opencode_zen_client()
+            state.client = _build_opencode_zen_client_for_model(
+                state.MODEL,
+                source=PROVIDER_HARNESS_AGENT if state.harness_agent_free else PROVIDER_OPENCODE_ZEN,
+            )
         elif target == PROVIDER_OPENAI_CODEX:
             from ..auth.client import _build_codex_client
             state.client = _build_codex_client()

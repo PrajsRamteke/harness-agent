@@ -512,8 +512,15 @@ class _OpenCodeStream:
 # ---------------------------------------------------------------------------
 
 class _OpenCodeMessages:
-    def __init__(self, oai_client: OpenAI):
+    def __init__(self, oai_client: OpenAI, owner: "OpenCodeClient | None" = None):
         self._client = oai_client
+        self._owner = owner
+
+    def _create_completion(self, **kwargs):
+        extra = self._owner.next_request_headers() if self._owner else None
+        if extra:
+            return self._client.chat.completions.create(**kwargs, extra_headers=extra)
+        return self._client.chat.completions.create(**kwargs)
 
     @contextlib.contextmanager
     def stream(
@@ -570,7 +577,7 @@ class _OpenCodeMessages:
             kwargs["tools"] = oai_tools
 
         try:
-            response = self._client.chat.completions.create(**kwargs)
+            response = self._create_completion(**kwargs)
         except Exception as e:
             err = str(e)
             # Don't silently swallow reasoning_content errors — they need
@@ -581,7 +588,7 @@ class _OpenCodeMessages:
                                "function" in err.lower())):
                 # Model doesn't support tool use — retry without tools
                 kwargs.pop("tools", None)
-                response = self._client.chat.completions.create(**kwargs)
+                response = self._create_completion(**kwargs)
             else:
                 raise
 
@@ -600,14 +607,34 @@ class OpenCodeClient:
     """Drop-in Anthropic client replacement for OpenAI-compatible providers.
 
     Supports both OpenCode Go (default) and OpenCode Zen (via base_url override).
+    Optional ``default_headers`` and per-request ``request_id_header`` for Zen.
     """
 
-    def __init__(self, api_key: str, base_url: str | None = None):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        default_headers: dict[str, str] | None = None,
+        *,
+        request_id_header: str | None = None,
+        request_id_prefix: str = "msg_",
+    ):
+        self._request_id_header = request_id_header
+        self._request_id_prefix = request_id_prefix
+        self._request_seq = 0
+        hdrs = dict(default_headers or {})
         self._oai = OpenAI(
             api_key=api_key,
             base_url=base_url or f"{OPENCODE_BASE_URL}/",
+            default_headers=hdrs or None,
         )
-        self.messages = _OpenCodeMessages(self._oai)
+        self.messages = _OpenCodeMessages(self._oai, owner=self)
+
+    def next_request_headers(self) -> dict[str, str] | None:
+        if not self._request_id_header:
+            return None
+        self._request_seq += 1
+        return {self._request_id_header: f"{self._request_id_prefix}{self._request_seq}"}
 
     def validate(self) -> bool:
         """Light validation — just ensure the key is non-empty."""

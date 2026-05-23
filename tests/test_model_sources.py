@@ -6,6 +6,7 @@ from jarvis.constants.providers import (
     parse_model_option_id,
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
+    PROVIDER_HARNESS_AGENT,
 )
 
 
@@ -19,6 +20,11 @@ def test_model_option_id_roundtrip():
     src, mid = parse_model_option_id(oid)
     assert src == PROVIDER_ANTHROPIC_AUTH
     assert mid == "claude-sonnet-4-6"
+
+
+def test_connected_model_sources_includes_harness_agent():
+    sources = connected_model_sources()
+    assert PROVIDER_HARNESS_AGENT in sources
 
 
 def test_connected_model_sources_includes_anthropic_variants():

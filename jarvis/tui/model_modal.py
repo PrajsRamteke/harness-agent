@@ -14,6 +14,8 @@ from ..constants import (
     model_option_id,
     PROVIDER_ANTHROPIC, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
+    PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN,
+    is_harness_agent_model,
     AUTH_API_KEY, AUTH_OAUTH,
 )
 from .. import state
@@ -86,6 +88,10 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
     def _is_active(self, source: str, model_id: str) -> bool:
         if model_id != state.MODEL:
             return False
+        if source == PROVIDER_HARNESS_AGENT:
+            return state.provider == PROVIDER_OPENCODE_ZEN and state.harness_agent_free
+        if source == PROVIDER_OPENCODE_ZEN:
+            return state.provider == PROVIDER_OPENCODE_ZEN and not state.harness_agent_free
         if source == PROVIDER_ANTHROPIC_AUTH:
             return state.provider == PROVIDER_ANTHROPIC and state.auth_mode == AUTH_OAUTH
         if source == PROVIDER_ANTHROPIC_API:

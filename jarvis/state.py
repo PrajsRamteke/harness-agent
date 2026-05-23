@@ -18,6 +18,7 @@ from .constants import (
 provider: str = PROVIDER_ANTHROPIC  # "anthropic", "openrouter", or "opencode" — set by make_client()
 auth_mode: str = AUTH_API_KEY       # "api_key" or "oauth" — Anthropic-only; unused for openrouter/opencode
 client = None                       # Anthropic client, set by make_client()
+harness_agent_free: bool = False    # True when using Bearer public (Harness Agent tier)
 anthropic_model_ids: list[str] | None = None  # live ids after OAuth/API validation
 
 

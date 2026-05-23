@@ -24,6 +24,15 @@ def prompt_for_opencode_zen_key(reason: str = "") -> str:
     return key
 
 
+def has_opencode_zen_key() -> bool:
+    if os.getenv("OPENCODE_ZEN_API_KEY"):
+        return True
+    try:
+        return OPENCODE_ZEN_KEY_FILE.exists() and bool(OPENCODE_ZEN_KEY_FILE.read_text().strip())
+    except OSError:
+        return False
+
+
 def load_opencode_zen_key() -> str:
     if os.getenv("OPENCODE_ZEN_API_KEY"):
         return os.environ["OPENCODE_ZEN_API_KEY"]

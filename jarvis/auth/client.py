@@ -14,8 +14,10 @@ from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_ZEN_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
     OPENROUTER_BASE_URL,
     OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
+    HARNESS_AGENT_DEFAULT_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX,
+    is_harness_agent_model,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
 )
@@ -24,7 +26,8 @@ from .. import state
 from .api_key import load_key, prompt_for_key
 from .openrouter import load_openrouter_key, prompt_for_openrouter_key
 from .opencode import load_opencode_key, prompt_for_opencode_key
-from .opencode_zen import load_opencode_zen_key, prompt_for_opencode_zen_key
+from .opencode_zen import load_opencode_zen_key, prompt_for_opencode_zen_key, has_opencode_zen_key
+from .harness_agent import build_harness_agent_client, should_use_harness_agent_client
 from .opencode_client import OpenCodeClient
 from .oauth_tokens import (
     load_oauth_tokens, clear_oauth_tokens, oauth_refresh, get_fresh_oauth_token,
@@ -117,12 +120,25 @@ def _has_opencode_key() -> bool:
 
 
 def _has_opencode_zen_key() -> bool:
-    if os.getenv("OPENCODE_ZEN_API_KEY"):
+    return has_opencode_zen_key()
+
+
+def _has_any_provider_credentials() -> bool:
+    """True when any paid/configured provider auth exists (excludes free Harness Agent)."""
+    if (
+        os.getenv("ANTHROPIC_API_KEY")
+        or os.getenv("OPENROUTER_API_KEY")
+        or os.getenv("OPENCODE_API_KEY")
+        or os.getenv("OPENCODE_ZEN_API_KEY")
+    ):
         return True
-    try:
-        return OPENCODE_ZEN_KEY_FILE.exists() and bool(OPENCODE_ZEN_KEY_FILE.read_text().strip())
-    except OSError:
-        return False
+    if _has_anthropic_api_key() or load_oauth_tokens() or load_codex_oauth_tokens():
+        return True
+    if _has_openrouter_key() or _has_opencode_key() or _has_opencode_zen_key():
+        return True
+    if AUTH_MODE_FILE.exists() or KEY_FILE.exists() or PROVIDER_FILE.exists():
+        return True
+    return False
 
 
 def _has_anthropic_api_key() -> bool:
@@ -178,6 +194,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_ANTHROPIC
     if load_codex_oauth_tokens():
         return PROVIDER_OPENAI_CODEX
+    if not _has_any_provider_credentials():
+        return PROVIDER_OPENCODE_ZEN
     if not interactive:
         return PROVIDER_ANTHROPIC
     return _choose_provider()
@@ -191,6 +209,18 @@ def _build_opencode_client() -> OpenCodeClient:
 def _build_opencode_zen_client() -> OpenCodeClient:
     key = load_opencode_zen_key()
     return OpenCodeClient(api_key=key, base_url=f"{OPENCODE_ZEN_BASE_URL}/")
+
+
+def _build_opencode_zen_client_for_model(
+    model: str | None = None,
+    *,
+    source: str = "",
+) -> OpenCodeClient:
+    use_free = should_use_harness_agent_client(model, source=source)
+    state.harness_agent_free = use_free
+    if use_free:
+        return build_harness_agent_client()
+    return _build_opencode_zen_client()
 
 
 def _pick_fallback_provider(*, interactive: bool = True) -> str | None:
@@ -229,7 +259,13 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     _secure_write(PROVIDER_FILE, state.provider)
 
     prev_model = state.MODEL
-    state.MODEL = normalize_model_for_provider(state.MODEL, state.provider)
+    if state.provider == PROVIDER_OPENCODE_ZEN and not _has_any_provider_credentials():
+        state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
+        state.harness_agent_free = True
+    else:
+        state.MODEL = normalize_model_for_provider(state.MODEL, state.provider)
+        if state.provider == PROVIDER_OPENCODE_ZEN:
+            state.harness_agent_free = should_use_harness_agent_client(state.MODEL)
     if state.MODEL != prev_model:
         try:
             from ..storage.prefs import save_last_model
@@ -256,20 +292,23 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         console.print("[red]Too many OpenCode auth failures[/]"); sys.exit(1)
 
     if state.provider == PROVIDER_OPENCODE_ZEN:
-        if not interactive and not _has_opencode_zen_key():
+        use_free = should_use_harness_agent_client(state.MODEL)
+        if not interactive and not use_free and not _has_opencode_zen_key():
             return None
         for attempt in range(DEFAULT_RETRIES):
             try:
-                c = _build_opencode_zen_client()
+                c = _build_opencode_zen_client_for_model(state.MODEL)
                 return c
             except Exception as e:
-                if "401" in str(e) or "unauthorized" in str(e).lower():
+                if not use_free and ("401" in str(e) or "unauthorized" in str(e).lower()):
                     OPENCODE_ZEN_KEY_FILE.unlink(missing_ok=True)
                     prompt_for_opencode_zen_key(
                         reason="Stored OpenCode Zen key rejected. Please re-enter."
                     )
                     continue
                 raise
+        if use_free:
+            console.print("[red]Harness Agent connection failed[/]"); sys.exit(1)
         console.print("[red]Too many OpenCode Zen auth failures[/]"); sys.exit(1)
 
     if state.provider == PROVIDER_OPENAI_CODEX:
