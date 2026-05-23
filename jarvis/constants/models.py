@@ -15,7 +15,7 @@ def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
 
 
 VERSION = "0.1.0"
-MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+MODEL = os.getenv("CLAUDE_MODEL", "deepseek-v4-flash-free")
 MAX_TOOL_OUTPUT = 6000   # trimmed from 15000 — cuts tool-result token cost ~60%
 MAX_FILE_READ = 200_000
 MAX_PARALLEL_TOOLS = _env_int("HARNESS_MAX_PARALLEL_TOOLS", 64, 1, 64)

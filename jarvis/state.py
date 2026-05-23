@@ -9,13 +9,14 @@ from typing import Dict, List, Optional
 
 from .constants import (
     VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL,
-    PROVIDER_ANTHROPIC, AUTH_API_KEY,
+    PROVIDER_ANTHROPIC, PROVIDER_OPENCODE_ZEN, AUTH_API_KEY,
+    HARNESS_AGENT_DEFAULT_MODEL,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     TOOL_UI_HISTORY_SIZE,
 )
 
 # auth / client
-provider: str = PROVIDER_ANTHROPIC  # "anthropic", "openrouter", or "opencode" — set by make_client()
+provider: str = PROVIDER_OPENCODE_ZEN  # set by make_client(); Harness Agent on first run
 auth_mode: str = AUTH_API_KEY       # "api_key" or "oauth" — Anthropic-only; unused for openrouter/opencode
 client = None                       # Anthropic client, set by make_client()
 harness_agent_free: bool = False    # True when using Bearer public (Harness Agent tier)
@@ -23,10 +24,9 @@ anthropic_model_ids: list[str] | None = None  # live ids after OAuth/API validat
 
 
 def _compute_initial_model() -> str:
-    """Env `CLAUDE_MODEL` wins; else settings.json model; else legacy file; else default."""
+    """Env `CLAUDE_MODEL` wins; else settings.json model; else Harness Agent default."""
     if os.environ.get("CLAUDE_MODEL"):
         return _INITIAL_MODEL
-    # Unified settings.json (also migrates legacy last_model.json on first read).
     try:
         from .storage.settings import get_settings
         m = get_settings().get("model")
@@ -34,7 +34,7 @@ def _compute_initial_model() -> str:
             return m.strip()
     except Exception:
         pass
-    return _INITIAL_MODEL
+    return HARNESS_AGENT_DEFAULT_MODEL
 
 
 # model

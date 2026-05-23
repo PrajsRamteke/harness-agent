@@ -145,6 +145,20 @@ HARNESS_AGENT_MODELS = [
 ]
 HARNESS_AGENT_MODEL_IDS = frozenset(m for m, _ in HARNESS_AGENT_MODELS)
 
+# Static fallback so /model always lists Harness Agent even on partial/cached installs.
+_HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = (
+    ("deepseek-v4-flash-free", "DeepSeek V4 Flash Free — default"),
+    ("nemotron-3-super-free", "Nemotron 3 Super Free"),
+    ("big-pickle", "Big Pickle"),
+)
+
+
+def harness_agent_models_for_picker() -> list[tuple[str, str]]:
+    """Harness Agent models — always shown in /model (no credentials required)."""
+    if HARNESS_AGENT_MODELS:
+        return list(HARNESS_AGENT_MODELS)
+    return list(_HARNESS_AGENT_MODEL_FALLBACK)
+
 
 def opencode_zen_models_for_picker() -> list[tuple[str, str]]:
     """OpenCode Zen picker list: zen-exclusive models + shared Harness Agent slugs."""
@@ -229,11 +243,14 @@ def _has_openai_codex_oauth() -> bool:
 
 def is_harness_agent_model(model: str) -> bool:
     """True when ``model`` is a free Harness Agent (OpenCode Zen public) model."""
-    return (model or "").strip() in HARNESS_AGENT_MODEL_IDS
+    m = (model or "").strip()
+    if m in HARNESS_AGENT_MODEL_IDS:
+        return True
+    return m in {mid for mid, _ in _HARNESS_AGENT_MODEL_FALLBACK}
 
 
 def connected_model_sources() -> list[str]:
-    """Model-picker sources that have credentials configured."""
+    """Model-picker sources. Harness Agent is always first and always included."""
     sources: list[str] = [PROVIDER_HARNESS_AGENT]
     if _has_anthropic_api():
         sources.append(PROVIDER_ANTHROPIC_API)
@@ -268,9 +285,33 @@ def connected_model_sources() -> list[str]:
                 sources.append(PROVIDER_OPENCODE_ZEN)
         except OSError:
             pass
-    if not sources:
-        return list(MODEL_SOURCES)
-    return sources
+    # Harness Agent must always appear — even when other providers are configured.
+    out: list[str] = []
+    seen: set[str] = set()
+    for src in sources:
+        if src in seen:
+            continue
+        seen.add(src)
+        out.append(src)
+    if PROVIDER_HARNESS_AGENT not in seen:
+        out.insert(0, PROVIDER_HARNESS_AGENT)
+    elif out and out[0] != PROVIDER_HARNESS_AGENT:
+        out.remove(PROVIDER_HARNESS_AGENT)
+        out.insert(0, PROVIDER_HARNESS_AGENT)
+    return out
+
+
+def all_model_picker_rows() -> list[tuple[str, str, str]]:
+    """All /model rows as (source, model_id, description). Harness Agent always first."""
+    rows: list[tuple[str, str, str]] = [
+        (PROVIDER_HARNESS_AGENT, mid, desc)
+        for mid, desc in harness_agent_models_for_picker()
+    ]
+    for src in connected_model_sources():
+        if src == PROVIDER_HARNESS_AGENT:
+            continue
+        rows.extend((src, mid, desc) for mid, desc in models_for_source(src))
+    return rows
 
 
 def model_option_id(source: str, model_id: str) -> str:
@@ -286,7 +327,7 @@ def parse_model_option_id(option_id: str) -> tuple[str, str]:
 
 def models_for_source(source: str):
     if source == PROVIDER_HARNESS_AGENT:
-        return list(HARNESS_AGENT_MODELS)
+        return harness_agent_models_for_picker()
     if source == PROVIDER_ANTHROPIC_API:
         return list(ANTHROPIC_MODELS)
     if source == PROVIDER_ANTHROPIC_AUTH:

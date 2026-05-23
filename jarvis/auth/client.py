@@ -37,7 +37,7 @@ from .anthropic_models import sync_anthropic_model_ids
 from .codex_client import CodexClient
 from .codex_oauth_tokens import get_fresh_codex_oauth_token, load_codex_oauth_tokens
 from .oauth_flow import oauth_login
-from .mode_picker import _choose_auth_mode, _choose_provider
+from .mode_picker import _choose_auth_mode
 
 
 def _http_timeout(*, openrouter: bool) -> httpx.Timeout:
@@ -123,8 +123,24 @@ def _has_opencode_zen_key() -> bool:
     return has_opencode_zen_key()
 
 
-def _has_any_provider_credentials() -> bool:
-    """True when any paid/configured provider auth exists (excludes free Harness Agent)."""
+def _has_usable_anthropic_auth() -> bool:
+    if _has_anthropic_api_key() or load_oauth_tokens():
+        return True
+    if not AUTH_MODE_FILE.exists():
+        return False
+    try:
+        stored = AUTH_MODE_FILE.read_text().strip()
+    except OSError:
+        return False
+    if stored == AUTH_OAUTH and load_oauth_tokens():
+        return True
+    if stored == AUTH_API_KEY and _has_anthropic_api_key():
+        return True
+    return False
+
+
+def _has_usable_provider_credentials() -> bool:
+    """True when at least one paid/configured provider has working auth."""
     if (
         os.getenv("ANTHROPIC_API_KEY")
         or os.getenv("OPENROUTER_API_KEY")
@@ -132,13 +148,16 @@ def _has_any_provider_credentials() -> bool:
         or os.getenv("OPENCODE_ZEN_API_KEY")
     ):
         return True
-    if _has_anthropic_api_key() or load_oauth_tokens() or load_codex_oauth_tokens():
+    if _has_usable_anthropic_auth() or load_codex_oauth_tokens():
         return True
     if _has_openrouter_key() or _has_opencode_key() or _has_opencode_zen_key():
         return True
-    if AUTH_MODE_FILE.exists() or KEY_FILE.exists() or PROVIDER_FILE.exists():
-        return True
     return False
+
+
+def _has_any_provider_credentials() -> bool:
+    """Backward-compatible alias — only counts credentials that actually work."""
+    return _has_usable_provider_credentials()
 
 
 def _has_anthropic_api_key() -> bool:
@@ -169,7 +188,7 @@ def _resolve_auth_mode(*, interactive: bool) -> str | None:
 
 
 def _resolve_provider(*, interactive: bool = True) -> str:
-    """Decide provider from env → stored → prompt, preserving legacy behavior."""
+    """Decide provider from env → stored → first-run Harness Agent default."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
     if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX):
         return env_provider
@@ -183,22 +202,32 @@ def _resolve_provider(*, interactive: bool = True) -> str:
     if os.getenv("OPENCODE_ZEN_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
         return PROVIDER_OPENCODE_ZEN
     if PROVIDER_FILE.exists():
-        stored = PROVIDER_FILE.read_text().strip()
-        if stored == PROVIDER_OPENAI_CODEX:
-            if load_codex_oauth_tokens():
-                return PROVIDER_OPENAI_CODEX
-        elif stored in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
-            return stored
-    # Legacy: any existing Anthropic state means Anthropic (preserves old flow).
-    if AUTH_MODE_FILE.exists() or KEY_FILE.exists() or load_oauth_tokens():
+        try:
+            stored = PROVIDER_FILE.read_text().strip()
+        except OSError:
+            stored = ""
+        if stored == PROVIDER_OPENAI_CODEX and load_codex_oauth_tokens():
+            return PROVIDER_OPENAI_CODEX
+        if stored == PROVIDER_ANTHROPIC and _has_usable_anthropic_auth():
+            return PROVIDER_ANTHROPIC
+        if stored == PROVIDER_OPENROUTER and _has_openrouter_key():
+            return PROVIDER_OPENROUTER
+        if stored == PROVIDER_OPENCODE and _has_opencode_key():
+            return PROVIDER_OPENCODE
+        if stored == PROVIDER_OPENCODE_ZEN:
+            return PROVIDER_OPENCODE_ZEN
+    if _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if load_codex_oauth_tokens():
         return PROVIDER_OPENAI_CODEX
-    if not _has_any_provider_credentials():
+    if _has_openrouter_key():
+        return PROVIDER_OPENROUTER
+    if _has_opencode_key():
+        return PROVIDER_OPENCODE
+    if _has_opencode_zen_key():
         return PROVIDER_OPENCODE_ZEN
-    if not interactive:
-        return PROVIDER_ANTHROPIC
-    return _choose_provider()
+    # First run — free Harness Agent (no API key, no provider prompt).
+    return PROVIDER_OPENCODE_ZEN
 
 
 def _build_opencode_client() -> OpenCodeClient:
@@ -237,9 +266,8 @@ def _pick_fallback_provider(*, interactive: bool = True) -> str | None:
             return PROVIDER_OPENCODE_ZEN
     except OSError:
         pass
-    if not interactive:
-        return None
-    return _choose_provider()
+    # Always fall back to free Harness Agent rather than blocking startup.
+    return PROVIDER_OPENCODE_ZEN
 
 
 def _build_codex_client() -> CodexClient | None:
@@ -259,7 +287,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     _secure_write(PROVIDER_FILE, state.provider)
 
     prev_model = state.MODEL
-    if state.provider == PROVIDER_OPENCODE_ZEN and not _has_any_provider_credentials():
+    if state.provider == PROVIDER_OPENCODE_ZEN and not _has_usable_provider_credentials():
         state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
         state.harness_agent_free = True
     else:
@@ -292,7 +320,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         console.print("[red]Too many OpenCode auth failures[/]"); sys.exit(1)
 
     if state.provider == PROVIDER_OPENCODE_ZEN:
-        use_free = should_use_harness_agent_client(state.MODEL)
+        use_free = state.harness_agent_free or should_use_harness_agent_client(state.MODEL)
         if not interactive and not use_free and not _has_opencode_zen_key():
             return None
         for attempt in range(DEFAULT_RETRIES):

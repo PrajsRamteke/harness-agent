@@ -175,12 +175,9 @@ def _handle_think(arg: str = "") -> None:
 
 
 def _all_models():
-    """Combined list: [(source, model_id, description), ...] for configured auth."""
-    from ..constants import connected_model_sources, models_for_source
-    rows = []
-    for src in connected_model_sources():
-        rows += [(src, m, d) for m, d in models_for_source(src)]
-    return rows
+    """Combined list: [(source, model_id, description), ...] for /model."""
+    from ..constants import all_model_picker_rows
+    return all_model_picker_rows()
 
 
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}

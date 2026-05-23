@@ -15,13 +15,21 @@ def test_resolve_provider_ignores_stale_codex_pin(tmp_path, monkeypatch):
     assert _resolve_provider(interactive=True) == PROVIDER_ANTHROPIC
 
 
-def test_make_client_noninteractive_skips_oauth_prompt(tmp_path, monkeypatch):
+def test_make_client_first_run_uses_harness_agent(tmp_path, monkeypatch):
+    """Stale auth marker files without tokens should still boot Harness Agent."""
     monkeypatch.setattr("jarvis.auth.client.AUTH_MODE_FILE", tmp_path / "auth_mode")
     monkeypatch.setattr("jarvis.auth.client.PROVIDER_FILE", tmp_path / "provider")
+    monkeypatch.setattr("jarvis.auth.client.KEY_FILE", tmp_path / "missing-key")
     (tmp_path / "auth_mode").write_text("oauth")
     monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: None)
-    monkeypatch.setattr("jarvis.auth.client.KEY_FILE", tmp_path / "missing-key")
-    assert make_client(interactive=False) is None
+    monkeypatch.setattr("jarvis.auth.client.load_codex_oauth_tokens", lambda: None)
+    from jarvis import state
+    from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+    client = make_client(interactive=False)
+    assert client is not None
+    assert state.provider == PROVIDER_OPENCODE_ZEN
+    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
+    assert state.harness_agent_free is True
 
 
 def test_make_client_falls_back_when_codex_oauth_missing(tmp_path, monkeypatch):

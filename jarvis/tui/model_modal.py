@@ -10,7 +10,7 @@ from textual.widgets.option_list import Option
 from rich.text import Text
 
 from ..constants import (
-    MODEL_SOURCE_LABELS, models_for_source, connected_model_sources,
+    MODEL_SOURCE_LABELS, all_model_picker_rows,
     model_option_id,
     PROVIDER_ANTHROPIC, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
@@ -104,10 +104,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         q = query.strip().lower()
         opts = self.query_one("#model_list", OptionList)
         opts.clear_options()
-        sources = connected_model_sources()
-        rows: list[tuple[str, str, str]] = []
-        for src in sources:
-            rows += [(src, m, d) for m, d in models_for_source(src)]
+        rows = all_model_picker_rows()
         matched = 0
         for src, m, desc in rows:
             label_name = MODEL_SOURCE_LABELS.get(src, src)

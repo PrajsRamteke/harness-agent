@@ -45,6 +45,7 @@ from .providers import (
     MODEL_SOURCES, MODEL_SOURCE_LABELS,
     MODEL_INFO, PRICING,
     models_for, models_for_source, connected_providers, connected_model_sources,
+    all_model_picker_rows, harness_agent_models_for_picker,
     model_option_id, parse_model_option_id,
     model_belongs_to_provider, normalize_model_for_provider,
     CODEX_DEFAULT_MODEL, CODEX_MODELS, CODEX_BASE_URL,

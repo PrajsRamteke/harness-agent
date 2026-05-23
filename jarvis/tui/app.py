@@ -589,6 +589,11 @@ class JarvisTUI(App):
                 f"[{ui.WARN}]Not signed in[/] — use [cyan]/login[/] for OAuth "
                 "(Anthropic or Codex) or [cyan]/key[/] for API keys"
             )
+        elif state.harness_agent_free:
+            tui_console.print(
+                f"[{ui.OK}]Harness Agent[/] ready — "
+                f"[cyan]{state.MODEL}[/] [dim](free, no API key needed)[/]"
+            )
         db_init()
         state.current_session_id = db_create_session(state.MODEL)
 
