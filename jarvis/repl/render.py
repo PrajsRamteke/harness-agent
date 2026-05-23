@@ -279,8 +279,8 @@ def render_assistant(resp) -> bool:
             tool_uses.append(b)
 
     # Render thinking blocks (non-streaming / REPL path only — the TUI
-    # streaming path renders them inside assistant_stream_commit above).
-    if state.show_internal:
+    # streaming path renders them live and inside assistant_stream_commit).
+    if state.show_internal and not state._thinking_stream_ui_active:
         for thinking in thinking_blocks:
             console.print(Panel(
                 thinking,

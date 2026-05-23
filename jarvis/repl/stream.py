@@ -76,51 +76,129 @@ def cancel_current_stream():
     return True
 
 
-def _consume_live_text_stream(stream, panel_title: str) -> None:
-    """Drain `stream.text_stream` for real-time typing UX; then call `get_final_message()`.
+def _iter_live_deltas(stream):
+    """Yield ``(kind, chunk)`` for thinking and text deltas from any provider stream."""
+    delta_stream = getattr(stream, "delta_stream", None)
+    if delta_stream is not None:
+        yield from delta_stream
+        return
 
-    TUI: pushes deltas via ``TUIConsole`` helpers and sets ``state._assistant_stream_ui_active``.
+    if hasattr(stream, "get_final_message") and hasattr(stream, "__iter__"):
+        for event in stream:
+            et = getattr(event, "type", None)
+            if et == "thinking":
+                thinking = getattr(event, "thinking", "") or ""
+                if thinking:
+                    yield "thinking", thinking
+            elif et == "text":
+                text = getattr(event, "text", "") or ""
+                if text:
+                    yield "text", text
+        return
+
+    for chunk in stream.text_stream:
+        if chunk:
+            yield "text", chunk
+
+
+def _consume_live_text_stream(stream, panel_title: str) -> None:
+    """Drain live thinking + text deltas for real-time UX; then call ``get_final_message()``.
+
+    TUI: pushes deltas via ``TUIConsole`` helpers and sets stream UI flags.
     Legacy Rich REPL: uses :class:`RichAssistantStreamDisplay`.
 
-    ``text_stream`` only yields *text* deltas; some providers emit nothing until a long
-    queue/processing phase — a background watchdog nudges the activity line so the UI
-    does not look frozen with no explanation.
+    Extended thinking emits reasoning deltas before text — without handling them the
+    UI sits on a generic "streaming" label with no transcript motion.
     """
     rich_live: RichAssistantStreamDisplay | None = None
     stop_watch = threading.Event()
     last_progress = [time.monotonic()]
+    phase = [""]
 
     def _idle_watch() -> None:
         while not stop_watch.wait(25.0):
             idle = time.monotonic() - last_progress[0]
             if idle >= 35:
-                report_turn_phase(
-                    f"No text ({int(idle)}s) — API queue/throttle; Esc=cancel"
-                )
-           
+                if phase[0] == "thinking":
+                    report_turn_phase(
+                        f"Still thinking ({int(idle)}s) — Esc=cancel"
+                    )
+                else:
+                    report_turn_phase(
+                        f"No reply yet ({int(idle)}s) — API queue/throttle; Esc=cancel"
+                    )
+
     watcher = threading.Thread(target=_idle_watch, daemon=True)
     watcher.start()
+    text_started = False
     try:
-        if hasattr(console, "assistant_stream_start"):
-            console.assistant_stream_start(panel_title)
-            state._assistant_stream_ui_active = True
-            try:
-                for chunk in stream.text_stream:
-                    last_progress[0] = time.monotonic()
-                    console.assistant_stream_push(chunk)
-            finally:
+        tui = hasattr(console, "assistant_stream_start")
+        thinking_started = False
+
+        if tui:
+            think_start = getattr(console, "thinking_stream_start", None)
+            think_push = getattr(console, "thinking_stream_push", None)
+            think_flush = getattr(console, "thinking_stream_flush", None)
+            think_finalize = getattr(console, "thinking_stream_finalize", None)
+        else:
+            think_start = think_push = think_flush = think_finalize = None
+            rich_live = RichAssistantStreamDisplay(console)
+
+        for kind, chunk in _iter_live_deltas(stream):
+            last_progress[0] = time.monotonic()
+            if kind == "thinking":
+                if phase[0] != "thinking":
+                    phase[0] = "thinking"
+                    report_turn_phase("Thinking…")
+                if tui:
+                    if not thinking_started and think_start:
+                        think_start()
+                        thinking_started = True
+                    if think_push:
+                        think_push(chunk)
+                continue
+
+            if kind != "text":
+                continue
+
+            if phase[0] != "text":
+                phase[0] = "text"
+                if tui and thinking_started and think_finalize:
+                    if think_flush:
+                        think_flush()
+                    think_finalize()
+                report_turn_phase("Replying…")
+
+            if tui:
+                if not text_started:
+                    console.assistant_stream_start(panel_title)
+                    state._assistant_stream_ui_active = True
+                    text_started = True
+                console.assistant_stream_push(chunk)
+            else:
+                if not text_started:
+                    rich_live.start(panel_title)
+                    text_started = True
+                rich_live.push(chunk)
+
+        if tui:
+            if thinking_started and think_flush:
+                think_flush()
+            if text_started:
                 console.assistant_stream_flush()
+            elif thinking_started and think_finalize:
+                think_finalize()
             return
 
-        rich_live = RichAssistantStreamDisplay(console)
-        rich_live.start(panel_title)
-        for chunk in stream.text_stream:
-            last_progress[0] = time.monotonic()
-            rich_live.push(chunk)
+        if text_started and rich_live is not None:
+            rich_live.stop()
     finally:
         stop_watch.set()
-        if rich_live is not None:
-            rich_live.stop()
+        if rich_live is not None and not text_started:
+            try:
+                rich_live.stop()
+            except Exception:
+                pass
 
 
 def _stop_on_rate_limit(detail: str = "") -> None:
@@ -244,7 +322,7 @@ def call_claude_stream():
                 _current_stream = stream
                 try:
                     if state.stream_reply_live:
-                        report_turn_phase("Jarvis: API streaming...")
+                        report_turn_phase("Waiting for model…")
                         _consume_live_text_stream(stream, panel_title)
                     else:
                         report_turn_phase("Jarvis: buffering full reply (stream off)…")

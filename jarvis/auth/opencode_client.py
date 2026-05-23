@@ -367,20 +367,22 @@ class _OpenCodeStream:
         finally:
             self._chunk_queue.put(None)
 
-    def _process_chunk(self, chunk) -> Optional[str]:
-        """Extract text delta and accumulate tool call fragments. Returns text or None."""
+    def _process_chunk(self, chunk) -> tuple[Optional[str], Optional[str]]:
+        """Extract text/reasoning deltas and accumulate tool call fragments."""
         delta = chunk.choices[0].delta if chunk.choices else None
         if delta is None:
-            return None
+            return None, None
         # Usage on streaming chunks lives at the root chunk level, NOT on delta.
         # Some providers emit usage on every chunk; others only on the final chunk.
         # Always overwrite so the LAST chunk with usage wins (final totals).
         if hasattr(chunk, "usage") and chunk.usage is not None:
             self._usage_obj = chunk.usage
         text = None
+        reasoning = None
         reasoning_content = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
         if reasoning_content:
             self._collected_reasoning.append(reasoning_content)
+            reasoning = reasoning_content
         if delta.content:
             self._collected_text.append(delta.content)
             text = delta.content
@@ -397,7 +399,7 @@ class _OpenCodeStream:
                         entry["name"] += tc_chunk.function.name
                     if tc_chunk.function.arguments:
                         entry["arguments"] += tc_chunk.function.arguments
-        return text
+        return text, reasoning
 
     def _build_final(self) -> _FakeMessage:
         content: list = []
@@ -444,9 +446,8 @@ class _OpenCodeStream:
         return _FakeMessage(content=content, usage=usage, stop_reason=stop_reason)
 
     @property
-    def text_stream(self) -> Generator[str, None, None]:
-        """Yield text deltas. Reader runs in a daemon thread; _closed checked every 50ms.
-        Raises KeyboardInterrupt when cancelled so the caller loop exits immediately."""
+    def delta_stream(self) -> Generator[tuple[str, str], None, None]:
+        """Yield ``(kind, chunk)`` pairs where *kind* is ``thinking`` or ``text``."""
         self._start_reader()
         while True:
             if self._closed:
@@ -457,10 +458,20 @@ class _OpenCodeStream:
                 continue
             if chunk is None:
                 break
-            text = self._process_chunk(chunk)
+            text, reasoning = self._process_chunk(chunk)
+            if reasoning:
+                yield "thinking", reasoning
             if text:
-                yield text
+                yield "text", text
         self._final = self._build_final()
+
+    @property
+    def text_stream(self) -> Generator[str, None, None]:
+        """Yield text deltas. Reader runs in a daemon thread; _closed checked every 50ms.
+        Raises KeyboardInterrupt when cancelled so the caller loop exits immediately."""
+        for kind, chunk in self.delta_stream:
+            if kind == "text":
+                yield chunk
 
     def get_final_message(self) -> _FakeMessage:
         if self._final is not None:

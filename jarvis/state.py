@@ -87,6 +87,8 @@ stream_reply_live: bool = os.getenv("HARNESS_STREAM_REPLY", "1").strip().lower()
 )
 # Set while the TUI live strip is active; cleared on commit/abort.
 _assistant_stream_ui_active: bool = False
+# Set while the TUI live thinking panel is active; cleared on finalize/commit/abort.
+_thinking_stream_ui_active: bool = False
 
 # project context file detection (AGENT.md / AGENTS.md / CLAUDE.md / JARVIS.md)
 project_context_file: str = ""      # filename found, e.g. "AGENT.md"

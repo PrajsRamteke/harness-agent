@@ -981,9 +981,11 @@ class JarvisTUI(App):
 
     # ─── activity / spinner ──────────────────────────────────────────
     def _sync_activity_phase(self, label: str) -> None:
-        self._activity_label = (label or "").strip()
-        self._activity_t0 = time.monotonic()
-        self._activity_spinner_i = 0
+        label = (label or "").strip()
+        if label != self._activity_label:
+            self._activity_t0 = time.monotonic()
+            self._activity_spinner_i = 0
+        self._activity_label = label
         self._refresh_activity_widgets()
 
     def _tick_activity_spinner(self) -> None:

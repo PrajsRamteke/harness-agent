@@ -128,6 +128,93 @@ class TUIConsole:
         self._as_buffer = ""
         self._as_dirty = 0
         self._as_flush_every = 28
+        # In-log thinking stream (extended thinking / reasoning deltas)
+        self._think_line_anchor = 0
+        self._think_buffer = ""
+        self._think_dirty = 0
+        self._think_flush_every = 48
+        self._think_finalized = False
+
+    # ─── thinking streaming (reasoning deltas before reply text) ───────
+    def thinking_stream_start(self) -> None:
+        from .. import state as _state
+
+        self._think_buffer = ""
+        self._think_dirty = 0
+        self._think_finalized = False
+        _state._thinking_stream_ui_active = True
+
+        def _anchor() -> int:
+            return len(self._log.lines)
+
+        self._think_line_anchor = self._app.call_from_thread(_anchor)
+
+    def thinking_stream_push(self, chunk: str) -> None:
+        from .. import state as _state
+
+        if not chunk or self._think_finalized:
+            return
+        self._think_buffer += chunk
+        self._think_dirty += len(chunk)
+        if self._think_dirty >= self._think_flush_every:
+            self._think_dirty = 0
+            self._flush_thinking_panel()
+
+    def thinking_stream_flush(self) -> None:
+        self._think_dirty = 0
+        if not self._think_buffer or self._think_finalized:
+            return
+        self._flush_thinking_panel()
+
+    def thinking_stream_finalize(self) -> None:
+        """Stop updating the live thinking panel; leave the last preview visible."""
+        from .. import state as _state
+
+        self._think_finalized = True
+        self._think_dirty = 0
+        if self._think_buffer.strip():
+            _state._thinking_stream_ui_active = True
+        else:
+            _state._thinking_stream_ui_active = False
+
+    def _flush_thinking_panel(self) -> None:
+        from .. import state as _state
+
+        if not _state.show_internal or self._think_finalized:
+            return
+        buf = self._think_buffer
+        anchor = self._think_line_anchor
+
+        def _upd():
+            _truncate_rich_log_lines(self._log, anchor)
+            preview = buf if buf.strip() else " "
+            if len(preview) > 4000:
+                preview = "…" + preview[-3999:]
+            self._log.write(
+                Panel(
+                    Text(preview, style="dim"),
+                    title="thinking",
+                    title_align="left",
+                    border_style=self._think_border(),
+                    padding=(0, 1),
+                ),
+                scroll_end=True,
+            )
+
+        try:
+            self._app.call_from_thread(_upd)
+        except Exception:
+            pass
+
+    def _clear_thinking_stream(self) -> None:
+        from .. import state as _state
+
+        self._think_buffer = ""
+        self._think_dirty = 0
+        self._think_finalized = False
+        if _state._thinking_stream_ui_active:
+            _truncate_rich_log_lines(self._log, self._think_line_anchor)
+        _state._thinking_stream_ui_active = False
 
     # ─── assistant streaming (worker thread → main via call_from_thread) ─
     def assistant_stream_start(self, title: str) -> None:
@@ -207,8 +294,10 @@ class TUIConsole:
             self._as_buffer = ""
             self._as_dirty = 0
             _state._assistant_stream_ui_active = False
-            # render thinking blocks BEFORE the text panel
+            streamed_thinking = _state._thinking_stream_ui_active and self._think_buffer.strip()
             if thinking_blocks and _state.show_internal:
+                if streamed_thinking:
+                    _truncate_rich_log_lines(self._log, self._think_line_anchor)
                 for tb in thinking_blocks:
                     self._log.write(
                         Panel(
@@ -220,6 +309,10 @@ class TUIConsole:
                         ),
                         scroll_end=True,
                     )
+            self._think_buffer = ""
+            self._think_dirty = 0
+            self._think_finalized = False
+            _state._thinking_stream_ui_active = False
             if re.search(r"\S", text):
                 self._log.write(
                     Panel(
@@ -306,11 +399,13 @@ class TUIConsole:
             if _state._assistant_stream_ui_active:
                 _truncate_rich_log_lines(self._log, self._stream_line_anchor)
             _state._assistant_stream_ui_active = False
+            self._clear_thinking_stream()
 
         try:
             self._app.call_from_thread(_abort)
         except Exception:
             _state._assistant_stream_ui_active = False
+            _state._thinking_stream_ui_active = False
 
     # ─── internal ───────────────────────────────────────────────────────
     def _write(self, renderable):
