@@ -37,7 +37,16 @@ def init_runtime(*, quiet: bool = False) -> None:
     if quiet:
         auto_connect_servers(console_print=lambda *_a, **_k: None)
     else:
-        auto_connect_servers(console_print=console.print)
+        import threading
+
+        def _auto_connect_mcp() -> None:
+            auto_connect_servers(console_print=console.print)
+
+        threading.Thread(
+            target=_auto_connect_mcp,
+            daemon=True,
+            name="mcp-auto-connect",
+        ).start()
 
     from .project_context import detect_project_context
 
@@ -46,6 +55,10 @@ def init_runtime(*, quiet: bool = False) -> None:
     from .storage.agents import auto_activate_coding_agent
 
     auto_activate_coding_agent()
+
+    from .updater import start_background_update
+
+    start_background_update()
 
 
 def prepare_user_prompt(inp: str, *, include_clipboard: bool = True) -> str | None:

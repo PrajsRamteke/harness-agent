@@ -35,23 +35,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from .console_shim import TUIConsole, _truncate_rich_log_lines, _replace_rich_log_block, _append_rich_log_block
-from .session_modal import SessionPickerScreen, resume_session_into_state
-from .palette_modal import CommandPaletteScreen
-from .model_modal import ModelPickerScreen
-from .think_modal import ThinkPickerScreen
-from .mcp_modal import MCPModalScreen
-from .agent_modal import AgentPickerScreen
-from .skill_modal import SkillBrowserScreen
-from .memory_modal import MemoryModalScreen
-from .lesson_modal import LessonModalScreen
-from .settings_modal import SettingsModalScreen
-from .key_modal import KeyModalScreen
-from .theme_modal import ThemePickerScreen
-from .oauth_connect_modal import OAuthConnectModalScreen, OAuthConnectResult
-from .local_cmd_modal import LocalCmdModalScreen
 from .file_ref_picker import filter_project_files, file_ref_option_label
-from .tools_inspector_modal import ToolsInspectorScreen
-from .shortcuts_modal import ShortcutsHelpScreen
 from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_has_entries
 from ..repl.tool_runs import (
     _display_for_tool,
@@ -60,7 +44,6 @@ from ..repl.tool_runs import (
     list_runs,
     show_parallel_file_panel,
 )
-from .provider_modal import ProviderPickerScreen
 from .ask_user import AskUserController, AskQuestion, normalize_questions
 from .mouse_toggle import enable_mouse, disable_mouse
 from ..prompt_refs import (
@@ -600,9 +583,6 @@ class JarvisTUI(App):
         self._set_status("ready")
         self._sync_activity_phase("")
 
-        from ..mcp.registry import auto_connect_servers
-        auto_connect_servers(console_print=self._tui_console.print)
-
         # Poll for width changes (RichLog doesn't auto-reflow panels on resize)
         self._start_width_monitor()
 
@@ -620,6 +600,26 @@ class JarvisTUI(App):
 
         if state.startup_prompt:
             self.set_timer(0.05, self._submit_startup_prompt)
+
+        self._auto_connect_mcp_background()
+        self._check_for_updates_background()
+
+    @work(thread=True)
+    def _check_for_updates_background(self) -> None:
+        """Pull latest commits after the prompt is shown; re-exec when updated."""
+        from ..updater import maybe_update_and_reexec
+
+        maybe_update_and_reexec()
+
+    @work(thread=True)
+    def _auto_connect_mcp_background(self) -> None:
+        """Connect configured MCP servers without blocking the first prompt."""
+        from ..mcp.registry import auto_connect_servers
+
+        def _print(msg: str) -> None:
+            self.call_from_thread(lambda m=msg: self._tui_console.print(m))
+
+        auto_connect_servers(console_print=_print)
 
     def _submit_startup_prompt(self) -> None:
         """Send a prompt passed on the CLI: jarvis \"your question here\"."""
@@ -1276,6 +1276,8 @@ class JarvisTUI(App):
             self._dispatch_palette_slash(cmd)
             inp.focus()
 
+        from .palette_modal import CommandPaletteScreen
+
         self.push_screen(CommandPaletteScreen(), after)
 
     def _open_model_picker(self):
@@ -1289,6 +1291,8 @@ class JarvisTUI(App):
             _apply_model_selection(model_id, source=source)
             self._write_status_line(busy=False)
             self._set_status("ready")
+        from .model_modal import ModelPickerScreen
+
         self.push_screen(ModelPickerScreen(), after)
 
     def _open_think_picker(self):
@@ -1299,6 +1303,8 @@ class JarvisTUI(App):
             from ..commands.control import _handle_think
             _handle_think(effort)
             self._set_status("ready")
+        from .think_modal import ThinkPickerScreen
+
         self.push_screen(ThinkPickerScreen(), after)
 
     def _open_provider_picker(self):
@@ -1309,6 +1315,8 @@ class JarvisTUI(App):
             from ..commands.control import _handle_provider
             _handle_provider(provider)
             self._set_status("ready")
+        from .provider_modal import ProviderPickerScreen
+
         self.push_screen(ProviderPickerScreen(), after)
 
     def _open_mcp_modal(self):
@@ -1316,6 +1324,8 @@ class JarvisTUI(App):
             from ..mcp.scope import invalidate_mcp_prompt_cache
             invalidate_mcp_prompt_cache()
             self._set_status("ready")
+        from .mcp_modal import MCPModalScreen
+
         self.push_screen(MCPModalScreen(), after)
 
     def _open_agent_picker(self):
@@ -1332,26 +1342,36 @@ class JarvisTUI(App):
                 self._set_status("ready")
                 return
             self._set_status("ready")
+        from .agent_modal import AgentPickerScreen
+
         self.push_screen(AgentPickerScreen(), after)
 
     def _open_skill_browser(self):
         def after(_: object) -> None:
             self._set_status("ready")
+        from .skill_modal import SkillBrowserScreen
+
         self.push_screen(SkillBrowserScreen(), after)
 
     def _open_memory_modal(self):
         def after(_: object) -> None:
             self._set_status("ready")
+        from .memory_modal import MemoryModalScreen
+
         self.push_screen(MemoryModalScreen(), after)
 
     def _open_lesson_modal(self):
         def after(_: object) -> None:
             self._set_status("ready")
+        from .lesson_modal import LessonModalScreen
+
         self.push_screen(LessonModalScreen(), after)
 
     def _open_settings_modal(self):
         def after(_: object) -> None:
             self._set_status("ready")
+        from .settings_modal import SettingsModalScreen
+
         self.push_screen(SettingsModalScreen(), after)
 
     def _apply_theme_runtime(self, name: str, *, rebuild_transcript: bool) -> None:
@@ -1409,10 +1429,12 @@ class JarvisTUI(App):
                 self._apply_theme_runtime(name, rebuild_transcript=True)
                 self._tui_console.print(f"[{ui.OK}]✓ switched to [bold]{name}[/] theme[/]")
             self._set_status("ready")
+        from .theme_modal import ThemePickerScreen
+
         self.push_screen(ThemePickerScreen(), after)
 
     def _open_oauth_modal(self, *, title: str = "OAuth login") -> None:
-        def after(result: OAuthConnectResult | None) -> None:
+        def after(result) -> None:
             if result is None:
                 self._tui_console.print(f"[{ui.FG_DIM}]oauth login closed[/]")
             elif result.action == "connected" and result.spec_id == "anthropic":
@@ -1438,6 +1460,8 @@ class JarvisTUI(App):
             self._write_status_line(busy=False)
             self._set_status("ready")
 
+        from .oauth_connect_modal import OAuthConnectModalScreen
+
         self.push_screen(OAuthConnectModalScreen(title=title), after)
 
     def _open_login_modal(self):
@@ -1446,6 +1470,8 @@ class JarvisTUI(App):
     def _open_key_modal(self) -> None:
         def after(_: object) -> None:
             self._set_status("ready")
+        from .key_modal import KeyModalScreen
+
         self.push_screen(KeyModalScreen(), after)
 
     def _open_local_cmd_modal(self, initial: str = "") -> None:
@@ -1470,6 +1496,8 @@ class JarvisTUI(App):
                 self._dispatch_palette_slash(base)
             inp.focus()
             self._set_status("ready")
+
+        from .local_cmd_modal import LocalCmdModalScreen
 
         self.push_screen(LocalCmdModalScreen(initial=initial), after)
 
@@ -1747,8 +1775,12 @@ class JarvisTUI(App):
             if sid is None:
                 self._tui_console.print(f"[{ui.FG_DIM}]cancelled[/]")
                 return
+            from .session_modal import resume_session_into_state
+
             if resume_session_into_state(sid, self._tui_console.print, preview=False):
                 self._render_loaded_session()
+        from .session_modal import SessionPickerScreen
+
         self.push_screen(SessionPickerScreen(), after)
 
     def _block_dict(self, block):
@@ -2158,6 +2190,8 @@ class JarvisTUI(App):
                 pass
 
     def action_show_shortcuts(self) -> None:
+        from .shortcuts_modal import ShortcutsHelpScreen
+
         self.push_screen(ShortcutsHelpScreen())
 
     def action_open_tools_inspector(self) -> None:
@@ -2170,6 +2204,8 @@ class JarvisTUI(App):
             except Exception:
                 pass
             return
+        from .tools_inspector_modal import ToolsInspectorScreen
+
         self.push_screen(ToolsInspectorScreen())
 
     def action_open_tool_output(self) -> None:

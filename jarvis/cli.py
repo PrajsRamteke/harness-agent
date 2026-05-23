@@ -45,28 +45,10 @@ def _restore_update_banner() -> None:
         pass
 
 
-def _sync_update_before_start() -> None:
-    """Pull + pip install before UI loads; re-exec so new code actually runs."""
+def _handle_post_reexec_banner() -> None:
+    """After a background pull + re-exec, show the update banner once."""
     if os.environ.get("HARNESS_UPDATED_REEXEC"):
         _restore_update_banner()
-        return
-
-    from .updater import check_and_update
-    from .install_sync import reexec_jarvis
-
-    result = check_and_update()
-    if not result or not result.get("updated"):
-        return
-
-    # Git pull changed files on disk but this process still has old modules
-    # in memory — must re-exec or Harness Agent models won't appear until
-    # the user manually quits and restarts (friends never do).
-    banner = {
-        "count": result.get("count", 0),
-        "commits": result.get("commits", []),
-        "pip_installed": result.get("pip_installed", False),
-    }
-    reexec_jarvis(update_banner=banner)
 
 
 def main() -> None:
@@ -76,12 +58,16 @@ def main() -> None:
     Pass ``-p`` to run one task without opening the TUI.
     Pass ``--legacy`` to use the older rich REPL.
     """
-    _sync_update_before_start()
+    _handle_post_reexec_banner()
 
     args = _build_parser().parse_args()
 
     if args.run_prompt:
+        from .updater import maybe_update_and_reexec
         from .main import run_headless
+
+        # Headless runs are one-shot — sync update so the task uses latest code.
+        maybe_update_and_reexec()
 
         prompt = " ".join(args.run_prompt).strip()
         if not prompt:

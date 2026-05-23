@@ -33,7 +33,7 @@ from .oauth_tokens import (
     load_oauth_tokens, clear_oauth_tokens, oauth_refresh, get_fresh_oauth_token,
     oauth_client_headers,
 )
-from .anthropic_models import sync_anthropic_model_ids
+from .anthropic_models import defer_anthropic_model_sync, sync_anthropic_model_ids
 from .codex_client import CodexClient
 from .codex_oauth_tokens import get_fresh_codex_oauth_token, load_codex_oauth_tokens
 from .oauth_flow import oauth_login
@@ -431,7 +431,10 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
             c = _build_client_from_mode(state.auth_mode, interactive=interactive)
             c.models.list(limit=1)  # cheap validation
             if state.provider == PROVIDER_ANTHROPIC:
-                sync_anthropic_model_ids(c)
+                if interactive:
+                    sync_anthropic_model_ids(c)
+                else:
+                    defer_anthropic_model_sync(c)
             return c
         except RuntimeError:
             if not interactive:

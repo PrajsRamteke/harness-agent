@@ -1,6 +1,7 @@
 """Live Anthropic model discovery after a validated API connection."""
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING
 
 from ..constants import ANTHROPIC_MODELS, ANTHROPIC_AUTH_MODEL_IDS
@@ -26,6 +27,22 @@ def sync_anthropic_model_ids(client: "Anthropic") -> list[str]:
     if ids:
         state.anthropic_model_ids = ids
     return ids
+
+
+def defer_anthropic_model_sync(client: "Anthropic") -> None:
+    """Background model discovery so startup is not blocked on a second API call."""
+
+    def _run() -> None:
+        try:
+            sync_anthropic_model_ids(client)
+        except Exception:
+            pass
+
+    threading.Thread(
+        target=_run,
+        daemon=True,
+        name="anthropic-model-sync",
+    ).start()
 
 
 def anthropic_auth_models_for_picker() -> list[tuple[str, str]]:

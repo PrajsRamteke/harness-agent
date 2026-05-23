@@ -1,14 +1,59 @@
 """Auto-update: pull from origin + editable pip install on startup."""
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
+import time
 
+from .constants import CONFIG_DIR
 from .install_sync import (
     find_install_root,
     harness_agent_models_available,
     pip_install_repo,
 )
+
+
+UPDATE_CHECK_STAMP = CONFIG_DIR / "last_update_check"
+# 0 = check on every launch (background — does not block the TUI prompt).
+_DEFAULT_UPDATE_INTERVAL_SEC = 0
+
+
+def _update_interval_sec() -> int:
+    raw = os.getenv("HARNESS_UPDATE_INTERVAL", "").strip()
+    if raw:
+        try:
+            return max(60, int(raw))
+        except ValueError:
+            pass
+    return _DEFAULT_UPDATE_INTERVAL_SEC
+
+
+def should_check_for_updates(*, now: float | None = None) -> bool:
+    """Return False when auto-update should be skipped (env or recent check)."""
+    if os.environ.get("HARNESS_SKIP_UPDATE", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    if _update_interval_sec() <= 0:
+        return True
+    if not UPDATE_CHECK_STAMP.exists():
+        return True
+    try:
+        last = float(UPDATE_CHECK_STAMP.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return True
+    ts = now if now is not None else time.time()
+    return (ts - last) >= _update_interval_sec()
+
+
+def _record_update_check(*, now: float | None = None) -> None:
+    try:
+        UPDATE_CHECK_STAMP.parent.mkdir(parents=True, exist_ok=True)
+        UPDATE_CHECK_STAMP.write_text(
+            str(now if now is not None else time.time()),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
 
 
 def _git(*args: str, cwd: pathlib.Path, timeout: int = 30) -> tuple[int, str]:
@@ -28,9 +73,14 @@ def _git(*args: str, cwd: pathlib.Path, timeout: int = 30) -> tuple[int, str]:
 def check_and_update() -> dict | None:
     """Fetch + pull when behind, then ``pip install -e .``. Returns update info."""
     try:
+        if not should_check_for_updates():
+            return None
+
         root = find_install_root()
         if root is None:
             return None
+
+        _record_update_check()
 
         code, old_head = _git("rev-parse", "HEAD", cwd=root, timeout=10)
         if code != 0 or not old_head:
@@ -95,3 +145,41 @@ def check_and_update() -> dict | None:
 
     except Exception:
         return None
+
+
+def _update_banner_from_result(result: dict) -> dict:
+    return {
+        "count": result.get("count", 0),
+        "commits": result.get("commits", []),
+        "pip_installed": result.get("pip_installed", False),
+    }
+
+
+def maybe_update_and_reexec() -> None:
+    """Fetch/pull when behind; ``exec`` fresh process so new code loads. No-op when up to date."""
+    if os.environ.get("HARNESS_UPDATED_REEXEC"):
+        return
+
+    result = check_and_update()
+    if not result or not result.get("updated"):
+        return
+
+    from .install_sync import reexec_jarvis
+
+    reexec_jarvis(update_banner=_update_banner_from_result(result))
+
+
+def start_background_update() -> None:
+    """Check for updates on a worker thread — startup stays instant, re-exec when pulled."""
+    if os.environ.get("HARNESS_SKIP_UPDATE", "").strip().lower() in ("1", "true", "yes"):
+        return
+    if os.environ.get("HARNESS_UPDATED_REEXEC"):
+        return
+
+    import threading
+
+    threading.Thread(
+        target=maybe_update_and_reexec,
+        daemon=True,
+        name="harness-update",
+    ).start()
