@@ -131,7 +131,20 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         q = query.strip().lower()
         opts = self.query_one("#model_list", OptionList)
         opts.clear_options()
-        rows = model_picker_rows()
+        try:
+            rows = model_picker_rows()
+        except Exception:
+            rows = []
+        # Never show an empty picker — Harness Agent free tier is always first.
+        harness = [
+            (PROVIDER_HARNESS_AGENT, mid, desc)
+            for mid, desc in _BUILTIN_HARNESS_ROWS
+        ]
+        if not rows:
+            rows = harness
+        elif sum(1 for src, _, _ in rows if src == PROVIDER_HARNESS_AGENT) < len(_BUILTIN_HARNESS_ROWS):
+            seen = {mid for _, mid, _ in rows}
+            rows = [r for r in harness if r[1] not in seen] + rows
         matched = 0
         for src, m, desc in rows:
             label_name = MODEL_SOURCE_LABELS.get(src, src)

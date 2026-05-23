@@ -206,13 +206,14 @@ def welcome_banner(compact: bool = False):
             lines.append(f"[{c['fg_dim']}]  … and {len(commits) - 5} more[/]")
         if info.get("pip_installed"):
             lines.append(
-                f"\n[{c['fg_dim']}]Package reinstalled — restart Jarvis, then run "
-                f"[{c['accent_2']}]/model[/] or [{c['accent_2']}]/mode[/] to pick Harness Agent.[/]"
+                f"\n[{c['fg_dim']}]Updated and restarted — run "
+                f"[{c['accent_2']}]/model[/] or [{c['accent_2']}]/mode[/] "
+                f"to pick a free Harness Agent model.[/]"
             )
         else:
             lines.append(
-                f"\n[{c['fg_dim']}]Restart Jarvis, then run "
-                f"[{c['accent_2']}]/upgrade[/] if Harness Agent models are missing.[/]"
+                f"\n[{c['fg_dim']}]Run [{c['accent_2']}]/upgrade[/] "
+                f"if Harness Agent models are still missing.[/]"
             )
         console.print(Panel(
             "\n".join(lines),

@@ -1,17 +1,17 @@
-"""Auto-update: silently pull new commits from origin on startup.
-
-Runs in a background thread started by cli.main(). Result is stored in
-state.update_result and consumed by repl/banners.py welcome_banner().
-"""
+"""Auto-update: pull from origin + editable pip install on startup."""
 from __future__ import annotations
 
 import pathlib
 import subprocess
 
-from .install_sync import pip_install_repo
+from .install_sync import (
+    find_install_root,
+    harness_agent_models_available,
+    pip_install_repo,
+)
 
 
-def _git(*args: str, cwd: pathlib.Path, timeout: int = 10) -> tuple[int, str]:
+def _git(*args: str, cwd: pathlib.Path, timeout: int = 30) -> tuple[int, str]:
     try:
         r = subprocess.run(
             ["git", *args],
@@ -25,74 +25,73 @@ def _git(*args: str, cwd: pathlib.Path, timeout: int = 10) -> tuple[int, str]:
         return 1, ""
 
 
-def _find_git_root() -> pathlib.Path | None:
-    p = pathlib.Path(__file__).resolve().parent
-    for _ in range(10):
-        if (p / ".git").exists():
-            return p
-        p = p.parent
-    return None
-
-
-def check_and_update() -> None:
-    """Fetch + pull if behind. Stores result in jarvis.state.update_result."""
+def check_and_update() -> dict | None:
+    """Fetch + pull when behind, then ``pip install -e .``. Returns update info."""
     try:
-        root = _find_git_root()
+        root = find_install_root()
         if root is None:
-            return
+            return None
 
-        code, old_head = _git("rev-parse", "HEAD", cwd=root, timeout=5)
+        code, old_head = _git("rev-parse", "HEAD", cwd=root, timeout=10)
         if code != 0 or not old_head:
-            return
+            return None
 
-        code, _ = _git("fetch", "origin", cwd=root, timeout=15)
+        code, _ = _git("fetch", "origin", cwd=root, timeout=30)
         if code != 0:
-            return
+            return None
 
-        # Resolve the upstream tracking branch.
         code, upstream = _git(
             "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}",
-            cwd=root, timeout=5,
+            cwd=root, timeout=10,
         )
         if code != 0 or not upstream:
             for candidate in ("origin/main", "origin/master"):
-                c, _ = _git("rev-parse", candidate, cwd=root, timeout=5)
+                c, _ = _git("rev-parse", candidate, cwd=root, timeout=10)
                 if c == 0:
                     upstream = candidate
                     break
             else:
-                return
+                return None
 
-        code, remote_head = _git("rev-parse", upstream, cwd=root, timeout=5)
+        code, remote_head = _git("rev-parse", upstream, cwd=root, timeout=10)
         if code != 0 or not remote_head or remote_head == old_head:
-            return
+            return None
 
         code, behind_str = _git(
             "rev-list", "--count", f"HEAD..{upstream}",
-            cwd=root, timeout=5,
+            cwd=root, timeout=10,
         )
         behind = int(behind_str) if code == 0 and behind_str.isdigit() else 0
         if behind == 0:
-            return
+            return None
 
         code, log_out = _git(
             "log", "--oneline", f"HEAD..{upstream}",
-            cwd=root, timeout=5,
+            cwd=root, timeout=10,
         )
-        new_commits = [l.strip() for l in log_out.splitlines() if l.strip()]
+        new_commits = [line.strip() for line in log_out.splitlines() if line.strip()]
 
-        code, _ = _git("pull", "--ff-only", cwd=root, timeout=30)
+        code, _ = _git("pull", "--ff-only", cwd=root, timeout=60)
         if code != 0:
-            return
+            return None
 
         pip_ok = pip_install_repo(root)
+        if not pip_ok:
+            # Retry once — friend installs often hit transient pip errors.
+            pip_ok = pip_install_repo(root, timeout=240)
 
-        import jarvis.state as _state
-        _state.update_result = {
+        result = {
+            "updated": True,
             "count": behind,
             "commits": new_commits,
             "pip_installed": pip_ok,
+            "pip_ok": pip_ok,
+            "harness_models": harness_agent_models_available(),
         }
 
+        import jarvis.state as _state
+        _state.update_result = result
+        return result
+
     except Exception:
-        pass
+        return None

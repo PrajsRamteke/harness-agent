@@ -5,55 +5,12 @@ Detects the install directory by:
   2. Walking up from `__file__` to find the repo root with .git (dev/editable install)
 """
 import pathlib
-import shutil
 import subprocess
 import sys
 
 from ..console import console
 from ..constants import VERSION
-from .. import state
-
-Path = pathlib.Path
-
-
-def _find_repo_root() -> pathlib.Path | None:
-    """Locate the Jarvis repository root by following the jarvis binary symlink,
-    then walking up until we find pyproject.toml + .git."""
-    candidates: list[pathlib.Path] = []
-
-    # 1) Follow the `jarvis` symlink
-    try:
-        jarvis_bin = shutil.which("jarvis")
-        if jarvis_bin:
-            resolved = pathlib.Path(jarvis_bin).resolve()
-            candidates.append(resolved.parent.parent)  # .venv/bin/jarvis → .venv → repo
-            # Also check one level up (editable install where jarvis != .venv/bin/jarvis)
-            candidates.append(resolved.parent.parent.parent)
-    except Exception:
-        pass
-
-    # 2) Walk up from __file__ (the installed jarvis package)
-    candidates.append(pathlib.Path(__file__).resolve().parent.parent)  # jarvis/commands → jarvis → repo
-    candidates.append(pathlib.Path(__file__).resolve().parent.parent.parent)  # extra level
-
-    # 3) Try CWD (user is running from repo root)
-    candidates.append(pathlib.Path.cwd())
-
-    seen = set()
-    for candidate in candidates:
-        try:
-            candidate = candidate.resolve()
-        except Exception:
-            continue
-        # Walk up looking for pyproject.toml + .git
-        for parent in [candidate] + list(candidate.parents):
-            if parent in seen:
-                continue
-            seen.add(parent)
-            if (parent / "pyproject.toml").is_file() and (parent / ".git").is_dir():
-                return parent
-
-    return None
+from ..install_sync import find_install_root, pip_install_repo, reexec_jarvis
 
 
 def _run(cmd: list[str], cwd: pathlib.Path, timeout: int = 120) -> tuple[int, str, str]:
@@ -103,13 +60,13 @@ def cmd_upgrade(arg: str) -> bool:
 
     console.print("[cyan]◎ Locating Jarvis installation…[/]")
 
-    repo_root = _find_repo_root()
+    repo_root = find_install_root()
     if repo_root is None:
         console.print(
             "[red]Could not find Jarvis repository root.[/]\n\n"
             "To manually upgrade:\n\n"
             "  [dim]# If installed via the installer:[/]\n"
-            f"  [cyan]{Path('~/.local/share/harness-agent').expanduser()}[/] not found.\n\n"
+            f"  [cyan]{pathlib.Path('~/.local/share/harness-agent').expanduser()}[/] not found.\n\n"
             "  [dim]# Try running the install script again:[/]\n"
             "  [cyan]curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash[/]\n\n"
             "  [dim]# If in a dev clone:[/]\n"
@@ -186,36 +143,31 @@ def cmd_upgrade(arg: str) -> bool:
         console.print("[red]✗ git pull failed. Check for local changes or merge conflicts.[/]")
         return True
 
-    # Step 3: pip install
-    console.print("[cyan]≡ Installing dependencies…[/]")
+    # Step 3: editable pip install into the running interpreter
+    console.print("[cyan]≡ Installing (editable)…[/]")
+    pip_ok = pip_install_repo(repo_root, timeout=240)
+    if not pip_ok:
+        console.print("[red]✗ pip install -e . failed.[/]")
+        console.print(
+            "[dim]Try manually:[/] "
+            f"[cyan]cd {repo_root} && {sys.executable} -m pip install -e .[/]"
+        )
+        return True
 
-    # Detect the python from the venv or system
-    venv_python = repo_root / ".venv" / "bin" / "python"
-    python_cmd = str(venv_python) if venv_python.is_file() else sys.executable
+    console.print("[green]✓ pip install -e . succeeded[/]")
 
-    rc, out, err = _run([python_cmd, "-m", "pip", "install", "."], repo_root, timeout=180)
-    console.print(_format_output("pip install .", out, err, rc))
+    try:
+        new_version_file = repo_root / "jarvis" / "constants" / "models.py"
+        new_ver = "?"
+        if new_version_file.is_file():
+            for line in new_version_file.read_text().split("\n"):
+                if line.startswith("VERSION"):
+                    new_ver = line.split("=")[-1].strip().strip('"').strip("'")
+                    break
+    except Exception:
+        new_ver = "?"
 
-    if rc == 0:
-        # Read the new version
-        try:
-            new_version_file = repo_root / "jarvis" / "constants" / "models.py"
-            if new_version_file.is_file():
-                for line in new_version_file.read_text().split("\n"):
-                    if line.startswith("VERSION"):
-                        new_ver = line.split("=")[-1].strip().strip('"').strip("'")
-                        break
-                else:
-                    new_ver = "?"
-            else:
-                new_ver = "?"
-        except Exception:
-            new_ver = "?"
-
-        console.print(f"\n[green bold]✓ Upgrade complete![/] [dim]v{VERSION} → v{new_ver}[/]")
-        console.print("[dim]Your next session will use the updated code.[/]")
-        console.print("[dim]Note: You may need to restart the current session for changes to take full effect ([/][cyan]/new[/][dim]).[/]")
-    else:
-        console.print("[red]✗ pip install failed. See output above.[/]")
-
+    console.print(f"\n[green bold]✓ Upgrade complete![/] [dim]v{VERSION} → v{new_ver}[/]")
+    console.print("[dim]Restarting to load Harness Agent models…[/]")
+    reexec_jarvis()
     return True

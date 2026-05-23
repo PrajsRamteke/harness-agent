@@ -161,7 +161,7 @@ if [ ! -d ".venv" ]; then
 fi
 
 ".venv/bin/python" -m pip install --upgrade pip setuptools wheel
-".venv/bin/python" -m pip install .
+".venv/bin/python" -m pip install -e .
 
 echo "verifying Python packages..."
 if ! verify_install; then
