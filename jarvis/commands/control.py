@@ -8,8 +8,10 @@ from ..constants import (
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS, OPENCODE_ZEN_MODEL_IDS,
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
+    FREEBUFF_DEFAULT_MODEL, FREEBUFF_MODEL_IDS,
     models_for, is_harness_agent_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
+    PROVIDER_FREEBUFF,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
@@ -25,10 +27,11 @@ from ..auth.anthropic_models import sync_anthropic_model_ids, format_anthropic_m
 from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
 from ..auth.opencode import prompt_for_opencode_key, load_opencode_key
 from ..auth.opencode_zen import prompt_for_opencode_zen_key, has_opencode_zen_key
+from ..auth.freebuff import has_freebuff_credentials, prompt_for_freebuff_login
 from ..auth.harness_agent import should_use_harness_agent_client
 from ..auth.client import (
     _build_client_from_mode, _build_opencode_client,
-    _build_opencode_zen_client_for_model,
+    _build_opencode_zen_client_for_model, _build_freebuff_client,
 )
 from ..repl.banners import header_panel
 from ..repl.stats import estimated_cost
@@ -187,11 +190,100 @@ def _all_models():
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
 _OPENCODE_ZEN_MODEL_IDS = set(OPENCODE_ZEN_MODEL_IDS)
 _HARNESS_AGENT_MODEL_IDS = set(HARNESS_AGENT_MODEL_IDS)
+_FREEBUFF_MODEL_IDS = set(FREEBUFF_MODEL_IDS)
 _CODEX_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENAI_CODEX)}
+
+
+def model_switch_activity_label(chosen: str, *, source: str = "", provider: str = "") -> str:
+    """Short status-bar label while switching models in the TUI."""
+    prov = provider or state.provider
+    if prov == PROVIDER_FREEBUFF or source == PROVIDER_FREEBUFF:
+        return f"Connecting Freebuff · {chosen}…"
+    if prov == PROVIDER_OPENCODE_ZEN and source == PROVIDER_HARNESS_AGENT:
+        return f"Connecting Harness Agent · {chosen}…"
+    return f"Switching to {chosen}…"
+
+
+def _client_ready_for_model(model: str) -> bool:
+    """True when the active client already matches ``model`` (no reconnect needed)."""
+    if state.client is None:
+        return False
+    if state.provider == PROVIDER_FREEBUFF:
+        return getattr(state.client, "harness_model", None) == model
+    return state.MODEL == model
+
+
+def _rebuild_client_for_model(chosen: str, *, source: str = "") -> bool:
+    """Connect/reconnect API client for the current provider + ``chosen`` model."""
+    if state.provider == PROVIDER_OPENCODE_ZEN and source in (
+        PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN,
+    ):
+        if _client_ready_for_model(chosen):
+            return True
+        try:
+            state.client = _build_opencode_zen_client_for_model(chosen, source=source)
+        except Exception as e:
+            label = (
+                "Harness Agent"
+                if should_use_harness_agent_client(chosen, source=source)
+                else "OpenCode Zen"
+            )
+            console.print(f"[red]failed to connect {label}: {e}[/]")
+            return False
+        return True
+
+    if state.provider == PROVIDER_ANTHROPIC and source:
+        target_auth = AUTH_OAUTH if source == PROVIDER_ANTHROPIC_AUTH else AUTH_API_KEY
+        if target_auth != state.auth_mode:
+            if target_auth == AUTH_OAUTH and not load_oauth_tokens():
+                console.print("[yellow]OAuth not configured — run /login first[/]")
+                return False
+            if target_auth == AUTH_API_KEY and not KEY_FILE.exists() and not os.getenv("ANTHROPIC_API_KEY"):
+                console.print("[yellow]Anthropic API key not configured[/]")
+                return False
+            state.auth_mode = target_auth
+            _secure_write(AUTH_MODE_FILE, target_auth)
+            try:
+                state.client = _build_client_from_mode(target_auth)
+            except Exception as e:
+                console.print(f"[red]failed to switch auth mode: {e}[/]")
+                return False
+        return True
+
+    if state.provider == PROVIDER_OPENAI_CODEX and source == PROVIDER_OPENAI_CODEX_AUTH:
+        if not load_codex_oauth_tokens():
+            console.print("[yellow]OpenAI Codex OAuth not configured — run /login first[/]")
+            return False
+        state.auth_mode = AUTH_OAUTH
+        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+        try:
+            from ..auth.client import _build_codex_client
+            state.client = _build_codex_client()
+        except Exception as e:
+            console.print(f"[red]failed to switch to Codex OAuth: {e}[/]")
+            return False
+        return True
+
+    if state.provider == PROVIDER_FREEBUFF:
+        if not has_freebuff_credentials():
+            console.print("[yellow]Freebuff not configured — run: npx freebuff login[/]")
+            return False
+        if _client_ready_for_model(chosen):
+            return True
+        try:
+            state.client = _build_freebuff_client(chosen)
+        except Exception as e:
+            console.print(f"[red]failed to connect Freebuff: {e}[/]")
+            return False
+        return True
+
+    return True
 
 
 def _provider_for_model(model: str) -> str:
     """Determine provider from model id."""
+    if model in _FREEBUFF_MODEL_IDS:
+        return PROVIDER_FREEBUFF
     if model in _CODEX_MODEL_IDS:
         return PROVIDER_OPENAI_CODEX
     if model in _HARNESS_AGENT_MODEL_IDS:
@@ -206,6 +298,10 @@ def _provider_for_model(model: str) -> str:
 
 
 def _apply_model_selection(chosen: str, *, source: str = ""):
+    chosen = (chosen or "").strip()
+    if not chosen:
+        return
+
     target_provider = _provider_for_model(chosen)
     if source == PROVIDER_HARNESS_AGENT:
         target_provider = PROVIDER_OPENCODE_ZEN
@@ -215,54 +311,27 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
         target_provider = PROVIDER_ANTHROPIC
     elif source == PROVIDER_OPENAI_CODEX_AUTH:
         target_provider = PROVIDER_OPENAI_CODEX
+    elif source == PROVIDER_FREEBUFF:
+        target_provider = PROVIDER_FREEBUFF
+
+    if (
+        state.MODEL == chosen
+        and state.provider == target_provider
+        and _client_ready_for_model(chosen)
+    ):
+        console.print(f"[dim]already on {chosen}[/]")
+        return
 
     skip_key = source == PROVIDER_HARNESS_AGENT
     if target_provider != state.provider:
-        _handle_provider(target_provider, skip_key_prompt=skip_key)
+        _handle_provider(target_provider, skip_key_prompt=skip_key, build_client=False)
         if state.provider != target_provider:
             return  # switch failed (e.g. user cancelled key prompt)
 
-    if state.provider == PROVIDER_OPENCODE_ZEN and source in (
-        PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN,
-    ):
-        try:
-            state.client = _build_opencode_zen_client_for_model(chosen, source=source)
-        except Exception as e:
-            label = "Harness Agent" if should_use_harness_agent_client(chosen, source=source) else "OpenCode Zen"
-            console.print(f"[red]failed to connect {label}: {e}[/]")
-            return
-
-    if state.provider == PROVIDER_ANTHROPIC and source:
-        target_auth = AUTH_OAUTH if source == PROVIDER_ANTHROPIC_AUTH else AUTH_API_KEY
-        if target_auth != state.auth_mode:
-            if target_auth == AUTH_OAUTH and not load_oauth_tokens():
-                console.print("[yellow]OAuth not configured — run /login first[/]")
-                return
-            if target_auth == AUTH_API_KEY and not KEY_FILE.exists() and not os.getenv("ANTHROPIC_API_KEY"):
-                console.print("[yellow]Anthropic API key not configured[/]")
-                return
-            state.auth_mode = target_auth
-            _secure_write(AUTH_MODE_FILE, target_auth)
-            try:
-                state.client = _build_client_from_mode(target_auth)
-            except Exception as e:
-                console.print(f"[red]failed to switch auth mode: {e}[/]")
-                return
-
-    if state.provider == PROVIDER_OPENAI_CODEX and source == PROVIDER_OPENAI_CODEX_AUTH:
-        if not load_codex_oauth_tokens():
-            console.print("[yellow]OpenAI Codex OAuth not configured — run /login first[/]")
-            return
-        state.auth_mode = AUTH_OAUTH
-        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
-        try:
-            from ..auth.client import _build_codex_client
-            state.client = _build_codex_client()
-        except Exception as e:
-            console.print(f"[red]failed to switch to Codex OAuth: {e}[/]")
-            return
-
     state.MODEL = chosen
+    if not _rebuild_client_for_model(chosen, source=source):
+        return
+
     save_last_model()
     src_label = MODEL_SOURCE_LABELS.get(source) or PROVIDER_LABELS.get(state.provider, state.provider)
     console.print(f"[green]✓ model switched to[/] [cyan]{state.MODEL}[/] "
@@ -306,7 +375,8 @@ def _handle_model(arg: str):
                 or (src == PROVIDER_ANTHROPIC_AUTH and state.auth_mode == AUTH_OAUTH and state.provider == PROVIDER_ANTHROPIC)
                 or (src == PROVIDER_ANTHROPIC_API and state.auth_mode == AUTH_API_KEY and state.provider == PROVIDER_ANTHROPIC)
                 or (src == PROVIDER_OPENAI_CODEX_AUTH and state.provider == PROVIDER_OPENAI_CODEX)
-                or (src not in (PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH, PROVIDER_OPENAI_CODEX_AUTH) and src == state.provider)
+                or (src == PROVIDER_FREEBUFF and state.provider == PROVIDER_FREEBUFF)
+                or (src not in (PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH, PROVIDER_OPENAI_CODEX_AUTH, PROVIDER_FREEBUFF) and src == state.provider)
             )
         ) else ""
         t.add_row(str(i), m, desc, MODEL_SOURCE_LABELS.get(src, src), marker)
@@ -363,6 +433,15 @@ def _handle_auth():
                 k = OPENCODE_ZEN_KEY_FILE.read_text().strip()
                 lines.append(f"key: …{k[-6:]}")
         lines.append(f"model: [cyan]{state.MODEL}[/]")
+    elif state.provider == PROVIDER_FREEBUFF:
+        has_env = bool(os.getenv("FREEBUFF_AUTH_TOKEN"))
+        lines.append("auth: [bold]Freebuff OAuth[/]")
+        lines.append("source: " + (
+            "env FREEBUFF_AUTH_TOKEN" if has_env
+            else "~/.config/manicode/credentials.json"
+        ))
+        lines.append("[dim]login: npx freebuff login[/]")
+        lines.append(f"model: [cyan]{state.MODEL}[/]")
     else:
         lines.append(f"auth: [bold]{state.auth_mode}[/]")
         if state.auth_mode == AUTH_OAUTH:
@@ -381,7 +460,7 @@ def _handle_auth():
     console.print(Panel("\n".join(lines), title="⬟ auth", border_style="cyan"))
 
 
-def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
+def _handle_provider(arg: str, *, skip_key_prompt: bool = False, build_client: bool = True):
     """/provider [anthropic|openrouter|opencode] — switch provider mid-session."""
     target = arg.strip().lower() if arg else ""
     if not target:
@@ -390,26 +469,29 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
             "  [cyan]1[/]  Anthropic          [dim](Claude models)[/]\n"
             "  [cyan]2[/]  OpenRouter         [dim](free & paid)[/]\n"
             "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
-            "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n\n"
+            "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n"
+            "  [cyan]5[/]  Freebuff           [dim](free DeepSeek, Kimi, MiniMax)[/]\n\n"
             "usage: [dim]/provider anthropic[/], [dim]/provider openrouter[/], "
-            "[dim]/provider opencode[/], or [dim]/provider opencode_zen[/]",
+            "[dim]/provider opencode[/], [dim]/provider opencode_zen[/], "
+            "[dim]/provider freebuff[/]",
             title="◎ provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, 5=Freebuff, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
                           "[cyan]/provider openrouter[/], [cyan]/provider opencode[/], "
-                          "or [cyan]/provider opencode_zen[/] to switch.[/]")
+                          "[cyan]/provider opencode_zen[/], or [cyan]/provider freebuff[/] to switch.[/]")
             return
         if sel in ("1", "anthropic", "a"):             target = PROVIDER_ANTHROPIC
         elif sel in ("2", "openrouter", "or"):         target = PROVIDER_OPENROUTER
         elif sel in ("3", "opencode", "oc"):           target = PROVIDER_OPENCODE
         elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
+        elif sel in ("5", "freebuff", "fb"):           target = PROVIDER_FREEBUFF
         else: return
     if target not in (
         PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
-        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_FREEBUFF,
     ):
         console.print(f"[red]unknown provider: {target}[/]"); return
     if target == state.provider:
@@ -447,9 +529,20 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
             return
         state.auth_mode = AUTH_OAUTH
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+    elif target == PROVIDER_FREEBUFF:
+        if state.MODEL not in _FREEBUFF_MODEL_IDS:
+            state.MODEL = FREEBUFF_DEFAULT_MODEL
+        if not has_freebuff_credentials():
+            console.print("[yellow]Freebuff not configured — run: npx freebuff login[/]")
+            state.provider = prev_provider
+            _secure_write(PROVIDER_FILE, prev_provider)
+            return
     else:
         if "/" in state.MODEL or state.MODEL in _OPENCODE_MODEL_IDS:
             state.MODEL = _DEFAULT_ANTHROPIC_MODEL
+
+    if not build_client:
+        return
 
     try:
         if target == PROVIDER_OPENCODE:
@@ -464,6 +557,8 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
             state.client = _build_codex_client()
             if state.client is None:
                 raise RuntimeError("Codex OAuth client unavailable")
+        elif target == PROVIDER_FREEBUFF:
+            state.client = _build_freebuff_client(state.MODEL)
         else:
             state.client = _build_client_from_mode(
                 PROVIDER_OPENROUTER if target == PROVIDER_OPENROUTER else state.auth_mode

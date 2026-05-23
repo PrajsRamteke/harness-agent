@@ -20,7 +20,7 @@ from ..console import console, APIStatusError, RateLimitError, HarnessAPIError
 from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
 from ..constants import (
-    PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+    PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_FREEBUFF,
     PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
 )
 from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
@@ -303,9 +303,9 @@ def call_claude_stream():
             "type": "enabled",
             "budget_tokens": THINKING_BUDGET_TOKENS,
         }
-        if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+        if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_FREEBUFF):
             kwargs["thinking"]["effort"] = state.think_effort
-    elif state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+    elif state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_FREEBUFF):
         # OpenCode (DeepSeek, etc.) needs explicit {"type": "disabled"} to turn off thinking
         kwargs["thinking"] = {"type": "disabled"}
 
@@ -371,6 +371,12 @@ def call_claude_stream():
                         "[yellow]OpenCode rejected the key. "
                         "Delete `~/.config/harness-agent/opencode_key` and restart, "
                         "or run /provider to reconfigure.[/]"
+                    )
+                elif state.provider == PROVIDER_FREEBUFF:
+                    console.print(
+                        "[red]Auth error — Provider: Freebuff (OAuth)[/]\n"
+                        "[yellow]Freebuff session rejected. Run [cyan]npx freebuff login[/] "
+                        "then /provider freebuff.[/]"
                     )
                 elif state.provider == PROVIDER_OPENAI_CODEX and not oauth_refreshed:
                     tokens = load_codex_oauth_tokens()
@@ -443,6 +449,13 @@ def call_claude_stream():
             if getattr(e, "status_code", None) == 429:
                 _stop_on_rate_limit(str(e))
                 raise
+            if getattr(e, "status_code", None) == 401 and state.provider == PROVIDER_FREEBUFF:
+                console.print(
+                    "[red]Auth error — Provider: Freebuff (OAuth)[/]\n"
+                    "[yellow]Freebuff session rejected. Run [cyan]npx freebuff login[/] "
+                    "then /provider freebuff.[/]"
+                )
+                raise HarnessAPIError("auth error")
             if getattr(e, "status_code", None) == 400 and state.provider == PROVIDER_OPENAI_CODEX:
                 console.print(
                     f"[red]Codex rejected model '{state.MODEL}'.[/]\n"

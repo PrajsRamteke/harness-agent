@@ -21,6 +21,7 @@ _PROVIDER_DESCRIPTIONS = {
     "openrouter":    "Free & paid models — open models, OpenAI, more",
     "opencode":      "OpenCode Go — GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen",
     "opencode_zen":  "OpenCode Zen — MiniMax, HY3, Nemotron, DeepSeek Flash",
+    "freebuff":      "Freebuff — free DeepSeek, Kimi, MiniMax (5 req/day)",
 }
 
 
@@ -36,7 +37,7 @@ class ProviderPickerScreen(TuiModalScreen[str | None]):
         max-height: 60%;
     }
     ProviderPickerScreen OptionList {
-        height: 8;
+        height: 10;
         margin-top: 1;
     }
     """

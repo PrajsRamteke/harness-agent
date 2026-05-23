@@ -9,12 +9,13 @@ update more than one dict when adding or changing a model.
 import os
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
-PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex")
+PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "freebuff")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_OPENCODE_ZEN = "opencode_zen"
 PROVIDER_OPENAI_CODEX = "openai_codex"
+PROVIDER_FREEBUFF = "freebuff"
 # Model-picker only — free OpenCode Zen tier (no API key). Backend: opencode_zen.
 PROVIDER_HARNESS_AGENT = "harness_agent"
 
@@ -34,6 +35,7 @@ PROVIDER_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX: "OpenAI Codex",
+    PROVIDER_FREEBUFF: "Freebuff",
 }
 
 MODEL_SOURCE_LABELS = {
@@ -44,6 +46,7 @@ MODEL_SOURCE_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX_AUTH: "OpenAI Codex Auth",
+    PROVIDER_FREEBUFF: "Freebuff",
 }
 
 # Picker display order (Harness Agent first — always free, no setup).
@@ -111,6 +114,12 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     "gpt-5.5":                ("GPT-5.5 — Codex recommended",  PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
     "gpt-5.4":                ("GPT-5.4 — Codex fallback",       PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
     "gpt-5.4-mini":           ("GPT-5.4 Mini — faster Codex",    PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
+
+    # ── Freebuff (Codebuff free tier — OAuth via `npx freebuff login`) ────────
+    "freebuff-deepseek-flash": ("Fastest — good for quick answers",  PROVIDER_FREEBUFF, (0.0, 0.0)),
+    "freebuff-deepseek-pro":   ("Smartest — best reasoning",         PROVIDER_FREEBUFF, (0.0, 0.0)),
+    "freebuff-kimi":           ("Balanced — good all-rounder",       PROVIDER_FREEBUFF, (0.0, 0.0)),
+    "freebuff-minimax":        ("Most efficient — fastest output",   PROVIDER_FREEBUFF, (0.0, 0.0)),
 }
 
 # ── Auto-generated model lists from MODEL_INFO ─────────────────────────────────
@@ -188,6 +197,20 @@ CODEX_MODELS = [
     for mid, info in MODEL_INFO.items()
     if info[1] == PROVIDER_OPENAI_CODEX
 ]
+FREEBUFF_MODELS = [
+    (mid, info[0])
+    for mid, info in MODEL_INFO.items()
+    if info[1] == PROVIDER_FREEBUFF
+]
+
+# Harness slug → (Codebuff API model, agent id)
+FREEBUFF_WIRE: dict[str, tuple[str, str]] = {
+    "freebuff-deepseek-flash": ("deepseek/deepseek-v4-flash", "base2-free-deepseek-flash"),
+    "freebuff-deepseek-pro":   ("deepseek/deepseek-v4-pro",   "base2-free-deepseek"),
+    "freebuff-kimi":           ("moonshotai/kimi-k2.6",       "base2-free-kimi"),
+    "freebuff-minimax":        ("minimax/minimax-m2.7",       "base2-free"),
+}
+FREEBUFF_MODEL_IDS = frozenset(FREEBUFF_WIRE.keys())
 
 # ── Pricing dict (auto-generated from MODEL_INFO) ─────────────────────────────
 PRICING: dict[str, tuple[float, float]] = {
@@ -201,6 +224,7 @@ OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
 OPENCODE_ZEN_DEFAULT_MODEL = "minimax-m2.5-free"
 HARNESS_AGENT_DEFAULT_MODEL = "deepseek-v4-flash-free"
 CODEX_DEFAULT_MODEL = "gpt-5.5"
+FREEBUFF_DEFAULT_MODEL = "freebuff-deepseek-flash"
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 _PROVIDER_DEFAULT_MODEL = {
@@ -209,6 +233,7 @@ _PROVIDER_DEFAULT_MODEL = {
     PROVIDER_OPENCODE: OPENCODE_DEFAULT_MODEL,
     PROVIDER_OPENCODE_ZEN: OPENCODE_ZEN_DEFAULT_MODEL,
     PROVIDER_OPENAI_CODEX: CODEX_DEFAULT_MODEL,
+    PROVIDER_FREEBUFF: FREEBUFF_DEFAULT_MODEL,
 }
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
@@ -216,6 +241,18 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
 OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
+FREEBUFF_BASE_URL = "https://www.codebuff.com/api/v1"
+FREEBUFF_USER_AGENT = "ai-sdk/openai-compatible/0.0.95/codebuff"
+
+
+def freebuff_wire(model: str) -> tuple[str, str]:
+    """Return (api_model, agent_id) for a Harness Freebuff model slug."""
+    m = (model or "").strip()
+    return FREEBUFF_WIRE.get(m, FREEBUFF_WIRE[FREEBUFF_DEFAULT_MODEL])
+
+
+def is_freebuff_model(model: str) -> bool:
+    return (model or "").strip() in FREEBUFF_MODEL_IDS
 
 
 def _has_anthropic_api() -> bool:
@@ -242,6 +279,19 @@ def _has_openai_codex_oauth() -> bool:
         from ..auth.codex_oauth_tokens import load_codex_oauth_tokens
         return load_codex_oauth_tokens() is not None
     except Exception:
+        return False
+
+
+def _has_freebuff_credentials() -> bool:
+    if os.getenv("FREEBUFF_AUTH_TOKEN"):
+        return True
+    creds = os.path.expanduser("~/.config/manicode/credentials.json")
+    try:
+        import json
+        with open(creds, encoding="utf-8") as f:
+            data = json.load(f)
+        return bool(data.get("default", {}).get("authToken"))
+    except (OSError, json.JSONDecodeError, TypeError, AttributeError):
         return False
 
 
@@ -289,6 +339,8 @@ def connected_model_sources() -> list[str]:
                 sources.append(PROVIDER_OPENCODE_ZEN)
         except OSError:
             pass
+    if _has_freebuff_credentials():
+        sources.append(PROVIDER_FREEBUFF)
     # Harness Agent must always appear — even when other providers are configured.
     out: list[str] = []
     seen: set[str] = set()
@@ -347,6 +399,8 @@ def models_for_source(source: str):
         return anthropic_auth_models_for_picker()
     if source == PROVIDER_OPENAI_CODEX_AUTH:
         return list(CODEX_MODELS)
+    if source == PROVIDER_FREEBUFF:
+        return list(FREEBUFF_MODELS)
     return models_for(source)
 
 
@@ -392,6 +446,8 @@ def connected_providers() -> set[str]:
         connected.add(PROVIDER_OPENCODE)
     if _has_content(OPENCODE_ZEN_KEY_FILE):
         connected.add(PROVIDER_OPENCODE_ZEN)
+    if _has_freebuff_credentials():
+        connected.add(PROVIDER_FREEBUFF)
 
     # First run — no keys at all → show everything so user can see options
     if not connected:
@@ -408,6 +464,8 @@ def models_for(provider: str):
         return opencode_zen_models_for_picker()
     if provider == PROVIDER_OPENAI_CODEX:
         return CODEX_MODELS
+    if provider == PROVIDER_FREEBUFF:
+        return FREEBUFF_MODELS
     return list(ANTHROPIC_MODELS)
 
 

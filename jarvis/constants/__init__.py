@@ -39,7 +39,7 @@ from .providers import (
     HARNESS_AGENT_MODELS, HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS,
     PROVIDER_HARNESS_AGENT, is_harness_agent_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_OPENAI_CODEX, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
+    PROVIDER_OPENAI_CODEX, PROVIDER_FREEBUFF, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_OPENAI_CODEX_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
     MODEL_SOURCES, MODEL_SOURCE_LABELS,
@@ -49,6 +49,8 @@ from .providers import (
     model_option_id, parse_model_option_id,
     model_belongs_to_provider, normalize_model_for_provider,
     CODEX_DEFAULT_MODEL, CODEX_MODELS, CODEX_BASE_URL,
+    FREEBUFF_MODELS, FREEBUFF_DEFAULT_MODEL, FREEBUFF_MODEL_IDS, FREEBUFF_BASE_URL,
+    freebuff_wire, is_freebuff_model,
 )
 from .api_keys import API_KEY_SPECS, api_key_spec, api_key_spec_for_provider
 from .oauth_providers import OAUTH_PROVIDERS, OAuthProviderSpec, oauth_provider

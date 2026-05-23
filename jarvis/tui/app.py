@@ -1278,17 +1278,84 @@ class JarvisTUI(App):
 
         self.push_screen(CommandPaletteScreen(), after)
 
+    def _begin_config_switch(self, label: str) -> None:
+        """Show spinner while provider/model switch runs off the UI thread."""
+        self._busy = True
+        self._sync_activity_phase(label)
+        self._start_activity_pulse()
+        self._set_status("switching…")
+
+    def _end_config_switch(self) -> None:
+        self._busy = False
+        self._stop_activity_pulse()
+        self._sync_activity_phase("")
+        self._write_status_line(busy=False)
+        self._set_status("ready")
+        try:
+            self.query_one("#prompt", PromptArea).focus()
+        except Exception:
+            pass
+
+    @work(thread=True, exclusive=True)
+    def _apply_model_selection_worker(self, model_id: str, source: str) -> None:
+        try:
+            from ..commands.control import _apply_model_selection
+            _apply_model_selection(model_id, source=source)
+        except Exception as e:
+            self.call_from_thread(
+                lambda err=e: self._tui_console.print(
+                    f"[{ui.ERR}]model switch failed: {_rich_escape(str(err))}[/]"
+                )
+            )
+        finally:
+            self.call_from_thread(self._end_config_switch)
+
+    @work(thread=True, exclusive=True)
+    def _switch_provider_worker(self, provider: str) -> None:
+        try:
+            from ..commands.control import _handle_provider
+            _handle_provider(provider)
+        except Exception as e:
+            self.call_from_thread(
+                lambda err=e: self._tui_console.print(
+                    f"[{ui.ERR}]provider switch failed: {_rich_escape(str(err))}[/]"
+                )
+            )
+        finally:
+            self.call_from_thread(self._end_config_switch)
+
+    def _start_model_switch(self, model_id: str, *, source: str = "") -> None:
+        from ..commands.control import model_switch_activity_label
+        from ..constants.providers import (
+            PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN, PROVIDER_FREEBUFF,
+            PROVIDER_ANTHROPIC, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
+            PROVIDER_OPENAI_CODEX_AUTH,
+        )
+        from ..commands.control import _provider_for_model
+
+        target = _provider_for_model(model_id)
+        if source == PROVIDER_HARNESS_AGENT:
+            target = PROVIDER_OPENCODE_ZEN
+        elif source == PROVIDER_OPENCODE_ZEN:
+            target = PROVIDER_OPENCODE_ZEN
+        elif source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
+            target = PROVIDER_ANTHROPIC
+        elif source == PROVIDER_OPENAI_CODEX_AUTH:
+            target = PROVIDER_OPENAI_CODEX
+        elif source == PROVIDER_FREEBUFF:
+            target = PROVIDER_FREEBUFF
+        label = model_switch_activity_label(model_id, source=source, provider=target)
+        self._begin_config_switch(label)
+        self._apply_model_selection_worker(model_id, source)
+
     def _open_model_picker(self):
         def after(option_id: str | None):
             if not option_id:
                 self._tui_console.print(f"[{ui.FG_DIM}]model picker cancelled[/]")
                 return
             from ..constants.providers import parse_model_option_id
-            from ..commands.control import _apply_model_selection
             source, model_id = parse_model_option_id(option_id)
-            _apply_model_selection(model_id, source=source)
-            self._write_status_line(busy=False)
-            self._set_status("ready")
+            self._start_model_switch(model_id, source=source)
         self.push_screen(ModelPickerScreen(), after)
 
     def _open_think_picker(self):
@@ -1306,9 +1373,10 @@ class JarvisTUI(App):
             if not provider:
                 self._tui_console.print(f"[{ui.FG_DIM}]provider picker cancelled[/]")
                 return
-            from ..commands.control import _handle_provider
-            _handle_provider(provider)
-            self._set_status("ready")
+            from ..constants import PROVIDER_LABELS
+            label = f"Switching to {PROVIDER_LABELS.get(provider, provider)}…"
+            self._begin_config_switch(label)
+            self._switch_provider_worker(provider)
         self.push_screen(ProviderPickerScreen(), after)
 
     def _open_mcp_modal(self):
@@ -1530,11 +1598,9 @@ class JarvisTUI(App):
         head = text.split(maxsplit=1)[0]
 
         if head in ("/model", "/mode"):
-            from ..commands.control import _apply_model_selection
             arg = text.split(maxsplit=1)[1] if " " in text else ""
             if arg:
-                _apply_model_selection(arg)
-                self._set_status("ready")
+                self._start_model_switch(arg)
             else:
                 self._open_model_picker()
             return

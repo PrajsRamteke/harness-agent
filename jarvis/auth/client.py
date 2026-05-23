@@ -16,10 +16,11 @@ from ..constants import (
     OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_OPENAI_CODEX,
+    PROVIDER_OPENAI_CODEX, PROVIDER_FREEBUFF,
     is_harness_agent_model,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
+    FREEBUFF_DEFAULT_MODEL, is_freebuff_model,
 )
 from ..utils.io import _secure_write
 from .. import state
@@ -27,6 +28,8 @@ from .api_key import load_key, prompt_for_key
 from .openrouter import load_openrouter_key, prompt_for_openrouter_key
 from .opencode import load_opencode_key, prompt_for_opencode_key
 from .opencode_zen import load_opencode_zen_key, prompt_for_opencode_zen_key, has_opencode_zen_key
+from .freebuff import has_freebuff_credentials, load_freebuff_token, prompt_for_freebuff_login
+from .freebuff_client import FreebuffClient, get_freebuff_client, clear_freebuff_client_cache
 from .harness_agent import build_harness_agent_client, should_use_harness_agent_client
 from .opencode_client import OpenCodeClient
 from .oauth_tokens import (
@@ -123,6 +126,15 @@ def _has_opencode_zen_key() -> bool:
     return has_opencode_zen_key()
 
 
+def _has_freebuff_credentials() -> bool:
+    return has_freebuff_credentials()
+
+
+def _build_freebuff_client(model: str | None = None) -> FreebuffClient:
+    token = load_freebuff_token()
+    return get_freebuff_client(token, model=model or state.MODEL)
+
+
 def _has_usable_anthropic_auth() -> bool:
     if _has_anthropic_api_key() or load_oauth_tokens():
         return True
@@ -146,11 +158,12 @@ def _has_usable_provider_credentials() -> bool:
         or os.getenv("OPENROUTER_API_KEY")
         or os.getenv("OPENCODE_API_KEY")
         or os.getenv("OPENCODE_ZEN_API_KEY")
+        or os.getenv("FREEBUFF_AUTH_TOKEN")
     ):
         return True
     if _has_usable_anthropic_auth() or load_codex_oauth_tokens():
         return True
-    if _has_openrouter_key() or _has_opencode_key() or _has_opencode_zen_key():
+    if _has_openrouter_key() or _has_opencode_key() or _has_opencode_zen_key() or _has_freebuff_credentials():
         return True
     return False
 
@@ -190,7 +203,7 @@ def _resolve_auth_mode(*, interactive: bool) -> str | None:
 def _resolve_provider(*, interactive: bool = True) -> str:
     """Decide provider from env → stored → first-run Harness Agent default."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
-    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX):
+    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_FREEBUFF):
         return env_provider
     # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -216,6 +229,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
             return PROVIDER_OPENCODE
         if stored == PROVIDER_OPENCODE_ZEN:
             return PROVIDER_OPENCODE_ZEN
+        if stored == PROVIDER_FREEBUFF and _has_freebuff_credentials():
+            return PROVIDER_FREEBUFF
     if _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if load_codex_oauth_tokens():
@@ -226,6 +241,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_OPENCODE
     if _has_opencode_zen_key():
         return PROVIDER_OPENCODE_ZEN
+    if _has_freebuff_credentials():
+        return PROVIDER_FREEBUFF
     # First run — free Harness Agent (no API key, no provider prompt).
     return PROVIDER_OPENCODE_ZEN
 
@@ -418,6 +435,28 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
             except APIConnectionError as e:
                 console.print(f"[red]Network error: {e}[/]"); sys.exit(1)
         console.print("[red]Too many OpenRouter auth failures[/]"); sys.exit(1)
+
+    if state.provider == PROVIDER_FREEBUFF:
+        if not interactive and not _has_freebuff_credentials():
+            return _none_or_harness(interactive=interactive)
+        for attempt in range(DEFAULT_RETRIES):
+            try:
+                if not is_freebuff_model(state.MODEL):
+                    state.MODEL = FREEBUFF_DEFAULT_MODEL
+                return _build_freebuff_client(state.MODEL)
+            except Exception as e:
+                if "401" in str(e) or "unauthorized" in str(e).lower():
+                    if not interactive:
+                        return _none_or_harness(interactive=interactive)
+                    prompt_for_freebuff_login(
+                        reason="Freebuff session rejected. Please log in again."
+                    )
+                if not interactive:
+                    return _none_or_harness(interactive=interactive)
+                raise
+        if not interactive:
+            return _none_or_harness(interactive=interactive)
+        console.print("[red]Too many Freebuff auth failures[/]"); sys.exit(1)
 
     # ── Anthropic path (preserved from original flow) ──
     mode = _resolve_auth_mode(interactive=interactive)
