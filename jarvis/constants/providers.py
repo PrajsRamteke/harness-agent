@@ -155,9 +155,13 @@ _HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = (
 
 def harness_agent_models_for_picker() -> list[tuple[str, str]]:
     """Harness Agent models — always shown in /model (no credentials required)."""
-    if HARNESS_AGENT_MODELS:
-        return list(HARNESS_AGENT_MODELS)
-    return list(_HARNESS_AGENT_MODEL_FALLBACK)
+    order = [m for m, _ in _HARNESS_AGENT_MODEL_FALLBACK]
+    merged: dict[str, str] = {m: d for m, d in _HARNESS_AGENT_MODEL_FALLBACK}
+    for mid, desc in HARNESS_AGENT_MODELS:
+        if mid not in merged:
+            order.append(mid)
+        merged[mid] = desc
+    return [(m, merged[m]) for m in order]
 
 
 def opencode_zen_models_for_picker() -> list[tuple[str, str]]:
@@ -307,10 +311,18 @@ def all_model_picker_rows() -> list[tuple[str, str, str]]:
         (PROVIDER_HARNESS_AGENT, mid, desc)
         for mid, desc in harness_agent_models_for_picker()
     ]
-    for src in connected_model_sources():
-        if src == PROVIDER_HARNESS_AGENT:
-            continue
-        rows.extend((src, mid, desc) for mid, desc in models_for_source(src))
+    try:
+        for src in connected_model_sources():
+            if src == PROVIDER_HARNESS_AGENT:
+                continue
+            rows.extend((src, mid, desc) for mid, desc in models_for_source(src))
+    except Exception:
+        pass
+    if not rows:
+        rows = [
+            (PROVIDER_HARNESS_AGENT, mid, desc)
+            for mid, desc in _HARNESS_AGENT_MODEL_FALLBACK
+        ]
     return rows
 
 

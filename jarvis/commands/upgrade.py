@@ -193,8 +193,8 @@ def cmd_upgrade(arg: str) -> bool:
     venv_python = repo_root / ".venv" / "bin" / "python"
     python_cmd = str(venv_python) if venv_python.is_file() else sys.executable
 
-    rc, out, err = _run([python_cmd, "-m", "pip", "install", "-e", "."], repo_root, timeout=180)
-    console.print(_format_output("pip install -e .", out, err, rc))
+    rc, out, err = _run([python_cmd, "-m", "pip", "install", "."], repo_root, timeout=180)
+    console.print(_format_output("pip install .", out, err, rc))
 
     if rc == 0:
         # Read the new version

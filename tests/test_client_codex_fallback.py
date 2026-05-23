@@ -23,6 +23,8 @@ def test_make_client_first_run_uses_harness_agent(tmp_path, monkeypatch):
     (tmp_path / "auth_mode").write_text("oauth")
     monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: None)
     monkeypatch.setattr("jarvis.auth.client.load_codex_oauth_tokens", lambda: None)
+    monkeypatch.setattr("jarvis.auth.client._has_usable_provider_credentials", lambda: False)
+    monkeypatch.setattr("jarvis.auth.harness_agent.build_harness_agent_client", lambda: MagicMock())
     from jarvis import state
     from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
     client = make_client(interactive=False)
@@ -35,9 +37,13 @@ def test_make_client_first_run_uses_harness_agent(tmp_path, monkeypatch):
 def test_make_client_falls_back_when_codex_oauth_missing(tmp_path, monkeypatch):
     provider_file = tmp_path / "provider"
     provider_file.write_text(PROVIDER_OPENAI_CODEX)
+    monkeypatch.setattr("jarvis.auth.client.PROVIDER_FILE", provider_file)
     monkeypatch.setattr("jarvis.constants.paths.PROVIDER_FILE", provider_file)
     monkeypatch.setattr("jarvis.auth.client._build_codex_client", lambda: None)
-    monkeypatch.setattr("jarvis.auth.client._pick_fallback_provider", lambda: PROVIDER_ANTHROPIC)
+    monkeypatch.setattr(
+        "jarvis.auth.client._pick_fallback_provider",
+        lambda **kwargs: PROVIDER_ANTHROPIC,
+    )
 
     fake_client = MagicMock()
     with patch("jarvis.auth.client._build_client_from_mode", return_value=fake_client):

@@ -11,11 +11,10 @@ from rich.text import Text
 
 from ..constants import (
     MODEL_SOURCE_LABELS, all_model_picker_rows,
-    model_option_id,
+    model_option_id, PROVIDER_HARNESS_AGENT,
     PROVIDER_ANTHROPIC, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
-    PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN,
-    is_harness_agent_model,
+    PROVIDER_OPENCODE_ZEN,
     AUTH_API_KEY, AUTH_OAUTH,
 )
 from .. import state
@@ -29,6 +28,30 @@ from .modal_chrome import (
 )
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
+
+# Hard-coded so /model always lists Harness Agent even on stale installs (pre-pip-sync).
+_BUILTIN_HARNESS_ROWS: tuple[tuple[str, str], ...] = (
+    ("deepseek-v4-flash-free", "DeepSeek V4 Flash Free — default"),
+    ("nemotron-3-super-free", "Nemotron 3 Super Free"),
+    ("big-pickle", "Big Pickle"),
+)
+
+
+def model_picker_rows() -> list[tuple[str, str, str]]:
+    """(source, model_id, description) rows — Harness Agent guaranteed first."""
+    try:
+        rows = all_model_picker_rows()
+        if sum(1 for src, _, _ in rows if src == PROVIDER_HARNESS_AGENT) >= len(_BUILTIN_HARNESS_ROWS):
+            return rows
+    except Exception:
+        rows = []
+    harness = [
+        (PROVIDER_HARNESS_AGENT, mid, desc)
+        for mid, desc in _BUILTIN_HARNESS_ROWS
+    ]
+    seen = {mid for _, mid, _ in harness}
+    extra = [(src, mid, desc) for src, mid, desc in rows if mid not in seen]
+    return harness + extra
 
 
 class ModelPickerScreen(TuiModalScreen[str | None]):
@@ -63,6 +86,10 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static("✦  Models", id="modal_title")
+                yield Static(
+                    "[dim]Harness Agent models are free — no API key required[/]",
+                    id="model_subtitle",
+                )
                 yield Input(value="", placeholder="search models…", id="model_search")
                 yield OptionList(id="model_list")
                 yield Static(
@@ -104,12 +131,15 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         q = query.strip().lower()
         opts = self.query_one("#model_list", OptionList)
         opts.clear_options()
-        rows = all_model_picker_rows()
+        rows = model_picker_rows()
         matched = 0
         for src, m, desc in rows:
             label_name = MODEL_SOURCE_LABELS.get(src, src)
+            if src == PROVIDER_HARNESS_AGENT:
+                label_name = "Harness Agent"
             if q and q not in m.lower() and q not in desc.lower() and q not in label_name.lower():
-                continue
+                if q not in ("harness", "agent", "free"):
+                    continue
             is_active = self._is_active(src, m)
             marker, marker_style = active_marker(is_active)
             label = Text.assemble(

@@ -277,13 +277,38 @@ def _build_codex_client() -> CodexClient | None:
     return CodexClient(tokens["access_token"])
 
 
+def _fallback_harness_agent_client():
+    """Last-resort free tier — no API key, always available."""
+    state.provider = PROVIDER_OPENCODE_ZEN
+    state.harness_agent_free = True
+    if not is_harness_agent_model(state.MODEL):
+        state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
+    _secure_write(PROVIDER_FILE, state.provider)
+    try:
+        from ..storage.prefs import save_last_model
+        save_last_model()
+    except Exception:
+        pass
+    return build_harness_agent_client()
+
+
+def _none_or_harness(*, interactive: bool):
+    """TUI startup: never leave the user without a client when keys are missing."""
+    if interactive:
+        return None
+    return _fallback_harness_agent_client()
+
+
 def make_client(*, interactive: bool = True, _retried: bool = False):
     """Resolve provider + auth, build client, validate; handle 401 with refresh/re-auth.
 
     When ``interactive=False`` (TUI default), never opens Rich console login prompts.
-    Returns ``None`` if credentials are missing — use ``/login`` or ``/key`` in the TUI.
+    Falls back to free Harness Agent when no credentials are configured.
     """
     state.provider = _resolve_provider(interactive=interactive)
+    if not interactive and not _has_usable_provider_credentials():
+        state.provider = PROVIDER_OPENCODE_ZEN
+        state.harness_agent_free = True
     _secure_write(PROVIDER_FILE, state.provider)
 
     prev_model = state.MODEL
@@ -303,7 +328,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
 
     if state.provider == PROVIDER_OPENCODE:
         if not interactive and not _has_opencode_key():
-            return None
+            return _none_or_harness(interactive=interactive)
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_opencode_client()
@@ -322,7 +347,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     if state.provider == PROVIDER_OPENCODE_ZEN:
         use_free = state.harness_agent_free or should_use_harness_agent_client(state.MODEL)
         if not interactive and not use_free and not _has_opencode_zen_key():
-            return None
+            return _none_or_harness(interactive=interactive)
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_opencode_zen_client_for_model(state.MODEL)
@@ -345,7 +370,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         c = _build_codex_client()
         if c is None:
             if not interactive:
-                return None
+                return _none_or_harness(interactive=interactive)
             console.print(
                 "[yellow]OpenAI Codex OAuth not configured — run /login to sign in[/]"
             )
@@ -374,7 +399,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
 
     if state.provider == PROVIDER_OPENROUTER:
         if not interactive and not _has_openrouter_key():
-            return None
+            return _none_or_harness(interactive=interactive)
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_openrouter_client()
@@ -397,7 +422,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     # ── Anthropic path (preserved from original flow) ──
     mode = _resolve_auth_mode(interactive=interactive)
     if mode is None:
-        return None
+        return _none_or_harness(interactive=interactive)
     state.auth_mode = mode
     _secure_write(AUTH_MODE_FILE, state.auth_mode)
 
@@ -410,7 +435,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
             return c
         except RuntimeError:
             if not interactive:
-                return None
+                return _none_or_harness(interactive=interactive)
             raise
         except APIStatusError as e:
             if e.status_code == 401:
@@ -422,18 +447,18 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
                     console.print("[yellow]OAuth session invalid — re-login required.[/]")
                     clear_oauth_tokens()
                     if not interactive:
-                        return None
+                        return _none_or_harness(interactive=interactive)
                     oauth_login()
                     continue
                 else:
                     KEY_FILE.unlink(missing_ok=True)
                     if not interactive:
-                        return None
+                        return _none_or_harness(interactive=interactive)
                     prompt_for_key(reason="Stored Anthropic key rejected (401). Please re-enter.")
                     continue
             raise
         except APIConnectionError as e:
             console.print(f"[red]Network error: {e}[/]"); sys.exit(1)
     if not interactive:
-        return None
+        return _fallback_harness_agent_client()
     console.print("[red]Too many auth failures[/]"); sys.exit(1)

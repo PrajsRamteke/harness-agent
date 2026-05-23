@@ -8,6 +8,8 @@ from __future__ import annotations
 import pathlib
 import subprocess
 
+from .install_sync import pip_install_repo
+
 
 def _git(*args: str, cwd: pathlib.Path, timeout: int = 10) -> tuple[int, str]:
     try:
@@ -83,10 +85,13 @@ def check_and_update() -> None:
         if code != 0:
             return
 
+        pip_ok = pip_install_repo(root)
+
         import jarvis.state as _state
         _state.update_result = {
             "count": behind,
             "commits": new_commits,
+            "pip_installed": pip_ok,
         }
 
     except Exception:

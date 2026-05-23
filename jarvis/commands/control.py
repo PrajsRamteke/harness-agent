@@ -93,7 +93,7 @@ def handle_control(c: str, arg: str):
         t.add_row("▣ cwd", str(pathlib.Path.cwd()))
         console.print(Panel(t, title="◆ session stats", border_style="cyan"))
         return True, None
-    if c == "/model":
+    if c in ("/model", "/mode"):
         _handle_model(arg)
         return True, None
     if c == "/theme":
@@ -176,8 +176,12 @@ def _handle_think(arg: str = "") -> None:
 
 def _all_models():
     """Combined list: [(source, model_id, description), ...] for /model."""
-    from ..constants import all_model_picker_rows
-    return all_model_picker_rows()
+    try:
+        from ..tui.model_modal import model_picker_rows
+        return model_picker_rows()
+    except Exception:
+        from ..constants import all_model_picker_rows
+        return all_model_picker_rows()
 
 
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}

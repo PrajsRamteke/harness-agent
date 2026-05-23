@@ -67,11 +67,15 @@ def main() -> None:
 
     if args.legacy:
         _update_thread.join(timeout=8)
+        from .bootstrap import ensure_harness_agent_defaults
+        ensure_harness_agent_defaults()
         from .main import main as legacy_main
 
         legacy_main()
     else:
         _update_thread.join(timeout=8)
+        from .bootstrap import ensure_harness_agent_defaults
+        ensure_harness_agent_defaults()
         from .tui.app import run
 
         run()

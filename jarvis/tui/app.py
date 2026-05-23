@@ -76,10 +76,8 @@ from .. import state
 
 def _is_bare_model_command(text: str) -> bool:
     s = (text or "").strip()
-    if not s.startswith("/model"):
-        return False
-    parts = s.split(maxsplit=1)
-    return len(parts) == 1
+    head = s.split(maxsplit=1)[0]
+    return head in ("/model", "/mode")
 
 
 def _is_bare_provider_command(text: str) -> bool:
@@ -1493,7 +1491,7 @@ class JarvisTUI(App):
             reset_registry()
             return
 
-        if head in ("/login", "/logout", "/auth", "/model", "/session", "/sessions"):
+        if head in ("/login", "/logout", "/auth", "/model", "/mode", "/session", "/sessions"):
             # Route these to their proper modal/command handler
             # rather than treating them as "thinking" interactions.
             self._route_modal_slash(text)
@@ -1529,9 +1527,9 @@ class JarvisTUI(App):
         text = (inp or "").strip()
         head = text.split(maxsplit=1)[0]
 
-        if head == "/model":
+        if head in ("/model", "/mode"):
             from ..commands.control import _apply_model_selection
-            arg = text[len("/model "):] if " " in text else ""
+            arg = text.split(maxsplit=1)[1] if " " in text else ""
             if arg:
                 _apply_model_selection(arg)
                 self._set_status("ready")
@@ -1579,7 +1577,7 @@ class JarvisTUI(App):
         if stripped in ("/session", "/sessions", "/session list", "/session ls"):
             self._open_session_picker()
             return
-        if stripped in ("/model",):
+        if stripped in ("/model", "/mode"):
             self._open_model_picker()
             return
         if stripped in ("/think",):
@@ -2085,7 +2083,7 @@ class JarvisTUI(App):
             # which sets misleading "thinking…" status.
             if next_prompt.startswith("/"):
                 head = next_prompt.split(maxsplit=1)[0]
-                if head in ("/login", "/model", "/session", "/sessions",
+                if head in ("/login", "/model", "/mode", "/session", "/sessions",
                             "/logout", "/auth", "/settings",
                             "/theme", "/agent", "/skills", "/memory",
                             "/lesson", "/mcp", "/think", "/local"):
