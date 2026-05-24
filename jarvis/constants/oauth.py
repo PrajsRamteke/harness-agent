@@ -15,4 +15,7 @@ OAUTH_BETA_HEADER = (
 )
 OAUTH_USER_AGENT = "claude-cli/2.1.98 (external, cli)"
 OAUTH_TOKEN_USER_AGENT = OAUTH_USER_AGENT
+# Anthropic OAuth wire protocol requires this exact string as the first system
+# block. It is NOT the agent's user-facing identity — see repl/system.py and
+# constants/system_prompt.py for the Jarvis/Harness Agent identity override.
 OAUTH_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
