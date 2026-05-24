@@ -215,7 +215,10 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         if stored == PROVIDER_OPENCODE and _has_opencode_key():
             return PROVIDER_OPENCODE
         if stored == PROVIDER_OPENCODE_ZEN:
-            return PROVIDER_OPENCODE_ZEN
+            if _has_opencode_zen_key():
+                return PROVIDER_OPENCODE_ZEN
+            if not _has_usable_provider_credentials():
+                return PROVIDER_OPENCODE_ZEN
     if _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if load_codex_oauth_tokens():
@@ -299,6 +302,19 @@ def _none_or_harness(*, interactive: bool):
     return _fallback_harness_agent_client()
 
 
+def _ensure_operational_provider() -> None:
+    """Drop stale provider selection when credentials are missing."""
+    from ..constants.providers import provider_is_operational, PROVIDERS
+
+    if provider_is_operational(state.provider):
+        return
+    for prov in PROVIDERS:
+        if provider_is_operational(prov):
+            state.provider = prov
+            _secure_write(PROVIDER_FILE, state.provider)
+            return
+
+
 def make_client(*, interactive: bool = True, _retried: bool = False):
     """Resolve provider + auth, build client, validate; handle 401 with refresh/re-auth.
 
@@ -320,6 +336,20 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         if state.provider == PROVIDER_OPENCODE_ZEN:
             state.harness_agent_free = should_use_harness_agent_client(state.MODEL)
     if state.MODEL != prev_model:
+        try:
+            from ..storage.prefs import save_last_model
+            save_last_model()
+        except Exception:
+            pass
+
+    prev_provider = state.provider
+    _ensure_operational_provider()
+    if state.provider != prev_provider:
+        state.MODEL = normalize_model_for_provider(state.MODEL, state.provider)
+        state.harness_agent_free = (
+            state.provider == PROVIDER_OPENCODE_ZEN
+            and should_use_harness_agent_client(state.MODEL)
+        )
         try:
             from ..storage.prefs import save_last_model
             save_last_model()

@@ -1286,11 +1286,8 @@ class JarvisTUI(App):
                 self._tui_console.print(f"[{ui.FG_DIM}]model picker cancelled[/]")
                 return
             from ..constants.providers import parse_model_option_id
-            from ..commands.control import _apply_model_selection
             source, model_id = parse_model_option_id(option_id)
-            _apply_model_selection(model_id, source=source)
-            self._write_status_line(busy=False)
-            self._set_status("ready")
+            self._apply_model_selection_worker(model_id, source=source)
         from .model_modal import ModelPickerScreen
 
         self.push_screen(ModelPickerScreen(), after)
@@ -1312,12 +1309,42 @@ class JarvisTUI(App):
             if not provider:
                 self._tui_console.print(f"[{ui.FG_DIM}]provider picker cancelled[/]")
                 return
-            from ..commands.control import _handle_provider
-            _handle_provider(provider)
-            self._set_status("ready")
+            self._switch_provider_worker(provider)
         from .provider_modal import ProviderPickerScreen
 
         self.push_screen(ProviderPickerScreen(), after)
+
+    @work(thread=True)
+    def _switch_provider_worker(self, provider: str, *, skip_key_prompt: bool = False) -> None:
+        """Run provider switch off the main thread so key prompts can open modals."""
+        from ..commands.control import _handle_provider
+
+        try:
+            _handle_provider(provider, skip_key_prompt=skip_key_prompt)
+        except RuntimeError as e:
+            self.call_from_thread(
+                lambda err=e: self._tui_console.print(f"[{ui.ERR}]provider switch failed: {err}[/]")
+            )
+        finally:
+            self.call_from_thread(self._provider_action_done)
+
+    @work(thread=True)
+    def _apply_model_selection_worker(self, model_id: str, *, source: str = "") -> None:
+        """Run model selection off the main thread (may prompt for API keys)."""
+        from ..commands.control import _apply_model_selection
+
+        try:
+            _apply_model_selection(model_id, source=source)
+        except RuntimeError as e:
+            self.call_from_thread(
+                lambda err=e: self._tui_console.print(f"[{ui.ERR}]model switch failed: {err}[/]")
+            )
+        finally:
+            self.call_from_thread(self._provider_action_done)
+
+    def _provider_action_done(self) -> None:
+        self._write_status_line(busy=False)
+        self._set_status("ready")
 
     def _open_mcp_modal(self):
         def after(_: object) -> None:
@@ -1558,11 +1585,9 @@ class JarvisTUI(App):
         head = text.split(maxsplit=1)[0]
 
         if head in ("/model", "/mode"):
-            from ..commands.control import _apply_model_selection
             arg = text.split(maxsplit=1)[1] if " " in text else ""
             if arg:
-                _apply_model_selection(arg)
-                self._set_status("ready")
+                self._apply_model_selection_worker(arg)
             else:
                 self._open_model_picker()
             return

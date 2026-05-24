@@ -399,6 +399,28 @@ def connected_providers() -> set[str]:
     return connected
 
 
+def provider_is_operational(provider: str) -> bool:
+    """True when the provider can actually be used for API calls."""
+    if provider in connected_providers():
+        return True
+    if provider != PROVIDER_OPENCODE_ZEN:
+        return False
+    from .. import state
+    if getattr(state, "harness_agent_free", False):
+        return True
+    from ..auth.harness_agent import should_use_harness_agent_client
+    return should_use_harness_agent_client()
+
+
+def provider_connection_status(provider: str) -> tuple[str, str]:
+    """Return (status suffix, style name) for provider picker rows."""
+    if provider in connected_providers():
+        return "  connected", "ok"
+    if provider == PROVIDER_OPENCODE_ZEN and provider_is_operational(provider):
+        return "  free tier", "ok"
+    return "  not configured", "dim"
+
+
 def models_for(provider: str):
     if provider == PROVIDER_OPENROUTER:
         return OPENROUTER_FREE_MODELS

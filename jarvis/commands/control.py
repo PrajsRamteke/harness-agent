@@ -381,6 +381,36 @@ def _handle_auth():
     console.print(Panel("\n".join(lines), title="⬟ auth", border_style="cyan"))
 
 
+def _revert_provider_switch(prev_provider: str) -> None:
+    state.provider = prev_provider
+    _secure_write(PROVIDER_FILE, prev_provider)
+
+
+def _prompt_provider_key_if_needed(
+    target: str, prev_provider: str, *, skip_key_prompt: bool = False,
+) -> bool:
+    """Prompt for a missing API key when switching providers. Returns False on cancel."""
+    try:
+        if target == PROVIDER_OPENROUTER:
+            if not os.getenv("OPENROUTER_API_KEY") and not OPENROUTER_KEY_FILE.exists():
+                prompt_for_openrouter_key()
+        elif target == PROVIDER_OPENCODE:
+            if not os.getenv("OPENCODE_API_KEY") and not OPENCODE_KEY_FILE.exists():
+                prompt_for_opencode_key()
+        elif target == PROVIDER_OPENCODE_ZEN:
+            if not skip_key_prompt and not has_opencode_zen_key():
+                prompt_for_opencode_zen_key()
+    except (EOFError, KeyboardInterrupt):
+        console.print("[dim]provider switch cancelled[/]")
+        _revert_provider_switch(prev_provider)
+        return False
+    except SystemExit:
+        console.print("[red]invalid key — provider switch cancelled[/]")
+        _revert_provider_switch(prev_provider)
+        return False
+    return True
+
+
 def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
     """/provider [anthropic|openrouter|opencode] — switch provider mid-session."""
     target = arg.strip().lower() if arg else ""
@@ -423,19 +453,12 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
     if target == PROVIDER_OPENROUTER:
         if "/" not in state.MODEL:
             state.MODEL = OPENROUTER_DEFAULT_MODEL
-        if not os.getenv("OPENROUTER_API_KEY") and not OPENROUTER_KEY_FILE.exists():
-            prompt_for_openrouter_key()
     elif target == PROVIDER_OPENCODE:
         if state.MODEL not in _OPENCODE_MODEL_IDS:
             state.MODEL = OPENCODE_DEFAULT_MODEL
-        if not os.getenv("OPENCODE_API_KEY") and not OPENCODE_KEY_FILE.exists():
-            prompt_for_opencode_key()
     elif target == PROVIDER_OPENCODE_ZEN:
         if state.MODEL not in _OPENCODE_ZEN_MODEL_IDS:
             state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
-        if not skip_key_prompt and not has_opencode_zen_key():
-            prompt_for_opencode_zen_key()
-        state.harness_agent_free = skip_key_prompt
     elif target == PROVIDER_OPENAI_CODEX:
         from ..constants import CODEX_DEFAULT_MODEL
         if state.MODEL not in _CODEX_MODEL_IDS:
@@ -450,6 +473,14 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
     else:
         if "/" in state.MODEL or state.MODEL in _OPENCODE_MODEL_IDS:
             state.MODEL = _DEFAULT_ANTHROPIC_MODEL
+
+    if target in (PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+        if not _prompt_provider_key_if_needed(
+            target, prev_provider, skip_key_prompt=skip_key_prompt,
+        ):
+            return
+    if target == PROVIDER_OPENCODE_ZEN:
+        state.harness_agent_free = skip_key_prompt
 
     try:
         if target == PROVIDER_OPENCODE:

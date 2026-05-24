@@ -9,7 +9,7 @@ from textual.widgets.option_list import Option
 
 from rich.text import Text
 
-from ..constants import PROVIDERS, PROVIDER_LABELS, connected_providers
+from ..constants import PROVIDERS, PROVIDER_LABELS, provider_is_operational, provider_connection_status
 from .. import state
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, active_marker, modal_key, primary_style
 from .mouse_toggle import enable_mouse, disable_mouse
@@ -74,15 +74,13 @@ class ProviderPickerScreen(TuiModalScreen[str | None]):
     def _populate(self) -> None:
         opts = self.query_one("#provider_list", OptionList)
         opts.clear_options()
-        connected = connected_providers()
         for prov in PROVIDERS:
             label = PROVIDER_LABELS.get(prov, prov)
             desc = _PROVIDER_DESCRIPTIONS.get(prov, "")
-            is_active = prov == state.provider
-            is_connected = prov in connected
+            is_active = prov == state.provider and provider_is_operational(prov)
             marker, marker_style = active_marker(is_active)
-            status = "  connected" if is_connected else "  not configured"
-            status_style = ui.OK if is_connected else ui.FG_DIM
+            status, status_kind = provider_connection_status(prov)
+            status_style = ui.OK if status_kind == "ok" else ui.FG_DIM
             row = Text.assemble(
                 (marker, marker_style),
                 (f"{label:<14s}", primary_style(is_active)),
