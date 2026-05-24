@@ -266,31 +266,78 @@
 
 .msg-body pre,
 .msg-body .md-pre {
-  position: relative;
-  margin: 0.65em 0;
+  margin: 0;
   padding: 10px 12px;
-  padding-top: 28px;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   background: #080a0d;
-  border: 1px solid var(--border);
+  border: none;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 
+.msg-body .md-code-block {
+  margin: 0.65em 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: #080a0d;
+  overflow: hidden;
+}
+
+.msg-body .md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+}
+
 .msg-body .md-code-lang {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: 4px 12px;
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-dim);
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid var(--border);
+}
+
+.msg-body .md-code-copy {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.msg-body .md-code-copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+.msg-body .md-code-copy:hover {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.msg-body .md-code-copy.copied {
+  color: var(--teal);
+  border-color: rgba(94, 234, 212, 0.35);
+  background: var(--teal-dim);
+}
+
+.msg-body .md-code-copy:focus-visible {
+  outline: none;
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px var(--copper-dim);
 }
 
 .msg-body pre code {

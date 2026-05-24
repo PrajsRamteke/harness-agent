@@ -661,11 +661,33 @@ class JarvisTUI(App):
         self._tui_console = mux
         self._web_mux = mux
         self._web_bridge = bridge
-        self._web_server, self._web_urls = start_web_server(
-            bridge=bridge,
-            app=self,
-            port=state.web_port,
-        )
+        preferred_port = state.web_port
+        try:
+            self._web_server, self._web_urls, bound_port = start_web_server(
+                bridge=bridge,
+                app=self,
+                port=preferred_port,
+            )
+        except OSError as exc:
+            self._tui_console = tui_console
+            self._web_mux = None
+            self._web_bridge = None
+            _swap_console_everywhere(tui_console)
+            self._tui_console.print(
+                f"[{ui.WARN}]Web remote failed: {exc}[/]"
+            )
+            self._tui_console.print(
+                f"[{ui.FG_DIM}]Stop the other jarvis --web session or set "
+                f"HARNESS_WEB_PORT to a free port.[/]"
+            )
+            return
+
+        state.web_port = bound_port
+        if bound_port != preferred_port:
+            self._tui_console.print(
+                f"[{ui.WARN}]Port {preferred_port} in use — "
+                f"web remote on [cyan]{bound_port}[/]"
+            )
         self._web_primary_url = primary_remote_url(self._web_urls)
         self._render_web_bar()
 

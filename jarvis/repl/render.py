@@ -51,6 +51,8 @@ def assistant_model_label() -> str:
 # in parallel; only truly global tools stay here.
 _SERIAL_TOOLS = {
     "run_bash",
+    "git_status", "git_log", "git_diff",
+    "search_code",
     "click_at", "click_element", "click_menu", "key_press", "type_text",
     "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
     "clipboard_set", "mac_control", "speck",

@@ -175,7 +175,13 @@ class WebMuxConsole:
 
     def prompt_ask_user_question(self, questions) -> str:
         if self._web_connected():
-            payload = {"questions": questions}
+            from ..tui.ask_user import AskQuestion, questions_to_payload
+
+            if questions and isinstance(questions[0], AskQuestion):
+                qs_payload = questions_to_payload(questions)
+            else:
+                qs_payload = questions
+            payload = {"questions": qs_payload}
             prompt_id = self._bridge.new_prompt("ask_user", payload)
             default = json.dumps({"answers": [], "cancelled": True})
             try:

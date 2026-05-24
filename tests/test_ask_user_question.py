@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from jarvis.tui.ask_user import normalize_questions, format_answers_payload
+from jarvis.tui.ask_user import normalize_questions, format_answers_payload, questions_to_payload
 from jarvis.tools.ask_user import ask_user_question
 
 
@@ -40,3 +40,25 @@ def test_format_answers_payload():
         {"question_id": "q1", "selected_ids": ["a"], "labels": ["A"]},
     ]))
     assert payload["answers"][0]["selected_ids"] == ["a"]
+
+
+def test_questions_to_payload_is_json_serializable():
+    qs = normalize_questions([
+        {
+            "id": "approach",
+            "prompt": "Which approach?",
+            "header": "Testing",
+            "allow_multiple": True,
+            "options": [
+                {"id": "a", "label": "Manual", "description": "Click through UI"},
+                {"id": "b", "label": "Automated"},
+            ],
+        },
+    ])
+    payload = questions_to_payload(qs)
+    encoded = json.dumps(payload)
+    data = json.loads(encoded)
+    assert data[0]["id"] == "approach"
+    assert data[0]["allow_multiple"] is True
+    assert len(data[0]["options"]) == 2
+    assert data[0]["options"][0]["description"] == "Click through UI"

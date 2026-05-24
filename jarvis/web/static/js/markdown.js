@@ -1,5 +1,5 @@
 /** Markdown → safe HTML for assistant messages (GFM subset) */
-import { escapeHtml } from './utils.js';
+import { escapeHtml, icons, showToast, copyText } from './utils.js';
 
 const FENCE_RE = /```(\w*)\n?([\s\S]*?)```/g;
 const TILDE_FENCE_RE = /~~~(\w*)\n?([\s\S]*?)~~~/g;
@@ -246,24 +246,28 @@ function renderBlocks(text) {
   return blocks.join('');
 }
 
+function renderCodeBlock(lang, code, store) {
+  const idx = store.length;
+  const trimmed = String(code).trimEnd();
+  const langLabel = escapeHtml(lang || 'code');
+  store.push(
+    `<div class="md-code-block">` +
+      `<div class="md-code-head">` +
+        `<span class="md-code-lang">${langLabel}</span>` +
+        `<button type="button" class="md-code-copy" aria-label="Copy code" title="Copy">` +
+          `<i data-lucide="copy"></i>` +
+        `</button>` +
+      `</div>` +
+      `<pre class="md-pre"><code class="language-${escapeHtml(lang || 'text')}">${escapeHtml(trimmed)}</code></pre>` +
+    `</div>`,
+  );
+  return `\x00CODE${idx}\x00`;
+}
+
 function extractFences(text, store) {
   return text
-    .replace(FENCE_RE, (_, lang, code) => {
-      const idx = store.length;
-      const label = lang ? `<span class="md-code-lang">${escapeHtml(lang)}</span>` : '';
-      store.push(
-        `<pre class="md-pre">${label}<code class="language-${escapeHtml(lang || 'text')}">${escapeHtml(String(code).trimEnd())}</code></pre>`
-      );
-      return `\x00CODE${idx}\x00`;
-    })
-    .replace(TILDE_FENCE_RE, (_, lang, code) => {
-      const idx = store.length;
-      const label = lang ? `<span class="md-code-lang">${escapeHtml(lang)}</span>` : '';
-      store.push(
-        `<pre class="md-pre">${label}<code class="language-${escapeHtml(lang || 'text')}">${escapeHtml(String(code).trimEnd())}</code></pre>`
-      );
-      return `\x00CODE${idx}\x00`;
-    });
+    .replace(FENCE_RE, (_, lang, code) => renderCodeBlock(lang, code, store))
+    .replace(TILDE_FENCE_RE, (_, lang, code) => renderCodeBlock(lang, code, store));
 }
 
 export function renderMarkdown(source) {
@@ -289,4 +293,35 @@ export function applyMarkdownLinks(container) {
   container.querySelectorAll('a').forEach((a) => {
     a.addEventListener('click', (e) => e.stopPropagation());
   });
+  initCodeCopyButtons(container);
+}
+
+export function initCodeCopyButtons(container) {
+  if (!container) return;
+  container.querySelectorAll('.md-code-block').forEach((block) => {
+    const btn = block.querySelector('.md-code-copy');
+    const code = block.querySelector('code');
+    if (!btn || !code || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const text = code.textContent || '';
+      const ok = await copyText(text, code);
+      if (!ok) {
+        showToast('Copy failed', true);
+        return;
+      }
+      btn.classList.add('copied');
+      btn.setAttribute('aria-label', 'Copied');
+      showToast('Copied');
+      icons();
+      window.setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.setAttribute('aria-label', 'Copy code');
+        icons();
+      }, 1500);
+    });
+  });
+  icons();
 }

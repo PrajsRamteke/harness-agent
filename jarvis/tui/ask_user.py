@@ -70,6 +70,27 @@ def normalize_questions(raw: Any) -> list[AskQuestion]:
     return out
 
 
+def questions_to_payload(questions: list[AskQuestion]) -> list[dict[str, Any]]:
+    """Convert normalized questions to JSON-safe dicts for web clients."""
+    return [
+        {
+            "id": q.id,
+            "prompt": q.prompt,
+            "header": q.header,
+            "allow_multiple": q.allow_multiple,
+            "options": [
+                {
+                    "id": o.id,
+                    "label": o.label,
+                    "description": o.description,
+                }
+                for o in q.options
+            ],
+        }
+        for q in questions
+    ]
+
+
 def format_answers_payload(answers: list[dict]) -> str:
     return json.dumps({"answers": answers}, ensure_ascii=False)
 
