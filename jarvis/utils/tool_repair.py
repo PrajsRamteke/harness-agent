@@ -5,7 +5,8 @@ and auto-fixes common formatting mistakes so the model doesn't look "dumb"
 
 Repair order (only runs if there are issues):
   1. fix_null_values        — strip null from optional fields
-  2. fix_extra_fields       — strip fields not in the schema
+  2. fix_field_aliases      — rename common wrong param names (e.g. topic→task)
+  3. fix_extra_fields       — strip fields not in the schema
   3. fix_stringified_arrays — parse ``"[\\"a\\",\\"b\\"]"`` → ``["a", "b"]``
   4. fix_wrong_container    — unwrap single-item list when object expected
   5. fix_path_cleanup       — unwrap ``["path"]`` → ``"path"``, trim whitespace
@@ -67,6 +68,69 @@ def _fix_null_values(
         if data[key] is None and key not in required:
             del data[key]
             log.append(f"removed null value for optional field '{key}'")
+    return data, log
+
+
+# Per-tool wrong-name → schema-name mappings. Applied only when the target
+# property exists in the schema and is not already populated.
+_TOOL_FIELD_ALIASES: dict[str, dict[str, str]] = {
+    "lesson_save": {
+        "topic": "task",
+        "subject": "task",
+        "title": "task",
+        "content": "lesson",
+        "text": "lesson",
+        "description": "lesson",
+        "body": "lesson",
+    },
+    "lesson_search": {
+        "topic": "query",
+        "search": "query",
+        "keyword": "query",
+        "keywords": "query",
+        "q": "query",
+    },
+}
+
+# Generic wrong-name → candidate schema names (first match wins).
+_GENERIC_FIELD_ALIASES: dict[str, list[str]] = {
+    "content": ["text", "lesson", "body", "message", "cmd", "command"],
+    "topic": ["task", "title", "name", "subject", "query"],
+    "text": ["content", "lesson", "message"],
+    "search": ["query"],
+    "keyword": ["query"],
+}
+
+
+def _fix_field_aliases(
+    data: dict[str, Any],
+    props: dict[str, Any],
+    required: set[str],
+    tool_name: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Rename common hallucinated parameter names to schema field names.
+
+    Models often use intuitive but wrong names (``topic``/``content`` for
+    ``lesson_save``).  Renaming happens *before* unknown-field stripping so
+    required args are not lost.
+    """
+    log: list[str] = []
+
+    for wrong, correct in _TOOL_FIELD_ALIASES.get(tool_name, {}).items():
+        if wrong not in data or correct not in props or correct in data:
+            continue
+        data[correct] = data.pop(wrong)
+        log.append(f"renamed '{wrong}' → '{correct}'")
+
+    for wrong in list(data.keys()):
+        if wrong in props:
+            continue
+        for correct in _GENERIC_FIELD_ALIASES.get(wrong, []):
+            if correct in props and correct not in data:
+                data[correct] = data.pop(wrong)
+                log.append(f"renamed '{wrong}' → '{correct}'")
+                break
+
     return data, log
 
 
@@ -409,6 +473,9 @@ def repair_tool_input(
     props = _schema_properties(schema)
     required = _schema_required(schema)
     repairs: list[str] = []
+
+    data, more = _fix_field_aliases(data, props, required, name)
+    repairs.extend(more)
 
     for _label, fixer in _FIXERS:
         data, more = fixer(data, props, required)

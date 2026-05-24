@@ -8,6 +8,7 @@ from jarvis.utils.tool_repair import (
     repair_tool_input,
     _get_schema,
     _fix_null_values,
+    _fix_field_aliases,
     _fix_extra_fields,
     _fix_stringified_arrays,
     _fix_wrong_container_types,
@@ -73,6 +74,16 @@ _WRITE_FILE_SCHEMA = {
     "required": ["path", "content"],
 }
 
+_LESSON_SAVE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "task": {"type": "string", "description": "Short pattern describing the kind of task."},
+        "lesson": {"type": "string", "description": "The actionable takeaway."},
+        "tags": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["task", "lesson"],
+}
+
 
 # ── unit tests for individual fixers ─────────────────────────────────────
 
@@ -114,6 +125,69 @@ class TestFixNullValues(unittest.TestCase):
         )
         self.assertEqual(data, {"path": "x.py"})
         self.assertEqual(len(log), 1)
+
+
+class TestFixFieldAliases(unittest.TestCase):
+    def test_lesson_save_topic_content_renamed(self):
+        data, log = _fix_field_aliases(
+            {
+                "topic": "casual conversation tone",
+                "content": "respond naturally in Hinglish",
+            },
+            _LESSON_SAVE_SCHEMA["properties"],
+            {"task", "lesson"},
+            "lesson_save",
+        )
+        self.assertEqual(
+            data,
+            {
+                "task": "casual conversation tone",
+                "lesson": "respond naturally in Hinglish",
+            },
+        )
+        self.assertEqual(len(log), 2)
+        self.assertIn("topic", log[0])
+        self.assertIn("content", log[1])
+
+    def test_does_not_overwrite_existing_canonical_fields(self):
+        data, log = _fix_field_aliases(
+            {"task": "keep me", "topic": "ignore me", "content": "also ignore"},
+            _LESSON_SAVE_SCHEMA["properties"],
+            {"task", "lesson"},
+            "lesson_save",
+        )
+        # topic skipped because task already set; content → lesson
+        self.assertEqual(data, {"task": "keep me", "topic": "ignore me", "lesson": "also ignore"})
+        self.assertEqual(len(log), 1)
+        self.assertIn("content", log[0])
+
+        repaired, full_log = repair_tool_input(
+            "lesson_save",
+            {"task": "keep me", "topic": "ignore me", "content": "also ignore"},
+        )
+        self.assertEqual(repaired, {"task": "keep me", "lesson": "also ignore"})
+        self.assertTrue(any("removed unknown field 'topic'" in entry for entry in full_log))
+
+    def test_generic_content_to_text_when_lesson_absent(self):
+        schema = {"text": {"type": "string"}}
+        data, log = _fix_field_aliases(
+            {"content": "hello"},
+            schema,
+            set(),
+            "memory_save",
+        )
+        self.assertEqual(data, {"text": "hello"})
+        self.assertIn("content", log[0])
+
+    def test_leaves_valid_schema_fields_untouched(self):
+        data, log = _fix_field_aliases(
+            {"path": "main.py", "content": "print('hi')"},
+            _WRITE_FILE_SCHEMA["properties"],
+            {"path", "content"},
+            "write_file",
+        )
+        self.assertEqual(data, {"path": "main.py", "content": "print('hi')"})
+        self.assertEqual(log, [])
 
 
 class TestFixExtraFields(unittest.TestCase):
@@ -565,6 +639,25 @@ class TestRepairToolInput(unittest.TestCase):
         )
         self.assertEqual(data, {"cmd": "ls"})
         self.assertEqual(len(log), 2)
+
+    def test_lesson_save_topic_content_alias(self):
+        """Regression: topic/content must not be stripped leaving empty input."""
+        data, log = repair_tool_input(
+            "lesson_save",
+            {
+                "topic": "tone-personality",
+                "content": "When user talks casually in Hindi, stay natural.",
+            },
+        )
+        self.assertEqual(
+            data,
+            {
+                "task": "tone-personality",
+                "lesson": "When user talks casually in Hindi, stay natural.",
+            },
+        )
+        self.assertTrue(any("renamed" in entry for entry in log))
+        self.assertFalse(any("removed unknown field" in entry for entry in log))
 
     def test_stringified_array(self):
         data, log = repair_tool_input(

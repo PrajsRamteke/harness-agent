@@ -160,10 +160,19 @@ def _run_tool(b):
     except TypeError as e:
         msg = str(e)
         if "missing" in msg and "required" in msg:
+            stripped = [
+                entry for entry in repair_log if entry.startswith("removed unknown field")
+            ]
+            if stripped:
+                hint = (
+                    "wrong parameter names were used and stripped before the tool ran"
+                )
+            else:
+                hint = "the provider dropped one or more required arguments mid-stream"
             out = (
                 f"ERROR: tool '{b.name}' was invoked with input "
-                f"{json.dumps(call_input, ensure_ascii=False)} — the provider dropped one "
-                f"or more required arguments mid-stream. Detail: {e}. "
+                f"{json.dumps(call_input, ensure_ascii=False)} — {hint}. "
+                f"Detail: {e}. "
                 f"Retry the SAME tool call with every required parameter populated."
             )
         elif "unexpected keyword argument" in msg:
