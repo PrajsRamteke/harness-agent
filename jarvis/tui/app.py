@@ -211,6 +211,9 @@ class PromptArea(TextArea):
         """Insert tokenized attachment chips instead of raw dropped paths."""
         if self.read_only:
             return
+        # Textual dispatches _on_paste for every class in the MRO; suppress the
+        # TextArea base handler so bracketed paste is not inserted twice.
+        event.prevent_default()
         from ..prompt_attachments import tokenize_dropped_paths
 
         paste = event.text or ""
