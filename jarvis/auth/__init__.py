@@ -2,6 +2,7 @@ from .api_key import prompt_for_key, load_key
 from .openrouter import prompt_for_openrouter_key, load_openrouter_key
 from .opencode import prompt_for_opencode_key, load_opencode_key
 from .opencode_zen import prompt_for_opencode_zen_key, load_opencode_zen_key
+from .pollinations import build_pollinations_client
 from .pkce import _b64url, _pkce_pair
 from .oauth_tokens import (
     load_oauth_tokens, save_oauth_tokens, clear_oauth_tokens,

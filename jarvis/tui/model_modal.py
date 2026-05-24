@@ -14,7 +14,7 @@ from ..constants import (
     model_option_id, PROVIDER_HARNESS_AGENT,
     PROVIDER_ANTHROPIC, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
-    PROVIDER_OPENCODE_ZEN,
+    PROVIDER_OPENCODE_ZEN, PROVIDER_POLLINATIONS,
     AUTH_API_KEY, AUTH_OAUTH,
 )
 from .. import state
@@ -117,6 +117,8 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             return False
         if source == PROVIDER_HARNESS_AGENT:
             return state.provider == PROVIDER_OPENCODE_ZEN and state.harness_agent_free
+        if source == PROVIDER_POLLINATIONS:
+            return state.provider == PROVIDER_POLLINATIONS
         if source == PROVIDER_OPENCODE_ZEN:
             return state.provider == PROVIDER_OPENCODE_ZEN and not state.harness_agent_free
         if source == PROVIDER_ANTHROPIC_AUTH:
@@ -150,6 +152,8 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             label_name = MODEL_SOURCE_LABELS.get(src, src)
             if src == PROVIDER_HARNESS_AGENT:
                 label_name = "Harness Agent"
+            elif src == PROVIDER_POLLINATIONS:
+                label_name = "Pollinations"
             if q and q not in m.lower() and q not in desc.lower() and q not in label_name.lower():
                 if q not in ("harness", "agent", "free"):
                     continue

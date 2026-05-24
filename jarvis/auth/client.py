@@ -16,7 +16,7 @@ from ..constants import (
     OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_OPENAI_CODEX,
+    PROVIDER_OPENAI_CODEX, PROVIDER_POLLINATIONS,
     is_harness_agent_model,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
@@ -28,6 +28,7 @@ from .openrouter import load_openrouter_key, prompt_for_openrouter_key
 from .opencode import load_opencode_key, prompt_for_opencode_key
 from .opencode_zen import load_opencode_zen_key, prompt_for_opencode_zen_key, has_opencode_zen_key
 from .harness_agent import build_harness_agent_client, should_use_harness_agent_client
+from .pollinations import build_pollinations_client
 from .opencode_client import OpenCodeClient
 from .oauth_tokens import (
     load_oauth_tokens, clear_oauth_tokens, oauth_refresh, get_fresh_oauth_token,
@@ -190,7 +191,7 @@ def _resolve_auth_mode(*, interactive: bool) -> str | None:
 def _resolve_provider(*, interactive: bool = True) -> str:
     """Decide provider from env → stored → first-run Harness Agent default."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
-    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX):
+    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_POLLINATIONS):
         return env_provider
     # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -216,6 +217,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
             return PROVIDER_OPENCODE
         if stored == PROVIDER_OPENCODE_ZEN:
             return PROVIDER_OPENCODE_ZEN
+        if stored == PROVIDER_POLLINATIONS:
+            return PROVIDER_POLLINATIONS
     if _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if load_codex_oauth_tokens():
@@ -325,6 +328,14 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
             save_last_model()
         except Exception:
             pass
+
+    if state.provider == PROVIDER_POLLINATIONS:
+        try:
+            return build_pollinations_client()
+        except Exception:
+            if not interactive:
+                return _none_or_harness(interactive=interactive)
+            raise
 
     if state.provider == PROVIDER_OPENCODE:
         if not interactive and not _has_opencode_key():

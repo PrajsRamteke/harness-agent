@@ -7,10 +7,11 @@ from ..constants import (
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, MODEL_SOURCE_LABELS,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS, OPENCODE_ZEN_MODEL_IDS,
-    OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
+    OPENCODE_ZEN_MODELS, POLLINATIONS_DEFAULT_MODEL, POLLINATIONS_MODEL_IDS,
+    THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for, is_harness_agent_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_HARNESS_AGENT,
+    PROVIDER_HARNESS_AGENT, PROVIDER_POLLINATIONS,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
@@ -30,6 +31,7 @@ from ..auth.client import (
     _build_client_from_mode, _build_opencode_client,
     _build_opencode_zen_client_for_model,
 )
+from ..auth.pollinations import build_pollinations_client
 from ..repl.banners import header_panel
 from ..repl.stats import estimated_cost
 from ..storage.prefs import save_last_model
@@ -187,6 +189,7 @@ def _all_models():
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
 _OPENCODE_ZEN_MODEL_IDS = set(OPENCODE_ZEN_MODEL_IDS)
 _HARNESS_AGENT_MODEL_IDS = set(HARNESS_AGENT_MODEL_IDS)
+_POLLINATIONS_MODEL_IDS = set(POLLINATIONS_MODEL_IDS)
 _CODEX_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENAI_CODEX)}
 
 
@@ -196,6 +199,8 @@ def _provider_for_model(model: str) -> str:
         return PROVIDER_OPENAI_CODEX
     if model in _HARNESS_AGENT_MODEL_IDS:
         return PROVIDER_OPENCODE_ZEN
+    if model in _POLLINATIONS_MODEL_IDS:
+        return PROVIDER_POLLINATIONS
     if model in _OPENCODE_MODEL_IDS:
         return PROVIDER_OPENCODE
     if model in _OPENCODE_ZEN_MODEL_IDS:
@@ -209,6 +214,8 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
     target_provider = _provider_for_model(chosen)
     if source == PROVIDER_HARNESS_AGENT:
         target_provider = PROVIDER_OPENCODE_ZEN
+    elif source == PROVIDER_POLLINATIONS:
+        target_provider = PROVIDER_POLLINATIONS
     elif source == PROVIDER_OPENCODE_ZEN:
         target_provider = PROVIDER_OPENCODE_ZEN
     if source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
@@ -221,6 +228,13 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
         _handle_provider(target_provider, skip_key_prompt=skip_key)
         if state.provider != target_provider:
             return  # switch failed (e.g. user cancelled key prompt)
+
+    if state.provider == PROVIDER_POLLINATIONS and source == PROVIDER_POLLINATIONS:
+        try:
+            state.client = build_pollinations_client()
+        except Exception as e:
+            console.print(f"[red]failed to connect Pollinations: {e}[/]")
+            return
 
     if state.provider == PROVIDER_OPENCODE_ZEN and source in (
         PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN,
@@ -302,11 +316,12 @@ def _handle_model(arg: str):
         marker = "[green]● current[/]" if (
             m == state.MODEL and (
                 (src == PROVIDER_HARNESS_AGENT and state.provider == PROVIDER_OPENCODE_ZEN and state.harness_agent_free)
+                or (src == PROVIDER_POLLINATIONS and state.provider == PROVIDER_POLLINATIONS)
                 or (src == PROVIDER_OPENCODE_ZEN and state.provider == PROVIDER_OPENCODE_ZEN and not state.harness_agent_free)
                 or (src == PROVIDER_ANTHROPIC_AUTH and state.auth_mode == AUTH_OAUTH and state.provider == PROVIDER_ANTHROPIC)
                 or (src == PROVIDER_ANTHROPIC_API and state.auth_mode == AUTH_API_KEY and state.provider == PROVIDER_ANTHROPIC)
                 or (src == PROVIDER_OPENAI_CODEX_AUTH and state.provider == PROVIDER_OPENAI_CODEX)
-                or (src not in (PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH, PROVIDER_OPENAI_CODEX_AUTH) and src == state.provider)
+                or (src not in (PROVIDER_HARNESS_AGENT, PROVIDER_POLLINATIONS, PROVIDER_OPENCODE_ZEN, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH, PROVIDER_OPENAI_CODEX_AUTH) and src == state.provider)
             )
         ) else ""
         t.add_row(str(i), m, desc, MODEL_SOURCE_LABELS.get(src, src), marker)
@@ -363,6 +378,9 @@ def _handle_auth():
                 k = OPENCODE_ZEN_KEY_FILE.read_text().strip()
                 lines.append(f"key: …{k[-6:]}")
         lines.append(f"model: [cyan]{state.MODEL}[/]")
+    elif state.provider == PROVIDER_POLLINATIONS:
+        lines.append("auth: [bold]Pollinations[/] [dim](free — no API key)[/]")
+        lines.append(f"model: [cyan]{state.MODEL}[/]")
     else:
         lines.append(f"auth: [bold]{state.auth_mode}[/]")
         if state.auth_mode == AUTH_OAUTH:
@@ -390,26 +408,29 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
             "  [cyan]1[/]  Anthropic          [dim](Claude models)[/]\n"
             "  [cyan]2[/]  OpenRouter         [dim](free & paid)[/]\n"
             "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
-            "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n\n"
+            "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n"
+            "  [cyan]5[/]  Pollinations       [dim](free — no API key)[/]\n\n"
             "usage: [dim]/provider anthropic[/], [dim]/provider openrouter[/], "
-            "[dim]/provider opencode[/], or [dim]/provider opencode_zen[/]",
+            "[dim]/provider opencode[/], [dim]/provider opencode_zen[/], "
+            "or [dim]/provider pollinations[/]",
             title="◎ provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, 5=Pollinations, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
                           "[cyan]/provider openrouter[/], [cyan]/provider opencode[/], "
-                          "or [cyan]/provider opencode_zen[/] to switch.[/]")
+                          "[cyan]/provider opencode_zen[/], or [cyan]/provider pollinations[/] to switch.[/]")
             return
         if sel in ("1", "anthropic", "a"):             target = PROVIDER_ANTHROPIC
         elif sel in ("2", "openrouter", "or"):         target = PROVIDER_OPENROUTER
         elif sel in ("3", "opencode", "oc"):           target = PROVIDER_OPENCODE
         elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
+        elif sel in ("5", "pollinations", "poll", "p"): target = PROVIDER_POLLINATIONS
         else: return
     if target not in (
         PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
-        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_POLLINATIONS,
     ):
         console.print(f"[red]unknown provider: {target}[/]"); return
     if target == state.provider:
@@ -436,6 +457,9 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
         if not skip_key_prompt and not has_opencode_zen_key():
             prompt_for_opencode_zen_key()
         state.harness_agent_free = skip_key_prompt
+    elif target == PROVIDER_POLLINATIONS:
+        if state.MODEL not in _POLLINATIONS_MODEL_IDS:
+            state.MODEL = POLLINATIONS_DEFAULT_MODEL
     elif target == PROVIDER_OPENAI_CODEX:
         from ..constants import CODEX_DEFAULT_MODEL
         if state.MODEL not in _CODEX_MODEL_IDS:
@@ -448,7 +472,11 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
         state.auth_mode = AUTH_OAUTH
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
     else:
-        if "/" in state.MODEL or state.MODEL in _OPENCODE_MODEL_IDS:
+        if (
+            "/" in state.MODEL
+            or state.MODEL in _OPENCODE_MODEL_IDS
+            or state.MODEL in _POLLINATIONS_MODEL_IDS
+        ):
             state.MODEL = _DEFAULT_ANTHROPIC_MODEL
 
     try:
@@ -459,6 +487,8 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
                 state.MODEL,
                 source=PROVIDER_HARNESS_AGENT if state.harness_agent_free else PROVIDER_OPENCODE_ZEN,
             )
+        elif target == PROVIDER_POLLINATIONS:
+            state.client = build_pollinations_client()
         elif target == PROVIDER_OPENAI_CODEX:
             from ..auth.client import _build_codex_client
             state.client = _build_codex_client()

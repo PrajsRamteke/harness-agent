@@ -9,12 +9,13 @@ update more than one dict when adding or changing a model.
 import os
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
-PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex")
+PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "pollinations")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_OPENCODE_ZEN = "opencode_zen"
 PROVIDER_OPENAI_CODEX = "openai_codex"
+PROVIDER_POLLINATIONS = "pollinations"
 # Model-picker only — free OpenCode Zen tier (no API key). Backend: opencode_zen.
 PROVIDER_HARNESS_AGENT = "harness_agent"
 
@@ -34,10 +35,12 @@ PROVIDER_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX: "OpenAI Codex",
+    PROVIDER_POLLINATIONS: "Pollinations",
 }
 
 MODEL_SOURCE_LABELS = {
     PROVIDER_HARNESS_AGENT: "Harness Agent",
+    PROVIDER_POLLINATIONS: "Pollinations",
     PROVIDER_ANTHROPIC_API: "Anthropic API",
     PROVIDER_ANTHROPIC_AUTH: "Anthropic Auth",
     PROVIDER_OPENROUTER: "OpenRouter",
@@ -49,6 +52,7 @@ MODEL_SOURCE_LABELS = {
 # Picker display order (Harness Agent first — always free, no setup).
 MODEL_SOURCES = (
     PROVIDER_HARNESS_AGENT,
+    PROVIDER_POLLINATIONS,
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_OPENROUTER,
@@ -103,6 +107,19 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     "nemotron-3-super-free":  ("Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
     "big-pickle":             ("Big Pickle",                       PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
 
+    # ── Pollinations (free, no API key — text.pollinations.ai) ───────────────
+    "openai-fast":    ("GPT-OSS 20B — fast, free default",  PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "openai":         ("GPT-5 mini",                        PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "openai-large":   ("GPT-5.2 — most capable",            PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "qwen-coder":     ("Qwen3 Coder 30B — best for code",   PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "mistral":        ("Mistral Small 3.2 24B",             PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "deepseek":       ("DeepSeek V3.2",                     PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "grok":           ("Grok 4 Fast",                       PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "claude-fast":    ("Claude Haiku 4.5",                  PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "claude":         ("Claude Sonnet 4.6",                 PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "claude-large":   ("Claude Opus 4.6",                   PROVIDER_POLLINATIONS, (0.0, 0.0)),
+    "gemini":         ("Gemini 3 Flash",                    PROVIDER_POLLINATIONS, (0.0, 0.0)),
+
     # ── OpenCode Zen models (API key via /provider opencode_zen) ──────────────
     "minimax-m2.5-free":      ("MiniMax M2.5 Free — default",   PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
     "hy3-preview-free":       ("HY3 Preview Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
@@ -143,7 +160,13 @@ HARNESS_AGENT_MODELS = [
     for mid, info in MODEL_INFO.items()
     if info[1] == PROVIDER_HARNESS_AGENT
 ]
+POLLINATIONS_MODELS = [
+    (mid, info[0])
+    for mid, info in MODEL_INFO.items()
+    if info[1] == PROVIDER_POLLINATIONS
+]
 HARNESS_AGENT_MODEL_IDS = frozenset(m for m, _ in HARNESS_AGENT_MODELS)
+POLLINATIONS_MODEL_IDS = frozenset(m for m, _ in POLLINATIONS_MODELS)
 
 # Static fallback so /model always lists Harness Agent even on partial/cached installs.
 _HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = (
@@ -151,6 +174,11 @@ _HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = (
     ("nemotron-3-super-free", "Nemotron 3 Super Free"),
     ("big-pickle", "Big Pickle"),
 )
+
+
+def pollinations_models_for_picker() -> list[tuple[str, str]]:
+    """Pollinations models — always shown in /model (no credentials required)."""
+    return list(POLLINATIONS_MODELS)
 
 
 def harness_agent_models_for_picker() -> list[tuple[str, str]]:
@@ -200,6 +228,7 @@ OPENROUTER_DEFAULT_MODEL = "openai/gpt-oss-120b:free"
 OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
 OPENCODE_ZEN_DEFAULT_MODEL = "minimax-m2.5-free"
 HARNESS_AGENT_DEFAULT_MODEL = "deepseek-v4-flash-free"
+POLLINATIONS_DEFAULT_MODEL = "openai-fast"
 CODEX_DEFAULT_MODEL = "gpt-5.5"
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
 
@@ -209,12 +238,14 @@ _PROVIDER_DEFAULT_MODEL = {
     PROVIDER_OPENCODE: OPENCODE_DEFAULT_MODEL,
     PROVIDER_OPENCODE_ZEN: OPENCODE_ZEN_DEFAULT_MODEL,
     PROVIDER_OPENAI_CODEX: CODEX_DEFAULT_MODEL,
+    PROVIDER_POLLINATIONS: POLLINATIONS_DEFAULT_MODEL,
 }
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
 OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
 OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
+POLLINATIONS_BASE_URL = "https://text.pollinations.ai/openai/v1"
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 
 
@@ -254,8 +285,8 @@ def is_harness_agent_model(model: str) -> bool:
 
 
 def connected_model_sources() -> list[str]:
-    """Model-picker sources. Harness Agent is always first and always included."""
-    sources: list[str] = [PROVIDER_HARNESS_AGENT]
+    """Model-picker sources. Harness Agent and Pollinations are always first."""
+    sources: list[str] = [PROVIDER_HARNESS_AGENT, PROVIDER_POLLINATIONS]
     if _has_anthropic_api():
         sources.append(PROVIDER_ANTHROPIC_API)
     if _has_anthropic_oauth():
@@ -289,19 +320,14 @@ def connected_model_sources() -> list[str]:
                 sources.append(PROVIDER_OPENCODE_ZEN)
         except OSError:
             pass
-    # Harness Agent must always appear — even when other providers are configured.
-    out: list[str] = []
-    seen: set[str] = set()
+    # Free tiers first, then dedupe the rest.
+    out: list[str] = [PROVIDER_HARNESS_AGENT, PROVIDER_POLLINATIONS]
+    seen = set(out)
     for src in sources:
         if src in seen:
             continue
         seen.add(src)
         out.append(src)
-    if PROVIDER_HARNESS_AGENT not in seen:
-        out.insert(0, PROVIDER_HARNESS_AGENT)
-    elif out and out[0] != PROVIDER_HARNESS_AGENT:
-        out.remove(PROVIDER_HARNESS_AGENT)
-        out.insert(0, PROVIDER_HARNESS_AGENT)
     return out
 
 
@@ -340,6 +366,8 @@ def parse_model_option_id(option_id: str) -> tuple[str, str]:
 def models_for_source(source: str):
     if source == PROVIDER_HARNESS_AGENT:
         return harness_agent_models_for_picker()
+    if source == PROVIDER_POLLINATIONS:
+        return pollinations_models_for_picker()
     if source == PROVIDER_ANTHROPIC_API:
         return list(ANTHROPIC_MODELS)
     if source == PROVIDER_ANTHROPIC_AUTH:
@@ -357,7 +385,7 @@ def connected_providers() -> set[str]:
     so the model picker isn't an empty list.
     """
     import os
-    connected: set[str] = set()
+    connected: set[str] = {PROVIDER_POLLINATIONS}
 
     # ── Environment variables (fast, no file I/O) ──────────────────────────
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -400,6 +428,8 @@ def connected_providers() -> set[str]:
 
 
 def models_for(provider: str):
+    if provider == PROVIDER_POLLINATIONS:
+        return POLLINATIONS_MODELS
     if provider == PROVIDER_OPENROUTER:
         return OPENROUTER_FREE_MODELS
     if provider == PROVIDER_OPENCODE:

@@ -21,7 +21,7 @@ from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
 from ..constants import (
     PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
-    PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
+    PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL, PROVIDER_POLLINATIONS,
 )
 from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
 from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refresh
@@ -303,9 +303,9 @@ def call_claude_stream():
             "type": "enabled",
             "budget_tokens": THINKING_BUDGET_TOKENS,
         }
-        if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+        if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_POLLINATIONS):
             kwargs["thinking"]["effort"] = state.think_effort
-    elif state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+    elif state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_POLLINATIONS):
         # OpenCode (DeepSeek, etc.) needs explicit {"type": "disabled"} to turn off thinking
         kwargs["thinking"] = {"type": "disabled"}
 

@@ -4,11 +4,13 @@ from jarvis.constants.providers import (
     all_model_picker_rows,
     connected_model_sources,
     harness_agent_models_for_picker,
+    pollinations_models_for_picker,
     model_option_id,
     parse_model_option_id,
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_HARNESS_AGENT,
+    PROVIDER_POLLINATIONS,
 )
 
 
@@ -27,7 +29,15 @@ def test_model_option_id_roundtrip():
 def test_connected_model_sources_includes_harness_agent():
     sources = connected_model_sources()
     assert PROVIDER_HARNESS_AGENT in sources
+    assert PROVIDER_POLLINATIONS in sources
     assert sources[0] == PROVIDER_HARNESS_AGENT
+    assert sources[1] == PROVIDER_POLLINATIONS
+
+
+def test_pollinations_models_for_picker_never_empty():
+    models = pollinations_models_for_picker()
+    assert len(models) >= 1
+    assert models[0][0] == "openai-fast"
 
 
 def test_all_model_picker_rows_always_includes_harness_agent():
