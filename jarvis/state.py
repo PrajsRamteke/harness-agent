@@ -24,14 +24,14 @@ anthropic_model_ids: list[str] | None = None  # live ids after OAuth/API validat
 
 
 def _compute_initial_model() -> str:
-    """Env `CLAUDE_MODEL` wins; else settings.json model; else Harness Agent default."""
+    """Env `CLAUDE_MODEL` wins; else global settings model; else Harness Agent default."""
     if os.environ.get("CLAUDE_MODEL"):
         return _INITIAL_MODEL
     try:
-        from .storage.settings import get_settings
-        m = get_settings().get("model")
-        if isinstance(m, str) and m.strip():
-            return m.strip()
+        from .storage.prefs import load_saved_model
+        m = load_saved_model()
+        if m:
+            return m
     except Exception:
         pass
     return HARNESS_AGENT_DEFAULT_MODEL

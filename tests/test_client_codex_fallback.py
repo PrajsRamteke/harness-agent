@@ -15,8 +15,15 @@ def test_resolve_provider_ignores_stale_codex_pin(tmp_path, monkeypatch):
     assert _resolve_provider(interactive=True) == PROVIDER_ANTHROPIC
 
 
-def test_make_client_first_run_uses_harness_agent(tmp_path, monkeypatch):
+def test_make_client_first_run_uses_harness_agent(tmp_path, monkeypatch, tmp_path_factory):
     """Stale auth marker files without tokens should still boot Harness Agent."""
+    settings_dir = tmp_path / "cfg"
+    settings_dir.mkdir()
+    settings_file = settings_dir / "settings.json"
+    settings_file.write_text("{}\n")
+    monkeypatch.setattr("jarvis.storage.settings.SETTINGS_FILE", settings_file)
+    monkeypatch.setattr("jarvis.storage.settings.CONFIG_DIR", settings_dir)
+    monkeypatch.setattr("jarvis.storage.settings._singleton", None)
     monkeypatch.setattr("jarvis.auth.client.AUTH_MODE_FILE", tmp_path / "auth_mode")
     monkeypatch.setattr("jarvis.auth.client.PROVIDER_FILE", tmp_path / "provider")
     monkeypatch.setattr("jarvis.auth.client.KEY_FILE", tmp_path / "missing-key")
@@ -24,9 +31,14 @@ def test_make_client_first_run_uses_harness_agent(tmp_path, monkeypatch):
     monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: None)
     monkeypatch.setattr("jarvis.auth.client.load_codex_oauth_tokens", lambda: None)
     monkeypatch.setattr("jarvis.auth.client._has_usable_provider_credentials", lambda: False)
+    monkeypatch.setattr("jarvis.auth.client._resolve_provider", lambda **kwargs: "opencode_zen")
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "")
+    monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: True)
+    monkeypatch.setattr("jarvis.auth.client._build_opencode_zen_client_for_model", lambda *a, **k: MagicMock())
     monkeypatch.setattr("jarvis.auth.harness_agent.build_harness_agent_client", lambda: MagicMock())
     from jarvis import state
     from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+    state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
     client = make_client(interactive=False)
     assert client is not None
     assert state.provider == PROVIDER_OPENCODE_ZEN
@@ -46,6 +58,8 @@ def test_make_client_falls_back_when_codex_oauth_missing(tmp_path, monkeypatch):
     )
 
     fake_client = MagicMock()
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "claude-sonnet-4-6")
+    monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: False)
     with patch("jarvis.auth.client._build_client_from_mode", return_value=fake_client):
         with patch("jarvis.auth.client.sync_anthropic_model_ids"):
             monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: {"access_token": "a", "refresh_token": "r"})

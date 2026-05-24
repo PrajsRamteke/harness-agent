@@ -450,6 +450,24 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
     return False
 
 
+def infer_provider_for_model(model: str) -> str:
+    """Map a model id to the provider that should serve it."""
+    m = (model or "").strip()
+    if not m:
+        return PROVIDER_OPENCODE_ZEN
+    info = MODEL_INFO.get(m)
+    if info:
+        prov = info[1]
+        if prov == PROVIDER_HARNESS_AGENT:
+            return PROVIDER_OPENCODE_ZEN
+        return prov
+    if "/" in m:
+        return PROVIDER_OPENROUTER
+    if m.startswith("claude-"):
+        return PROVIDER_ANTHROPIC
+    return PROVIDER_OPENCODE_ZEN
+
+
 def normalize_model_for_provider(model: str, provider: str) -> str:
     """Use ``model`` when valid for ``provider``; otherwise the provider default."""
     if model_belongs_to_provider(model, provider):

@@ -37,8 +37,35 @@ def test_should_check_for_updates_throttles_when_interval_set(monkeypatch, tmp_p
     assert should_check_for_updates(now=time.time() + 25 * 3600) is True
 
 
+def test_bootstrap_pins_free_tier_on_first_install(monkeypatch):
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "")
+    monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: True)
+    from jarvis import state
+    from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+
+    state.harness_agent_free = False
+    state.MODEL = "claude-sonnet-4-6"
+    state.provider = "anthropic"
+    ensure_harness_agent_defaults()
+    assert state.provider == PROVIDER_OPENCODE_ZEN
+    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
+    assert state.harness_agent_free is True
+
+
+def test_bootstrap_respects_saved_model_preference(monkeypatch):
+    monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: False)
+    from jarvis import state
+
+    state.MODEL = "claude-sonnet-4-6"
+    state.provider = "anthropic"
+    ensure_harness_agent_defaults()
+    assert state.MODEL == "claude-sonnet-4-6"
+    assert state.provider == "anthropic"
+
+
 def test_bootstrap_pins_free_tier_without_credentials(monkeypatch):
-    monkeypatch.setattr("jarvis.bootstrap._has_any_credentials_fast", lambda: False)
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "")
+    monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: True)
     from jarvis import state
     from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
 

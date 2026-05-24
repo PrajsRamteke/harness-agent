@@ -188,7 +188,7 @@ def _resolve_auth_mode(*, interactive: bool) -> str | None:
 
 
 def _resolve_provider(*, interactive: bool = True) -> str:
-    """Decide provider from env → stored → first-run Harness Agent default."""
+    """Decide provider from env → saved → stored → first-run Harness Agent default."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
     if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX):
         return env_provider
@@ -200,6 +200,28 @@ def _resolve_provider(*, interactive: bool = True) -> str:
     if os.getenv("OPENCODE_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
         return PROVIDER_OPENCODE
     if os.getenv("OPENCODE_ZEN_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
+        return PROVIDER_OPENCODE_ZEN
+    try:
+        from ..storage.prefs import load_saved_preferences
+        saved_model, saved_provider = load_saved_preferences()
+    except Exception:
+        saved_model, saved_provider = "", ""
+    if saved_model and saved_provider:
+        return saved_provider
+    try:
+        from ..storage.prefs import load_saved_provider
+        saved_provider = load_saved_provider()
+    except Exception:
+        saved_provider = ""
+    if saved_provider == PROVIDER_OPENAI_CODEX and load_codex_oauth_tokens():
+        return PROVIDER_OPENAI_CODEX
+    if saved_provider == PROVIDER_ANTHROPIC and _has_usable_anthropic_auth():
+        return PROVIDER_ANTHROPIC
+    if saved_provider == PROVIDER_OPENROUTER and _has_openrouter_key():
+        return PROVIDER_OPENROUTER
+    if saved_provider == PROVIDER_OPENCODE and _has_opencode_key():
+        return PROVIDER_OPENCODE
+    if saved_provider == PROVIDER_OPENCODE_ZEN:
         return PROVIDER_OPENCODE_ZEN
     if PROVIDER_FILE.exists():
         try:
@@ -248,7 +270,9 @@ def _build_opencode_zen_client_for_model(
     *,
     source: str = "",
 ) -> OpenCodeClient:
-    use_free = should_use_harness_agent_client(model, source=source)
+    use_free = state.harness_agent_free or should_use_harness_agent_client(
+        model, source=source
+    )
     state.harness_agent_free = use_free
     if use_free:
         return build_harness_agent_client()
@@ -280,32 +304,33 @@ def _build_codex_client() -> CodexClient | None:
     return CodexClient(tokens["access_token"])
 
 
-def _fallback_harness_agent_client():
+def _fallback_harness_agent_client(*, preferred_model: str = ""):
     """Last-resort free tier — no API key, always available."""
     state.provider = PROVIDER_OPENCODE_ZEN
     state.harness_agent_free = True
-    if not is_harness_agent_model(state.MODEL):
+    pref = (preferred_model or state.MODEL or "").strip()
+    if pref:
+        state.MODEL = pref
+    elif not is_harness_agent_model(state.MODEL):
         state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
     _secure_write(PROVIDER_FILE, state.provider)
-    try:
-        from ..storage.prefs import save_last_model
-        save_last_model()
-    except Exception:
-        pass
     return build_harness_agent_client()
 
 
-def _none_or_harness(*, interactive: bool):
+def _none_or_harness(*, interactive: bool, preferred_model: str = ""):
     """TUI startup: never leave the user without a client when keys are missing."""
     if interactive:
         return None
-    return _fallback_harness_agent_client()
+    return _fallback_harness_agent_client(preferred_model=preferred_model)
 
 
 def _ensure_operational_provider() -> None:
     """Drop stale provider selection when credentials are missing."""
     from ..constants.providers import provider_is_operational, PROVIDERS
+    from ..storage.prefs import load_saved_model
 
+    if load_saved_model():
+        return
     if provider_is_operational(state.provider):
         return
     for prov in PROVIDERS:
@@ -315,50 +340,70 @@ def _ensure_operational_provider() -> None:
             return
 
 
+def _make_first_run_harness_client(*, interactive: bool):
+    """Fresh install: Harness Agent + deepseek-v4-flash-free, no API key needed."""
+    state.provider = PROVIDER_OPENCODE_ZEN
+    state.harness_agent_free = True
+    state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
+    _secure_write(PROVIDER_FILE, state.provider)
+    for attempt in range(DEFAULT_RETRIES):
+        try:
+            return _build_opencode_zen_client_for_model(state.MODEL)
+        except Exception:
+            if attempt + 1 >= DEFAULT_RETRIES:
+                if not interactive:
+                    return _fallback_harness_agent_client()
+                raise
+    if not interactive:
+        return _fallback_harness_agent_client()
+    return None
+
+
 def make_client(*, interactive: bool = True, _retried: bool = False):
     """Resolve provider + auth, build client, validate; handle 401 with refresh/re-auth.
 
     When ``interactive=False`` (TUI default), never opens Rich console login prompts.
     Falls back to free Harness Agent when no credentials are configured.
     """
+    from ..storage.prefs import load_saved_model, should_use_first_run_harness_defaults
+    from ..constants.providers import model_belongs_to_provider
+
+    if should_use_first_run_harness_defaults():
+        return _make_first_run_harness_client(interactive=interactive)
+
+    preferred_model = load_saved_model().strip()
+    state.MODEL = preferred_model
+
     state.provider = _resolve_provider(interactive=interactive)
     if not interactive and not _has_usable_provider_credentials():
         state.provider = PROVIDER_OPENCODE_ZEN
         state.harness_agent_free = True
     _secure_write(PROVIDER_FILE, state.provider)
 
-    prev_model = state.MODEL
     if state.provider == PROVIDER_OPENCODE_ZEN and not _has_usable_provider_credentials():
-        state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
         state.harness_agent_free = True
+        state.MODEL = preferred_model
+    elif model_belongs_to_provider(preferred_model, state.provider):
+        state.MODEL = preferred_model
+        if state.provider == PROVIDER_OPENCODE_ZEN:
+            state.harness_agent_free = should_use_harness_agent_client(state.MODEL)
     else:
         state.MODEL = normalize_model_for_provider(state.MODEL, state.provider)
         if state.provider == PROVIDER_OPENCODE_ZEN:
             state.harness_agent_free = should_use_harness_agent_client(state.MODEL)
-    if state.MODEL != prev_model:
-        try:
-            from ..storage.prefs import save_last_model
-            save_last_model()
-        except Exception:
-            pass
 
     prev_provider = state.provider
     _ensure_operational_provider()
-    if state.provider != prev_provider:
+    if state.provider != prev_provider and not load_saved_model():
         state.MODEL = normalize_model_for_provider(state.MODEL, state.provider)
         state.harness_agent_free = (
             state.provider == PROVIDER_OPENCODE_ZEN
             and should_use_harness_agent_client(state.MODEL)
         )
-        try:
-            from ..storage.prefs import save_last_model
-            save_last_model()
-        except Exception:
-            pass
 
     if state.provider == PROVIDER_OPENCODE:
         if not interactive and not _has_opencode_key():
-            return _none_or_harness(interactive=interactive)
+            return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_opencode_client()
@@ -377,7 +422,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     if state.provider == PROVIDER_OPENCODE_ZEN:
         use_free = state.harness_agent_free or should_use_harness_agent_client(state.MODEL)
         if not interactive and not use_free and not _has_opencode_zen_key():
-            return _none_or_harness(interactive=interactive)
+            return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_opencode_zen_client_for_model(state.MODEL)
@@ -400,7 +445,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         c = _build_codex_client()
         if c is None:
             if not interactive:
-                return _none_or_harness(interactive=interactive)
+                return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
             console.print(
                 "[yellow]OpenAI Codex OAuth not configured — run /login to sign in[/]"
             )
@@ -429,7 +474,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
 
     if state.provider == PROVIDER_OPENROUTER:
         if not interactive and not _has_openrouter_key():
-            return _none_or_harness(interactive=interactive)
+            return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
         for attempt in range(DEFAULT_RETRIES):
             try:
                 c = _build_openrouter_client()
@@ -452,7 +497,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     # ── Anthropic path (preserved from original flow) ──
     mode = _resolve_auth_mode(interactive=interactive)
     if mode is None:
-        return _none_or_harness(interactive=interactive)
+        return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
     state.auth_mode = mode
     _secure_write(AUTH_MODE_FILE, state.auth_mode)
 
@@ -468,7 +513,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
             return c
         except RuntimeError:
             if not interactive:
-                return _none_or_harness(interactive=interactive)
+                return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
             raise
         except APIStatusError as e:
             if e.status_code == 401:
@@ -480,18 +525,18 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
                     console.print("[yellow]OAuth session invalid — re-login required.[/]")
                     clear_oauth_tokens()
                     if not interactive:
-                        return _none_or_harness(interactive=interactive)
+                        return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
                     oauth_login()
                     continue
                 else:
                     KEY_FILE.unlink(missing_ok=True)
                     if not interactive:
-                        return _none_or_harness(interactive=interactive)
+                        return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
                     prompt_for_key(reason="Stored Anthropic key rejected (401). Please re-enter.")
                     continue
             raise
         except APIConnectionError as e:
             console.print(f"[red]Network error: {e}[/]"); sys.exit(1)
     if not interactive:
-        return _fallback_harness_agent_client()
+        return _fallback_harness_agent_client(preferred_model=preferred_model)
     console.print("[red]Too many auth failures[/]"); sys.exit(1)

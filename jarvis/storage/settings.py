@@ -53,7 +53,8 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 # Defaults are also the implicit schema. Any dotted path used by get/set must
 # trace through this tree, otherwise we'd let typos silently expand the file.
 DEFAULTS: dict[str, Any] = {
-    "model":  "",            # empty string == fall back to constants.MODEL
+    "model":    "",          # empty string == fall back to constants.MODEL
+    "provider": "",          # empty string == resolve from provider file / auth
     "theme":  "red",
     "agent":  {"active": "", "global": True},   # global agents visible by default
     "skills": {"global": False},
@@ -149,9 +150,9 @@ def _coerce(path: str, value: Any) -> Any:
         if not isinstance(value, bool):
             raise ValueError(f"{path} must be a boolean")
         return value
-    if path == "model":
+    if path in ("model", "provider"):
         if not isinstance(value, str):
-            raise ValueError("model must be a string")
+            raise ValueError(f"{path} must be a string")
         return value.strip()
     if path == "agent.active":
         if value is None:
@@ -165,8 +166,8 @@ def _coerce(path: str, value: Any) -> Any:
 class Settings:
     """In-memory settings backed by ``~/.config/harness-agent/settings.json``."""
 
-    def __init__(self, path: pathlib.Path = SETTINGS_FILE) -> None:
-        self.path = path
+    def __init__(self, path: pathlib.Path | None = None) -> None:
+        self.path = path if path is not None else SETTINGS_FILE
         self._data: dict[str, Any] = {}
         self._loaded = False
 
@@ -191,6 +192,9 @@ class Settings:
 
         legacy = _migrate_legacy()
         project = _read_project_settings()
+        # Model + provider are global preferences — never overridden per project.
+        project.pop("model", None)
+        project.pop("provider", None)
 
         merged = _deep_merge(legacy, on_disk)
         merged = _deep_merge(merged, project)
@@ -262,6 +266,42 @@ class Settings:
         self._data = {}
         self.load()
         return self.all()
+
+    def get_global(self, path: str, default: Any = None) -> Any:
+        """Read a value from the global settings file only (no project overlay)."""
+        on_disk: dict[str, Any] = {}
+        if self.path.exists():
+            try:
+                parsed = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict):
+                    on_disk = parsed
+            except (OSError, json.JSONDecodeError):
+                on_disk = {}
+        merged = _deep_merge(DEFAULTS, on_disk)
+        val = _get_by_path(merged, path)
+        return val if val is not None else default
+
+    def set_global(self, path: str, value: Any) -> Any:
+        """Set, validate, and persist to the global settings file only."""
+        coerced = _coerce(path, value)
+        on_disk: dict[str, Any] = {}
+        if self.path.exists():
+            try:
+                parsed = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict):
+                    on_disk = parsed
+            except (OSError, json.JSONDecodeError):
+                on_disk = {}
+        _set_by_path(on_disk, path, coerced)
+        _atomic_write(
+            self.path,
+            json.dumps(_deep_merge(DEFAULTS, on_disk), indent=2, ensure_ascii=False) + "\n",
+        )
+        if not self._loaded:
+            self.load()
+        else:
+            _set_by_path(self._data, path, coerced)
+        return coerced
 
 
 # ── legacy migration ─────────────────────────────────────────────────────
@@ -341,12 +381,13 @@ def get_settings() -> Settings:
     """Return the process-wide ``Settings`` instance (lazy-loaded)."""
     global _singleton
     if _singleton is None:
-        _singleton = Settings()
+        _singleton = Settings(SETTINGS_FILE)
         _singleton.load()
     return _singleton
 
 
 def reload_settings() -> Settings:
     """Force a fresh read from disk."""
-    get_settings().reload()
+    global _singleton
+    _singleton = None
     return get_settings()

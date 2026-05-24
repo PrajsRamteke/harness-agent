@@ -43,11 +43,12 @@ def _has_any_credentials_fast() -> bool:
 
 
 def ensure_harness_agent_defaults() -> None:
-    """Pin free Harness Agent when no paid provider credentials exist."""
+    """Pin free Harness Agent on first install (before the user picks a model)."""
     from . import state
     from .constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+    from .storage.prefs import should_use_first_run_harness_defaults
 
-    if _has_any_credentials_fast():
+    if not should_use_first_run_harness_defaults():
         return
     state.provider = PROVIDER_OPENCODE_ZEN
     state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
