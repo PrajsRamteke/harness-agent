@@ -183,20 +183,24 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/action":
             action = str(data.get("action") or "").strip()
             if not action:
-                self._send_json(400, {"error": "missing action"})
+                self._send_json(400, {"ok": False, "error": "missing action"})
                 return
             payload = data.get("data")
             if not isinstance(payload, dict):
                 payload = {k: v for k, v in data.items() if k != "action"}
             result = self.bridge.request_action(action, payload)
-            status = 200 if result.get("ok") else 400
+            if not isinstance(result, dict):
+                result = {"ok": False, "error": "invalid action response"}
             body = dict(result)
-            body["state"] = self._snapshot()
-            if result.get("ok") and action.startswith("session_"):
+            try:
+                body["state"] = self._snapshot()
+            except Exception as exc:
+                body["state"] = {}
+                if body.get("ok"):
+                    body["snapshot_error"] = str(exc)
+            if body.get("ok") and body.get("state"):
                 self.bridge.emit("snapshot", body["state"])
-            elif result.get("ok") and action in ("model_select", "agent_select", "session_new"):
-                self.bridge.emit("snapshot", body["state"])
-            return self._send_json(status, body)
+            return self._send_json(200, body)
 
         if path == "/api/prompt":
             text = str(data.get("text") or "").strip()

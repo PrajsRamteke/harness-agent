@@ -94,7 +94,22 @@ export async function fetchState() {
 }
 
 export async function pickerAction(action, data = {}) {
-  return api('/api/action', 'POST', { action, data });
+  const opts = {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, data }),
+  };
+  const res = await fetch('/api/action', opts);
+  let body = {};
+  try {
+    body = await res.json();
+  } catch {
+    body = { ok: false, error: res.statusText || 'Invalid response' };
+  }
+  if (!body || typeof body !== 'object') {
+    return { ok: false, error: 'Invalid response' };
+  }
+  return body;
 }
 
 export async function fetchSessions() {

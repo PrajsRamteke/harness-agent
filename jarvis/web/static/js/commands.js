@@ -4,7 +4,7 @@ import { store, patchSession, applySettingsResponse, subscribe, loadSnapshot } f
 import { submitPrompt, fillPrompt } from './composer.js';
 import { updateSettings, pickerAction } from './api.js';
 import { applySessionData } from './stream.js';
-import { openPickerByKind } from './pickers.js';
+import { openPickerByKind, applyActionState } from './pickers.js';
 import { refreshThinkingVisibility } from './chat.js';
 import { renderMetaBar } from './drawer.js';
 
@@ -187,30 +187,25 @@ async function runItem(item) {
   }
 
   if (item.action === 'session_new') {
-    try {
-      const res = await pickerAction('session_new', {});
-      if (res.ok && res.state) {
-        loadSnapshot(res.state);
-        applySessionData(res.state);
-        renderMetaBar(store);
-        showToast('New session started');
-      } else showToast(res.error || 'Failed', true);
-    } catch {
-      showToast('Failed to start session', true);
+    const res = await pickerAction('session_new', {});
+    if (res.ok) {
+      applyActionState(res);
+      showToast('New session started');
+    } else {
+      if (res.state) applyActionState(res);
+      showToast(res.error || 'Failed', true);
     }
     return;
   }
 
   if (item.action === 'agent_off') {
-    try {
-      const res = await pickerAction('agent_select', { name: '__off__' });
-      if (res.ok && res.state) {
-        loadSnapshot(res.state);
-        renderMetaBar(store);
-        showToast('Agent deactivated');
-      }
-    } catch {
-      showToast('Failed', true);
+    const res = await pickerAction('agent_select', { name: '__off__' });
+    if (res.ok) {
+      applyActionState(res);
+      showToast('Agent deactivated');
+    } else {
+      if (res.state) applyActionState(res);
+      showToast(res.error || 'Failed', true);
     }
     return;
   }

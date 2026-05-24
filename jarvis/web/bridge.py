@@ -71,7 +71,7 @@ class WebBridge:
 
         def done(result: dict[str, Any]) -> None:
             try:
-                result_q.put_nowait(result)
+                result_q.put(result, timeout=5.0)
             except queue.Full:
                 pass
 
@@ -92,7 +92,7 @@ class WebBridge:
 
         def done(result: dict[str, Any]) -> None:
             try:
-                result_q.put_nowait(result)
+                result_q.put(result, timeout=5.0)
             except queue.Full:
                 pass
 

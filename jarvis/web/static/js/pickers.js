@@ -23,6 +23,8 @@ function applyActionState(res) {
   renderMetaBar(store);
 }
 
+export { applyActionState };
+
 function closePicker() {
   $('picker-overlay')?.classList.remove('open');
   $('picker-detail')?.classList.add('hidden');
@@ -81,17 +83,17 @@ function bindSearch(onSearch) {
 }
 
 async function runAction(action, data, successMsg) {
-  try {
-    const res = await pickerAction(action, data);
-    if (!res.ok) throw new Error(res.error || 'Action failed');
+  const res = await pickerAction(action, data);
+  if (res.ok) {
     applyActionState(res);
     if (successMsg) showToast(successMsg);
     closePicker();
     return res;
-  } catch (e) {
-    showToast(e.payload?.error || e.message || 'Failed', true);
-    return null;
   }
+  if (res.state) applyActionState(res);
+  showToast(res.error || 'Action failed', true);
+  if (res.state) closePicker();
+  return null;
 }
 
 function openPickerShell({ title, sub, icon, foot, toolbar, onSearch, load }) {

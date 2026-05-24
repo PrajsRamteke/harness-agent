@@ -650,10 +650,10 @@ class JarvisTUI(App):
             on_submit=lambda text: self.call_from_thread(lambda: self._handle_web_submit(text)),
             on_cancel=lambda: self.call_from_thread(self._handle_web_cancel),
             on_settings=lambda data, done: self.call_from_thread(
-                lambda: done(self._handle_web_settings(data))
+                lambda: self._complete_web_settings(data, done)
             ),
             on_action=lambda action, data, done: self.call_from_thread(
-                lambda: done(self._handle_web_action(action, data))
+                lambda a=action, d=data, cb=done: self._complete_web_action(a, d, cb)
             ),
         )
         mux = WebMuxConsole(tui_console, bridge)
@@ -761,6 +761,28 @@ class JarvisTUI(App):
         self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user (web)[/]")
         self._turn_done()
 
+    def _complete_web_settings(self, data: dict, done) -> None:
+        try:
+            result = self._handle_web_settings(data)
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        try:
+            done(result)
+        except Exception:
+            pass
+
+    def _complete_web_action(self, action: str, data: dict, done) -> None:
+        try:
+            result = self._handle_web_action(action, data)
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        if not isinstance(result, dict):
+            result = {"ok": False, "error": "invalid action response"}
+        try:
+            done(result)
+        except Exception:
+            pass
+
     def _handle_web_settings(self, data: dict) -> dict:
         from ..web.state_api import apply_settings
 
@@ -794,7 +816,11 @@ class JarvisTUI(App):
                 except Exception:
                     pass
                 if action == "session_resume":
-                    self._render_loaded_session()
+                    try:
+                        self._render_loaded_session()
+                    except Exception as exc:
+                        result = dict(result)
+                        result["render_warning"] = str(exc)
 
             if action == "model_select":
                 self._write_status_line(busy=False)
@@ -802,11 +828,14 @@ class JarvisTUI(App):
             if action in ("session_resume", "session_new", "model_select", "agent_select"):
                 self._set_status("ready")
 
-        if self._web_bridge is not None:
-            from ..web.state_api import snapshot_from_state
+        if self._web_bridge is not None and result.get("ok"):
+            try:
+                from ..web.state_api import snapshot_from_state
 
-            snap = snapshot_from_state(busy=self._busy())
-            self._web_bridge.emit("snapshot", snap)
+                snap = snapshot_from_state(busy=self._busy())
+                self._web_bridge.emit("snapshot", snap)
+            except Exception:
+                pass
 
         return result
 
