@@ -278,7 +278,6 @@
   .brand-mark svg { width: 16px; height: 16px; }
   .brand-text h1 { font-size: 14px; }
   .brand-text p { font-size: 10px; }
-  .meta-bar { display: none; }
   .status-chip { padding: 0; width: 32px; height: 32px; justify-content: center; }
   .status-chip .label-text { display: none; }
   .icon-btn { width: 32px; height: 32px; }

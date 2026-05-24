@@ -549,6 +549,8 @@ Screen {{
     overflow: hidden;
 }}
 
+/* WebRemoteQR styling lives on the widget (web_bar.py DEFAULT_CSS). */
+
 /* ── Web remote bar (bottom — open / copy URL) ──────────────────── */
 #webar {{
     height: auto;

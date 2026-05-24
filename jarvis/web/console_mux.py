@@ -156,6 +156,9 @@ class WebMuxConsole:
         self._primary.report_turn_phase(label)
         self._bridge.emit("activity", {"label": label})
 
+    def emit_tool_event(self, event_type: str, data: dict[str, Any]) -> None:
+        self._bridge.emit(event_type, data or {})
+
     def refresh_tool_activity(self) -> None:
         self._primary.refresh_tool_activity()
 

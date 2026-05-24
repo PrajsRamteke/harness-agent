@@ -240,6 +240,12 @@ def begin_wave() -> None:
         _runs.clear()
         _order.clear()
     _notify_wave_begin()
+    try:
+        from .tool_events import emit_tool_wave_reset
+
+        emit_tool_wave_reset()
+    except Exception:
+        pass
 
 
 def parallel_file_panel_count() -> int:

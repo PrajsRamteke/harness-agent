@@ -162,6 +162,7 @@ def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
 
     return {
         "messages": messages,
+        "message_count": len(state.messages),
         "busy": busy,
         "queue": [q for q in queue_items if q],
         "model": state.MODEL,

@@ -47,7 +47,7 @@ from ..repl.tool_runs import (
 )
 from .ask_user import AskUserController, AskQuestion, normalize_questions
 from .mouse_toggle import enable_mouse, disable_mouse
-from .web_bar import WebRemoteBar
+from .web_bar import WebRemoteBar, WebRemoteQR
 from ..prompt_refs import (
     active_file_ref_at_cursor,
     replace_file_ref_at_cursor,
@@ -551,6 +551,7 @@ class JarvisTUI(App):
 
     # ─── compose ─────────────────────────────────────────────────────
     def compose(self) -> ComposeResult:
+        yield WebRemoteQR(id="web_qr_overlay")
         with Vertical(id="main"):
             yield RichLog(
                 id="transcript",
@@ -695,11 +696,17 @@ class JarvisTUI(App):
         try:
             bar = self.query_one("#webar", WebRemoteBar)
         except Exception:
-            return
+            bar = None
+        try:
+            qr = self.query_one("#web_qr_overlay", WebRemoteQR)
+        except Exception:
+            qr = None
         if self._web_primary_url:
-            bar.set_url(self._web_primary_url)
+            bar and bar.set_url(self._web_primary_url)
+            qr and qr.set_url(self._web_primary_url)
         else:
-            bar.hide_bar()
+            bar and bar.hide_bar()
+            qr and qr.hide()
 
     def _copy_web_url(self, *, show_status: bool = True) -> bool:
         url = self._web_primary_url
@@ -954,7 +961,7 @@ class JarvisTUI(App):
             esc = _rich_escape(self._web_primary_url)
             web_line = (
                 f"🌐 [{ui.FG_DIM}]remote[/]  [link={esc}]{esc}[/link]  "
-                f"[{ui.FG_DIM}]· click to open · ⌃⇧U copy[/]"
+                f"[{ui.FG_DIM}]· scan QR top-right · ⌃⇧U copy[/]"
             )
             body = f"{body}\n{web_line}" if body else web_line
         return body

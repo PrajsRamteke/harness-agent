@@ -5,3 +5,4 @@ pypdf>=4.0
 openpyxl>=3.0
 openai>=1.0
 mcp>=1.0.0
+qrcode>=7.4
