@@ -1,0 +1,87 @@
+/* Design tokens — industrial precision theme */
+:root {
+  color-scheme: dark;
+  --bg: #0a0c0f;
+  --bg-elevated: #111419;
+  --surface: #161b22;
+  --surface-hover: #1c222c;
+  --border: rgba(212, 165, 116, 0.12);
+  --border-strong: rgba(212, 165, 116, 0.28);
+  --text: #e8eaed;
+  --text-muted: #8b929a;
+  --text-dim: #5c6370;
+  --copper: #d4a574;
+  --copper-dim: rgba(212, 165, 116, 0.15);
+  --teal: #5eead4;
+  --teal-dim: rgba(94, 234, 212, 0.12);
+  --danger: #f07178;
+  --danger-dim: rgba(240, 113, 120, 0.14);
+  --warn: #e6c07b;
+  --warn-dim: rgba(230, 192, 123, 0.12);
+  --you-bg: rgba(94, 234, 212, 0.08);
+  --you-border: rgba(94, 234, 212, 0.22);
+  --asst-bg: rgba(212, 165, 116, 0.06);
+  --asst-border: rgba(212, 165, 116, 0.18);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --font-display: "Syne", system-ui, sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body, var(--font-body));
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}

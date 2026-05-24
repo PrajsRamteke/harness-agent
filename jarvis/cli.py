@@ -31,6 +31,18 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PROMPT",
         help="optional prompt to send immediately when launching the TUI",
     )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="enable browser remote control (mobile-friendly web UI)",
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=None,
+        metavar="PORT",
+        help="web remote port (default: 8765 or HARNESS_WEB_PORT)",
+    )
     return parser
 
 
@@ -80,6 +92,12 @@ def main() -> None:
         from . import state
 
         state.startup_prompt = startup_prompt
+
+    from . import state
+    from .web.server import default_web_port, web_enabled_from_env
+
+    state.web_enabled = bool(args.web or web_enabled_from_env())
+    state.web_port = args.web_port if args.web_port is not None else default_web_port()
 
     from .bootstrap import ensure_harness_agent_defaults
     ensure_harness_agent_defaults()

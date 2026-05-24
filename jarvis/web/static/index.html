@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0a0c0f">
+  <title>Jarvis Remote</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/toolbar.css">
+  <link rel="stylesheet" href="/static/css/chat.css">
+  <link rel="stylesheet" href="/static/css/composer.css">
+  <link rel="stylesheet" href="/static/css/modals.css">
+  <link rel="stylesheet" href="/static/css/commands.css">
+  <link rel="stylesheet" href="/static/css/pickers.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-mark"><i data-lucide="radio"></i></div>
+        <div class="brand-text">
+          <h1>Jarvis Remote</h1>
+          <p id="session-sub">Connected to your session</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="header-btn-cmd" id="cmd-btn" type="button" aria-label="All commands">
+          <i data-lucide="layout-grid"></i>
+          <span class="cmd-btn-label">Commands</span>
+        </button>
+        <div class="status-chip" id="status-chip">
+          <span class="dot"></span>
+          <span class="label-text" id="status-label">Ready</span>
+        </div>
+        <button class="icon-btn" id="info-btn" type="button" aria-label="Session info">
+          <i data-lucide="info"></i>
+        </button>
+      </div>
+    </header>
+
+    <div class="meta-bar" id="meta-bar" role="region" aria-label="Session context"></div>
+
+    <div class="toolbar" id="toolbar" aria-label="Quick settings">
+      <div class="toolbar-group">
+        <button class="toggle-btn" id="toggle-think" type="button" title="Extended thinking">
+          <i data-lucide="brain"></i><span class="label">Think</span>
+        </button>
+        <div class="effort-dropdown" id="effort-dropdown">
+          <button type="button" class="effort-trigger" id="effort-trigger" aria-haspopup="listbox" aria-expanded="false" aria-label="Thinking effort">
+            <i data-lucide="gauge"></i>
+            <span class="effort-value" id="effort-value">medium</span>
+            <i data-lucide="chevron-down" class="effort-chevron"></i>
+          </button>
+          <div class="effort-menu" id="effort-menu" role="listbox" aria-label="Thinking effort" hidden></div>
+        </div>
+      </div>
+      <div class="toolbar-group">
+        <button class="toggle-btn" id="toggle-show-think" type="button" title="Show thinking in chat">
+          <i data-lucide="eye"></i><span class="label">Show think</span>
+        </button>
+        <button class="toggle-btn" id="toggle-trace" type="button" title="Tool trace (/verbose)">
+          <i data-lucide="list-tree"></i><span class="label">Trace</span>
+        </button>
+        <button class="toggle-btn" id="toggle-auto" type="button" title="Auto-approve shell">
+          <i data-lucide="shield"></i><span class="label">Auto</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="banner reconnect" id="reconnect-banner">
+      <i data-lucide="wifi-off"></i>
+      <span class="banner-inner">Reconnecting to session…</span>
+    </div>
+
+    <div class="banner queue" id="queue-banner">
+      <i data-lucide="layers"></i>
+      <div class="banner-inner">
+        <span id="queue-summary">0 queued</span>
+        <div class="queue-list" id="queue-list"></div>
+      </div>
+      <i data-lucide="chevron-down"></i>
+    </div>
+
+    <div class="chat-wrap">
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon"><i data-lucide="message-square-plus"></i></div>
+        <h2>Remote control ready</h2>
+        <p>Send a message to your running Jarvis session from any device on your network.<span class="mobile-hint"> Tap <strong>Commands</strong> for sessions, models, and settings.</span></p>
+        <div class="quick-cmds">
+          <button class="quick-cmd" data-cmd="/session">Sessions</button>
+          <button class="quick-cmd" data-cmd="/model">Models</button>
+          <button class="quick-cmd" data-cmd="/agent">Agents</button>
+          <button class="quick-cmd" data-cmd="/stats">/stats</button>
+          <button class="quick-cmd" data-cmd="Hello">Say hello</button>
+        </div>
+      </div>
+      <div class="chat" id="chat"></div>
+      <button class="scroll-fab" id="scroll-fab" type="button" aria-label="Scroll to bottom">
+        <i data-lucide="arrow-down"></i>
+      </button>
+    </div>
+
+    <div class="composer">
+      <div class="composer-inner">
+        <textarea id="prompt" rows="1" placeholder="Message Jarvis…" autocomplete="off"></textarea>
+        <div class="composer-actions">
+          <button class="btn btn-stop" id="cancel" type="button" aria-label="Stop">
+            <i data-lucide="square"></i>
+          </button>
+          <button class="btn btn-send" id="send" type="button">
+            <i data-lucide="send"></i>
+            <span>Send</span>
+          </button>
+        </div>
+      </div>
+      <p class="composer-hint"><kbd>Enter</kbd> send · <kbd>Shift+Enter</kbd> newline · slash commands work</p>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
+
+  <div class="cmd-overlay" id="cmd-overlay">
+    <div class="cmd-hub" id="cmd-hub">
+      <div class="cmd-hub-head">
+        <h2>Commands</h2>
+        <button class="icon-btn" id="cmd-close" type="button" aria-label="Close">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="cmd-search-wrap">
+        <i data-lucide="search"></i>
+        <input class="cmd-search" id="cmd-search" type="search" placeholder="Search sessions, models, agents…" autocomplete="off">
+      </div>
+      <div class="cmd-quick" id="cmd-quick" aria-label="Quick toggles"></div>
+      <div class="cmd-tabs" id="cmd-tabs"></div>
+      <div class="cmd-effort hidden" id="cmd-effort"></div>
+      <div class="cmd-list" id="cmd-list"></div>
+    </div>
+  </div>
+
+  <div class="picker-overlay" id="picker-overlay">
+    <div class="picker-panel" id="picker-panel">
+      <div class="picker-head">
+        <div class="picker-title-wrap">
+          <span class="picker-icon" id="picker-icon"></span>
+          <div>
+            <h2 id="picker-title">Select</h2>
+            <p id="picker-sub"></p>
+          </div>
+        </div>
+        <button class="icon-btn" id="picker-close" type="button" aria-label="Close">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="picker-toolbar" id="picker-toolbar"></div>
+      <div class="picker-search-wrap">
+        <i data-lucide="search"></i>
+        <input class="picker-search" id="picker-search" type="search" placeholder="Search…" autocomplete="off">
+      </div>
+      <div class="picker-list" id="picker-list"></div>
+      <div class="picker-detail hidden" id="picker-detail"></div>
+      <div class="picker-foot" id="picker-foot"></div>
+    </div>
+  </div>
+
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+  <aside class="drawer" id="drawer">
+    <h2>Session <button class="icon-btn" id="drawer-close" type="button" aria-label="Close"><i data-lucide="x"></i></button></h2>
+    <div class="drawer-section">
+      <h3>Connection</h3>
+      <div class="drawer-row"><span>Status</span><span id="drawer-status">—</span></div>
+      <div class="drawer-row"><span>Model</span><span id="drawer-model">—</span></div>
+      <div class="drawer-row"><span>Agent</span><span id="drawer-agent">—</span></div>
+      <div class="drawer-row"><span>Session</span><span id="drawer-session">—</span></div>
+    </div>
+    <div class="drawer-section">
+      <h3>Usage</h3>
+      <div class="drawer-row"><span>Tokens in/out/total</span><span id="drawer-tokens">—</span></div>
+      <div class="drawer-row"><span>Tool calls</span><span id="drawer-tools">—</span></div>
+    </div>
+    <div class="drawer-section">
+      <h3>Shortcuts</h3>
+      <div class="drawer-row"><span>/session</span><span>Switch session</span></div>
+      <div class="drawer-row"><span>/model</span><span>Change model</span></div>
+      <div class="drawer-row"><span>/think on|off</span><span>Extended thinking</span></div>
+      <div class="drawer-row"><span>/verbose</span><span>Tool trace</span></div>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

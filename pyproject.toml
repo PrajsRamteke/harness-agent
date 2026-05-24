@@ -23,3 +23,6 @@ jarvis = "jarvis.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["harness*", "jarvis*"]
+
+[tool.setuptools.package-data]
+"jarvis.web" = ["ui.html", "static/**/*"]

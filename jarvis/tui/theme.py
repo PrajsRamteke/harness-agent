@@ -549,6 +549,35 @@ Screen {{
     overflow: hidden;
 }}
 
+/* ── Web remote bar (bottom — open / copy URL) ──────────────────── */
+#webar {{
+    height: auto;
+    min-height: 1;
+    max-height: 3;
+    background: {BG_1};
+    color: {FG};
+    padding: 0 2;
+    margin: 0;
+    min-width: 0;
+    border-top: solid {ACCENT};
+    overflow: hidden;
+}}
+#webar.hidden {{
+    display: none;
+    height: 0;
+    min-height: 0;
+    max-height: 0;
+    padding: 0;
+    border: none;
+}}
+#webar #web_open {{
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    overflow: hidden;
+}}
+
 /* ── Shared widget defaults ─────────────────────────────────────── */
 Input, TextArea {{
     background: {BG_2};
