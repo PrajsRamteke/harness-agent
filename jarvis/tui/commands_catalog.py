@@ -22,7 +22,7 @@ COMMANDS = [
     ("/keytest", "show what key your terminal sends (Shift+Enter debug)"),
     ("/exit", "quit"),
     # Context
-    ("/pin ", "pin context injected into every system prompt"),
+    ("/pin", "pinned context — view · append · /pin on|off|toggle · clear via /unpin"),
     ("/unpin", "clear pinned context"),
     ("/note ", "append a note to your notes file"),
     ("/notes", "show your notes file"),

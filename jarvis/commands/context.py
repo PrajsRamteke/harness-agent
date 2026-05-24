@@ -1,23 +1,80 @@
 """Handlers for context-management slash commands: pin, alias, notes, clipboard."""
+from rich.markup import escape
+
 from ..console import console, Panel, Markdown
-from ..constants import NOTES_FILE, PANEL_PREVIEW_CHARS
+from ..constants import NOTES_FILE, PANEL_PREVIEW_CHARS, PIN_FILE
 from ..tools.mac.clipboard import clipboard_get, clipboard_set
 from ..tools.image_input import append_image_block, clipboard_image_to_file, file_digest, ocr_image_block
-from ..storage.prefs import save_pin, save_aliases
+from ..storage.prefs import save_aliases
+from ..storage import pin as pin_store
 from .. import state
+
+
+def render_pin_preview() -> None:
+    """Show numbered pinned-context preview in a panel."""
+    text = pin_store.pin_text()
+    enabled = pin_store.is_enabled()
+    if not text:
+        console.print(Panel(
+            "[dim]No pinned context yet.[/]\n\n"
+            "[dim]Use [/][cyan]/pin <text>[/][dim] to append standing instructions, "
+            "or [/][cyan]/pin[/][dim] in the TUI to open the pin viewer.[/]",
+            title="📌 Pinned Context",
+            border_style="magenta",
+        ))
+        return
+    lines, chars = pin_store.pin_stats(text)
+    noun = "lines" if lines != 1 else "line"
+    body = "\n".join(
+        f"[dim]{line_no:>3}[/]  {escape(content)}"
+        for line_no, content in pin_store.preview_lines(text)
+    )
+    state_label = "[green]injection on[/]" if enabled else "[yellow]injection paused[/]"
+    console.print(Panel(
+        f"{state_label}\n\n{body}\n\n[dim]{PIN_FILE}[/]",
+        title=f"📌 Pinned Context  ({lines} {noun}, {chars} chars)",
+        border_style="magenta" if enabled else "yellow",
+    ))
+
+
+def _handle_pin_toggle(arg: str) -> bool:
+    """Handle /pin on|off|toggle. Returns True if ``arg`` was a toggle subcommand."""
+    sub = (arg.split(maxsplit=1)[0] if arg else "").lower()
+    if sub in ("on", "enable", "enabled"):
+        pin_store.set_enabled(True)
+        console.print("[green]▪ pin injection enabled[/]")
+        return True
+    if sub in ("off", "disable", "disabled"):
+        pin_store.set_enabled(False)
+        console.print("[yellow]▪ pin injection disabled — saved text kept[/]")
+        return True
+    if sub in ("toggle", "switch"):
+        on = pin_store.toggle_enabled()
+        if on:
+            console.print("[green]▪ pin injection enabled[/]")
+        else:
+            console.print("[yellow]▪ pin injection disabled — saved text kept[/]")
+        return True
+    return False
 
 
 def handle_context(c: str, arg: str):
     """Return (handled, new_inp_or_None). new_inp signals fall-through send."""
     if c == "/pin":
         if not arg:
-            console.print("usage: /pin <text>"); return True, None
-        state.pinned_context = (state.pinned_context + "\n" + arg).strip()
-        save_pin()
-        console.print(f"[green]▪ pinned ({len(state.pinned_context)} chars)[/]")
+            render_pin_preview()
+            return True, None
+        if _handle_pin_toggle(arg):
+            return True, None
+        lines, chars = pin_store.append_pin(arg)
+        enabled = "on" if pin_store.is_enabled() else "paused"
+        console.print(
+            f"[green]▪ pinned ({lines} line{'s' if lines != 1 else ''}, "
+            f"{chars} chars, injection {enabled})[/]"
+        )
         return True, None
     if c == "/unpin":
-        state.pinned_context = ""; save_pin()
+        pin_store.clear_pin()
         console.print("[green]▪ cleared[/]")
         return True, None
     if c == "/notes":

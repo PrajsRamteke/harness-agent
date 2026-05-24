@@ -20,7 +20,7 @@ _SECTIONS = [
         ("/exit", "quit"),
     ]),
     ("Context", [
-        ("/pin <text>", "pin context injected into every system prompt"),
+        ("/pin [<text>]", "view pinned context · append text · /pin on|off|toggle to pause injection"),
         ("/unpin", "clear pinned context"),
         ("/note <text>", "append a note to your notes file"),
         ("/notes", "show your notes file"),

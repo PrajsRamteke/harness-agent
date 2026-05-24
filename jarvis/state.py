@@ -108,6 +108,7 @@ global_mcp: bool = False            # if True, include MCP servers from global c
 
 # user context
 pinned_context: str = PIN_FILE.read_text() if PIN_FILE.exists() else ""
+pin_enabled: bool = True          # inject pinned_context into system prompt when True
 aliases: Dict[str, str] = (
     json.loads(ALIAS_FILE.read_text()) if ALIAS_FILE.exists() else {}
 )
@@ -371,9 +372,6 @@ def set_active_agent(record: Optional[dict]) -> None:
     save_agent_config()
 
 
-# ── think_mode persistence ──────────────────────────────────────────────────
-
-
 def save_trace_config() -> None:
     """Persist trace.on (show_internal) to settings.json."""
     try:
@@ -391,6 +389,27 @@ def _reload_saved_trace() -> None:
         v = get_settings().get("trace.on")
         if isinstance(v, bool):
             show_internal = v
+    except Exception:
+        pass
+
+
+def save_pin_config() -> None:
+    """Persist pin.enabled to settings.json."""
+    try:
+        from .storage.settings import get_settings
+        get_settings().set("pin.enabled", pin_enabled)
+    except Exception:
+        pass
+
+
+def _reload_saved_pin() -> None:
+    """Restore pin.enabled from settings.json."""
+    global pin_enabled
+    try:
+        from .storage.settings import get_settings
+        v = get_settings().get("pin.enabled")
+        if isinstance(v, bool):
+            pin_enabled = v
     except Exception:
         pass
 
@@ -438,6 +457,7 @@ def apply_settings_to_state() -> None:
     _reload_saved_mcp()
     _reload_saved_think()
     _reload_saved_trace()
+    _reload_saved_pin()
     _reload_saved_agent_name()
     try:
         from .storage.settings import get_settings
@@ -464,5 +484,6 @@ _reload_saved_theme()
 _reload_saved_skills()
 _reload_saved_think()
 _reload_saved_trace()
+_reload_saved_pin()
 _reload_saved_mcp()
 _reload_saved_agent_name()

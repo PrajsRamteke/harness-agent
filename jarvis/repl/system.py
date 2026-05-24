@@ -125,7 +125,9 @@ def _build_static_body() -> str:
     skills_block = skills_prompt_block()
     mcp_block = mcp_prompt_block()
     agents_block = agents_prompt_block()
-    pinned = state.pinned_context.strip()
+    from ..storage import pin as pin_store
+    pinned = pin_store.injection_cache_key()
+    pinned_for_prompt = pin_store.injection_text()
     from pathlib import Path
     cwd = str(Path.cwd())
     branch = _get_git_branch(cwd)
@@ -143,8 +145,8 @@ def _build_static_body() -> str:
         return _cached_body
 
     body = build_base_system(Path(cwd), git_branch=branch)
-    if pinned:
-        body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned
+    if pinned_for_prompt:
+        body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned_for_prompt
 
     # ── Lazy-load system prompt section ──────────────────────────────────
     # Skill headers (name + description) ARE injected so the agent can match

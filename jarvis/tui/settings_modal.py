@@ -40,6 +40,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "think.mode":    "Enable extended thinking",
     "think.effort":  "Thinking effort — none / low / medium / high",
     "trace.on":      "Show thinking + tool panels in chat (^T trace)",
+    "pin.enabled":   "Inject pinned.txt into every system prompt (/pin off to pause)",
 }
 
 

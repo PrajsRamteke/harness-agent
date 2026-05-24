@@ -101,6 +101,11 @@ def _is_memory_modal_command(text: str) -> bool:
     return s in ("/memory", "/memories")
 
 
+def _is_pin_modal_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s == "/pin"
+
+
 def _is_lesson_modal_command(text: str) -> bool:
     s = (text or "").strip().lower()
     return s in ("/lesson", "/lessons")
@@ -156,6 +161,22 @@ def _agent_badge_markup() -> str:
     if rec.get("scope") == "global":
         return f"[bold {color}]{label}[/] [{ui.FG_DIM}](g)[/]"
     return f"[bold {color}]{label}[/]"
+
+
+def _pin_status_markup() -> str:
+    """Compact pinned-context indicator for the status bar."""
+    from ..storage import pin as pin_store
+
+    text = pin_store.pin_text()
+    if not text:
+        return f"[{ui.FG_DIM}]pin·off[/]"
+    lines, chars = pin_store.pin_stats(text)
+    if not pin_store.is_enabled():
+        return f"[{ui.WARN}]pin·paused[/][{ui.FG_DIM}]/{lines}L[/]"
+    return (
+        f"[{ui.ACCENT_2}]pin[/][{ui.FG_DIM}]·[/]"
+        f"[{ui.ACCENT}]{lines}L[/][{ui.FG_DIM}]/{chars}c[/]"
+    )
 
 
 # ─── multi-line prompt (Enter submits, Ctrl+J / Alt+Enter for newline) ───
@@ -684,6 +705,24 @@ class JarvisTUI(App):
             parts.append(
                 f"{' & '.join(sk_mcp)} [{ui.FG_MUTE}]auto-invoked when needed[/]"
             )
+        from ..storage import pin as pin_store
+
+        pin_body = pin_store.pin_text()
+        if pin_body:
+            lines, chars = pin_store.pin_stats(pin_body)
+            noun = "lines" if lines != 1 else "line"
+            if pin_store.is_enabled():
+                parts.append(
+                    f"📌 [bold {ui.ACCENT_2}]pinned[/] "
+                    f"[{ui.FG_MUTE}]{lines} {noun} · {chars} chars[/] "
+                    f"[{ui.FG_MUTE}]· [/][{ui.ACCENT_3}]/pin[/][{ui.FG_MUTE}] view[/]"
+                )
+            else:
+                parts.append(
+                    f"📌 [bold {ui.WARN}]paused[/] "
+                    f"[{ui.FG_MUTE}]{lines} {noun} saved · {chars} chars[/] "
+                    f"[{ui.FG_MUTE}]· [/][{ui.ACCENT_3}]/pin on[/][{ui.FG_MUTE}] enable[/]"
+                )
         if not parts:
             return None
         sep = f" [{ui.SEP}]·[/] "
@@ -783,6 +822,9 @@ class JarvisTUI(App):
             segs.append(f"[{ui.OK}]think:{state.think_effort}[/]")
         else:
             segs.append(f"[{ui.FG_DIM}]think:off[/]")
+
+        # ── pinned context ────────────────────────────────────────────
+        segs.append(_pin_status_markup())
 
         # ── project context file ──────────────────────────────────────
         if state.project_context_file:
@@ -1239,6 +1281,10 @@ class JarvisTUI(App):
                 self._open_memory_modal()
                 inp.focus()
                 return
+            if _is_pin_modal_command(cmd):
+                self._open_pin_modal()
+                inp.focus()
+                return
             if _is_lesson_modal_command(cmd):
                 self._open_lesson_modal()
                 inp.focus()
@@ -1389,6 +1435,15 @@ class JarvisTUI(App):
         from .memory_modal import MemoryModalScreen
 
         self.push_screen(MemoryModalScreen(), after)
+
+    def _open_pin_modal(self):
+        def after(_: object) -> None:
+            self._write_status_line(busy=self._busy and bool(self._activity_label))
+            self._write_context_strip()
+            self._set_status("ready")
+        from .pin_modal import PinModalScreen
+
+        self.push_screen(PinModalScreen(), after)
 
     def _open_lesson_modal(self):
         def after(_: object) -> None:
@@ -1653,6 +1708,9 @@ class JarvisTUI(App):
         if stripped in ("/memory",):
             self._open_memory_modal()
             return
+        if stripped in ("/pin",):
+            self._open_pin_modal()
+            return
         if stripped in ("/lesson",):
             self._open_lesson_modal()
             return
@@ -1737,6 +1795,9 @@ class JarvisTUI(App):
             return
         if _is_memory_modal_command(text):
             self._open_memory_modal()
+            return
+        if _is_pin_modal_command(text):
+            self._open_pin_modal()
             return
         if _is_lesson_modal_command(text):
             self._open_lesson_modal()

@@ -251,7 +251,8 @@ def header_panel(compact: bool = False):
     cwd = pathlib.Path.cwd()
     cwd_text = escape(str(cwd))
     pinned_flag = (
-        f"[{c['accent']}]pinned[/]" if state.pinned_context.strip()
+        f"[{c['accent']}]pinned[/]" if state.pinned_context.strip() and state.pin_enabled
+        else f"[{c['warn']}]paused[/]" if state.pinned_context.strip()
         else f"[{c['fg_dim']}]no pin[/]"
     )
     think_hl = f"[{c['accent']}]{state.think_effort}[/]"
