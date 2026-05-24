@@ -709,20 +709,10 @@ class JarvisTUI(App):
 
         pin_body = pin_store.pin_text()
         if pin_body:
-            lines, chars = pin_store.pin_stats(pin_body)
-            noun = "lines" if lines != 1 else "line"
             if pin_store.is_enabled():
-                parts.append(
-                    f"📌 [bold {ui.ACCENT_2}]pinned[/] "
-                    f"[{ui.FG_MUTE}]{lines} {noun} · {chars} chars[/] "
-                    f"[{ui.FG_MUTE}]· [/][{ui.ACCENT_3}]/pin[/][{ui.FG_MUTE}] view[/]"
-                )
+                parts.append(f"📌 [bold {ui.ACCENT_2}]pinned[/]")
             else:
-                parts.append(
-                    f"📌 [bold {ui.WARN}]paused[/] "
-                    f"[{ui.FG_MUTE}]{lines} {noun} saved · {chars} chars[/] "
-                    f"[{ui.FG_MUTE}]· [/][{ui.ACCENT_3}]/pin on[/][{ui.FG_MUTE}] enable[/]"
-                )
+                parts.append(f"📌 [bold {ui.WARN}]paused[/]")
         if not parts:
             return None
         sep = f" [{ui.SEP}]·[/] "
