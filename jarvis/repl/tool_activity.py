@@ -131,8 +131,8 @@ def describe_tool_activity(name: str, raw_input) -> str:
         return "Listing running apps"
     if name == "frontmost_app":
         return "Reading frontmost app"
-    if name == "applescript":
-        return f"AppleScript: {c(d.get('code', ''))}"
+    if name == "run_powershell":
+        return f"PowerShell: {c(d.get('code', ''))}"
     if name == "read_ui":
         app = d.get("app") or "frontmost"
         return f"Reading UI tree: {c(str(app))}"
@@ -141,7 +141,7 @@ def describe_tool_activity(name: str, raw_input) -> str:
     if name == "wait":
         return f"Waiting {d.get('seconds', 0)}s"
     if name == "check_permissions":
-        return "Checking Accessibility permission"
+        return "Checking UI Automation"
     if name == "type_text":
         return f"Typing: {c(d.get('text', ''))}"
     if name == "key_press":
@@ -171,15 +171,10 @@ def describe_tool_activity(name: str, raw_input) -> str:
         if d.get("rate"):
             bits.append(f"rate={d.get('rate')}")
         return " ".join(bits)
-    if name == "shortcut_run":
-        line = f"Shortcut: {c(d.get('name', ''))}"
-        if d.get("input_text"):
-            line += f" ({c(str(d.get('input_text')), 40)})"
-        return line
-    if name == "mac_control":
+    if name == "win_control":
         act = d.get("action", "")
         if d.get("value"):
-            return f"Mac control: {c(str(act))} → {c(str(d.get('value')), 24)}"
-        return f"Mac control: {c(str(act))}"
+            return f"Windows control: {c(str(act))} → {c(str(d.get('value')), 24)}"
+        return f"Windows control: {c(str(act))}"
 
     return f"Tool {name}"

@@ -204,15 +204,15 @@ CORE_TOOLS = CONTEXT_TOOLS + [
 
 OCR_TOOLS = [
     {"name": "read_image_text", "description": (
-        "Extract text from an image file using macOS Vision framework (on-device OCR). "
-        "Supports PNG, JPG, JPEG, HEIC, TIFF, BMP. Accurate, no internet required. "
+        "Extract text from an image file using Windows OCR (on-device). "
+        "Supports PNG, JPG, JPEG, WEBP, TIFF, BMP. Accurate, no internet required. "
         "Use this whenever the user points to a screenshot, photo, or image with text in it."
     ),
      "input_schema": {"type": "object", "properties": {
         "path": {"type": "string", "description": "Absolute or relative path to the image file"}},
         "required": ["path"]}},
     {"name": "read_images_text", "description": (
-        "Bulk OCR many image files concurrently using macOS Vision. Use this for folders "
+        "Bulk OCR many image files concurrently using Windows OCR. Use this for folders "
         "with many screenshots/photos where only some files contain useful IDs, documents, "
         "forms, licenses, or other important text. It scans only image extensions, limits "
         "the number of files, and returns compact per-file text previews to save tokens."

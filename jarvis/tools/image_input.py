@@ -52,27 +52,26 @@ def extract_image_paths(text: str) -> list[tuple[str, pathlib.Path]]:
 
 
 def clipboard_image_to_file() -> Optional[pathlib.Path]:
-    """If the macOS clipboard contains an image, write it to a temp PNG and return its path."""
+    """If the Windows clipboard contains an image, write it to a temp PNG and return its path."""
     tmp = pathlib.Path(tempfile.gettempdir()) / "jarvis_clipboard.png"
-    script = f'''try
-    set pngData to (the clipboard as «class PNGf»)
-    set fp to open for access POSIX file "{tmp}" with write permission
-    set eof fp to 0
-    write pngData to fp
-    close access fp
-    return "ok"
-on error errMsg
-    try
-        close access POSIX file "{tmp}"
-    end try
-    return "err:" & errMsg
-end try'''
+    ps = f"""
+Add-Type -AssemblyName System.Windows.Forms
+if ([System.Windows.Forms.Clipboard]::ContainsImage()) {{
+  $img = [System.Windows.Forms.Clipboard]::GetImage()
+  $img.Save('{str(tmp).replace(chr(92), chr(92)+chr(92))}', [System.Drawing.Imaging.ImageFormat]::Png)
+  'ok'
+}} else {{ 'err:no image' }}
+"""
     try:
-        r = subprocess.run(["osascript", "-"], input=script, text=True,
-                           capture_output=True, timeout=5)
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
     except Exception:
         return None
-    if r.stdout.strip().startswith("ok") and tmp.exists() and tmp.stat().st_size > 0:
+    if "ok" in (r.stdout or "") and tmp.exists() and tmp.stat().st_size > 0:
         return tmp
     return None
 

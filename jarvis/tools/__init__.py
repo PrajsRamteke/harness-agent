@@ -6,12 +6,12 @@ from .shell import run_bash
 from .search import search_code
 from .git import git_status, git_diff, git_log
 from .context import resolve_context, read_bundle
-from .mac import (
-    applescript, launch_app, focus_app, quit_app, list_apps, frontmost_app,
+from .windows import (
+    run_powershell, launch_app, focus_app, quit_app, list_apps, frontmost_app,
     read_ui, click_element, wait, check_permissions,
     type_text, key_press, click_menu, click_at,
     clipboard_get, clipboard_set,
-    open_url, notify, speck, shortcut_run, mac_control,
+    open_url, notify, speck, win_control,
 )
 from .web import web_search, fetch_url, verified_search
 from .ocr import read_image_text, read_images_text
@@ -20,16 +20,14 @@ from .lessons import lesson_save, lesson_search, lesson_list, lesson_delete, LES
 from .skills import skill_list, skill_load, SKILL_TOOLS
 from .ask_user import ask_user_question
 from .schemas_core import CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS
-from .schemas_mac import MAC_TOOLS
+from .schemas_windows import WINDOWS_TOOLS
 
-# MCP group starts empty — populated dynamically by the MCP registry
-# when servers connect. Import is deferred to avoid circular imports.
 MCP_TOOLS: list[dict] = []
-TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + LESSON_TOOLS + SKILL_TOOLS + OCR_TOOLS + MCP_TOOLS
+TOOLS = CORE_TOOLS + WINDOWS_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + LESSON_TOOLS + SKILL_TOOLS + OCR_TOOLS + MCP_TOOLS
 TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
     "context": CONTEXT_TOOLS,
-    "mac": MAC_TOOLS,
+    "windows": WINDOWS_TOOLS,
     "internet": INTERNET_TOOLS,
     "memory": MEMORY_TOOLS,
     "lessons": LESSON_TOOLS,
@@ -51,30 +49,29 @@ FUNC = {
     "fast_find": fast_find,
     "git_status": git_status, "git_diff": git_diff,
     "git_log": git_log,
-    # context (connected context pack — replaces 5-20 reads with 1 call)
     "resolve_context": resolve_context,
     "read_bundle": read_bundle,
-    # mac
+    # windows desktop
     "launch_app": launch_app, "focus_app": focus_app, "quit_app": quit_app,
     "list_apps": list_apps, "frontmost_app": frontmost_app,
-    "applescript": applescript, "read_ui": read_ui,
+    "run_powershell": run_powershell, "read_ui": read_ui,
     "click_element": click_element, "wait": wait,
     "check_permissions": check_permissions,
     "type_text": type_text, "key_press": key_press,
     "click_menu": click_menu, "click_at": click_at,
     "clipboard_get": clipboard_get, "clipboard_set": clipboard_set,
     "open_url": open_url, "notify": notify, "speck": speck,
-    "shortcut_run": shortcut_run, "mac_control": mac_control,
+    "win_control": win_control,
     # internet
     "web_search": web_search, "fetch_url": fetch_url,
     "verified_search": verified_search,
     # memory
     "memory_save": memory_save, "memory_list": memory_list,
     "memory_delete": memory_delete,
-    # lessons (agent self-learning)
+    # lessons
     "lesson_save": lesson_save, "lesson_search": lesson_search,
     "lesson_list": lesson_list, "lesson_delete": lesson_delete,
-    # skills (project-base reusable instructions / SKILL.md)
+    # skills
     "skill_list": skill_list, "skill_load": skill_load,
     # ocr
     "read_image_text": read_image_text,
@@ -83,9 +80,6 @@ FUNC = {
     "ask_user_question": ask_user_question,
 }
 
-# ── MCP registry integration ─────────────────────────────────────────────
-# Wire the MCP registry into Jarvis's tool dictionaries so connected MCP
-# servers dynamically add/remove their tools.
 from ..mcp.registry import mcp_registry as _mcp_registry
 
 _mcp_registry.init_jarvis(
@@ -95,7 +89,6 @@ _mcp_registry.init_jarvis(
     tool_name_to_group=TOOL_NAME_TO_GROUP,
 )
 
-# Re-export for convenience
 from ..mcp.registry import mcp_registry
 from ..mcp.config import get_config, MCPConfig
 from ..mcp import handle_mcp_command

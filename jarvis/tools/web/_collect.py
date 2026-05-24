@@ -16,7 +16,7 @@ def gather_candidates(query: str) -> list:
             + "&format=json&no_redirect=1&no_html=1&skip_disambig=1"
         )
         req = urllib.request.Request(
-            ia_url, headers={"User-Agent": "HarnessAgent/1.0 (macOS; python)"}
+            ia_url, headers={"User-Agent": "HarnessAgent/1.0 (Windows; python)"}
         )
         with urllib.request.urlopen(req, timeout=10) as r:
             data = json.loads(r.read().decode("utf-8", errors="replace"))

@@ -13,8 +13,8 @@ WEB_RE = re.compile(
     r"\b(web|internet|search online|look up|latest|today|news|price|weather|url|https?://|docs?|documentation)\b",
     re.I,
 )
-MAC_RE = re.compile(
-    r"\b(click|type|press|open app|launch|focus|safari|finder|whatsapp|messages|mail|calendar|reminders|clipboard|screen|ui|macos|speak|speck|read aloud|text to speech|tts|aloud|voice|sound|notify)\b",
+WIN_RE = re.compile(
+    r"\b(click|type|press|open app|launch|focus|notepad|explorer|edge|chrome|outlook|powershell|clipboard|screen|ui|windows|speak|speck|read aloud|text to speech|tts|aloud|voice|sound|notify)\b",
     re.I,
 )
 OCR_RE = re.compile(
@@ -103,8 +103,8 @@ def select_tools(messages: list[dict]) -> list[dict]:
 
     if WEB_RE.search(text) or "internet" in active:
         groups.append("internet")
-    if MAC_RE.search(text) or "mac" in active:
-        groups.append("mac")
+    if WIN_RE.search(text) or "windows" in active:
+        groups.append("windows")
     if OCR_RE.search(text) or "ocr" in active:
         groups.append("ocr")
     if MEMORY_RE.search(text) or "memory" in active:

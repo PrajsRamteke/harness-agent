@@ -1,0 +1,37 @@
+name: Windows branch
+
+on:
+  push:
+    branches: [windows]
+  pull_request:
+    branches: [windows]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Unit tests
+        run: python -m unittest tests.test_windows_branch -v
+
+      - name: PowerShell tool smoke
+        run: |
+          python -c "from jarvis.tools.windows.powershell import run_powershell; o=run_powershell('Write-Output ci-ok'); assert 'ci-ok' in o, o; print(o)"
+
+      - name: Clipboard smoke
+        run: |
+          python -c "from jarvis.tools.windows.clipboard import clipboard_set,clipboard_get; clipboard_set('ci'); assert clipboard_get()=='ci'; print('clipboard ok')"
+
+      - name: UI probe
+        run: |
+          python -c "from jarvis.tools.windows.ui import check_permissions; print(check_permissions())"

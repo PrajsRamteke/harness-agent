@@ -1,302 +1,173 @@
-# Harness — Jarvis Terminal Agent
+# Harness — Jarvis Terminal Agent (Windows)
 
-**AI coding agent for your terminal.**  
-Chat, run tools, edit files, execute shell commands, and control macOS — all from one TUI.
+**AI coding agent for your terminal on Windows.**  
+Chat, run tools, edit files, execute shell commands, and control Windows apps — all from one TUI.
 
-
+> **This is the `windows` branch.** macOS users: use the `main` branch instead.
 
 ---
 
-## ✨ Overview
+## Quick Start (Windows)
 
-Harness is a **terminal-native AI agent** that lives in your terminal. You talk to it, it uses tools — reads/writes files, runs shell commands, searches code, uses git, controls macOS apps, OCRs images, browses the web — and gets work done right where your code lives.
+Open **PowerShell** and run:
+
+```powershell
+irm https://raw.githubusercontent.com/PrajsRamteke/harness-agent/windows/scripts/install.ps1 | iex
+```
+
+Then open a **new terminal**, go to any project folder, and run:
+
+```powershell
+jarvis
+```
+
+You'll be prompted to pick an auth method on first run.
+
+### macOS install (unchanged — `main` branch)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
+source ~/.zshrc
+jarvis
+```
+
+---
+
+## Overview
+
+Harness is a **terminal-native AI agent**. It reads/writes files, runs shell commands, searches code, uses git, controls Windows apps via UI Automation, OCRs images, browses the web — from one TUI.
 
 > **No web UI, no daemon.** Just `jarvis` in your project folder.
 
 ---
 
-## 🚀 Quick Start
+## Features
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
-source ~/.zshrc   # or ~/.zprofile on macOS
-jarvis
-```
-
-That's it. You'll be prompted to pick an auth method on first run.
-
----
-
-## 🖼️ Screenshots
-
-
-|     |     |
+| | |
 | --- | --- |
-|     |     |
-
-
----
-
-## 📋 Table of Contents
-
-- [Features](#-features)
-- [Requirements](#-requirements)
-- [Installation](#-installation)
-- [Usage](#-usage)
-- [Slash Commands](#-slash-commands)
-- [Environment Variables](#-environment-variables)
-- [Project Layout](#-project-layout)
-- [Notes](#-notes)
+| Interactive TUI with markdown, syntax highlighting, streaming | Dual auth: API key or OAuth PKCE |
+| File ops: read, write, edit, glob, rank, ripgrep search | Shell: cmd/PowerShell via `run_bash` |
+| Git status, diff, log inline | **Windows control**: launch/focus apps, UI tree, click, type, PowerShell, clipboard, toast notifications |
+| Web search + verified multi-source lookup | Persistent memory, skills, MCP |
+| Windows OCR (built-in Media OCR + optional Tesseract) | Themes, agents, cost tracking |
 
 ---
 
-## 🧰 Features
+## Requirements
 
+- **Windows 10/11**
+- **Python 3.10+** — [python.org/downloads](https://www.python.org/downloads/) (enable **Add python.exe to PATH**)
+- **Git for Windows** — [git-scm.com/download/win](https://git-scm.com/download/win)
+- **API key** (sk-ant-…) or Anthropic Pro/Max (OAuth)
 
-|                                                                                                                                 |                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 💬 Interactive TUIRich terminal UI with markdown rendering, syntax-highlighted code, panels, and streaming responses.          | 🔐 Dual AuthUse an **API key** (sk-ant-…) or sign in with **OAuth** via PKCE.                                                             |
-| 📁 File OperationsRead, write, edit files. List directories, glob patterns, rank files by relevance, search code with ripgrep. | 🐚 Shell AccessRun any shell command, view output inline — no context switching.                                                          |
-| ⎇ Git IntegrationStatus, diff, log — all from the chat. No need to tab out.                                                    | 🖥️ macOS ControlLaunch/focus/quit apps, click UI elements, type text, run AppleScript, use keyboard shortcuts, clipboard, notifications. |
-| 🌐 Web AccessSearch the web and fetch URLs. Verified search cross-checks multiple sources for factual answers.                 | 🧠 Persistent MemoryRemembers facts about you across sessions. Stores skills, notes, and aliases under `~/.config/claude-agent/`.         |
-| 📊 Cost Tracking`/cost` shows token usage and estimated USD spend per session.                                                 | 🔌 MCP SupportModel Context Protocol — connect external tools and data sources.                                                           |
-| 🎨 ThemesBuilt-in **red** and **purple** themes. Easily extensible.                                                            |                                                                                                                                            |
+### Optional (recommended)
 
-
----
-
-## ✅ Requirements
-
-- **Python 3.10+** — If your system Python is older, install a newer one:
-  ```bash
-  brew install python@3.11
-  ```
-- **macOS** — required for macOS control features. Core agent works on any platform.
-- **API key** (sk-ant-…) or a **Pro/Max subscription**
+| Tool | Purpose |
+| --- | --- |
+| [Everything](https://www.voidtools.com/) (`es.exe` on PATH) | Instant `fast_find` across the PC |
+| [ripgrep](https://github.com/BurntSushi/ripgrep/releases) (`rg`) | Fast `search_code` |
+| [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) | OCR fallback if WinRT OCR fails |
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### One-command install (recommended)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
+```powershell
+irm https://raw.githubusercontent.com/PrajsRamteke/harness-agent/windows/scripts/install.ps1 | iex
 ```
 
-After install, open a **new terminal**, go to any project, and run:
+Install location: `%USERPROFILE%\.local\share\harness-agent`  
+Command shim: `%USERPROFILE%\.local\bin\jarvis.cmd`
 
-```bash
-jarvis
+**If `jarvis` is not found**, add to PATH manually:
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", "$env:USERPROFILE\.local\bin;" + [Environment]::GetEnvironmentVariable("Path","User"), "User")
 ```
-
-**Troubleshooting: "command not found: jarvis"**
-
-If your shell can't find `jarvis`, add `~/.local/bin` to your PATH:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-jarvis
-```
-
-Add that line to your `~/.zshrc` to make it permanent.
-
-
 
 ### Development setup
 
-```bash
-git clone https://github.com/PrajsRamteke/harness-agent.git
+```powershell
+git clone -b windows https://github.com/PrajsRamteke/harness-agent.git
 cd harness-agent
-python3 -m venv .venv
-source .venv/bin/activate
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -e .
-```
-
-Then run:
-
-```bash
-jarvis        # TUI mode (default)
-# or
-python agent.py --legacy   # Rich REPL mode
-```
-
----
-
-## 🎮 Usage
-
-```bash
 jarvis
 ```
 
-Run it from the **folder you want it to work in**. The status bar shows the current project path — all file operations, code searches, and shell commands are scoped to that directory.
+---
 
-### First run
+## Windows desktop tools
 
-On first launch, you'll pick how to authenticate:
+| Tool | Description |
+| --- | --- |
+| `launch_app` / `focus_app` / `quit_app` | App lifecycle |
+| `read_ui` / `click_element` | UI Automation tree + click by text |
+| `type_text` / `key_press` | Keyboard simulation |
+| `run_powershell` | Arbitrary PowerShell automation |
+| `clipboard_get` / `clipboard_set` | Clipboard |
+| `notify` | Toast notification |
+| `speck` | Text-to-speech (SAPI) |
+| `win_control` | Lock, sleep, battery, theme toggle, etc. |
 
-
-| Option      | How it works                                                                      |
-| ----------- | --------------------------------------------------------------------------------- |
-| **API key** | Paste an `sk-ant-…` key. Saved at `~/.config/claude-agent/key` (permissions: 600) |
-| **OAuth**   | Opens your browser to sign in with your Pro/Max account via PKCE                  |
-
-
-### ⌨️ Slash Commands
-
-
-| Command             | What it does                                                    |
-| ------------------- | --------------------------------------------------------------- |
-| `/help`             | List all commands                                               |
-| `/model <name>`     | Switch models (e.g. `opus-4-7`, `haiku-4-5`)                    |
-| `/agent`            | Open the agent picker — choose a project or global agent        |
-| `/agent <name>`     | Activate an agent by name (Tab cycles through agents)           |
-| `/agent new <name>` | Scaffold a new agent in `.harness/agents/<name>.md`             |
-| `/agent init`       | Scaffold a `.harness/` tree in the current project              |
-| `/skill`            | Open the skill browser (LLM auto-invokes skills by description) |
-| `/verbose` / `F2`   | Toggle internal thinking and tool traces (shown by default)     |
-| `/cost`             | Show token usage + estimated USD cost                           |
-| `/clear`            | Reset the conversation                                          |
-| `/logout`           | Clear saved credentials                                         |
-| `/theme`            | Switch themes                                                   |
-
+Run `check_permissions` if UI tools fail — often caused by mixing elevated and non-elevated terminals/apps.
 
 ---
 
-## ⚙️ Environment Variables
+## Usage
 
-
-| Variable                       | What it does                           | Default                            |
-| ------------------------------ | -------------------------------------- | ---------------------------------- |
-| `ANTHROPIC_API_KEY`            | Use this key instead of the stored one | —                                  |
-| `CLAUDE_MODEL`                 | Override default model                 | `sonnet-4-6`                       |
-| `HARNESS_MAX_PARALLEL_TOOLS`   | Max concurrent tool workers            | `64` (capped)                      |
-| `HARNESS_HTTP_READ_TIMEOUT`    | Streaming response timeout (s)         | `240` (OpenRouter), `600` (direct) |
-| `HARNESS_HTTP_CONNECT_TIMEOUT` | Connection timeout (s)                 | `30`                               |
-| `HARNESS_STREAM_REPLY`         | Set to `0` to disable live streaming   | `1`                                |
-
-
----
-
-## 🎛️ Agents & Skills
-
-Harness uses two file-based extension points — **agents** (manual select) and
-**skills** (LLM auto-invoke) — that aggregate from every AI tool's config
-directory (Harness, Claude Code, OpenCode, Cursor, Windsurf, …).
-
-```
-project/
-├── .harness/
-│   ├── agents/                   ← project-local agents
-│   │   ├── coding.md             ← user-creatable .md files with YAML frontmatter
-│   │   ├── reverse_eng.md
-│   │   └── setup.md
-│   ├── skills/                   ← project-local skills
-│   │   ├── debugging/SKILL.md
-│   │   ├── testing/SKILL.md
-│   │   └── security/SKILL.md
-│   └── settings.json             ← (optional) per-project overrides
-│
-├── AGENTS.md  /  CLAUDE.md       ← project context (auto-detected)
-└── …
-
-~/.harness/                       ← user-global counterpart
-├── agents/                       ← bundled coding/reverse_eng/setup seeded on first run
-├── skills/
-└── settings.json
+```powershell
+jarvis
 ```
 
-**Agents** — markdown files with frontmatter (`name`, `description`, optional
-`icon`/`color`). The active agent's body is appended to the system prompt.
-One active at a time, shown in the status bar. `/agent` opens the picker;
-`Tab` cycles. Project agents are always available; global ones require
-`agent.global = true` in settings (or `/agent global on`).
+Run from the folder you want to work in. File ops and shell commands are scoped to that directory.
 
-**Skills** — `SKILL.md` packs with `name` + `description`. The LLM sees all
-discovered descriptions and decides when to load a skill itself via
-`/skill load <name>`. The `/skill` modal is a read-only browser.
+### Slash commands
 
----
+| Command | Action |
+| --- | --- |
+| `/help` | List commands |
+| `/model <name>` | Switch model |
+| `/agent` | Agent picker |
+| `/skill` | Skill browser |
+| `/cost` | Token usage |
+| `/clear` | Reset conversation |
 
-## 🗂️ Project Layout
-
-```
-harness/
-├── agent.py                # Entry point (routes to TUI or REPL)
-├── pyproject.toml          # Package config
-├── requirements.txt
-├── CLAUDE.md               # Context file for AI assistants
-├── JARVIS.md
-│
-├── jarvis/                 # Main package
-│   ├── __main__.py         # `python -m jarvis`
-│   ├── cli.py              # CLI entry point
-│   ├── main.py             # Core send-and-loop logic
-│   ├── state.py            # Module-level shared state
-│   │
-│   ├── auth/               # Authentication
-│   │   ├── client.py       # Unified client factory
-│   │   ├── api_key.py      # API key handling
-│   │   ├── oauth_flow.py   # OAuth PKCE flow
-│   │   ├── pkce.py         # PKCE utilities
-│   │   ├── openrouter.py   # OpenRouter support
-│   │   └── opencode.py     # OpenCode adapter
-│   │
-│   ├── tools/              # Tool implementations
-│   │   ├── router.py       # Dynamic tool selection
-│   │   ├── schemas_core.py # Core tool schemas
-│   │   ├── schemas_mac.py  # macOS tool schemas
-│   │   ├── mac/            # macOS control
-│   │   └── web/            # Web fetch & search
-│   │
-│   ├── repl/               # Response handling
-│   │   ├── stream.py       # Stream processing
-│   │   ├── render.py       # Tool execution + rendering
-│   │   ├── hallucination.py
-│   │   └── trim.py         # Context trimming
-│   │
-│   ├── tui/                # Textual TUI
-│   │   ├── app.py          # Terminal UI app
-│   │   ├── agent_modal.py  # Agent picker
-│   │   └── skill_modal.py  # Skill browser (read-only)
-│   │
-│   ├── commands/           # Slash commands
-│   │   ├── dispatch.py
-│   │   ├── agent.py        # /agent — pick / new / init / refresh
-│   │   └── skill.py        # /skill — list / load / refresh
-│   │
-│   ├── storage/            # Persistence
-│   │   ├── sessions.py     # SQLite session history
-│   │   ├── memory.py       # User memory
-│   │   ├── agents.py       # Agent discovery & loading
-│   │   ├── skills.py       # Skill discovery & loading
-│   │   ├── settings.py     # Unified settings.json (global + project merge)
-│   │   └── prefs.py        # Legacy preferences
-│   │
-│   ├── mcp/                # MCP server management
-│   │   ├── config.py
-│   │   ├── registry.py
-│   │   └── manager.py
-│   │
-│   ├── constants/          # Paths, models, prompts
-│   └── utils/
-│
-├── scripts/                # Install scripts
-├── assets/                 # Screenshots
-└── tests/                  # (empty — manual testing)
-```
+See full docs in `CLAUDE.md` / `JARVIS.md`.
 
 ---
 
-## 📝 Notes
+## Environment variables
 
-- **macOS permissions** — UI control tools need **Accessibility** and **Automation** permissions. Enable them in: System Settings → Privacy & Security → Accessibility / Automation.
-- **Credentials** — All config, keys, and history live under `~/.config/claude-agent/`.
-- **Tool selection is dynamic** — Harness only sends the schemas for tools it thinks you'll need, keeping context lean. Core file/code tools are always included; macOS, web, OCR tools are loaded on demand.
-- **Project context** — Drop a `JARVIS.md` (or `CLAUDE.md`) in your project root, and the agent reads it automatically for project-specific instructions.
+| Variable | Default |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | — |
+| `CLAUDE_MODEL` | `sonnet-4-6` |
+| `HARNESS_MAX_PARALLEL_TOOLS` | `64` |
+| `JARVIS_BRANCH` | `windows` (installer only) |
 
 ---
 
-Built with ❤️ by [Prajwal Ramteke](https://github.com/PrajsRamteke)
+## Branch strategy
 
-[GitHub](https://github.com/PrajsRamteke/harness-agent) · [Issues](https://github.com/PrajsRamteke/harness-agent/issues) · [Discussions](https://github.com/PrajsRamteke/harness-agent/discussions)
+| Branch | Platform | Install |
+| --- | --- | --- |
+| `main` | macOS | `curl …/main/scripts/install \| bash` |
+| `windows` | Windows only | `irm …/windows/scripts/install.ps1 \| iex` |
+
+No runtime OS detection on this branch — it is built and tested for Windows only.
+
+---
+
+## Notes
+
+- Config and sessions: `%USERPROFILE%\.config\harness-agent\`
+- UI tools use **pywinauto** (UI Automation). Install is automatic via `pip install -e .`
+- Tool selection is dynamic — core file/code tools always available; Windows desktop, web, OCR loaded on demand
+
+---
+
+Built by [Prajwal Ramteke](https://github.com/PrajsRamteke)

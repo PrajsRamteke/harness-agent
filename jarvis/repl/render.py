@@ -52,8 +52,8 @@ def assistant_model_label() -> str:
 _SERIAL_TOOLS = {
     "run_bash",
     "click_at", "click_element", "click_menu", "key_press", "type_text",
-    "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
-    "clipboard_set", "mac_control", "speck",
+    "launch_app", "focus_app", "quit_app", "run_powershell",
+    "clipboard_set", "win_control", "speck",
     # context — builds/shared state
     "resolve_context", "read_bundle",
     "ask_user_question",

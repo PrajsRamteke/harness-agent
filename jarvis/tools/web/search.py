@@ -60,7 +60,7 @@ def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str
         )
         req = urllib.request.Request(
             ia_url,
-            headers={"User-Agent": "HarnessAgent/1.0 (macOS; python)"},
+            headers={"User-Agent": "HarnessAgent/1.0 (Windows; python)"},
         )
         with urllib.request.urlopen(req, timeout=10) as r:
             status = r.status

@@ -93,14 +93,13 @@ def fast_find(
     max_results: int = 50,
     ext: str = "",
 ) -> str:
-    """Fast file/folder search across the Mac using Spotlight (mdfind) or fd.
+    """Fast file/folder search on Windows using Everything (es.exe), fd, or PowerShell.
 
     - query: filename/substring to search for (e.g. 'harness', 'resume.pdf', 'qr').
-    - path: optional folder to scope the search (e.g. '~/Desktop'). Empty = whole Mac.
+    - path: optional folder to scope the search (e.g. 'C:\\Users\\me\\Desktop'). Empty = whole PC (slow without Everything).
     - kind: 'any' | 'file' | 'folder'.
     - max_results: cap on returned entries (default 50, max 500).
-    - ext: optional extension filter, e.g. '.png' or 'png,jpg' — applied after the
-      index query (so 'qr' + ext='png' finds all QR png files in milliseconds).
+    - ext: optional extension filter, e.g. '.png' or 'png,jpg'.
     """
     try:
         max_results = max(1, min(500, int(max_results)))
@@ -131,11 +130,13 @@ def fast_find(
 
     results: list[str] = []
 
-    # 1) Spotlight via mdfind (instant, indexed) — macOS
-    if shutil.which("mdfind"):
-        cmd = ["mdfind", "-name", q]
+    # 1) Everything CLI (es.exe) — instant indexed search on Windows
+    es = shutil.which("es") or shutil.which("es.exe")
+    if es:
+        cmd = [es, "-n", str(max_results)]
         if scope:
-            cmd += ["-onlyin", scope]
+            cmd += ["-p", scope]
+        cmd.append(q)
         try:
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             for line in out.stdout.splitlines():
@@ -153,7 +154,7 @@ def fast_find(
         except Exception:
             pass
 
-    # 2) Fallback to fd if nothing found and fd is installed
+    # 2) fd if installed
     if not results and shutil.which("fd"):
         cmd = ["fd", "--hidden", "--no-ignore", q]
         if kind == "file":
@@ -170,8 +171,36 @@ def fast_find(
         except Exception:
             pass
 
+    # 3) PowerShell recursive search (scoped folders only)
+    if not results and scope:
+        ext_filter = ""
+        if exts:
+            ext_list = ",".join(f"'*{e}'" for e in sorted(exts))
+            ext_filter = f" | Where-Object {{ $_.Extension -in @({ext_list}) }}"
+        ps_kind = ""
+        if kind == "file":
+            ps_kind = "-File"
+        elif kind == "folder":
+            ps_kind = "-Directory"
+        ps = (
+            f"Get-ChildItem -LiteralPath '{scope.replace(chr(39), chr(39)+chr(39))}' "
+            f"-Recurse -ErrorAction SilentlyContinue {ps_kind} | "
+            f"Where-Object {{ $_.Name -like '*{q.replace(chr(39), chr(39)+chr(39))}*' }}"
+            f"{ext_filter} | Select-Object -First {max_results} -ExpandProperty FullName"
+        )
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            results = [l for l in out.stdout.splitlines() if l.strip()][:max_results]
+        except Exception:
+            pass
+
     if not results:
-        where = scope or "whole Mac"
+        where = scope or "whole PC (install Everything for fast global search)"
         extra = f" (ext filter: {sorted(exts)})" if exts else ""
         return f"No matches for '{q}'{extra} in {where}"
     header = f"Found {len(results)} match(es) for '{q}'" + (f" in {scope}" if scope else "")

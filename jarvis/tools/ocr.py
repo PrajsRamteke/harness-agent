@@ -1,23 +1,20 @@
-"""OCR tools backed by macOS Vision framework."""
+"""OCR tools — Windows (Windows.Media.Ocr + optional Tesseract fallback)."""
 from concurrent.futures import ThreadPoolExecutor
+import asyncio
 import pathlib
+import shutil
 import subprocess
 import threading
 
 from ..constants import (
     CWD, MAX_PARALLEL_TOOLS, OCR_MAX_FILES_DEFAULT, OCR_MAX_FILES_CAP,
-    OCR_CHARS_PER_IMAGE, OCR_CHARS_PER_IMAGE_CAP, OCR_SCAN_CHARS, OCR_WORKER_MIN,
+    OCR_CHARS_PER_IMAGE, OCR_CHARS_PER_IMAGE_CAP, OCR_WORKER_MIN,
 )
 from ..path_resolve import robust_resolve
 
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".heic", ".tif", ".tiff", ".bmp"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".heic", ".tif", ".tiff", ".bmp", ".webp"}
 
-# ── dedup guard ───────────────────────────────────────────────────────────
-# Prevents read_images_text from re-scanning a directory that was already
-# scanned in the same session. The model should use read_image_text(path)
-# for individual files if it needs more detail.
 _scanned_directories: set = set()
-# ──────────────────────────────────────────────────────────────────────────
 
 IMPORTANT_TEXT_HINTS = (
     "aadhaar", "aadhar", "voter", "election", "identity", "identification",
@@ -39,44 +36,65 @@ def _clamp_int(value, default: int, min_value: int, max_value: int) -> int:
     return max(min_value, min(max_value, n))
 
 
+async def _ocr_winrt_async(path: pathlib.Path) -> str:
+    from winrt.windows.storage import StorageFile, FileAccessMode  # type: ignore
+    from winrt.windows.graphics.imaging import BitmapDecoder  # type: ignore
+    from winrt.windows.media.ocr import OcrEngine  # type: ignore
+
+    file = await StorageFile.get_file_from_path_async(str(path.resolve()))
+    stream = await file.open_async(FileAccessMode.READ)
+    decoder = await BitmapDecoder.create_async(stream)
+    bitmap = await decoder.get_software_bitmap_async()
+    engine = OcrEngine.try_create_from_user_profile_languages()
+    if engine is None:
+        return "ERROR: Windows OCR engine unavailable for current language profile"
+    result = await engine.recognize_async(bitmap)
+    lines = [line.text for line in result.lines]
+    return "\n".join(lines).strip()
+
+
+def _ocr_tesseract(path: pathlib.Path) -> str:
+    if not shutil.which("tesseract"):
+        return "ERROR: Install Tesseract OCR (https://github.com/UB-Mannheim/tesseract/wiki) or use Windows 10+ with winrt packages"
+    r = subprocess.run(
+        ["tesseract", str(path), "stdout"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if r.returncode != 0:
+        return f"ERROR: tesseract failed: {r.stderr.strip()}"
+    return r.stdout.strip()
+
+
 def read_image_text(path: str) -> str:
-    """Extract all text from an image file using macOS Vision framework (on-device OCR)."""
+    """Extract text from an image using Windows OCR (on-device)."""
     p = _resolve_path(path)
     if not p.exists():
         return f"ERROR: {path} not found"
     if not p.is_file():
         return f"ERROR: {path} is not a file"
 
-    swift_code = f'''
-import Vision
-import Foundation
+    try:
+        output = asyncio.run(_ocr_winrt_async(p))
+        if output:
+            return output
+    except ImportError:
+        pass
+    except Exception as e:
+        err = str(e)
+        if "winrt" not in err.lower():
+            fallback = _ocr_tesseract(p)
+            if not fallback.startswith("ERROR"):
+                return fallback
+            return f"ERROR: Windows OCR failed ({err}). {fallback}"
 
-let url = URL(fileURLWithPath: CommandLine.arguments[1])
-let request = VNRecognizeTextRequest {{ req, err in
-    guard let obs = req.results as? [VNRecognizedTextObservation] else {{ return }}
-    for o in obs {{
-        if let top = o.topCandidates(1).first {{
-            print(top.string)
-        }}
-    }}
-}}
-request.recognitionLevel = .accurate
-let handler = VNImageRequestHandler(url: url, options: [:])
-try? handler.perform([request])
-'''
-
-    result = subprocess.run(
-        ["swift", "-e", swift_code, str(p)],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    output = result.stdout.strip()
-    if not output:
-        stderr = result.stderr.strip()
-        return f"ERROR: No text found in image. stderr: {stderr}" if stderr else "No text detected in image."
-    return output
+    fallback = _ocr_tesseract(p)
+    if fallback and not fallback.startswith("ERROR"):
+        return fallback
+    if fallback.startswith("ERROR"):
+        return fallback
+    return "No text detected in image."
 
 
 def _discover_images(directory: str, pattern: str) -> list[pathlib.Path]:
@@ -119,7 +137,7 @@ def read_images_text(
     """OCR many images concurrently and return compact per-file text previews."""
     max_files = _clamp_int(max_files, OCR_MAX_FILES_DEFAULT, 1, OCR_MAX_FILES_CAP)
     max_chars_per_image = _clamp_int(max_chars_per_image, OCR_CHARS_PER_IMAGE, 80, OCR_CHARS_PER_IMAGE_CAP)
-    worker_count = _clamp_int(max_workers, min(20, MAX_PARALLEL_TOOLS), 1, MAX_PARALLEL_TOOLS)
+    worker_count = _clamp_int(max_workers, min(20, MAX_PARALLEL_TOOLS), OCR_WORKER_MIN, MAX_PARALLEL_TOOLS)
 
     if paths:
         images = []
@@ -131,11 +149,8 @@ def read_images_text(
         images = _discover_images(directory, pattern)[:max_files]
 
     if not images:
-        return "No image files found. Supported: PNG, JPG, JPEG, HEIC, TIFF, BMP."
+        return "No image files found. Supported: PNG, JPG, JPEG, WEBP, TIFF, BMP."
 
-    # ── dedup guard ─────────────────────────────────────────────────────
-    # If this directory (+ pattern) was already scanned, refuse to re-scan.
-    # The model should use read_image_text() for individual files instead.
     if not paths and directory not in ("", ".", "./"):
         scan_key = str(_resolve_path(directory)) + "::" + pattern
         if scan_key in _scanned_directories:
@@ -148,7 +163,6 @@ def read_images_text(
                 f"need full text.\n"
                 f"Previously scanned files:\n{file_list}{more}"
             )
-    # ────────────────────────────────────────────────────────────────────
 
     total = len(images)
     lock = threading.Lock()
@@ -170,7 +184,7 @@ def read_images_text(
             clean = " ".join(text.split())
             if not include_empty and (
                 clean == "No text detected in image."
-                or clean.startswith("ERROR: No text found")
+                or clean.startswith("ERROR:")
             ):
                 continue
             score = _score_text(clean, keywords)
@@ -189,7 +203,6 @@ def read_images_text(
     )
     result = header + ("\n\n" + "\n\n".join(row for _, _, row in rows) if rows else "\nNo text detected in scanned images.")
 
-    # Record directory+pattern as scanned for dedup guard
     if not paths and directory not in ("", ".", "./"):
         _scanned_directories.add(str(_resolve_path(directory)) + "::" + pattern)
 
