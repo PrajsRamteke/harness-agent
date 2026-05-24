@@ -6,6 +6,7 @@ import {
   handleStreamEvent,
   setBusy,
   setQueue,
+  setStatusLabel,
 } from './stream.js';
 import { refreshThinkingVisibility } from './chat.js';
 import {
@@ -39,11 +40,11 @@ export function handleEvent(evt) {
       break;
 
     case 'status':
-      if (data.text) document.getElementById('status-label').textContent = data.text;
+      if (data.text) setStatusLabel(data.text);
       break;
 
     case 'activity':
-      if (data.label) document.getElementById('status-label').textContent = data.label;
+      if (data.label) setStatusLabel(data.label);
       break;
 
     case 'busy':

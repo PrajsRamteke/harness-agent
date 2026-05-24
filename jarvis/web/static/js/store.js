@@ -24,6 +24,7 @@ export const store = {
   activePrompt: null,
   pendingAction: false,
   pendingToggle: null,
+  statusLabel: 'Ready',
 };
 
 export function patchStore(partial) {

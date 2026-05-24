@@ -1,5 +1,5 @@
 /** Live stream + status bar updates from SSE */
-import { $, escapeHtml } from './utils.js';
+import { $ } from './utils.js';
 import { patchStore, store } from './store.js';
 import {
   appendMessage,
@@ -10,14 +10,31 @@ import {
   refreshThinkingVisibility,
 } from './chat.js';
 
+export function setStatusLabel(text) {
+  const label = (text || '').trim();
+  if (!label) return;
+  patchStore({ statusLabel: label });
+  syncStatusChip();
+}
+
 export function setBusy(next) {
   patchStore({ busy: !!next });
+  if (!next && store.connected) {
+    patchStore({ statusLabel: 'Ready' });
+  } else if (next && store.statusLabel === 'Ready') {
+    patchStore({ statusLabel: 'Working…' });
+  }
   syncStatusChip();
   syncComposerState();
 }
 
 export function setConnected(next) {
   patchStore({ connected: !!next });
+  if (!next) {
+    patchStore({ statusLabel: 'Offline' });
+  } else if (!store.busy) {
+    patchStore({ statusLabel: 'Ready' });
+  }
   syncStatusChip();
   $('reconnect-banner')?.classList.toggle('show', !next);
 }
@@ -27,15 +44,30 @@ function syncStatusChip() {
   const label = $('status-label');
   if (!chip || !label) return;
 
+  const text = !store.connected ? 'Offline' : store.statusLabel || (store.busy ? 'Working…' : 'Ready');
+
   chip.classList.toggle('busy', store.busy);
   chip.classList.toggle('offline', !store.connected);
-
-  if (!store.connected) label.textContent = 'Offline';
-  else if (store.busy) label.textContent = 'Working';
-  else label.textContent = 'Ready';
+  label.textContent = text;
 
   const drawerStatus = $('drawer-status');
-  if (drawerStatus) drawerStatus.textContent = label.textContent;
+  if (drawerStatus) drawerStatus.textContent = text;
+
+  syncComposerStatus(text);
+}
+
+function syncComposerStatus(text) {
+  const bar = $('composer-status');
+  const label = $('composer-status-text');
+  if (!bar || !label) return;
+
+  const show = store.busy || !store.connected;
+  const displayText = text || (store.busy ? 'Working…' : 'Ready');
+
+  bar.classList.toggle('show', show);
+  bar.classList.toggle('busy', store.busy);
+  bar.classList.toggle('offline', !store.connected);
+  label.textContent = displayText;
 }
 
 function syncComposerState() {
@@ -90,10 +122,7 @@ export function applySessionData(data) {
   refreshThinkingVisibility();
   setBusy(!!data.busy);
   setQueue(data.queue || []);
-  if (data.status) {
-    const label = $('status-label');
-    if (label) label.textContent = data.status;
-  }
+  if (data.status) setStatusLabel(data.status);
 }
 
 export function handleSnapshot(data) {

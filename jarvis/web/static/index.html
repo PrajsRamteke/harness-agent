@@ -108,6 +108,10 @@
     </div>
 
     <div class="composer">
+      <div class="composer-status" id="composer-status" aria-live="polite" aria-atomic="true">
+        <span class="composer-status-dot" aria-hidden="true"></span>
+        <span class="composer-status-text" id="composer-status-text">Working…</span>
+      </div>
       <div class="composer-inner">
         <textarea id="prompt" rows="1" placeholder="Message Jarvis…" autocomplete="off"></textarea>
         <div class="composer-actions">

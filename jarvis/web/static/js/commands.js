@@ -7,8 +7,9 @@ import { applySessionData } from './stream.js';
 import { openPickerByKind, applyActionState } from './pickers.js';
 import { refreshThinkingVisibility } from './chat.js';
 import { renderMetaBar } from './drawer.js';
+import { EFFORTS, effortHint, effortOptionsHtml, bindEffortOptions, syncEffortOptions } from './effort.js';
 
-const EFFORTS = ['xhigh', 'high', 'medium', 'low', 'minimal', 'none'];
+let cmdEffortOpen = false;
 
 /** @type {{ id: string, label: string, icon: string, items: object[] }[]} */
 export const COMMAND_CATEGORIES = [
@@ -136,6 +137,7 @@ export function openCommandHub() {
 }
 
 export function closeCommandHub() {
+  closeCmdEffortMenu();
   $('cmd-overlay')?.classList.remove('open');
 }
 
@@ -267,36 +269,88 @@ function renderTabs() {
   });
 }
 
+function closeCmdEffortMenu() {
+  const trigger = $('cmd-effort-trigger');
+  const menu = $('cmd-effort-menu');
+  cmdEffortOpen = false;
+  trigger?.classList.remove('open');
+  trigger?.setAttribute('aria-expanded', 'false');
+  if (menu) menu.hidden = true;
+}
+
+function openCmdEffortMenu() {
+  const trigger = $('cmd-effort-trigger');
+  const menu = $('cmd-effort-menu');
+  if (!trigger || !menu || trigger.disabled) return;
+  cmdEffortOpen = true;
+  trigger.classList.add('open');
+  trigger.setAttribute('aria-expanded', 'true');
+  menu.hidden = false;
+}
+
+function toggleCmdEffortMenu() {
+  if (cmdEffortOpen) closeCmdEffortMenu();
+  else openCmdEffortMenu();
+}
+
+async function setCmdEffort(value) {
+  if (!EFFORTS.includes(value)) return;
+  closeCmdEffortMenu();
+  try {
+    const res = await updateSettings({ think_effort: value });
+    patchSession({ think_effort: value });
+    if (res.settings) applySettingsResponse(res.settings);
+    renderCommandHub();
+    showToast(`Effort: ${value}`);
+  } catch {
+    showToast('Failed to update effort', true);
+  }
+}
+
 function renderEffortRow() {
   const row = $('cmd-effort');
   if (!row) return;
   if (!store.session.think_mode) {
     row.classList.add('hidden');
+    closeCmdEffortMenu();
     return;
   }
   row.classList.remove('hidden');
+
+  const effort = store.session.think_effort || 'medium';
+  const hint = effortHint(effort);
+
   row.innerHTML = `
-    <span class="cmd-effort-label"><i data-lucide="gauge"></i> Think effort</span>
-    <div class="cmd-effort-btns">
-      ${EFFORTS.map(
-        (e) =>
-          `<button type="button" class="cmd-effort-btn${store.session.think_effort === e ? ' active' : ''}" data-effort="${e}">${e}</button>`,
-      ).join('')}
+    <div class="cmd-effort-dropdown" id="cmd-effort-dropdown">
+      <button type="button" class="cmd-effort-trigger" id="cmd-effort-trigger"
+        aria-haspopup="listbox" aria-expanded="${cmdEffortOpen ? 'true' : 'false'}" aria-label="Thinking effort">
+        <span class="cmd-effort-trigger-main">
+          <i data-lucide="gauge"></i>
+          <span class="cmd-effort-copy">
+            <span class="cmd-effort-label">Think effort</span>
+            <span class="cmd-effort-value">${escapeHtml(effort)}</span>
+          </span>
+        </span>
+        <span class="cmd-effort-hint">${escapeHtml(hint)}</span>
+        <i data-lucide="chevron-down" class="cmd-effort-chevron"></i>
+      </button>
+      <div class="cmd-effort-menu" id="cmd-effort-menu" role="listbox" aria-label="Thinking effort" ${cmdEffortOpen ? '' : 'hidden'}>
+        ${effortOptionsHtml({ optionClass: 'cmd-effort-option' })}
+      </div>
     </div>`;
 
-  row.querySelectorAll('.cmd-effort-btn').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      try {
-        const res = await updateSettings({ think_effort: btn.dataset.effort });
-        patchSession({ think_effort: btn.dataset.effort });
-        if (res.settings) applySettingsResponse(res.settings);
-        renderCommandHub();
-        showToast(`Effort: ${btn.dataset.effort}`);
-      } catch {
-        showToast('Failed to update effort', true);
-      }
-    });
+  syncEffortOptions($('cmd-effort-menu'), effort);
+
+  $('cmd-effort-trigger')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleCmdEffortMenu();
   });
+
+  bindEffortOptions($('cmd-effort-menu'), setCmdEffort);
+
+  if (cmdEffortOpen) {
+    $('cmd-effort-trigger')?.classList.add('open');
+  }
 }
 
 function renderList() {
@@ -397,7 +451,10 @@ export function initCommandHub() {
   $('cmd-overlay')?.addEventListener('click', (e) => {
     if (e.target === $('cmd-overlay')) closeCommandHub();
   });
-  $('cmd-hub')?.addEventListener('click', (e) => e.stopPropagation());
+  $('cmd-hub')?.addEventListener('click', (e) => {
+    if (!$('cmd-effort-dropdown')?.contains(e.target)) closeCmdEffortMenu();
+    e.stopPropagation();
+  });
 
   subscribe((s) => {
     if (isOpen()) renderCommandHub();

@@ -39,7 +39,7 @@ function closeDrawer() {
 }
 
 function syncDrawer(s) {
-  const status = !s.connected ? 'Offline' : s.busy ? 'Working' : 'Ready';
+  const status = !s.connected ? 'Offline' : s.statusLabel || (s.busy ? 'Working…' : 'Ready');
   $('drawer-status') && ($('drawer-status').textContent = status);
   $('drawer-model') && ($('drawer-model').textContent = s.session.model || '—');
   $('drawer-agent') && ($('drawer-agent').textContent = s.session.agent || 'default');

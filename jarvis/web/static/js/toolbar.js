@@ -4,17 +4,7 @@ import { store, patchStore, patchSession, applySettingsResponse, subscribe } fro
 import { updateSettings } from './api.js';
 import { refreshThinkingVisibility } from './chat.js';
 import { syncComposerState, applySessionData } from './stream.js';
-
-const EFFORTS = ['xhigh', 'high', 'medium', 'low', 'minimal', 'none'];
-
-const EFFORT_HINTS = {
-  xhigh: 'Maximum reasoning depth',
-  high: 'Deep analysis',
-  medium: 'Balanced default',
-  low: 'Light thinking',
-  minimal: 'Brief passes only',
-  none: 'Thinking off',
-};
+import { EFFORTS, effortOptionsHtml, bindEffortOptions, syncEffortOptions } from './effort.js';
 
 const TOGGLE_IDS = {
   think: 'toggle-think',
@@ -28,21 +18,10 @@ let effortMenuOpen = false;
 function buildEffortMenu() {
   const menu = $('effort-menu');
   if (!menu) return;
-  menu.innerHTML = EFFORTS.map(
-    (effort) => `
-    <button type="button" class="effort-option" role="option" data-effort="${effort}" aria-selected="false" tabindex="-1">
-      <i data-lucide="check" class="effort-option-check"></i>
-      <span class="effort-option-body">
-        <strong>${effort}</strong>
-        <span>${EFFORT_HINTS[effort]}</span>
-      </span>
-    </button>`,
-  ).join('');
-  menu.querySelectorAll('.effort-option').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      setEffort(btn.dataset.effort);
-      closeEffortMenu();
-    });
+  menu.innerHTML = effortOptionsHtml();
+  bindEffortOptions(menu, (effort) => {
+    setEffort(effort);
+    closeEffortMenu();
   });
   icons();
 }
@@ -79,11 +58,7 @@ function syncEffortDropdown(s) {
     trigger.classList.toggle('active', !!s.session.think_mode);
     trigger.classList.toggle('pending', s.pendingToggle === 'effort');
   }
-  menu?.querySelectorAll('.effort-option').forEach((btn) => {
-    const selected = btn.dataset.effort === effort;
-    btn.classList.toggle('selected', selected);
-    btn.setAttribute('aria-selected', selected ? 'true' : 'false');
-  });
+  syncEffortOptions(menu, effort);
   if (!enabled) closeEffortMenu();
 }
 
