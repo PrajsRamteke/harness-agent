@@ -451,12 +451,6 @@ class JarvisTUI(App):
         self._tool_activity_frozen: bool = False
         self._tool_activity_lock = threading.Lock()
         self._ask_user = AskUserController(self)
-        from .shell_approval import ShellApprovalController
-        self._shell_approval = ShellApprovalController(self)
-
-    def begin_shell_approval(self, cmd: str, on_done) -> None:
-        """Status-bar shell approval (worker thread via console shim)."""
-        self._shell_approval.begin(cmd, on_done)
 
     def begin_ask_user_question(self, questions, on_done) -> None:
         """Start status-bar Q&A (called from worker thread via console shim)."""
@@ -526,10 +520,6 @@ class JarvisTUI(App):
 
     async def _on_key(self, event):  # type: ignore[override]
         key = getattr(event, "key", "")
-        if self._shell_approval.active and self._shell_approval.handle_key(key):
-            event.stop()
-            event.prevent_default()
-            return
         if self._ask_user.active and self._ask_user.handle_key(key):
             event.stop()
             event.prevent_default()

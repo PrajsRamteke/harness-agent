@@ -12,6 +12,9 @@ def test_resolve_provider_ignores_stale_codex_pin(tmp_path, monkeypatch):
     monkeypatch.setattr("jarvis.auth.client.load_codex_oauth_tokens", lambda: None)
     monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: {"access_token": "a", "refresh_token": "r"})
     monkeypatch.setattr("jarvis.auth.client.KEY_FILE", tmp_path / "missing-key")
+    # Clear saved preferences so _resolve_provider falls through to the provider file
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_preferences", lambda: ("", ""))
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_provider", lambda: "")
     assert _resolve_provider(interactive=True) == PROVIDER_ANTHROPIC
 
 
@@ -60,6 +63,9 @@ def test_make_client_falls_back_when_codex_oauth_missing(tmp_path, monkeypatch):
     fake_client = MagicMock()
     monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "claude-sonnet-4-6")
     monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: False)
+    # Prevent _resolve_provider from returning the user's real saved provider
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_preferences", lambda: ("", ""))
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_provider", lambda: "")
     with patch("jarvis.auth.client._build_client_from_mode", return_value=fake_client):
         with patch("jarvis.auth.client.sync_anthropic_model_ids"):
             monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: {"access_token": "a", "refresh_token": "r"})

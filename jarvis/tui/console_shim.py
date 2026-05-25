@@ -532,8 +532,10 @@ class TUIConsole:
             self._active_input_waiter.deliver(None)
 
         def _go() -> None:
-            if getattr(self._app, "_shell_approval", None) and self._app._shell_approval.active:
-                self._app._shell_approval.cancel()
+            from .shell_approval_modal import ShellApprovalScreen
+
+            if self._active_shell_waiter is not None:
+                self._active_shell_waiter.dismiss_screen(ShellApprovalScreen, "n")
             if getattr(self._app, "_ask_user", None) and self._app._ask_user.active:
                 self._app._ask_user.cancel()
 
@@ -550,16 +552,9 @@ class TUIConsole:
         waiter = self._active_shell_waiter
         if waiter is None:
             return
+        from .shell_approval_modal import ShellApprovalScreen
 
-        def _go() -> None:
-            if getattr(self._app, "_shell_approval", None) and self._app._shell_approval.active:
-                self._app._shell_approval.finish_with(result)
-                return
-            from .shell_approval_modal import ShellApprovalScreen
-
-            waiter.dismiss_screen(ShellApprovalScreen, result)
-
-        self._app.call_from_thread(_go)
+        waiter.dismiss_screen(ShellApprovalScreen, result)
 
     def cancel_ask_user_question(self, payload: str) -> None:
         """Unblock a pending ask-user flow with a JSON payload from web remote."""
@@ -590,9 +585,7 @@ class TUIConsole:
         Returns one of: ``y`` (run), ``n`` (deny), ``a`` (always approve for session)
         — same contract as the Rich REPL ``approve? [Y/n/a]`` prompt.
         """
-        from ..repl.turn_progress import report_turn_phase
-
-        report_turn_phase("⚡ Approve shell — y run / n cancel / a always")
+        from .shell_approval_modal import ShellApprovalScreen
 
         waiter = _PromptWaiter(self._app)
         self._active_shell_waiter = waiter
@@ -605,7 +598,7 @@ class TUIConsole:
             waiter.deliver(r)
 
         def push() -> None:
-            self._app.begin_shell_approval(cmd, on_done)
+            self._app.push_screen(ShellApprovalScreen(cmd), on_done)
 
         self._app.call_from_thread(push)
         try:
@@ -616,7 +609,6 @@ class TUIConsole:
             return out if isinstance(out, str) and out else "n"
         finally:
             self._active_shell_waiter = None
-            report_turn_phase("")
 
     def prompt_ask_user_question(self, questions) -> str:
         """Block until the user answers structured multiple-choice questions.

@@ -86,12 +86,13 @@ class OpenCodeThinkingOptionsTests(unittest.TestCase):
         self.assertFalse(_is_think_picker_command("/think high"))
 
     def test_think_config_persists_effort(self):
+        from jarvis.constants import THINK_CONFIG_FILE
         old_mode = state.think_mode
         old_effort = state.think_effort
-        old_config = state.THINK_CONFIG_FILE
+        old_config = THINK_CONFIG_FILE
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
-                state.THINK_CONFIG_FILE = Path(temp_dir) / "think_config.json"
+                THINK_CONFIG_FILE = Path(temp_dir) / "think_config.json"
                 state.think_mode = True
                 state.think_effort = "medium"
                 state.save_think_config()
@@ -103,7 +104,7 @@ class OpenCodeThinkingOptionsTests(unittest.TestCase):
                 self.assertTrue(state.think_mode)
                 self.assertEqual(state.think_effort, "medium")
         finally:
-            state.THINK_CONFIG_FILE = old_config
+            THINK_CONFIG_FILE = old_config
             state.think_mode = old_mode
             state.think_effort = old_effort
 

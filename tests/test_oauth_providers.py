@@ -13,14 +13,16 @@ def test_oauth_providers_are_subscription_login_only():
     assert "openrouter" not in ids
 
 
-def test_anthropic_oauth_status_when_logged_out():
+def test_anthropic_oauth_status_when_logged_out(monkeypatch):
+    monkeypatch.setattr("jarvis.auth.connect.oauth_status.load_oauth_tokens", lambda: None)
     spec = oauth_provider(OAUTH_ID_ANTHROPIC)
     assert spec is not None
     st = oauth_connection_status(spec)
     assert st.connected is False
 
 
-def test_openai_codex_available():
+def test_openai_codex_available(monkeypatch):
+    monkeypatch.setattr("jarvis.auth.connect.oauth_status.load_codex_oauth_tokens", lambda: None)
     spec = oauth_provider(OAUTH_ID_OPENAI_CODEX)
     assert spec is not None
     assert spec.available is True

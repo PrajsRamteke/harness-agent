@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from jarvis import state
-from jarvis.constants import AUTH_OAUTH, OAUTH_IDENTITY
+from jarvis.constants import AUTH_API_KEY, AUTH_OAUTH, OAUTH_IDENTITY
 from jarvis.constants.system_prompt import build_base_system
 from jarvis.repl import system
 
@@ -34,6 +34,7 @@ class SystemIdentityTests(unittest.TestCase):
         state.MODEL = "claude-sonnet-4-6"
         state.provider = "anthropic"
         state.harness_agent_free = False
+        state.auth_mode = AUTH_API_KEY
         with mock.patch.object(system, "_build_static_body", return_value="BASE"):
             prompt = system.build_system()
         self.assertTrue(prompt.startswith("SELECTED MODEL: claude-sonnet-4-6"))
@@ -56,6 +57,7 @@ class SystemIdentityTests(unittest.TestCase):
         state.harness_agent_free = True
         state.provider = "opencode_zen"
         state.MODEL = "deepseek-v4-flash-free"
+        state.auth_mode = AUTH_API_KEY
         with mock.patch.object(system, "_build_static_body", return_value="BASE"):
             prompt = system.build_system()
         self.assertIn("SELECTED MODEL: deepseek-v4-flash-free", prompt)
