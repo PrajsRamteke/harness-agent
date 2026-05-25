@@ -18,6 +18,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from contextlib import nullcontext
 
 from textual.actions import SkipAction
 from textual.app import App, ComposeResult
@@ -46,6 +47,7 @@ from ..repl.tool_runs import (
 )
 from .ask_user import AskUserController, AskQuestion, normalize_questions
 from .mouse_toggle import enable_mouse, disable_mouse
+from .web_bar import WebRemoteBar, WebRemoteQR
 from ..prompt_refs import (
     active_file_ref_at_cursor,
     replace_file_ref_at_cursor,
@@ -385,6 +387,7 @@ class JarvisTUI(App):
         Binding("pagedown", "scroll_transcript('pagedown')", show=False, priority=True),
         Binding("home", "scroll_transcript('home')", show=False, priority=True),
         Binding("end", "scroll_transcript('end')", show=False, priority=True),
+        Binding("ctrl+shift+u", "copy_web_url", "Copy URL", show=False),
     ]
 
     def action_scroll_transcript(self, direction: str) -> None:
@@ -427,6 +430,11 @@ class JarvisTUI(App):
         self._status_msg = "ready"
         self._last_ctrl_c_t = 0.0
         self._key_debug = False
+        self._web_bridge = None
+        self._web_mux = None
+        self._web_server = None
+        self._web_urls: list[str] = []
+        self._web_primary_url = ""
         self._last_t_width = 0
         self._width_check_timer = None
         # Git branch cache — refreshed every few seconds, not every status tick.
@@ -543,6 +551,7 @@ class JarvisTUI(App):
 
     # ─── compose ─────────────────────────────────────────────────────
     def compose(self) -> ComposeResult:
+        yield WebRemoteQR(id="web_qr_overlay")
         with Vertical(id="main"):
             yield RichLog(
                 id="transcript",
@@ -566,6 +575,7 @@ class JarvisTUI(App):
                     yield Static(ui.ARROW, id="prompt_prefix", markup=False)
                     yield PromptArea(id="prompt", highlight_cursor_line=False)
             yield Static("", id="hintbar", markup=True, shrink=True)
+            yield WebRemoteBar(id="webar")
 
     # ─── lifecycle ───────────────────────────────────────────────────
     def on_mount(self):
@@ -581,6 +591,9 @@ class JarvisTUI(App):
         tui_console = TUIConsole(self, log, status)
         _swap_console_everywhere(tui_console)
         self._tui_console = tui_console
+
+        if state.web_enabled:
+            self._start_web_remote(tui_console)
 
         from ..auth.client import make_client
         from ..storage.sessions import db_init, db_create_session
@@ -627,6 +640,233 @@ class JarvisTUI(App):
 
         self._auto_connect_mcp_background()
         self._check_for_updates_background()
+
+    def _start_web_remote(self, tui_console: TUIConsole) -> None:
+        from ..web.bridge import WebBridge
+        from ..web.console_mux import WebMuxConsole
+        from ..web.server import primary_remote_url, start_web_server
+
+        bridge = WebBridge()
+        bridge.set_handlers(
+            on_submit=lambda text: self.call_from_thread(lambda: self._handle_web_submit(text)),
+            on_cancel=lambda: self.call_from_thread(self._handle_web_cancel),
+            on_settings=lambda data, done: self.call_from_thread(
+                lambda: self._complete_web_settings(data, done)
+            ),
+            on_action=lambda action, data, done: self.call_from_thread(
+                lambda a=action, d=data, cb=done: self._complete_web_action(a, d, cb)
+            ),
+        )
+        mux = WebMuxConsole(tui_console, bridge)
+        _swap_console_everywhere(mux)
+        self._tui_console = mux
+        self._web_mux = mux
+        self._web_bridge = bridge
+        preferred_port = state.web_port
+        try:
+            self._web_server, self._web_urls, bound_port = start_web_server(
+                bridge=bridge,
+                app=self,
+                port=preferred_port,
+            )
+        except OSError as exc:
+            self._tui_console = tui_console
+            self._web_mux = None
+            self._web_bridge = None
+            _swap_console_everywhere(tui_console)
+            self._tui_console.print(
+                f"[{ui.WARN}]Web remote failed: {exc}[/]"
+            )
+            self._tui_console.print(
+                f"[{ui.FG_DIM}]Stop the other jarvis --web session or set "
+                f"HARNESS_WEB_PORT to a free port.[/]"
+            )
+            return
+
+        state.web_port = bound_port
+        if bound_port != preferred_port:
+            self._tui_console.print(
+                f"[{ui.WARN}]Port {preferred_port} in use — "
+                f"web remote on [cyan]{bound_port}[/]"
+            )
+        self._web_primary_url = primary_remote_url(self._web_urls)
+        self._render_web_bar()
+
+    def _render_web_bar(self) -> None:
+        try:
+            bar = self.query_one("#webar", WebRemoteBar)
+        except Exception:
+            bar = None
+        try:
+            qr = self.query_one("#web_qr_overlay", WebRemoteQR)
+        except Exception:
+            qr = None
+        if self._web_primary_url:
+            bar and bar.set_url(self._web_primary_url)
+            qr and qr.set_url(self._web_primary_url)
+        else:
+            bar and bar.hide_bar()
+            qr and qr.hide()
+
+    def _copy_web_url(self, *, show_status: bool = True) -> bool:
+        url = self._web_primary_url
+        if not url:
+            return False
+        ok = self._copy_to_system_clipboard(url)
+        if show_status:
+            self._set_status("web url copied" if ok else "copy failed")
+        return ok
+
+    def action_copy_web_url(self) -> None:
+        self._copy_web_url(show_status=True)
+
+    def _sync_web_busy(self) -> None:
+        bridge = self._web_bridge
+        if bridge is None:
+            return
+        bridge.emit("busy", {"busy": self._busy})
+
+    def _sync_web_queue(self) -> None:
+        bridge = self._web_bridge
+        if bridge is None:
+            return
+        items: list[str] = []
+        for msg in state.prompt_queue:
+            if isinstance(msg, tuple):
+                items.append(str(msg[0]).strip())
+            else:
+                items.append(str(msg).strip())
+        bridge.emit("queue", {"items": [i for i in items if i]})
+
+    def _handle_web_submit(self, text: str) -> None:
+        text = (text or "").strip()
+        if not text:
+            return
+        if self._busy:
+            self._stash_prompt(text)
+            return
+        if self._is_web_modal_command(text):
+            if self._web_bridge is not None:
+                self._web_bridge.emit(
+                    "message",
+                    {"role": "you", "text": text, "title": "you"},
+                )
+            self._handle_queued_command(text)
+            return
+        self._begin_turn(text)
+
+    @staticmethod
+    def _is_web_modal_command(text: str) -> bool:
+        """Bare slash commands that open TUI modals — route before _begin_turn."""
+        s = (text or "").strip()
+        if not s.startswith("/"):
+            return False
+        return (
+            _is_bare_model_command(s)
+            or _is_bare_provider_command(s)
+            or _is_session_picker_command(s)
+            or _is_think_picker_command(s)
+            or _is_mcp_modal_command(s)
+            or _is_agent_picker_command(s)
+            or _is_skill_picker_command(s)
+            or _is_memory_modal_command(s)
+            or _is_pin_modal_command(s)
+            or _is_lesson_modal_command(s)
+            or _is_settings_modal_command(s)
+            or _is_theme_modal_command(s)
+            or _is_oauth_modal_command(s)
+            or _is_key_command(s)
+            or s.lower() == "/local"
+            or s.lower() == "/agent init"
+        )
+
+    def _handle_web_cancel(self) -> None:
+        if not self._busy:
+            return
+        from ..repl.stream import cancel_current_stream
+
+        cancel_current_stream()
+        self._sync_activity_phase("Cancelling…")
+        self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user (web)[/]")
+        self._turn_done()
+
+    def _complete_web_settings(self, data: dict, done) -> None:
+        try:
+            result = self._handle_web_settings(data)
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        try:
+            done(result)
+        except Exception:
+            pass
+
+    def _complete_web_action(self, action: str, data: dict, done) -> None:
+        try:
+            result = self._handle_web_action(action, data)
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        if not isinstance(result, dict):
+            result = {"ok": False, "error": "invalid action response"}
+        try:
+            done(result)
+        except Exception:
+            pass
+
+    def _handle_web_settings(self, data: dict) -> dict:
+        from ..web.state_api import apply_settings
+
+        result = apply_settings(data)
+        if result:
+            parts = []
+            if "think_mode" in result:
+                parts.append(f"think {'on' if result['think_mode'] else 'off'}")
+            if "show_internal" in result:
+                parts.append(f"trace {'on' if result['show_internal'] else 'off'}")
+            if "auto_approve" in result:
+                parts.append(f"auto-approve {'on' if result['auto_approve'] else 'off'}")
+            if parts:
+                self._tui_console.print(f"[{ui.FG_DIM}]web: {', '.join(parts)}[/]")
+        return result
+
+    def _handle_web_action(self, action: str, data: dict) -> dict:
+        from ..web.actions_api import run_web_action
+
+        mux = getattr(self, "_web_mux", None)
+        ctx = mux.suppress_broadcast() if mux is not None else nullcontext()
+        with ctx:
+            result = run_web_action(action, data, console_print=self._tui_console.print)
+            if not result.get("ok"):
+                return result
+
+            if action in ("session_resume", "session_new"):
+                try:
+                    log = self.query_one("#transcript", RichLog)
+                    log.clear()
+                except Exception:
+                    pass
+                if action == "session_resume":
+                    try:
+                        self._render_loaded_session()
+                    except Exception as exc:
+                        result = dict(result)
+                        result["render_warning"] = str(exc)
+
+            if action == "model_select":
+                self._write_status_line(busy=False)
+
+            if action in ("session_resume", "session_new", "model_select", "agent_select"):
+                self._set_status("ready")
+
+        if self._web_bridge is not None and result.get("ok"):
+            try:
+                from ..web.state_api import snapshot_from_state
+
+                snap = snapshot_from_state(busy=self._busy())
+                self._web_bridge.emit("snapshot", snap)
+            except Exception:
+                pass
+
+        return result
 
     @work(thread=True)
     def _check_for_updates_background(self) -> None:
@@ -678,7 +918,7 @@ class JarvisTUI(App):
             pass
 
     def _context_strip_markup(self) -> str | None:
-        """One-line project context + skills/MCP summary for the welcome strip."""
+        """Project context + skills/MCP summary (+ web URL when enabled)."""
         parts: list[str] = []
         if state.project_context_file:
             parts.append(
@@ -713,10 +953,18 @@ class JarvisTUI(App):
                 parts.append(f"📌 [bold {ui.ACCENT_2}]pinned[/]")
             else:
                 parts.append(f"📌 [bold {ui.WARN}]paused[/]")
-        if not parts:
+        if not parts and not self._web_primary_url:
             return None
         sep = f" [{ui.SEP}]·[/] "
-        return sep.join(parts)
+        body = sep.join(parts) if parts else ""
+        if self._web_primary_url:
+            esc = _rich_escape(self._web_primary_url)
+            web_line = (
+                f"🌐 [{ui.FG_DIM}]remote[/]  [link={esc}]{esc}[/link]  "
+                f"[{ui.FG_DIM}]· scan QR top-right · ⌃⇧U copy[/]"
+            )
+            body = f"{body}\n{web_line}" if body else web_line
+        return body
 
     def _write_context_strip(self, log: RichLog | None = None) -> None:
         """Render the combined context / skills / MCP welcome line."""
@@ -890,6 +1138,7 @@ class JarvisTUI(App):
                 f"[{ui.FG}]{self._stash_preview(msg, 96)}[/]"
             )
         bar.update(Text.from_markup(header + "\n" + "\n".join(rows)))
+        self._sync_web_queue()
 
     @staticmethod
     def _tool_run_glyph(status: str) -> str:
@@ -1692,7 +1941,7 @@ class JarvisTUI(App):
         if stripped in ("/agent",):
             self._open_agent_picker()
             return
-        if stripped in ("/skills",):
+        if stripped in ("/skill", "/skills"):
             self._open_skill_browser()
             return
         if stripped in ("/memory",):
@@ -1841,11 +2090,17 @@ class JarvisTUI(App):
 
         log = self.query_one("#transcript", RichLog)
         log.write(self._user_panel(inp))
+        if self._web_bridge is not None:
+            self._web_bridge.emit(
+                "message",
+                {"role": "you", "text": inp, "title": "you"},
+            )
         self._busy = True
         self._turn_t0 = time.monotonic()
         self._sync_activity_phase("Thinking…")
         self._start_activity_pulse()
         self._set_status("thinking…")
+        self._sync_web_busy()
         self._run_turn(inp)
 
     # ─── session picker ──────────────────────────────────────────────
@@ -2174,6 +2429,7 @@ class JarvisTUI(App):
         self._turn_t0 = 0.0
         self._stop_activity_pulse()
         self._sync_activity_phase("")
+        self._sync_web_busy()
 
         if state.prompt_queue:
             item = state.prompt_queue.pop(0)

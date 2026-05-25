@@ -201,17 +201,19 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
             self.dismiss(None)
 
 
-def resume_session_into_state(sid: int, console_print, preview: bool = True) -> bool:
+def resume_session_into_state(sid: int, console_print, preview: bool = True, *, quiet: bool = False) -> bool:
     """Shared helper: load session into state, render a short tail preview."""
     loaded = db_load_session(sid)
     if loaded is None:
-        console_print(f"[red]session {sid} not found[/]")
+        if not quiet:
+            console_print(f"[red]session {sid} not found[/]")
         return False
     state.messages = loaded
     state.current_session_id = sid
     state.tool_calls_count = 0
     state.total_in, state.total_out, state.total_tokens = estimate_session_tokens(loaded)
-    console_print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
+    if not quiet:
+        console_print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
     if not preview:
         return True
     tail = state.messages[-6:]

@@ -3,21 +3,21 @@
 Validates model-generated tool arguments against the declared input schema
 and auto-fixes common formatting mistakes so the model doesn't look "dumb"
 
-Repair order (only runs if there are issues):
+Repair order (each step no-ops unless the model sent bad data):
   1. fix_null_values        — strip null from optional fields
   2. fix_field_aliases      — rename common wrong param names (e.g. topic→task)
   3. fix_extra_fields       — strip fields not in the schema
-  3. fix_stringified_arrays — parse ``"[\\"a\\",\\"b\\"]"`` → ``["a", "b"]``
-  4. fix_wrong_container    — unwrap single-item list when object expected
-  5. fix_path_cleanup       — unwrap ``["path"]`` → ``"path"``, trim whitespace
-  6. fix_string_numbers     — ``"10"`` → ``10`` when int/number expected
-  7. fix_boolean_strings    — ``"true"`` → ``True``, ``"false"`` → ``False``
-  8. fix_coerce_to_string   — dict/list content serialised to JSON string
-  9. fix_markdown_paths     — ``[file.md](...)`` → ``file.md``
- 10. apply_smart_defaults   — ``limit`` without ``offset`` → ``offset=0``
+  4. fix_stringified_arrays — parse ``"[\\"a\\",\\"b\\"]"`` → ``["a", "b"]``
+  5. fix_wrong_container    — unwrap single-item list when object expected
+  6. fix_path_cleanup       — unwrap ``["path"]`` → ``"path"``, trim whitespace
+  7. fix_string_numbers     — ``"10"`` → ``10`` when int/number expected
+  8. fix_boolean_strings    — ``"true"`` → ``True``, ``"false"`` → ``False``
+  9. fix_coerce_to_string   — dict/list content serialised to JSON string
+ 10. fix_markdown_paths     — ``[file.md](...)`` → ``file.md``
 
 Each fixer is idempotent: correct inputs pass through with zero changes
-and no log entries, so the "try as-is" optimisation is implicit.
+and no log entries.  When nothing was fixed, the original *raw* dict is
+returned unchanged (no copy).
 """
 
 from __future__ import annotations
@@ -413,23 +413,6 @@ def _fix_markdown_paths(
     return data, log
 
 
-def _apply_smart_defaults(
-    data: dict[str, Any],
-    props: dict[str, Any],
-    required: set[str],
-) -> tuple[dict[str, Any], list[str]]:
-    """Apply default values for closely related fields.
-
-    Known patterns:
-      * ``limit`` without ``offset`` → auto-set ``offset=0``
-    """
-    log: list[str] = []
-    if "limit" in data and "offset" not in data and "offset" in props:
-        data["offset"] = 0
-        log.append("added default offset=0 (limit provided without offset)")
-    return data, log
-
-
 # ── orchestration ────────────────────────────────────────────────────────
 
 _FIXERS = [
@@ -442,7 +425,6 @@ _FIXERS = [
     ("boolean strings", _fix_boolean_strings),
     ("coerce to string", _fix_coerce_to_string),
     ("markdown paths", _fix_markdown_paths),
-    ("smart defaults", _apply_smart_defaults),
 ]
 
 
@@ -469,10 +451,14 @@ def repair_tool_input(
     if not schema:
         return raw, []
 
-    data = dict(raw)  # work on a copy — never mutate the caller's dict
+    if not isinstance(raw, dict):
+        return raw, []
+
     props = _schema_properties(schema)
     required = _schema_required(schema)
     repairs: list[str] = []
+
+    data = dict(raw)  # work on a copy — never mutate the caller's dict
 
     data, more = _fix_field_aliases(data, props, required, name)
     repairs.extend(more)
@@ -481,4 +467,6 @@ def repair_tool_input(
         data, more = fixer(data, props, required)
         repairs.extend(more)
 
+    if not repairs:
+        return raw, []
     return data, repairs

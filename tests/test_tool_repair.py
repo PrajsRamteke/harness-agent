@@ -14,11 +14,11 @@ from jarvis.utils.tool_repair import (
     _fix_wrong_container_types,
     _fix_string_numbers,
     _fix_markdown_paths,
-    _apply_smart_defaults,
     _fix_path_cleanup,
     _fix_boolean_strings,
     _fix_coerce_to_string,
 )
+from jarvis.tools import FUNC, TOOL_GROUPS, TOOL_NAME_TO_GROUP
 
 # ── fixtures ─────────────────────────────────────────────────────────────
 
@@ -383,47 +383,6 @@ class TestFixMarkdownPaths(unittest.TestCase):
         self.assertEqual(log, [])
 
 
-class TestApplySmartDefaults(unittest.TestCase):
-    def test_adds_offset_when_limit_given(self):
-        schema_props = {
-            "limit": {"type": "integer"},
-            "offset": {"type": "integer"},
-        }
-        data, log = _apply_smart_defaults(
-            {"limit": 10},
-            schema_props,
-            set(),
-        )
-        self.assertEqual(data, {"limit": 10, "offset": 0})
-        self.assertEqual(len(log), 1)
-
-    def test_does_not_overwrite_existing_offset(self):
-        schema_props = {
-            "limit": {"type": "integer"},
-            "offset": {"type": "integer"},
-        }
-        data, log = _apply_smart_defaults(
-            {"limit": 10, "offset": 5},
-            schema_props,
-            set(),
-        )
-        self.assertEqual(data, {"limit": 10, "offset": 5})
-        self.assertEqual(log, [])
-
-    def test_no_op_when_no_limit(self):
-        schema_props = {
-            "path": {"type": "string"},
-            "offset": {"type": "integer"},
-        }
-        data, log = _apply_smart_defaults(
-            {"path": "x.py"},
-            schema_props,
-            {"path"},
-        )
-        self.assertEqual(data, {"path": "x.py"})
-        self.assertEqual(log, [])
-
-
 class TestFixPathCleanup(unittest.TestCase):
     def test_unwraps_single_element_list_for_path(self):
         from jarvis.utils.tool_repair import _fix_path_cleanup
@@ -620,8 +579,10 @@ class TestFixCoerceToString(unittest.TestCase):
 
 class TestRepairToolInput(unittest.TestCase):
     def test_correct_input_passes_through(self):
-        data, log = repair_tool_input("read_file", {"path": "main.py"})
+        raw = {"path": "main.py"}
+        data, log = repair_tool_input("read_file", raw)
         self.assertEqual(data, {"path": "main.py"})
+        self.assertIs(data, raw)
         self.assertEqual(log, [])
 
     def test_strips_null_optional(self):
@@ -683,12 +644,12 @@ class TestRepairToolInput(unittest.TestCase):
         self.assertEqual(data, {"path": "main.py"})
         self.assertIn("markdown", log[0])
 
-    def test_smart_default_offset(self):
-        data, log = repair_tool_input(
-            "read_file",
-            {"path": "main.py", "limit": 100},
-        )
-        self.assertEqual(data, {"path": "main.py", "limit": 100, "offset": 0})
+    def test_optional_offset_omitted_is_not_repaired(self):
+        """Omitting optional offset with limit is valid — tool defaults offset=0."""
+        raw = {"path": "main.py", "limit": 100}
+        data, log = repair_tool_input("read_file", raw)
+        self.assertEqual(log, [])
+        self.assertIs(data, raw)
 
     def test_multiple_repairs_at_once(self):
         """Model sends multiple issues in one call."""
@@ -701,9 +662,9 @@ class TestRepairToolInput(unittest.TestCase):
                 "extra_field": True,
             },
         )
-        # All repairs applied
-        self.assertEqual(data, {"path": "main.py", "limit": 50, "offset": 0})
-        self.assertGreaterEqual(len(log), 3)  # markdown + null + string + default
+        # All repairs applied (offset is optional — not injected)
+        self.assertEqual(data, {"path": "main.py", "limit": 50})
+        self.assertGreaterEqual(len(log), 3)  # markdown + null + string + extra
 
     def test_unknown_tool_returns_unchanged(self):
         data, log = repair_tool_input("nonexistent_tool", {"a": 1})
@@ -867,6 +828,82 @@ class TestGetSchema(unittest.TestCase):
 # ── integration test with real render.py module (mock tool execution) ──
 
 
+def _minimal_valid_input(schema: dict[str, Any]) -> dict[str, Any]:
+    """Build a schema-valid minimal dict from required fields only."""
+    props = schema.get("properties", {})
+    required = schema.get("required", [])
+    data: dict[str, Any] = {}
+    for key in required:
+        prop = props.get(key, {})
+        ptype = prop.get("type", "string")
+        if ptype == "string":
+            data[key] = "test"
+        elif ptype == "integer":
+            data[key] = 1
+        elif ptype == "number":
+            data[key] = 1.0
+        elif ptype == "boolean":
+            data[key] = True
+        elif ptype == "array":
+            items = prop.get("items", {})
+            if items.get("type") == "string":
+                data[key] = ["a"]
+            elif items.get("type") == "object":
+                data[key] = [{"key": "value"}]
+            else:
+                data[key] = []
+        elif ptype == "object":
+            data[key] = {}
+        else:
+            data[key] = "test"
+    return data
+
+
+def _tool_schema(name: str) -> dict[str, Any] | None:
+    group = TOOL_NAME_TO_GROUP.get(name)
+    if not group:
+        return None
+    for tool in TOOL_GROUPS.get(group, []):
+        if tool["name"] == name:
+            return tool.get("input_schema")
+    return None
+
+
+class TestAllToolsRepairCoverage(unittest.TestCase):
+    """Every registered tool must have a schema and pass correct input unchanged."""
+
+    def test_every_func_tool_has_schema(self):
+        missing = [name for name in FUNC if _tool_schema(name) is None]
+        self.assertEqual(missing, [], f"tools missing input_schema: {missing}")
+
+    def test_valid_minimal_input_unmodified_for_all_tools(self):
+        for name in sorted(FUNC.keys()):
+            schema = _tool_schema(name)
+            self.assertIsNotNone(schema, name)
+            raw = _minimal_valid_input(schema)  # type: ignore[arg-type]
+            data, log = repair_tool_input(name, raw, schema=schema)
+            with self.subTest(tool=name):
+                self.assertEqual(log, [], msg=f"{name} repaired valid input")
+                self.assertIs(data, raw, msg=f"{name} should return same dict")
+
+    def test_incorrect_input_repaired_for_representative_tools(self):
+        cases = [
+            ("read_file", {"path": ["main.py"]}, {"path": "main.py"}),
+            ("run_bash", {"cmd": "ls", "timeout": "30"}, {"cmd": "ls", "timeout": 30}),
+            ("write_file", {"path": "a.txt", "content": {"k": "v"}}, None),
+            ("lesson_save", {"topic": "x", "content": "y"}, {"task": "x", "lesson": "y"}),
+            ("click_menu", {"app": "Safari", "path": '["File"]'}, {"app": "Safari", "path": ["File"]}),
+        ]
+        for name, broken, expected in cases:
+            data, log = repair_tool_input(name, broken)
+            with self.subTest(tool=name):
+                self.assertTrue(log, msg=f"{name} should produce repair log")
+                if expected is not None:
+                    self.assertEqual(data, expected)
+                if name == "write_file":
+                    self.assertIsInstance(data["content"], str)
+
+
 class TestRepairInRenderFlow(unittest.TestCase):
     """Verify that the repair layer integrates correctly into _run_tool flow.
 
@@ -876,9 +913,10 @@ class TestRepairInRenderFlow(unittest.TestCase):
 
     def test_empty_log_for_clean_input(self):
         """A well-formed tool call produces no repair log."""
-        data, log = repair_tool_input("read_file", {"path": "main.py", "offset": 0})
+        raw = {"path": "main.py", "offset": 0}
+        data, log = repair_tool_input("read_file", raw)
         self.assertEqual(log, [])
-        self.assertEqual(data, {"path": "main.py", "offset": 0})
+        self.assertIs(data, raw)
 
     def test_repair_log_has_entries_for_broken_input(self):
         """A broken tool call produces repair log entries."""

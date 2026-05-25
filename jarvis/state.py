@@ -59,6 +59,8 @@ cancel_requested = threading.Event()
 # Each entry is ``str`` or ``(text, attachment_snapshot)`` for dropped-file chips.
 prompt_queue: list = []
 startup_prompt: str = ""  # one-shot prompt from `jarvis "..."` CLI args
+web_enabled: bool = False
+web_port: int = 8765
 auto_approve: bool = False
 session_start: float = time.time()
 tool_calls_count: int = 0

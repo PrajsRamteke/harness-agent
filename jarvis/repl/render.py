@@ -11,6 +11,7 @@ from ..utils.tool_repair import repair_tool_input
 from .. import state
 from .hallucination import _scrub_hallucinations
 from .tool_activity import describe_tool_activity
+from .tool_events import emit_tool_done, emit_tool_start
 from .tool_display import format_tool_output_preview
 from .tool_runs import (
     begin_wave,
@@ -51,6 +52,8 @@ def assistant_model_label() -> str:
 # in parallel; only truly global tools stay here.
 _SERIAL_TOOLS = {
     "run_bash",
+    "git_status", "git_log", "git_diff",
+    "search_code",
     "click_at", "click_element", "click_menu", "key_press", "type_text",
     "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
     "clipboard_set", "mac_control", "speck",
@@ -111,11 +114,19 @@ def _run_tool(b):
         set_running(b.id)
     icon = TOOL_ICONS.get(b.name, "⚙")
     args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
-    report_turn_phase(describe_tool_activity(b.name, b.input))
+    activity_label = describe_tool_activity(b.name, b.input)
+    report_turn_phase(activity_label)
+    emit_tool_start(tool_id=b.id, name=b.name, label=activity_label)
 
     def _finish(out_str: str):
         if dock:
             set_done(b.id, out_str)
+        emit_tool_done(
+            tool_id=b.id,
+            name=b.name,
+            label=activity_label,
+            error=str(out_str).startswith("ERROR"),
+        )
         return b, icon, args_preview, out_str
 
     # OpenCode/OpenAI-compatible providers occasionally stream truncated or

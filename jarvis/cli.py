@@ -7,6 +7,23 @@ import os
 import sys
 
 
+def _normalize_web_args(argv: list[str]) -> list[str]:
+    """Expand ``--web PORT`` into ``--web --web-port PORT``."""
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--web" and i + 1 < len(argv):
+            nxt = argv[i + 1]
+            if nxt.isdigit() and not nxt.startswith("-") and 1 <= int(nxt) <= 65535:
+                out.extend(["--web", "--web-port", nxt])
+                i += 2
+                continue
+        out.append(arg)
+        i += 1
+    return out
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jarvis",
@@ -30,6 +47,21 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="*",
         metavar="PROMPT",
         help="optional prompt to send immediately when launching the TUI",
+    )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help=(
+            "enable browser remote control (mobile-friendly web UI); "
+            "optional PORT as next arg (e.g. --web 9000)"
+        ),
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=None,
+        metavar="PORT",
+        help="web remote port (default: 8765 or HARNESS_WEB_PORT; see also --web PORT)",
     )
     return parser
 
@@ -60,7 +92,7 @@ def main() -> None:
     """
     _handle_post_reexec_banner()
 
-    args = _build_parser().parse_args()
+    args = _build_parser().parse_args(_normalize_web_args(sys.argv[1:]))
 
     if args.run_prompt:
         from .updater import maybe_update_and_reexec
@@ -80,6 +112,12 @@ def main() -> None:
         from . import state
 
         state.startup_prompt = startup_prompt
+
+    from . import state
+    from .web.server import default_web_port, web_enabled_from_env
+
+    state.web_enabled = bool(args.web or web_enabled_from_env())
+    state.web_port = args.web_port if args.web_port is not None else default_web_port()
 
     from .bootstrap import ensure_harness_agent_defaults
     ensure_harness_agent_defaults()
