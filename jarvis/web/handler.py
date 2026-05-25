@@ -251,7 +251,10 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if path == "/":
             if not self._authorized():
-                self._send_json(401, {"error": "missing or invalid token"})
+                # Redirect so QR codes can omit the token param entirely.
+                self.send_response(302)
+                self.send_header("Location", f"/?token={self.bridge.token}")
+                self.end_headers()
                 return
             self._serve_index()
             return

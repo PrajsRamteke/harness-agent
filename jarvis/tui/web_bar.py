@@ -1,14 +1,14 @@
 """Web remote UI — bottom URL strip + top-right QR overlay."""
 from __future__ import annotations
 
+from urllib.parse import urlparse, urlunparse
+
 from rich.box import ROUNDED
 from rich.markup import escape as _rich_escape
 from rich.panel import Panel
 from rich.text import Text
 from textual.containers import Horizontal
 from textual.widgets import Static
-
-from qrcode.constants import ERROR_CORRECT_L
 
 from ..web.qr_ascii import qr_ascii, qr_dimensions
 from . import theme as ui
@@ -58,7 +58,11 @@ class WebRemoteQR(Static):
         if not self._url:
             self.hide()
             return
-        art = qr_ascii(self._url.upper(), ecc=ERROR_CORRECT_L)
+        # Strip query string (token) for the QR — server redirects
+        # bare / to /?token=<real_token> on first visit.
+        parsed = urlparse(self._url)
+        qr_url = urlunparse(parsed._replace(query=""))
+        art = qr_ascii(qr_url)
         if not art:
             self.hide()
             return
