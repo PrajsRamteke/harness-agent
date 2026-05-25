@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
-import queue
 import threading
+from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Any
 
@@ -167,44 +167,85 @@ class WebMuxConsole:
     def reset_tool_activity_panel(self) -> None:
         self._primary.reset_tool_activity_panel()
 
-    def prompt_shell_approval(self, cmd: str) -> str:
-        if self._web_connected():
-            prompt_id = self._bridge.new_prompt("shell_approval", {"cmd": cmd})
+    def _dual_channel_prompt(
+        self,
+        *,
+        kind: str,
+        web_payload: dict[str, Any],
+        tui_call: Callable[[], Any],
+        web_cancel: Callable[[Any], None],
+    ) -> Any:
+        """Show the same prompt on TUI and web; whichever answers first wins."""
+        if not self._web_connected():
+            return tui_call()
+
+        prompt_id = self._bridge.new_prompt(kind, web_payload)
+        web_answer: list[Any] = []
+        web_finished = threading.Event()
+
+        def wait_web() -> None:
             try:
-                return _norm_shell_result(self._bridge.wait_prompt(prompt_id, timeout=3600.0))
+                answer = self._bridge.wait_prompt(prompt_id, timeout=3600.0)
+                web_answer.append(answer)
+                if answer is not None:
+                    web_cancel(answer)
             finally:
+                web_finished.set()
+
+        threading.Thread(target=wait_web, daemon=True).start()
+        try:
+            result = tui_call()
+            if not web_finished.is_set() or (web_answer and web_answer[0] is None):
                 self._bridge.dismiss_prompt(prompt_id)
-        return self._primary.prompt_shell_approval(cmd)
+            return result
+        except EOFError:
+            if not web_finished.is_set():
+                self._bridge.dismiss_prompt(prompt_id)
+            raise
+
+    def prompt_shell_approval(self, cmd: str) -> str:
+        return _norm_shell_result(
+            self._dual_channel_prompt(
+                kind="shell_approval",
+                web_payload={"cmd": cmd},
+                tui_call=lambda: self._primary.prompt_shell_approval(cmd),
+                web_cancel=lambda answer: self._primary.cancel_shell_approval(
+                    _norm_shell_result(answer)
+                ),
+            )
+        )
 
     def prompt_ask_user_question(self, questions) -> str:
-        if self._web_connected():
-            from ..tui.ask_user import AskQuestion, questions_to_payload
+        from ..tui.ask_user import AskQuestion, questions_to_payload
 
-            if questions and isinstance(questions[0], AskQuestion):
-                qs_payload = questions_to_payload(questions)
+        if questions and isinstance(questions[0], AskQuestion):
+            qs_payload = questions_to_payload(questions)
+        else:
+            qs_payload = questions
+        payload = {"questions": qs_payload}
+        default = json.dumps({"answers": [], "cancelled": True})
+
+        def _web_cancel(answer: Any) -> None:
+            if isinstance(answer, dict):
+                text = json.dumps(answer, ensure_ascii=False)
             else:
-                qs_payload = questions
-            payload = {"questions": qs_payload}
-            prompt_id = self._bridge.new_prompt("ask_user", payload)
-            default = json.dumps({"answers": [], "cancelled": True})
-            try:
-                result = self._bridge.wait_prompt(prompt_id, timeout=3600.0)
-                return result if isinstance(result, str) else default
-            finally:
-                self._bridge.dismiss_prompt(prompt_id)
-        return self._primary.prompt_ask_user_question(questions)
+                text = str(answer)
+            self._primary.cancel_ask_user_question(text)
+
+        result = self._dual_channel_prompt(
+            kind="ask_user",
+            web_payload=payload,
+            tui_call=lambda: self._primary.prompt_ask_user_question(questions),
+            web_cancel=_web_cancel,
+        )
+        return result if isinstance(result, str) else default
 
     def input(self, prompt: str = "", *, password: bool = False, **kwargs) -> str:
-        if self._web_connected():
-            prompt_id = self._bridge.new_prompt(
-                "text_input",
-                {"prompt": prompt, "password": password},
-            )
-            try:
-                result = self._bridge.wait_prompt(prompt_id, timeout=3600.0)
-                if result is None:
-                    raise EOFError("Input cancelled")
-                return str(result)
-            finally:
-                self._bridge.dismiss_prompt(prompt_id)
-        return self._primary.input(prompt, password=password, **kwargs)
+        return self._dual_channel_prompt(
+            kind="text_input",
+            web_payload={"prompt": prompt, "password": password},
+            tui_call=lambda: self._primary.input(prompt, password=password, **kwargs),
+            web_cancel=lambda answer: self._primary.cancel_text_input(
+                None if answer is None else str(answer)
+            ),
+        )

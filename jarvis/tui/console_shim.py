@@ -32,6 +32,43 @@ def _safe_from_markup(text: str) -> Text:
         return Text(text)
 
 
+class _PromptWaiter:
+    """One-shot blocking prompt with optional external cancel (web bridge)."""
+
+    def __init__(self, app) -> None:
+        self._app = app
+        self._q: queue.Queue[Any] = queue.Queue(maxsize=1)
+        self._done = threading.Event()
+
+    def deliver(self, value: Any) -> None:
+        if self._done.is_set():
+            return
+        self._done.set()
+        try:
+            self._q.put_nowait(value)
+        except Exception:
+            pass
+
+    def wait(self, timeout: float = 3600.0) -> Any:
+        try:
+            return self._q.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def dismiss_screen(self, screen_type: type, value: Any) -> None:
+        def _go() -> None:
+            try:
+                screen = self._app.screen
+                if isinstance(screen, screen_type):
+                    screen.dismiss(value)
+                    return
+            except Exception:
+                pass
+            self.deliver(value)
+
+        self._app.call_from_thread(_go)
+
+
 def _truncate_rich_log_lines(log: RichLog, line_count: int) -> None:
     """Drop lines from ``line_count`` onward (used to replace in-progress stream block)."""
     log.lines = log.lines[:line_count]
@@ -134,6 +171,9 @@ class TUIConsole:
         self._think_dirty = 0
         self._think_flush_every = 48
         self._think_finalized = False
+        self._active_shell_waiter: _PromptWaiter | None = None
+        self._active_ask_waiter: _PromptWaiter | None = None
+        self._active_input_waiter: _PromptWaiter | None = None
 
     # ─── thinking streaming (reasoning deltas before reply text) ───────
     def thinking_stream_start(self) -> None:
@@ -471,6 +511,38 @@ class TUIConsole:
             except Exception:
                 pass
 
+    def cancel_shell_approval(self, result: str = "n") -> None:
+        """Unblock a pending shell approval (e.g. answered on web remote)."""
+        waiter = self._active_shell_waiter
+        if waiter is None:
+            return
+        from .shell_approval_modal import ShellApprovalScreen
+
+        waiter.dismiss_screen(ShellApprovalScreen, result)
+
+    def cancel_ask_user_question(self, payload: str) -> None:
+        """Unblock a pending ask-user flow with a JSON payload from web remote."""
+        waiter = self._active_ask_waiter
+        if waiter is None:
+            return
+
+        def _go() -> None:
+            if self._app._ask_user.active:
+                self._app._ask_user.finish_with(payload)
+            else:
+                waiter.deliver(payload)
+
+        self._app.call_from_thread(_go)
+
+    def cancel_text_input(self, result: str | None) -> None:
+        """Unblock a pending text input modal (e.g. answered on web remote)."""
+        waiter = self._active_input_waiter
+        if waiter is None:
+            return
+        from .text_input_modal import TextInputScreen
+
+        waiter.dismiss_screen(TextInputScreen, result)
+
     def prompt_shell_approval(self, cmd: str) -> str:
         """Block (from worker thread) until the user approves a shell command.
 
@@ -479,49 +551,50 @@ class TUIConsole:
         """
         from .shell_approval_modal import ShellApprovalScreen
 
-        q: queue.Queue[str] = queue.Queue(maxsize=1)
+        waiter = _PromptWaiter(self._app)
+        self._active_shell_waiter = waiter
 
         def on_done(result: str | None) -> None:
             if result is None:
                 r = "n"
             else:
                 r = str(result).strip().lower() or "y"
-            try:
-                q.put_nowait(r)
-            except Exception:
-                pass
+            waiter.deliver(r)
 
         def push() -> None:
             self._app.push_screen(ShellApprovalScreen(cmd), on_done)
 
         self._app.call_from_thread(push)
         try:
-            return q.get(timeout=3600)
-        except queue.Empty:
-            return "n"
+            out = waiter.wait()
+            return out if isinstance(out, str) and out else "n"
+        finally:
+            self._active_shell_waiter = None
 
     def prompt_ask_user_question(self, questions) -> str:
         """Block until the user answers structured multiple-choice questions.
 
         Returns JSON from ``ask_user_question`` (answers + optional cancelled).
         """
-        q: queue.Queue[str] = queue.Queue(maxsize=1)
+        import json
+
+        waiter = _PromptWaiter(self._app)
+        self._active_ask_waiter = waiter
 
         def on_done(result: str | None) -> None:
-            try:
-                q.put_nowait(result if result is not None else "")
-            except Exception:
-                pass
+            waiter.deliver(result if result is not None else "")
 
         def push() -> None:
             self._app.begin_ask_user_question(questions, on_done)
 
         self._app.call_from_thread(push)
         try:
-            return q.get(timeout=3600)
-        except queue.Empty:
-            import json
-            return json.dumps({"answers": [], "cancelled": True})
+            out = waiter.wait()
+            if out is None or out == "":
+                return json.dumps({"answers": [], "cancelled": True})
+            return str(out)
+        finally:
+            self._active_ask_waiter = None
 
     def input(self, prompt: str = "", *, password: bool = False, **kwargs) -> str:  # noqa: D401
         """Show a text input modal and return the entered text.
@@ -543,13 +616,11 @@ class TUIConsole:
 
         from .text_input_modal import TextInputScreen
 
-        q: queue.Queue[str | None] = queue.Queue(maxsize=1)
+        waiter = _PromptWaiter(self._app)
+        self._active_input_waiter = waiter
 
         def on_done(result: str | None) -> None:
-            try:
-                q.put_nowait(result)
-            except Exception:
-                pass
+            waiter.deliver(result)
 
         placeholder = "(paste here)"
         if password:
@@ -568,10 +639,10 @@ class TUIConsole:
 
         self._app.call_from_thread(push)
         try:
-            result = q.get(timeout=3600)
-        except queue.Empty:
-            result = None
+            result = waiter.wait()
+        finally:
+            self._active_input_waiter = None
 
         if result is None:
             raise EOFError("Input cancelled")
-        return result
+        return str(result)

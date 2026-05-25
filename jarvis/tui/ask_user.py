@@ -129,6 +129,12 @@ class AskUserController:
             return
         self._finish(json.dumps({"answers": [], "cancelled": True}))
 
+    def finish_with(self, payload: str) -> None:
+        """Complete the flow with a pre-built JSON payload (e.g. web remote answer)."""
+        if not self.active:
+            return
+        self._finish(payload)
+
     def _finish(self, payload: str) -> None:
         cb = self._on_done
         self._questions = []
