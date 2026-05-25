@@ -1,7 +1,7 @@
 /** Chat transcript rendering */
 import { $, escapeHtml, icons } from './utils.js';
 import { store } from './store.js';
-import { renderMarkdown, renderPlainWithLinks, applyMarkdownLinks } from './markdown.js';
+import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 
 const ROLE_ICONS = {
   you: 'user',
@@ -61,11 +61,8 @@ function isDuplicateThinking(chat, text) {
 }
 
 function setBodyContent(body, role, text) {
-  if (role === 'assistant' || role === 'stream') {
+  if (role === 'assistant' || role === 'stream' || role === 'you') {
     body.innerHTML = renderMarkdown(text);
-    applyMarkdownLinks(body);
-  } else if (role === 'you') {
-    body.innerHTML = renderPlainWithLinks(text);
     applyMarkdownLinks(body);
   } else if (role === 'thinking') {
     body.textContent = String(text);

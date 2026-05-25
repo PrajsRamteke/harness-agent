@@ -102,6 +102,25 @@
   border-color: var(--you-border);
 }
 
+.msg.you .msg-body h1,
+.msg.you .msg-body h2,
+.msg.you .msg-body h3,
+.msg.you .msg-body h4 {
+  color: var(--teal);
+}
+
+.msg.you .msg-body strong { color: var(--teal); }
+
+.msg.you .msg-body code {
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--teal);
+}
+
+.msg.you .msg-body .md-quote {
+  border-left-color: var(--teal);
+  background: rgba(94, 234, 212, 0.06);
+}
+
 .msg.assistant .msg-card, .msg.stream .msg-card {
   background: var(--asst-bg);
   border-color: var(--asst-border);
@@ -520,7 +539,8 @@
   .chat { padding: 12px; gap: 8px; }
   .msg { max-width: 94%; }
   .msg.assistant:has(.md-table-wrap),
-  .msg.stream:has(.md-table-wrap) {
+  .msg.stream:has(.md-table-wrap),
+  .msg.you:has(.md-table-wrap) {
     max-width: 100%;
     align-self: stretch;
   }

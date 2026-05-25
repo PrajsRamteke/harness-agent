@@ -280,7 +280,7 @@ export function renderMarkdown(source) {
   return text;
 }
 
-/** Plain text for user messages — linkify URLs */
+/** Plain text with linkified URLs (composer preview, etc.) */
 export function renderPlainWithLinks(text) {
   const escaped = escapeHtml(text);
   return escaped.replace(
