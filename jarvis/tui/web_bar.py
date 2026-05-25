@@ -8,6 +8,8 @@ from rich.text import Text
 from textual.containers import Horizontal
 from textual.widgets import Static
 
+from qrcode.constants import ERROR_CORRECT_L
+
 from ..web.qr_ascii import qr_ascii, qr_dimensions
 from . import theme as ui
 
@@ -56,7 +58,7 @@ class WebRemoteQR(Static):
         if not self._url:
             self.hide()
             return
-        art = qr_ascii(self._url)
+        art = qr_ascii(self._url.upper(), ecc=ERROR_CORRECT_L)
         if not art:
             self.hide()
             return

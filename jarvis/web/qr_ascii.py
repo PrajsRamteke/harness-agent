@@ -25,13 +25,13 @@ _QUAD_CHARS = (
 )
 
 
-def _quadrant_ascii(data: str) -> str:
+def _quadrant_ascii(data: str, ecc: int | None = None) -> str:
     import qrcode
 
     qr = qrcode.QRCode(
         border=_QUIET_BORDER,
         box_size=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        error_correction=ecc or qrcode.constants.ERROR_CORRECT_M,
     )
     qr.add_data(data)
     qr.make(fit=True)
@@ -63,14 +63,14 @@ def _quadrant_ascii(data: str) -> str:
     return "\n".join(lines)
 
 
-def _halfblock_ascii(data: str) -> str:
-    """Half-block fallback — useful if a terminal mis-renders quadrant glyphs."""
+def _halfblock_ascii(data: str, ecc: int | None = None) -> str:
+    """Half-block — each char packs 2 vertical modules for square visuals."""
     import qrcode
 
     qr = qrcode.QRCode(
         border=_QUIET_BORDER,
         box_size=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        error_correction=ecc or qrcode.constants.ERROR_CORRECT_M,
     )
     qr.add_data(data)
     qr.make(fit=True)
@@ -94,6 +94,7 @@ def qr_ascii(
     *,
     scale: int = _DEFAULT_SCALE,
     style: str = "halfblock",
+    ecc: int | None = None,
 ) -> str:
     """Return a plain-text QR suitable for Textual ``Static`` (no Rich styling).
 
@@ -101,6 +102,10 @@ def qr_ascii(
     ``style="quadrant"`` → 2×2 blocks; chars are half the count but render
     visually stretched in standard terminals, so use only when you've verified
     the target terminal has square cells.
+
+    ``ecc`` — error correction constant from ``qrcode.constants``.
+    Default is ``ERROR_CORRECT_M``. Use ``ERROR_CORRECT_L`` for the smallest
+    possible QR matrix (lower error recovery, smaller code).
     """
     text = (data or "").strip()
     if not text:
@@ -108,7 +113,7 @@ def qr_ascii(
     try:
         factor = max(1, min(int(scale), 3))
         renderer = _quadrant_ascii if style == "quadrant" else _halfblock_ascii
-        return _scale(renderer(text), factor)
+        return _scale(renderer(text, ecc=ecc), factor)
     except Exception:
         return ""
 
