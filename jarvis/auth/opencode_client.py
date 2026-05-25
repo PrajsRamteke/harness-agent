@@ -13,9 +13,12 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import time
 import contextlib
 from dataclasses import dataclass, field
 from typing import Any, Generator, Optional
+
+from .http_timeout import harness_http_timeout, http_read_timeout_seconds
 
 
 def _get_usage_value(usage_obj, attr_name: str, default: int = 0) -> int:
@@ -335,11 +338,15 @@ def _openai_response_to_anthropic(response) -> _FakeMessage:
 # Stream adapter
 # ---------------------------------------------------------------------------
 
+_STREAM_END = object()
+
+
 class _OpenCodeStream:
     """Mimics Anthropic SDK MessageStream interface."""
 
-    def __init__(self, response):
+    def __init__(self, response, *, read_timeout: float | None = None):
         self._response = response
+        self._read_timeout = read_timeout if read_timeout is not None else http_read_timeout_seconds(openrouter=True)
         self._final: Optional[_FakeMessage] = None
         self._closed = False
         # Accumulated across streaming — written by _drain(), read by get_final_message()
@@ -349,6 +356,7 @@ class _OpenCodeStream:
         self._usage_obj = None
         self._chunk_queue: queue.Queue = queue.Queue()
         self._reader_started = False
+        self._reader_error: BaseException | None = None
 
     def _start_reader(self) -> None:
         if self._reader_started:
@@ -358,14 +366,37 @@ class _OpenCodeStream:
         t.start()
 
     def _read_chunks_into_queue(self) -> None:
-        """Daemon thread: push every chunk onto the queue, then None sentinel."""
+        """Daemon thread: push every chunk onto the queue, then end sentinel."""
         try:
             for chunk in self._response:
+                if self._closed:
+                    break
                 self._chunk_queue.put(chunk)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._reader_error = exc
         finally:
-            self._chunk_queue.put(None)
+            self._chunk_queue.put(_STREAM_END)
+
+    def _take_next_chunk(self, *, last_progress: float) -> tuple[Any, float]:
+        """Return the next queue item or raise on stall / reader failure."""
+        while True:
+            if self._closed:
+                raise KeyboardInterrupt("stream cancelled")
+            try:
+                item = self._chunk_queue.get(timeout=0.5)
+            except queue.Empty:
+                idle = time.monotonic() - last_progress
+                if idle >= self._read_timeout:
+                    self.close()
+                    raise TimeoutError(
+                        f"Stream stalled for {int(idle)}s (limit {int(self._read_timeout)}s)"
+                    )
+                continue
+            if item is _STREAM_END:
+                if self._reader_error is not None:
+                    raise self._reader_error
+                return None, last_progress
+            return item, time.monotonic()
 
     def _process_chunk(self, chunk) -> tuple[Optional[str], Optional[str]]:
         """Extract text/reasoning deltas and accumulate tool call fragments."""
@@ -449,13 +480,9 @@ class _OpenCodeStream:
     def delta_stream(self) -> Generator[tuple[str, str], None, None]:
         """Yield ``(kind, chunk)`` pairs where *kind* is ``thinking`` or ``text``."""
         self._start_reader()
+        last_progress = time.monotonic()
         while True:
-            if self._closed:
-                raise KeyboardInterrupt("stream cancelled")
-            try:
-                chunk = self._chunk_queue.get(timeout=0.05)
-            except queue.Empty:
-                continue
+            chunk, last_progress = self._take_next_chunk(last_progress=last_progress)
             if chunk is None:
                 break
             text, reasoning = self._process_chunk(chunk)
@@ -482,14 +509,12 @@ class _OpenCodeStream:
             return self._final
         # Non-streaming path: drain the queue ourselves
         self._start_reader()
+        last_progress = time.monotonic()
         while True:
             if self._closed:
                 self._final = self._build_final()
                 return self._final
-            try:
-                chunk = self._chunk_queue.get(timeout=0.05)
-            except queue.Empty:
-                continue
+            chunk, last_progress = self._take_next_chunk(last_progress=last_progress)
             if chunk is None:
                 break
             self._process_chunk(chunk)
@@ -603,7 +628,10 @@ class _OpenCodeMessages:
             else:
                 raise
 
-        stream = _OpenCodeStream(response)
+        stream = _OpenCodeStream(
+            response,
+            read_timeout=http_read_timeout_seconds(openrouter=True),
+        )
         try:
             yield stream
         finally:
@@ -638,6 +666,7 @@ class OpenCodeClient:
             api_key=api_key,
             base_url=base_url or f"{OPENCODE_BASE_URL}/",
             default_headers=hdrs or None,
+            timeout=harness_http_timeout(openrouter=True),
         )
         self.messages = _OpenCodeMessages(self._oai, owner=self)
 

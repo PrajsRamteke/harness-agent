@@ -451,6 +451,12 @@ class JarvisTUI(App):
         self._tool_activity_frozen: bool = False
         self._tool_activity_lock = threading.Lock()
         self._ask_user = AskUserController(self)
+        from .shell_approval import ShellApprovalController
+        self._shell_approval = ShellApprovalController(self)
+
+    def begin_shell_approval(self, cmd: str, on_done) -> None:
+        """Status-bar shell approval (worker thread via console shim)."""
+        self._shell_approval.begin(cmd, on_done)
 
     def begin_ask_user_question(self, questions, on_done) -> None:
         """Start status-bar Q&A (called from worker thread via console shim)."""
@@ -520,6 +526,10 @@ class JarvisTUI(App):
 
     async def _on_key(self, event):  # type: ignore[override]
         key = getattr(event, "key", "")
+        if self._shell_approval.active and self._shell_approval.handle_key(key):
+            event.stop()
+            event.prevent_default()
+            return
         if self._ask_user.active and self._ask_user.handle_key(key):
             event.stop()
             event.prevent_default()
@@ -786,6 +796,8 @@ class JarvisTUI(App):
         from ..repl.stream import cancel_current_stream
 
         cancel_current_stream()
+        if hasattr(self._tui_console, "cancel_pending_prompts"):
+            self._tui_console.cancel_pending_prompts()
         self._sync_activity_phase("Cancelling…")
         self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user (web)[/]")
         self._turn_done()
@@ -1996,6 +2008,8 @@ class JarvisTUI(App):
     def action_escape_action(self):
         from ..repl.stream import cancel_current_stream
         cancel_current_stream()
+        if hasattr(self._tui_console, "cancel_pending_prompts"):
+            self._tui_console.cancel_pending_prompts()
         self._sync_activity_phase("Cancelling…")
         if self._busy:
             self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user[/]")
@@ -2606,12 +2620,18 @@ class JarvisTUI(App):
             from ..repl.stream import cancel_current_stream
             self._sync_activity_phase("Cancelling…")
             cancel_current_stream()
+            if hasattr(self._tui_console, "cancel_pending_prompts"):
+                self._tui_console.cancel_pending_prompts()
             self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user[/]")
             self._turn_done()
             return
 
         now = time.monotonic()
         if now - self._last_ctrl_c_t < 2.0:
+            from ..repl.stream import cancel_current_stream
+            cancel_current_stream()
+            if hasattr(self._tui_console, "cancel_pending_prompts"):
+                self._tui_console.cancel_pending_prompts()
             self.exit()
             return
         self._last_ctrl_c_t = now
@@ -2629,5 +2649,12 @@ def run():
     app = JarvisTUI()
     try:
         app.run(mouse=False)
+    except KeyboardInterrupt:
+        pass
     finally:
+        try:
+            from ..repl.stream import cancel_current_stream
+            cancel_current_stream()
+        except Exception:
+            pass
         reset_mouse_fully()

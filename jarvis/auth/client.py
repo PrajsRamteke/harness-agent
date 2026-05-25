@@ -7,8 +7,6 @@ Providers:
 """
 import os, sys
 
-import httpx
-
 from ..console import console, Anthropic, APIStatusError, APIConnectionError
 from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_ZEN_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
@@ -40,21 +38,7 @@ from .oauth_flow import oauth_login
 from .mode_picker import _choose_auth_mode
 
 
-def _http_timeout(*, openrouter: bool) -> httpx.Timeout:
-    """Limits how long we wait between bytes on streaming responses.
-
-    OpenRouter (especially free models) often queues or stalls; without a bounded
-    read timeout the UI can sit idle for many minutes while httpx waits. Anthropic
-    direct keeps the SDK-style 10-minute read budget unless overridden.
-    """
-    env_read = os.getenv("HARNESS_HTTP_READ_TIMEOUT", "").strip()
-    if env_read:
-        read = float(env_read)
-    else:
-        read = 240.0 if openrouter else 600.0
-    connect_default = 30
-    c = float(os.getenv("HARNESS_HTTP_CONNECT_TIMEOUT", str(connect_default)).strip() or str(connect_default))
-    return httpx.Timeout(connect=c, read=read, write=c, pool=c)
+from .http_timeout import harness_http_timeout as _http_timeout
 
 
 def _build_openrouter_client() -> Anthropic:

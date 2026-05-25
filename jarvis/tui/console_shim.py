@@ -9,6 +9,7 @@ RichLog from any thread via ``App.call_from_thread``.
 import queue
 import re
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any
 
@@ -50,10 +51,19 @@ class _PromptWaiter:
             pass
 
     def wait(self, timeout: float = 3600.0) -> Any:
-        try:
-            return self._q.get(timeout=timeout)
-        except queue.Empty:
-            return None
+        from .. import state
+
+        deadline = time.monotonic() + timeout
+        while True:
+            if state.cancel_requested.is_set():
+                return None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                return self._q.get(timeout=min(0.25, remaining))
+            except queue.Empty:
+                continue
 
     def dismiss_screen(self, screen_type: type, value: Any) -> None:
         def _go() -> None:
@@ -194,9 +204,10 @@ class TUIConsole:
 
         if not chunk or self._think_finalized:
             return
+        first = not self._think_buffer
         self._think_buffer += chunk
         self._think_dirty += len(chunk)
-        if self._think_dirty >= self._think_flush_every:
+        if first or self._think_dirty >= self._think_flush_every:
             self._think_dirty = 0
             self._flush_thinking_panel()
 
@@ -511,14 +522,44 @@ class TUIConsole:
             except Exception:
                 pass
 
+    def cancel_pending_prompts(self) -> None:
+        """Unblock worker-thread prompts (shell approval, ask-user, text input)."""
+        if self._active_shell_waiter is not None:
+            self._active_shell_waiter.deliver("n")
+        if self._active_ask_waiter is not None:
+            self._active_ask_waiter.deliver('{"answers":[],"cancelled":true}')
+        if self._active_input_waiter is not None:
+            self._active_input_waiter.deliver(None)
+
+        def _go() -> None:
+            if getattr(self._app, "_shell_approval", None) and self._app._shell_approval.active:
+                self._app._shell_approval.cancel()
+            if getattr(self._app, "_ask_user", None) and self._app._ask_user.active:
+                self._app._ask_user.cancel()
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _go()
+            else:
+                self._app.call_from_thread(_go)
+        except Exception:
+            pass
+
     def cancel_shell_approval(self, result: str = "n") -> None:
         """Unblock a pending shell approval (e.g. answered on web remote)."""
         waiter = self._active_shell_waiter
         if waiter is None:
             return
-        from .shell_approval_modal import ShellApprovalScreen
 
-        waiter.dismiss_screen(ShellApprovalScreen, result)
+        def _go() -> None:
+            if getattr(self._app, "_shell_approval", None) and self._app._shell_approval.active:
+                self._app._shell_approval.finish_with(result)
+                return
+            from .shell_approval_modal import ShellApprovalScreen
+
+            waiter.dismiss_screen(ShellApprovalScreen, result)
+
+        self._app.call_from_thread(_go)
 
     def cancel_ask_user_question(self, payload: str) -> None:
         """Unblock a pending ask-user flow with a JSON payload from web remote."""
@@ -549,7 +590,9 @@ class TUIConsole:
         Returns one of: ``y`` (run), ``n`` (deny), ``a`` (always approve for session)
         — same contract as the Rich REPL ``approve? [Y/n/a]`` prompt.
         """
-        from .shell_approval_modal import ShellApprovalScreen
+        from ..repl.turn_progress import report_turn_phase
+
+        report_turn_phase("⚡ Approve shell — y run / n cancel / a always")
 
         waiter = _PromptWaiter(self._app)
         self._active_shell_waiter = waiter
@@ -562,14 +605,18 @@ class TUIConsole:
             waiter.deliver(r)
 
         def push() -> None:
-            self._app.push_screen(ShellApprovalScreen(cmd), on_done)
+            self._app.begin_shell_approval(cmd, on_done)
 
         self._app.call_from_thread(push)
         try:
             out = waiter.wait()
+            from .. import state as _state
+            if _state.cancel_requested.is_set():
+                raise KeyboardInterrupt()
             return out if isinstance(out, str) and out else "n"
         finally:
             self._active_shell_waiter = None
+            report_turn_phase("")
 
     def prompt_ask_user_question(self, questions) -> str:
         """Block until the user answers structured multiple-choice questions.

@@ -9,6 +9,7 @@ from typing import Any, Generator, Optional
 from openai import OpenAI
 
 from ..constants.providers import CODEX_BASE_URL
+from .http_timeout import harness_http_timeout
 
 
 def _block_as_dict(block) -> dict:
@@ -281,6 +282,7 @@ class CodexClient:
         self._oai = OpenAI(
             api_key=access_token,
             base_url=f"{base_url.rstrip('/')}/",
+            timeout=harness_http_timeout(openrouter=False),
         )
         self.messages = _CodexMessages(self._oai)
 

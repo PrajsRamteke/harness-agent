@@ -5,6 +5,13 @@ import time
 from typing import Any, Dict
 
 from anthropic import APITimeoutError
+import httpx
+
+try:
+    from openai import APITimeoutError as OpenAITimeoutError
+except ImportError:  # pragma: no cover
+    class OpenAITimeoutError(Exception):
+        """Stub when openai is not installed."""
 
 try:
     from openai import RateLimitError as OpenAIRateLimitError
@@ -39,6 +46,25 @@ from .turn_progress import report_turn_phase
 _current_stream = None
 _worker_thread_id: int = 0  # set at the start of each turn
 
+_STREAM_TIMEOUT_ERRORS = (
+    APITimeoutError,
+    OpenAITimeoutError,
+    TimeoutError,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+)
+
+
+def _report_http_timeout() -> None:
+    report_turn_phase("HTTP timeout — no data from API")
+    console.print(
+        "[red]Timed out waiting for the model API (read stalled too long).[/]\n"
+        "[dim]Free/queued models often stall; try `HARNESS_HTTP_READ_TIMEOUT=600` "
+        "for more patience, switch to a faster model, or Esc to cancel earlier.[/]"
+    )
+
 
 def _raise_in_thread(tid: int, exc_type) -> bool:
     """Inject an exception into a thread by ID using ctypes. Returns True on success."""
@@ -64,6 +90,14 @@ def cancel_current_stream():
     """
     from .. import state as _state
     _state.cancel_requested.set()
+
+    from ..console import console
+    cancel_prompts = getattr(console, "cancel_pending_prompts", None)
+    if callable(cancel_prompts):
+        try:
+            cancel_prompts()
+        except Exception:
+            pass
 
     global _current_stream
     s = _current_stream
@@ -345,13 +379,8 @@ def call_claude_stream():
                 final.usage.input_tokens + final.usage.output_tokens,
             )
             return final
-        except APITimeoutError:
-            report_turn_phase("HTTP timeout — no data from API")
-            console.print(
-                "[red]Timed out waiting for the model API (read stalled too long).[/]\n"
-                "[dim]OpenRouter free tiers often queue; try `HARNESS_HTTP_READ_TIMEOUT=600` "
-                "for more patience, a faster model, or Esc to cancel earlier.[/]"
-            )
+        except _STREAM_TIMEOUT_ERRORS:
+            _report_http_timeout()
             raise
         except RateLimitError as e:
             _stop_on_rate_limit(str(e))
