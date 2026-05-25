@@ -118,6 +118,8 @@ const LAPTOP_MODALS = new Set([
 
 let activeCategory = 'pickers';
 let searchQuery = '';
+/** Flat list of items currently shown (search-filtered or active tab). */
+let visibleCommandItems = [];
 
 function isOpen() {
   return $('cmd-overlay')?.classList.contains('open');
@@ -359,17 +361,21 @@ function renderList() {
   const groups = filterItems();
 
   if (!groups.length) {
+    visibleCommandItems = [];
     list.innerHTML = `<p class="cmd-empty">No commands match “${escapeHtml(searchQuery)}”</p>`;
     return;
   }
 
+  visibleCommandItems = groups.flatMap((cat) => cat.items);
+
+  let itemIdx = 0;
   list.innerHTML = groups
     .map(
       (cat) => `
     <section class="cmd-section">
       ${searchQuery.trim() ? `<h3 class="cmd-section-title">${escapeHtml(cat.label)}</h3>` : ''}
       <div class="cmd-items">
-        ${cat.items.map((item, idx) => renderItem(cat.id, idx, item)).join('')}
+        ${cat.items.map((item) => renderItem(itemIdx++, item)).join('')}
       </div>
     </section>`,
     )
@@ -377,16 +383,13 @@ function renderList() {
 
   list.querySelectorAll('[data-cmd-item]').forEach((el) => {
     el.addEventListener('click', () => {
-      const catId = el.dataset.cat;
-      const idx = Number(el.dataset.idx);
-      const cat = COMMAND_CATEGORIES.find((c) => c.id === catId);
-      const item = cat?.items[idx];
+      const item = visibleCommandItems[Number(el.dataset.itemIdx)];
       if (item) runItem(item);
     });
   });
 }
 
-function renderItem(catId, idx, item) {
+function renderItem(itemIdx, item) {
   const isToggle = !!item.toggle;
   const on = isToggle ? toggleValue(item.action) : false;
   const badge = item.cmd
@@ -398,7 +401,7 @@ function renderItem(catId, idx, item) {
       : '';
 
   return `
-    <button type="button" class="cmd-item" data-cmd-item data-cat="${catId}" data-idx="${idx}">
+    <button type="button" class="cmd-item" data-cmd-item data-item-idx="${itemIdx}">
       <span class="cmd-item-icon"><i data-lucide="${item.icon || 'terminal'}"></i></span>
       <span class="cmd-item-body">
         <strong>${escapeHtml(item.label)}</strong>

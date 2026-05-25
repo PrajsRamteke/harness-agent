@@ -63,18 +63,32 @@
 .cmd-search-wrap {
   flex-shrink: 0;
   padding: 0 16px 10px;
-  position: relative;
+  display: grid;
 }
 
-.cmd-search-wrap i {
-  position: absolute;
-  left: 28px;
-  top: 50%;
-  transform: translateY(-50%);
+.cmd-search-wrap .search-icon,
+.cmd-search-wrap .cmd-search {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.cmd-search-wrap .search-icon {
+  place-self: center start;
+  margin-left: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
   color: var(--text-dim);
   pointer-events: none;
+}
+
+.cmd-search-wrap .search-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .cmd-search {

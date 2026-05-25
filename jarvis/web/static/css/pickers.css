@@ -98,19 +98,33 @@
 
 .picker-search-wrap {
   flex-shrink: 0;
-  position: relative;
   padding: 0 16px 10px;
+  display: grid;
 }
 
-.picker-search-wrap i {
-  position: absolute;
-  left: 28px;
-  top: 50%;
-  transform: translateY(-50%);
+.picker-search-wrap .search-icon,
+.picker-search-wrap .picker-search {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.picker-search-wrap .search-icon {
+  place-self: center start;
+  margin-left: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
   color: var(--text-dim);
   pointer-events: none;
+}
+
+.picker-search-wrap .search-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .picker-search {
