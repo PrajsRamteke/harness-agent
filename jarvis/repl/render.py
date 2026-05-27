@@ -63,6 +63,11 @@ _SERIAL_TOOLS = {
     # JSON-backed storage — file-level read/write races when run in parallel
     "memory_save", "memory_delete",
     "lesson_save", "lesson_delete",
+    # Chrome extension bridge is one connection / active-tab state.
+    "browser_status", "browser_navigate", "browser_find_tab", "browser_snapshot",
+    "browser_page_context", "browser_click", "browser_mouse_click",
+    "browser_fill", "browser_type", "browser_keys", "browser_evaluate",
+    "browser_screenshot",
 }
 
 # All MCP-prefixed tools are treated as serial (stateful) too.

@@ -36,6 +36,49 @@ from ..storage.prefs import save_last_model
 from .. import state
 
 
+def cmd_browser_status():
+    """Print Chrome WebBridge diagnostics: server, port, attached extension."""
+    port = state.browser_bridge_port
+    if not state.browser_bridge_enabled:
+        console.print(
+            "[yellow]Browser bridge disabled[/] (started with --no-browser). "
+            "Restart jarvis without --no-browser to enable it."
+        )
+        return
+
+    from ..browser_bridge.server import bridge_state, browser_bridge_port
+    bs = bridge_state()
+    ws_url = f"ws://127.0.0.1:{port}/ws"
+
+    t = Table(show_header=False, box=None, padding=(0, 1))
+    t.add_column(style="bold")
+    t.add_column()
+    t.add_row("Bridge server", f"[green]listening[/] on 127.0.0.1:{port}")
+    t.add_row("WebSocket URL", ws_url)
+    if bs.connected:
+        ext = (bs.last_hello or {}).get("extension", "unknown")
+        ver = (bs.last_hello or {}).get("extensionVersion", "")
+        t.add_row("Extension", f"[green]CONNECTED[/]  {ext} v{ver}".rstrip(" v"))
+    else:
+        t.add_row("Extension", "[red]NOT CONNECTED[/] — no extension attached yet")
+
+    console.print(Panel(t, title="Chrome WebBridge", border_style="cyan"))
+
+    if not bs.connected:
+        console.print(
+            "[dim]The bridge is up, so jarvis is fine — the extension hasn't "
+            "attached. Checklist:[/]\n"
+            "  [cyan]1.[/] chrome://extensions → Harness WebBridge → [bold]Reload[/]\n"
+            "  [cyan]2.[/] Click the extension icon → confirm [bold]Auto-connect "
+            "WebSocket[/] is on\n"
+            f"  [cyan]3.[/] Confirm its WS URL is [bold]{ws_url}[/]\n"
+            "  [cyan]4.[/] Keep at least one Chrome window open (MV3 suspends the "
+            "worker; it auto-reconnects within ~1 min)\n"
+            "  [cyan]5.[/] Open the extension's service-worker console "
+            "(chrome://extensions → 'service worker') to see connection logs"
+        )
+
+
 def handle_control(c: str, arg: str):
     """Return (handled, new_inp_or_None)."""
     if c == "/multi":

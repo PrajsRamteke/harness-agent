@@ -13,6 +13,18 @@ WEB_RE = re.compile(
     r"\b(web|internet|search online|look up|latest|today|news|price|weather|url|https?://|docs?|documentation)\b",
     re.I,
 )
+BROWSER_RE = re.compile(
+    r"\b(browser|chrome|webbridge|web bridge|webpage|web page|website|web site|"
+    r"https?://|www\.|\.(?:com|org|net|io|dev|app|co)(?:/|\b)|"
+    r"(?:go to|visit|open|navigate to|browse|check)\s+(?:the\s+)?(?:\w+\s+){0,4}"
+    r"(?:site|page|website|portal|dashboard|store|tab|url|link)\b|"
+    r"page|tab|tabs|navigate|browse|surf|login|sign.?in|sign.?up|checkout|"
+    r"add to cart|form|submit|dom|selector|snapshot|"
+    r"(?:click|fill|type|scroll|screenshot).*(?:page|site|tab|browser|web|form|button|link|element)|"
+    r"(?:page|site|tab|browser|web).*(?:click|fill|type|scroll|screenshot)|"
+    r"use (?:the )?(?:browser|chrome|extension))\b",
+    re.I,
+)
 MAC_RE = re.compile(
     r"\b(click|type|press|open app|launch|focus|safari|finder|whatsapp|messages|mail|calendar|reminders|clipboard|screen|ui|macos|speak|speck|read aloud|text to speech|tts|aloud|voice|sound|notify)\b",
     re.I,
@@ -24,6 +36,16 @@ OCR_RE = re.compile(
 MEMORY_RE = re.compile(r"\b(remember|memory|forget|my name|preference|about me)\b", re.I)
 LESSON_RE = re.compile(r"\b(lesson|learned|remember how|same task)\b", re.I)
 SKILL_RE = re.compile(r"\b(skill|skills|sk\.md|skill\.md|reusable instr|my skills|available skills)\b", re.I)
+
+
+def _browser_connected() -> bool:
+    """True when the Chrome WebBridge extension is attached to the bridge."""
+    try:
+        from ..browser_bridge.server import bridge_state
+
+        return bool(bridge_state().connected)
+    except Exception:
+        return False
 
 
 def _block_to_text(block) -> str:
@@ -103,7 +125,16 @@ def select_tools(messages: list[dict]) -> list[dict]:
 
     if WEB_RE.search(text) or "internet" in active:
         groups.append("internet")
-    if MAC_RE.search(text) or "mac" in active:
+    browser_intent = bool(BROWSER_RE.search(text) or "browser" in active)
+    # When the Chrome extension is live, always expose browser_* tools so the
+    # model never falls back to launch_app/AppleScript for web work just because
+    # the phrasing ("open youtube") missed the intent regex.
+    if browser_intent or _browser_connected():
+        groups.append("browser")
+    # Explicit web-page intent uses the Chrome extension — skip the overlapping
+    # Mac GUI tools. Mere connection doesn't suppress them, so genuine desktop
+    # tasks (WhatsApp, Finder, …) still get Mac tools.
+    if not browser_intent and (MAC_RE.search(text) or "mac" in active):
         groups.append("mac")
     if OCR_RE.search(text) or "ocr" in active:
         groups.append("ocr")

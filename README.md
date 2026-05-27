@@ -131,6 +131,10 @@ jarvis
 
 Run it from the **folder you want it to work in**. The status bar shows the current project path — all file operations, code searches, and shell commands are scoped to that directory.
 
+Plain `jarvis` also starts the localhost Chrome browser-use bridge for the
+Harness WebBridge extension. This is separate from `jarvis --web`, which remains
+the mobile-friendly LAN remote and QR URL feature.
+
 ### First run
 
 On first launch, you'll pick how to authenticate:
@@ -174,6 +178,8 @@ On first launch, you'll pick how to authenticate:
 | `HARNESS_HTTP_READ_TIMEOUT`    | Streaming response timeout (s)         | `240` (OpenRouter), `600` (direct) |
 | `HARNESS_HTTP_CONNECT_TIMEOUT` | Connection timeout (s)                 | `30`                               |
 | `HARNESS_STREAM_REPLY`         | Set to `0` to disable live streaming   | `1`                                |
+| `HARNESS_WEB`                  | Set to `1` to enable the phone/LAN web remote without passing `--web` | off |
+| `HARNESS_BROWSER_BRIDGE_PORT`  | Local Chrome extension browser-use bridge port | `10086` |
 
 
 ---

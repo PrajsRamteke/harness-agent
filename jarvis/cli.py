@@ -57,6 +57,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--no-web",
+        action="store_true",
+        help="disable the --web phone/LAN remote even if HARNESS_WEB=1",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="disable the Chrome extension browser-use bridge",
+    )
+    parser.add_argument(
         "--web-port",
         type=int,
         default=None,
@@ -116,8 +126,9 @@ def main() -> None:
     from . import state
     from .web.server import default_web_port, web_enabled_from_env
 
-    state.web_enabled = bool(args.web or web_enabled_from_env())
+    state.web_enabled = bool(args.web or web_enabled_from_env()) and not args.no_web
     state.web_port = args.web_port if args.web_port is not None else default_web_port()
+    state.browser_bridge_enabled = not args.no_browser
 
     from .bootstrap import ensure_harness_agent_defaults
     ensure_harness_agent_defaults()

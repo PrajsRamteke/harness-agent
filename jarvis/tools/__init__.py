@@ -21,11 +21,12 @@ from .skills import skill_list, skill_load, SKILL_TOOLS
 from .ask_user import ask_user_question
 from .schemas_core import CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
+from ..browser_bridge import BROWSER_TOOLS, browser_bridge_tools
 
 # MCP group starts empty — populated dynamically by the MCP registry
 # when servers connect. Import is deferred to avoid circular imports.
 MCP_TOOLS: list[dict] = []
-TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + LESSON_TOOLS + SKILL_TOOLS + OCR_TOOLS + MCP_TOOLS
+TOOLS = CORE_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS + LESSON_TOOLS + SKILL_TOOLS + OCR_TOOLS + BROWSER_TOOLS + MCP_TOOLS
 TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
     "context": CONTEXT_TOOLS,
@@ -35,6 +36,7 @@ TOOL_GROUPS: dict[str, list[dict]] = {
     "lessons": LESSON_TOOLS,
     "skills": SKILL_TOOLS,
     "ocr": OCR_TOOLS,
+    "browser": BROWSER_TOOLS,
     "mcp": MCP_TOOLS,
 }
 TOOL_NAME_TO_GROUP: dict[str, str] = {
@@ -81,6 +83,8 @@ FUNC = {
     "read_images_text": read_images_text,
     # user input
     "ask_user_question": ask_user_question,
+    # chrome browser bridge
+    **browser_bridge_tools,
 }
 
 # ── MCP registry integration ─────────────────────────────────────────────

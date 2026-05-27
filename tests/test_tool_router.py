@@ -46,6 +46,24 @@ class ToolRouterTests(unittest.TestCase):
         names = {t["name"] for t in tools}
         self.assertNotIn("mcp__clickup__get_tasks", names)
 
+    def test_browser_intent_includes_browser_tools_not_mac(self):
+        msgs = [{"role": "user", "content": "go to github.com and click the login button"}]
+        with mock.patch("jarvis.tools.router.skill_count", return_value=0):
+            tools = select_tools(msgs)
+        names = {t["name"] for t in tools}
+        self.assertIn("browser_navigate", names)
+        self.assertNotIn("applescript", names)
+        self.assertNotIn("open_url", names)
+        self.assertNotIn("click_element", names)
+
+    def test_mac_tools_still_available_without_browser_intent(self):
+        msgs = [{"role": "user", "content": "open WhatsApp and send a message to Alex"}]
+        with mock.patch("jarvis.tools.router.skill_count", return_value=0):
+            tools = select_tools(msgs)
+        names = {t["name"] for t in tools}
+        self.assertIn("focus_app", names)
+        self.assertNotIn("browser_navigate", names)
+
 
 if __name__ == "__main__":
     unittest.main()

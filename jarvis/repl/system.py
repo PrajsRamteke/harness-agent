@@ -212,6 +212,34 @@ def _build_static_body() -> str:
     return body
 
 
+def _browser_bridge_block() -> str:
+    """Live Chrome extension bridge status — injected every turn."""
+    if not state.browser_bridge_enabled:
+        return (
+            "\n\nBROWSER BRIDGE: disabled (--no-browser). "
+            "Web page automation is unavailable.\n"
+        )
+    from ..browser_bridge.server import bridge_state
+
+    bs = bridge_state()
+    if bs.connected:
+        ext = bs.last_hello.get("extension", "Harness WebBridge")
+        ver = bs.last_hello.get("extensionVersion", "")
+        ver_s = f" v{ver}" if ver else ""
+        status = f"CONNECTED — {ext}{ver_s} on ws://127.0.0.1:{state.browser_bridge_port}/ws"
+    else:
+        status = (
+            "NOT CONNECTED — call browser_status first. "
+            "If disconnected, tell the user to load the Harness WebBridge unpacked "
+            "extension in Chrome (chrome://extensions) and keep Chrome open."
+        )
+    return (
+        f"\n\nBROWSER BRIDGE STATUS: {status}\n"
+        "- Web page / tab / form / login / click-in-browser tasks → browser_* tools ONLY.\n"
+        "- Do NOT use launch_app, applescript, open_url, read_ui, or click_element for web tasks.\n"
+    )
+
+
 def build_system() -> Union[str, List[Dict]]:
     """System prompt + live date/time + active agent addon + pinned user context.
 
@@ -232,6 +260,7 @@ def build_system() -> Union[str, List[Dict]]:
 
     body = _selected_model_block() + _build_static_body()
     body += _agent_addon_block()
+    body += _browser_bridge_block()
     body += date_line
 
     if state.auth_mode == AUTH_OAUTH:

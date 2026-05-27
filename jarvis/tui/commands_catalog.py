@@ -48,6 +48,8 @@ COMMANDS = [
     ("/scan", "AI-powered deep scan: identity / docs / projects → memory"),
     # MCP — single modal for everything
     ("/mcp", "MCP control panel — list, toggle, import JSON, manage scope"),
+    # Browser bridge diagnostics
+    ("/browser", "Chrome WebBridge status — is the extension connected & why not"),
     # Settings — modal handles get · set · reset · reload · edit · path
     ("/settings", "open the settings modal (view · edit · reset · reload)"),
     # Upgrade

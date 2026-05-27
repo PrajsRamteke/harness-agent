@@ -60,6 +60,21 @@ def init_runtime(*, quiet: bool = False) -> None:
 
     start_background_update()
 
+    if state.browser_bridge_enabled:
+        from .browser_bridge.server import ensure_browser_bridge
+
+        server = ensure_browser_bridge(port=state.browser_bridge_port)
+        if server and not quiet:
+            console.print(
+                f"[dim]Chrome browser bridge listening on "
+                f"127.0.0.1:{state.browser_bridge_port}[/]"
+            )
+        elif not server and not quiet:
+            console.print(
+                "[yellow]Chrome browser bridge unavailable — "
+                "port may be in use or blocked[/]"
+            )
+
 
 def prepare_user_prompt(inp: str, *, include_clipboard: bool = True) -> str | None:
     """Normalize one user prompt before sending (aliases, slash, @files, images)."""

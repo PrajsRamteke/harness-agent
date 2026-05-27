@@ -165,6 +165,31 @@ def _agent_badge_markup() -> str:
     return f"[bold {color}]{label}[/]"
 
 
+def _browser_badge_markup() -> str | None:
+    """Live Chrome WebBridge indicator — green dot connected, red dot waiting.
+
+    Returns None when the bridge is disabled (--no-browser) so the segment
+    is hidden entirely.
+    """
+    if not state.browser_bridge_enabled:
+        return None
+    try:
+        from ..browser_bridge.server import bridge_state
+    except Exception:
+        return None
+    bs = bridge_state()
+    port = state.browser_bridge_port
+    if bs.connected:
+        ver = (bs.last_hello or {}).get("extensionVersion", "")
+        ver_s = f"[{ui.FG_DIM}] v{ver}[/]" if ver else ""
+        return f"[{ui.OK}]{ui.BULLET} browser[/]{ver_s}"
+    # Listening but no extension attached yet.
+    return (
+        f"[{ui.ERR}]{ui.BULLET} browser[/]"
+        f"[{ui.FG_DIM}]:{port} offline[/]"
+    )
+
+
 def _pin_status_markup() -> str:
     """Compact pinned-context indicator for the status bar."""
     from ..storage import pin as pin_store
@@ -592,6 +617,9 @@ class JarvisTUI(App):
         _swap_console_everywhere(tui_console)
         self._tui_console = tui_console
 
+        if state.browser_bridge_enabled:
+            self._start_browser_bridge(tui_console)
+
         if state.web_enabled:
             self._start_web_remote(tui_console)
 
@@ -622,6 +650,12 @@ class JarvisTUI(App):
 
         # Poll for width changes (RichLog doesn't auto-reflow panels on resize)
         self._start_width_monitor()
+
+        # Live-refresh the browser bridge badge: the extension connects on a
+        # background thread, so poll its state and repaint the status line.
+        if state.browser_bridge_enabled:
+            self._browser_badge_prev = None
+            self.set_interval(2.0, self._tick_browser_status)
 
         from ..project_context import detect_project_context
         detect_project_context()
@@ -691,6 +725,22 @@ class JarvisTUI(App):
             )
         self._web_primary_url = primary_remote_url(self._web_urls)
         self._render_web_bar()
+
+    def _start_browser_bridge(self, tui_console: TUIConsole) -> None:
+        from ..browser_bridge.server import ensure_browser_bridge
+
+        server = ensure_browser_bridge(port=state.browser_bridge_port)
+        if server:
+            self._browser_bridge_server = server
+            tui_console.print(
+                f"[{ui.FG_DIM}]Chrome browser bridge listening on "
+                f"127.0.0.1:{state.browser_bridge_port}[/]"
+            )
+        else:
+            tui_console.print(
+                f"[{ui.WARN}]Chrome browser bridge unavailable — "
+                f"port may be in use or blocked[/]"
+            )
 
     def _render_web_bar(self) -> None:
         try:
@@ -1066,6 +1116,11 @@ class JarvisTUI(App):
         # ── pinned context ────────────────────────────────────────────
         segs.append(_pin_status_markup())
 
+        # ── chrome browser bridge (live) ──────────────────────────────
+        browser_badge = _browser_badge_markup()
+        if browser_badge:
+            segs.append(browser_badge)
+
         # ── project context file ──────────────────────────────────────
         if state.project_context_file:
             _ctx_colors = {
@@ -1104,6 +1159,19 @@ class JarvisTUI(App):
     def _set_status(self, msg: str):
         self._status_msg = msg or ""
         self._write_status_line(busy=self._busy and bool(self._activity_label))
+
+    def _tick_browser_status(self) -> None:
+        """Repaint the status line only when the browser badge changes."""
+        try:
+            current = _browser_badge_markup()
+            if current == getattr(self, "_browser_badge_prev", None):
+                return
+            self._browser_badge_prev = current
+            # Don't fight the spinner repaint while a turn is running.
+            if not self._busy:
+                self._write_status_line(busy=False)
+        except Exception:
+            pass
 
     # ─── prompt stash (FIFO queue above status bar) ──────────────────
     @staticmethod

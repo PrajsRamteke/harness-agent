@@ -1,7 +1,7 @@
 """Tool JSON schemas for macOS control tools."""
 
 MAC_TOOLS = [
-    {"name":"launch_app","description":"Launch a Mac app by name (e.g. 'WhatsApp', 'Safari').",
+    {"name":"launch_app","description":"Launch a native Mac app (e.g. 'WhatsApp', 'Messages'). Do NOT use for Chrome/Safari web browsing — use browser_navigate instead.",
      "input_schema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},
     {"name":"focus_app","description":"Bring a running app to front / activate it.",
      "input_schema":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},
@@ -11,16 +11,16 @@ MAC_TOOLS = [
      "input_schema":{"type":"object","properties":{}}},
     {"name":"frontmost_app","description":"Get the name of the frontmost app.",
      "input_schema":{"type":"object","properties":{}}},
-    {"name":"applescript","description":"Run arbitrary AppleScript. Highest-leverage Mac automation. Use for Messages, Mail, Safari, Finder, Music, Notes, Reminders, Calendar, System Events.",
+    {"name":"applescript","description":"Run AppleScript for native Mac apps (Messages, Mail, Finder, Music, Notes, Reminders, Calendar). Do NOT use for Chrome/Safari web page automation — use browser_* tools.",
      "input_schema":{"type":"object","properties":{
         "code":{"type":"string"},"timeout":{"type":"integer"}},"required":["code"]}},
-    {"name":"read_ui","description":"Read the accessibility UI tree of an app as text (no screenshot, no OCR). Hierarchical dump of every visible element: role, name, value, description, and center coordinates. Use this to SEE the screen before deciding what to click or type.",
+    {"name":"read_ui","description":"Read the accessibility UI tree of a native Mac app (not web pages). For Chrome/web tasks use browser_snapshot instead.",
      "input_schema":{"type":"object","properties":{
         "app":{"type":"string","description":"app name; blank = frontmost"},
         "max_depth":{"type":"integer"},
         "max_lines":{"type":"integer"},
         "max_chars":{"type":"integer"}}}},
-    {"name":"click_element","description":"Find a UI element by text (matches name/value/description, case-insensitive) and click it. Much more reliable than click_at. Optional role filter ('button','row','textfield','link',…).",
+    {"name":"click_element","description":"Click a native Mac app UI element by text. For web page clicks use browser_click instead.",
      "input_schema":{"type":"object","properties":{
         "app":{"type":"string"},"query":{"type":"string"},
         "role":{"type":"string"},"nth":{"type":"integer"}},
@@ -44,7 +44,7 @@ MAC_TOOLS = [
      "input_schema":{"type":"object","properties":{}}},
     {"name":"clipboard_set","description":"Set clipboard text.",
      "input_schema":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}},
-    {"name":"open_url","description":"Open a URL or file path in the default handler (e.g. 'https://…', 'whatsapp://send?phone=…').",
+    {"name":"open_url","description":"Open a deep link or file in the default handler (mailto:, whatsapp://, file://). Do NOT use for websites you will interact with — use browser_navigate.",
      "input_schema":{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}},
     {"name":"notify","description":"Show a macOS notification banner.",
      "input_schema":{"type":"object","properties":{

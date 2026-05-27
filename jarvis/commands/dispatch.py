@@ -47,6 +47,11 @@ def handle_slash(inp: str):
         cmd_upgrade(arg)
         return ("ok", False, inp)
 
+    if c in ("/browser", "/bridge"):
+        from .control import cmd_browser_status
+        cmd_browser_status()
+        return ("ok", False, inp)
+
     handled, _ = handle_settings(c, arg)
     if handled:
         return ("ok", False, inp)

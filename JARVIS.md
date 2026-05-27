@@ -15,6 +15,10 @@ python agent.py
 python agent.py --legacy
 ```
 
+Plain `jarvis` / `python agent.py` starts the localhost Chrome browser-use
+bridge used by the Harness WebBridge extension. This is separate from `--web`,
+which exposes the mobile-friendly LAN remote URL.
+
 Dependencies: `pip install -r requirements.txt` (anthropic, rich, textual — Python 3.10+)
 
 ## Environment Variables
@@ -24,6 +28,8 @@ Dependencies: `pip install -r requirements.txt` (anthropic, rich, textual — Py
 - `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent tool workers (default/cap: 64)
 - `HARNESS_HTTP_READ_TIMEOUT` — max seconds between bytes on a streaming response (default: 240 OpenRouter, 600 direct; raise if free models queue longer)
 - `HARNESS_HTTP_CONNECT_TIMEOUT` — connection timeout in seconds (default: 30)
+- `HARNESS_WEB` — set `1`/`true`/`on` to enable the phone/LAN web remote without passing `--web`
+- `HARNESS_BROWSER_BRIDGE_PORT` — local Chrome extension browser-use bridge port (default: 10086)
 
 ## Architecture
 
