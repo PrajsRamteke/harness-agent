@@ -249,6 +249,191 @@ def _stop_on_rate_limit(detail: str = "") -> None:
     )
 
 
+def _block_dict(block: Any) -> dict:
+    if isinstance(block, dict):
+        return block
+    if hasattr(block, "model_dump"):
+        return block.model_dump()
+    return {k: v for k, v in getattr(block, "__dict__", {}).items()}
+
+
+def _is_tool_use_block(block: Any) -> bool:
+    return _block_dict(block).get("type") == "tool_use"
+
+
+def _is_tool_result_block(block: Any) -> bool:
+    return _block_dict(block).get("type") == "tool_result"
+
+
+def _assistant_tool_use_ids(msg: Dict) -> set[str]:
+    content = msg.get("content") or []
+    if not isinstance(content, list):
+        return set()
+    out: set[str] = set()
+    for block in content:
+        if not _is_tool_use_block(block):
+            continue
+        bid = _block_dict(block).get("id")
+        if bid:
+            out.add(str(bid))
+    return out
+
+
+def _user_message_has_text(msg: Dict) -> bool:
+    content = msg.get("content")
+    if isinstance(content, str):
+        return bool(content.strip())
+    if not isinstance(content, list):
+        return False
+    for block in content:
+        if _is_tool_result_block(block):
+            continue
+        bd = _block_dict(block)
+        if bd.get("type") == "text" and str(bd.get("text") or "").strip():
+            return True
+    return False
+
+
+def _tool_result_path_blocked(messages: list[Dict], assistant_idx: int, result_idx: int) -> bool:
+    """True when another turn sits between an assistant tool_use and its tool_result."""
+    for j in range(assistant_idx + 1, result_idx):
+        mid = messages[j]
+        role = mid.get("role")
+        if role == "assistant":
+            return True
+        if role == "user" and _user_message_has_text(mid):
+            return True
+    return False
+
+
+def _find_assistant_for_tool_use(messages: list[Dict], before_idx: int, tool_use_id: str) -> int | None:
+    for j in range(before_idx - 1, -1, -1):
+        msg = messages[j]
+        if msg.get("role") != "assistant":
+            continue
+        if tool_use_id in _assistant_tool_use_ids(msg):
+            return j
+    return None
+
+
+def _heal_orphan_tool_results() -> None:
+    """Drop tool_result blocks that no longer match a valid assistant tool_use turn.
+
+    DeepSeek/OpenAI reject requests when a converted ``role: tool`` message
+    references a ``tool_call_id`` that is not part of the immediately
+    preceding assistant ``tool_calls`` block. That happens when the user sends
+    a new prompt before slow tools finish, when a session loses an assistant
+    message, or when stale/cancelled tool batches append results out of band.
+    """
+    msgs = state.messages
+    if not msgs:
+        return
+
+    keep: dict[tuple[int, int], bool] = {}
+    answered: set[tuple[int, str]] = set()
+
+    for i, msg in enumerate(msgs):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for bi, raw in enumerate(content):
+            if not _is_tool_result_block(raw):
+                continue
+            tid = str(_block_dict(raw).get("tool_use_id") or "")
+            if not tid:
+                keep[(i, bi)] = False
+                continue
+            asst_idx = _find_assistant_for_tool_use(msgs, i, tid)
+            if asst_idx is None or _tool_result_path_blocked(msgs, asst_idx, i):
+                keep[(i, bi)] = False
+                continue
+            key = (asst_idx, tid)
+            if key in answered:
+                keep[(i, bi)] = False
+                continue
+            answered.add(key)
+            keep[(i, bi)] = True
+
+    healed: list[Dict] = []
+    for i, msg in enumerate(msgs):
+        if msg.get("role") != "user":
+            healed.append(msg)
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            healed.append(msg)
+            continue
+        new_content = []
+        for bi, raw in enumerate(content):
+            if _is_tool_result_block(raw) and not keep.get((i, bi), False):
+                continue
+            new_content.append(raw)
+        if not new_content:
+            continue
+        if new_content == content:
+            healed.append(msg)
+        else:
+            healed.append({**msg, "content": new_content})
+
+    state.messages = healed
+
+
+def _assistant_turn_abandoned(messages: list[Dict], assistant_idx: int) -> bool:
+    """True when the user typed a new prompt before this tool batch finished."""
+    ids = _assistant_tool_use_ids(messages[assistant_idx])
+    if not ids:
+        return False
+    answered: set[str] = set()
+    for j in range(assistant_idx + 1, len(messages)):
+        msg = messages[j]
+        if msg.get("role") == "assistant":
+            break
+        if msg.get("role") != "user":
+            continue
+        if _user_message_has_text(msg):
+            return answered != ids
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not _is_tool_result_block(block):
+                continue
+            tid = str(_block_dict(block).get("tool_use_id") or "")
+            if tid not in ids:
+                continue
+            if not _tool_result_path_blocked(messages, assistant_idx, j):
+                answered.add(tid)
+    return False
+
+
+def _strip_abandoned_assistant_tool_uses() -> None:
+    """Remove tool_use blocks from assistant turns the user already moved past."""
+    msgs = state.messages
+    for i, msg in enumerate(msgs):
+        if msg.get("role") != "assistant" or not _assistant_turn_abandoned(msgs, i):
+            continue
+        content = msg.get("content") or []
+        if not isinstance(content, list):
+            continue
+        new_content = [block for block in content if not _is_tool_use_block(block)]
+        if len(new_content) == len(content):
+            continue
+        if new_content:
+            msgs[i] = {**msg, "content": new_content}
+        else:
+            msgs[i] = {**msg, "content": ""}
+
+
+def _heal_message_history() -> None:
+    """Repair tool_use/tool_result pairings before strict-provider API calls."""
+    _heal_orphan_tool_results()
+    _strip_abandoned_assistant_tool_uses()
+    _heal_orphan_tool_uses()
+    _heal_orphan_tool_results()
+
+
 def _heal_orphan_tool_uses() -> None:
     """Ensure every assistant tool_use has a following tool_result.
 
@@ -320,9 +505,9 @@ def call_claude_stream():
     if state.cancel_requested.is_set():
         raise KeyboardInterrupt()
 
-    # Repair any orphan tool_use blocks before sending — strict providers
-    # (DeepSeek, OpenAI) reject the request otherwise.
-    _heal_orphan_tool_uses()
+    # Repair broken tool_use/tool_result pairings before sending — strict
+    # providers (DeepSeek, OpenAI) reject the request otherwise.
+    _heal_message_history()
 
     report_turn_phase("Jarvis: building request…")
     tools = select_tools(state.messages)

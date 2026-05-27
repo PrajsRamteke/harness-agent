@@ -388,7 +388,13 @@ def render_assistant(resp) -> bool:
     # so state.messages stays a valid tool_use/tool_result pairing. Otherwise
     # the next API call fails with "tool_calls must be followed by tool messages".
     if tool_results:
-        state.messages.append({"role": "user", "content": tool_results})
+        # Only attach results to the assistant turn we just executed. If another
+        # user message already landed (queued prompt, session edit, retry), drop
+        # stale results — stream._heal_orphan_tool_results() will also scrub any
+        # that already leaked into persisted history.
+        last = state.messages[-1] if state.messages else None
+        if isinstance(last, dict) and last.get("role") == "assistant":
+            state.messages.append({"role": "user", "content": tool_results})
 
     if state.cancel_requested.is_set():
         return False
