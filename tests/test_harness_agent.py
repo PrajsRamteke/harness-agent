@@ -21,7 +21,10 @@ from jarvis.constants.providers import (
 class HarnessAgentTests(unittest.TestCase):
     def test_harness_agent_models_listed(self):
         ids = {m for m, _ in HARNESS_AGENT_MODELS}
-        self.assertEqual(ids, {"deepseek-v4-flash-free", "nemotron-3-super-free", "big-pickle"})
+        self.assertEqual(
+            ids,
+            {"deepseek-v4-flash-free", "nemotron-3-super-free", "mimo-v2.5-free", "big-pickle"},
+        )
 
     def test_harness_agent_always_in_model_sources(self):
         sources = connected_model_sources()
@@ -30,17 +33,19 @@ class HarnessAgentTests(unittest.TestCase):
 
     def test_models_for_harness_agent_source(self):
         models = models_for_source(PROVIDER_HARNESS_AGENT)
-        self.assertEqual(len(models), 3)
+        self.assertEqual(len(models), 4)
         self.assertEqual(models[0][0], HARNESS_AGENT_DEFAULT_MODEL)
 
     def test_opencode_zen_models_include_exclusive_and_shared(self):
         ids = {m for m, _ in OPENCODE_ZEN_MODELS}
         self.assertIn("minimax-m2.5-free", ids)
         self.assertIn("deepseek-v4-flash-free", ids)
+        self.assertIn("mimo-v2.5-free", ids)
         self.assertIn("big-pickle", ids)
 
     def test_is_harness_agent_model(self):
         self.assertTrue(is_harness_agent_model("deepseek-v4-flash-free"))
+        self.assertTrue(is_harness_agent_model("mimo-v2.5-free"))
         self.assertFalse(is_harness_agent_model("minimax-m2.5-free"))
 
     def test_should_use_harness_agent_client(self):

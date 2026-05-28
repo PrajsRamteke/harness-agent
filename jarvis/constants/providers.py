@@ -101,6 +101,7 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     # ── Harness Agent (free OpenCode Zen — no API key, /model only) ─────────
     "deepseek-v4-flash-free": ("DeepSeek V4 Flash Free — default", PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
     "nemotron-3-super-free":  ("Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
+    "mimo-v2.5-free":         ("MiMo V2.5 Free — Xiaomi",          PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
     "big-pickle":             ("Big Pickle",                       PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
 
     # ── OpenCode Zen models (API key via /provider opencode_zen) ──────────────
@@ -149,6 +150,7 @@ HARNESS_AGENT_MODEL_IDS = frozenset(m for m, _ in HARNESS_AGENT_MODELS)
 _HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = (
     ("deepseek-v4-flash-free", "DeepSeek V4 Flash Free — default"),
     ("nemotron-3-super-free", "Nemotron 3 Super Free"),
+    ("mimo-v2.5-free", "MiMo V2.5 Free — Xiaomi"),
     ("big-pickle", "Big Pickle"),
 )
 
