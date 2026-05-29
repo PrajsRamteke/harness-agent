@@ -18,16 +18,13 @@ from __future__ import annotations
 import sys
 import threading
 import time
-from contextlib import nullcontext
 
 from textual.actions import SkipAction
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.message import Message
-from textual.widgets import RichLog, Static, TextArea, OptionList
-from textual.widgets.option_list import Option
+from textual.widgets import RichLog, Static, OptionList
 from textual import work
 
 from rich.markdown import Markdown
@@ -35,8 +32,7 @@ from rich.markup import escape as _rich_escape
 from rich.panel import Panel
 from rich.text import Text
 
-from .console_shim import TUIConsole, _truncate_rich_log_lines, _replace_rich_log_block, _append_rich_log_block
-from .file_ref_picker import filter_project_files, file_ref_option_label
+from .console_shim import TUIConsole
 from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_has_entries
 from ..repl.tool_runs import (
     _display_for_tool,
@@ -46,105 +42,32 @@ from ..repl.tool_runs import (
     show_parallel_file_panel,
 )
 from .ask_user import AskUserController, AskQuestion, normalize_questions
-from .mouse_toggle import enable_mouse, disable_mouse
 from .web_bar import WebRemoteBar, WebRemoteQR
-from ..prompt_refs import (
-    active_file_ref_at_cursor,
-    replace_file_ref_at_cursor,
-)
 from . import theme as ui
 from .. import state
 
 
 # ─── slash-command sniffers (modal-opening shortcuts) ────────────────────
-
-
-def _is_bare_model_command(text: str) -> bool:
-    s = (text or "").strip()
-    head = s.split(maxsplit=1)[0]
-    return head in ("/model", "/mode")
-
-
-def _is_bare_provider_command(text: str) -> bool:
-    s = (text or "").strip()
-    if not s.startswith("/provider"):
-        return False
-    parts = s.split(maxsplit=1)
-    return len(parts) == 1
-
-
-def _is_session_picker_command(text: str) -> bool:
-    s = (text or "").strip()
-    return s in ("/session", "/sessions", "/session list", "/session ls")
-
-
-def _is_think_picker_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/think", "/think mode", "/think modes", "/think select")
-
-
-def _is_mcp_modal_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/mcp", "/mcps")
-
-
-def _is_agent_picker_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/agent", "/agents")
-
-
-def _is_skill_picker_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/skill", "/skills")
-
-
-def _is_memory_modal_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/memory", "/memories")
-
-
-def _is_pin_modal_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s == "/pin"
-
-
-def _is_lesson_modal_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/lesson", "/lessons")
-
-
-def _is_settings_modal_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/settings", "/setting")
-
-
-def _is_theme_modal_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/theme", "/themes")
-
-
-def _is_oauth_modal_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/login", "/signin", "/sign-in", "/logout", "/auth")
-
-
-def _oauth_modal_title(text: str) -> str:
-    s = (text or "").strip().lower()
-    if s == "/logout":
-        return "Sign out"
-    if s in ("/login", "/signin", "/sign-in"):
-        return "Sign in"
-    return "OAuth login"
-
-
-def _is_local_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s == "/local" or s.startswith("/local ")
-
-
-def _is_key_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/key", "/keys", "/key reset")
+# Pure command predicates live in app_commands.py; re-exported here so callers
+# (and tests) that import them from jarvis.tui.app keep working.
+from .app_commands import (  # noqa: F401
+    _is_bare_model_command,
+    _is_bare_provider_command,
+    _is_session_picker_command,
+    _is_think_picker_command,
+    _is_mcp_modal_command,
+    _is_agent_picker_command,
+    _is_skill_picker_command,
+    _is_memory_modal_command,
+    _is_pin_modal_command,
+    _is_lesson_modal_command,
+    _is_settings_modal_command,
+    _is_theme_modal_command,
+    _is_oauth_modal_command,
+    _oauth_modal_title,
+    _is_local_command,
+    _is_key_command,
+)
 
 
 # ─── header / status segment builders ────────────────────────────────────
@@ -182,191 +105,19 @@ def _pin_status_markup() -> str:
 
 
 # ─── multi-line prompt (Enter submits, Ctrl+J / Alt+Enter for newline) ───
-
-
-class PromptArea(TextArea):
-    """Multi-line prompt input.
-
-    - Enter submits.
-    - Ctrl+J / Alt+Enter / Ctrl+Enter / Shift+Enter / Ctrl+N insert a newline.
-    - Trailing backslash before Enter inserts a newline (bash-style).
-    - Ctrl+D / Ctrl+C bubble up to the App.
-    - @file mentions render with theme-colored background chips.
-    - Dropped media/docs render as numbered chips like [image 1], [document 2].
-    """
-
-    class Submitted(Message):
-        def __init__(self, value: str) -> None:
-            self.value = value
-            super().__init__()
-
-    def on_mount(self) -> None:
-        from .prompt_highlight import PROMPT_THEME_NAME, build_prompt_text_area_theme
-
-        self.register_theme(build_prompt_text_area_theme())
-        self.theme = PROMPT_THEME_NAME
-        self.language = None
-        self.refresh_file_ref_highlights()
-
-    def refresh_file_ref_highlights(self) -> None:
-        from .prompt_highlight import build_prompt_highlights
-
-        try:
-            row, col = self.cursor_location
-        except Exception:
-            row, col = 0, 0
-        self._highlights.clear()
-        for line_no, spans in build_prompt_highlights(
-            self.text or "",
-            cursor_row=row,
-            cursor_col=col,
-        ).items():
-            self._highlights[line_no] = spans
-        self._line_cache.clear()
-        self.refresh()
-
-    def on_text_area_selection_changed(self, event: TextArea.SelectionChanged) -> None:
-        if event.text_area is not self:
-            return
-        self.refresh_file_ref_highlights()
-
-    async def _on_paste(self, event) -> None:  # type: ignore[override]
-        """Insert tokenized attachment chips instead of raw dropped paths."""
-        if self.read_only:
-            return
-        # Textual dispatches _on_paste for every class in the MRO; suppress the
-        # TextArea base handler so bracketed paste is not inserted twice.
-        event.prevent_default()
-        from ..prompt_attachments import tokenize_dropped_paths
-
-        paste = event.text or ""
-        tokenized, _, _ = tokenize_dropped_paths(paste)
-        insert_text = tokenized if tokenized != paste else paste
-        if result := self._replace_via_keyboard(insert_text, *self.selection):
-            self.move_cursor(result.end_location)
-            self.focus()
-        try:
-            self.app._last_input_value = self.text or ""
-            self.refresh_file_ref_highlights()
-        except Exception:
-            pass
-
-    async def _on_key(self, event):  # type: ignore[override]
-        key = event.key
-        if key == "escape":
-            event.stop()
-            event.prevent_default()
-            try:
-                if getattr(self.app, "file_ref_picker_active", False):
-                    self.app.close_file_ref_picker()
-                    return
-                self.app.action_escape_action()
-            except Exception:
-                pass
-            return
-        if key in ("up", "down", "enter", "space", "escape"):
-            try:
-                if self.app._ask_user.handle_key(key):
-                    event.stop()
-                    event.prevent_default()
-                    return
-            except Exception:
-                pass
-        if key in ("up", "down", "tab"):
-            try:
-                if self.app.handle_prompt_key_for_file_ref(key):
-                    event.stop()
-                    event.prevent_default()
-                    return
-            except Exception:
-                pass
-        if key in ("shift+enter", "alt+enter", "ctrl+j", "ctrl+enter", "ctrl+n"):
-            event.stop()
-            event.prevent_default()
-            self.insert("\n")
-            return
-        if key == "enter":
-            event.stop()
-            event.prevent_default()
-            try:
-                if self.app.try_accept_file_ref():
-                    return
-            except Exception:
-                pass
-            buf = self.text or ""
-            n = 0
-            for ch in reversed(buf):
-                if ch == "\\":
-                    n += 1
-                else:
-                    break
-            if n % 2 == 1:
-                self.text = buf[:-1] + "\n"
-                try:
-                    last_line = self.text.count("\n")
-                    self.move_cursor((last_line, 0))
-                except Exception:
-                    pass
-                return
-            self.post_message(self.Submitted(buf))
-            return
-        if key == "ctrl+d":
-            event.stop()
-            event.prevent_default()
-            self.app.exit()
-            return
-        if key == "ctrl+c":
-            event.stop()
-            event.prevent_default()
-            try:
-                self.app.action_cancel_or_quit()
-            except Exception:
-                self.app.exit()
-            return
-        if key == "ctrl+f":
-            event.stop()
-            event.prevent_default()
-            try:
-                self.app.action_open_tools_inspector()
-            except Exception:
-                pass
-            return
-        if key == "ctrl+t":
-            event.stop()
-            event.prevent_default()
-            try:
-                self.app.action_toggle_internal()
-            except Exception:
-                pass
-            return
-        if key in ("question_mark", "f1") and not (self.text or "").strip():
-            event.stop()
-            event.prevent_default()
-            try:
-                self.app.action_show_shortcuts()
-            except Exception:
-                pass
-            return
-
-
-def _swap_console_everywhere(tui_console):
-    """Replace every `console` module attribute across loaded jarvis.* modules."""
-    import jarvis.console as _cmod
-    _cmod.console = tui_console
-    for name, mod in list(sys.modules.items()):
-        if not name.startswith("jarvis.") or mod is None:
-            continue
-        if getattr(mod, "console", None) is not None and name != "jarvis.console":
-            try:
-                setattr(mod, "console", tui_console)
-            except Exception:
-                pass
+# PromptArea lives in prompt_area.py; re-exported so callers/tests that import
+# it from jarvis.tui.app keep working.
+from .prompt_area import PromptArea  # noqa: F401, E402
+from .console_swap import _swap_console_everywhere  # noqa: F401, E402
+from .mixins.web_remote import WebRemoteMixin
+from .mixins.activity import ActivityMixin
+from .mixins.file_ref import FileRefPickerMixin
 
 
 # ─── App ─────────────────────────────────────────────────────────────────
 
 
-class JarvisTUI(App):
+class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
 
@@ -465,45 +216,8 @@ class JarvisTUI(App):
                 return
         self._ask_user.begin(qs, on_done)
 
-    def _prompt_has_focus(self) -> bool:
-        try:
-            return self.query_one("#prompt", PromptArea).has_focus
-        except Exception:
-            return False
-
-    def _try_file_ref_scroll(self, direction: str) -> bool:
-        """Route ↑/↓/page keys to the @file picker when it is open."""
-        if not self.file_ref_picker_active or not self._prompt_has_focus():
-            return False
-        delta_map = {"up": -1, "down": 1, "pageup": -5, "pagedown": 5}
-        delta = delta_map.get(direction)
-        if delta is None:
-            return False
-        return self._navigate_file_ref_picker(delta)
-
-    def _navigate_file_ref_picker(self, delta: int) -> bool:
-        if not self.file_ref_picker_active:
-            return False
-        opts = self.query_one("#file_ref_picker", OptionList)
-        if opts.option_count == 0:
-            return True
-        cur = opts.highlighted if opts.highlighted is not None else 0
-        nxt = max(0, min(opts.option_count - 1, cur + delta))
-        opts.highlighted = nxt
-        try:
-            opts.scroll_to_highlight()
-        except Exception:
-            pass
-        opts.refresh()
-        return True
-
-    @property
-    def file_ref_picker_active(self) -> bool:
-        try:
-            panel = self.query_one("#file_ref_panel", Vertical)
-            return not panel.has_class("hidden")
-        except Exception:
-            return False
+    # @file picker focus/navigation + the file_ref_picker_active property live
+    # in FileRefPickerMixin (jarvis/tui/mixins/file_ref.py).
 
     def _refresh_git_branch(self) -> None:
         """Re-query the current git branch (with TTL caching)."""
@@ -641,234 +355,8 @@ class JarvisTUI(App):
         self._auto_connect_mcp_background()
         self._check_for_updates_background()
 
-    def _start_web_remote(self, tui_console: TUIConsole) -> None:
-        from ..web.bridge import WebBridge
-        from ..web.console_mux import WebMuxConsole
-        from ..web.server import primary_remote_url, start_web_server
-
-        bridge = WebBridge()
-        bridge.set_handlers(
-            on_submit=lambda text: self.call_from_thread(lambda: self._handle_web_submit(text)),
-            on_cancel=lambda: self.call_from_thread(self._handle_web_cancel),
-            on_settings=lambda data, done: self.call_from_thread(
-                lambda: self._complete_web_settings(data, done)
-            ),
-            on_action=lambda action, data, done: self.call_from_thread(
-                lambda a=action, d=data, cb=done: self._complete_web_action(a, d, cb)
-            ),
-        )
-        mux = WebMuxConsole(tui_console, bridge)
-        _swap_console_everywhere(mux)
-        self._tui_console = mux
-        self._web_mux = mux
-        self._web_bridge = bridge
-        preferred_port = state.web_port
-        try:
-            self._web_server, self._web_urls, bound_port = start_web_server(
-                bridge=bridge,
-                app=self,
-                port=preferred_port,
-            )
-        except OSError as exc:
-            self._tui_console = tui_console
-            self._web_mux = None
-            self._web_bridge = None
-            _swap_console_everywhere(tui_console)
-            self._tui_console.print(
-                f"[{ui.WARN}]Web remote failed: {exc}[/]"
-            )
-            self._tui_console.print(
-                f"[{ui.FG_DIM}]Stop the other jarvis --web session or set "
-                f"HARNESS_WEB_PORT to a free port.[/]"
-            )
-            return
-
-        state.web_port = bound_port
-        if bound_port != preferred_port:
-            self._tui_console.print(
-                f"[{ui.WARN}]Port {preferred_port} in use — "
-                f"web remote on [cyan]{bound_port}[/]"
-            )
-        self._web_primary_url = primary_remote_url(self._web_urls)
-        self._render_web_bar()
-
-    def _render_web_bar(self) -> None:
-        try:
-            bar = self.query_one("#webar", WebRemoteBar)
-        except Exception:
-            bar = None
-        try:
-            qr = self.query_one("#web_qr_overlay", WebRemoteQR)
-        except Exception:
-            qr = None
-        if self._web_primary_url:
-            bar and bar.set_url(self._web_primary_url)
-            qr and qr.set_url(self._web_primary_url)
-        else:
-            bar and bar.hide_bar()
-            qr and qr.hide()
-
-    def _copy_web_url(self, *, show_status: bool = True) -> bool:
-        url = self._web_primary_url
-        if not url:
-            return False
-        ok = self._copy_to_system_clipboard(url)
-        if show_status:
-            self._set_status("web url copied" if ok else "copy failed")
-        return ok
-
-    def action_copy_web_url(self) -> None:
-        self._copy_web_url(show_status=True)
-
-    def _sync_web_busy(self) -> None:
-        bridge = self._web_bridge
-        if bridge is None:
-            return
-        bridge.emit("busy", {"busy": self._busy})
-
-    def _sync_web_queue(self) -> None:
-        bridge = self._web_bridge
-        if bridge is None:
-            return
-        items: list[str] = []
-        for msg in state.prompt_queue:
-            if isinstance(msg, tuple):
-                items.append(str(msg[0]).strip())
-            else:
-                items.append(str(msg).strip())
-        bridge.emit("queue", {"items": [i for i in items if i]})
-
-    def _handle_web_submit(self, text: str) -> None:
-        text = (text or "").strip()
-        if not text:
-            return
-        if self._busy:
-            self._stash_prompt(text)
-            return
-        if self._is_web_modal_command(text):
-            if self._web_bridge is not None:
-                self._web_bridge.emit(
-                    "message",
-                    {"role": "you", "text": text, "title": "you"},
-                )
-            self._handle_queued_command(text)
-            return
-        self._begin_turn(text)
-
-    @staticmethod
-    def _is_web_modal_command(text: str) -> bool:
-        """Bare slash commands that open TUI modals — route before _begin_turn."""
-        s = (text or "").strip()
-        if not s.startswith("/"):
-            return False
-        return (
-            _is_bare_model_command(s)
-            or _is_bare_provider_command(s)
-            or _is_session_picker_command(s)
-            or _is_think_picker_command(s)
-            or _is_mcp_modal_command(s)
-            or _is_agent_picker_command(s)
-            or _is_skill_picker_command(s)
-            or _is_memory_modal_command(s)
-            or _is_pin_modal_command(s)
-            or _is_lesson_modal_command(s)
-            or _is_settings_modal_command(s)
-            or _is_theme_modal_command(s)
-            or _is_oauth_modal_command(s)
-            or _is_key_command(s)
-            or s.lower() == "/local"
-            or s.lower() == "/agent init"
-        )
-
-    def _handle_web_cancel(self) -> None:
-        if not self._busy:
-            return
-        from ..repl.stream import cancel_current_stream
-
-        cancel_current_stream()
-        if hasattr(self._tui_console, "cancel_pending_prompts"):
-            self._tui_console.cancel_pending_prompts()
-        self._sync_activity_phase("Cancelling…")
-        self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user (web)[/]")
-        self._turn_done()
-
-    def _complete_web_settings(self, data: dict, done) -> None:
-        try:
-            result = self._handle_web_settings(data)
-        except Exception as exc:
-            result = {"ok": False, "error": str(exc)}
-        try:
-            done(result)
-        except Exception:
-            pass
-
-    def _complete_web_action(self, action: str, data: dict, done) -> None:
-        try:
-            result = self._handle_web_action(action, data)
-        except Exception as exc:
-            result = {"ok": False, "error": str(exc)}
-        if not isinstance(result, dict):
-            result = {"ok": False, "error": "invalid action response"}
-        try:
-            done(result)
-        except Exception:
-            pass
-
-    def _handle_web_settings(self, data: dict) -> dict:
-        from ..web.state_api import apply_settings
-
-        result = apply_settings(data)
-        if result:
-            parts = []
-            if "think_mode" in result:
-                parts.append(f"think {'on' if result['think_mode'] else 'off'}")
-            if "show_internal" in result:
-                parts.append(f"trace {'on' if result['show_internal'] else 'off'}")
-            if "auto_approve" in result:
-                parts.append(f"auto-approve {'on' if result['auto_approve'] else 'off'}")
-            if parts:
-                self._tui_console.print(f"[{ui.FG_DIM}]web: {', '.join(parts)}[/]")
-        return result
-
-    def _handle_web_action(self, action: str, data: dict) -> dict:
-        from ..web.actions_api import run_web_action
-
-        mux = getattr(self, "_web_mux", None)
-        ctx = mux.suppress_broadcast() if mux is not None else nullcontext()
-        with ctx:
-            result = run_web_action(action, data, console_print=self._tui_console.print)
-            if not result.get("ok"):
-                return result
-
-            if action in ("session_resume", "session_new"):
-                try:
-                    log = self.query_one("#transcript", RichLog)
-                    log.clear()
-                except Exception:
-                    pass
-                if action == "session_resume":
-                    try:
-                        self._render_loaded_session()
-                    except Exception as exc:
-                        result = dict(result)
-                        result["render_warning"] = str(exc)
-
-            if action == "model_select":
-                self._write_status_line(busy=False)
-
-            if action in ("session_resume", "session_new", "model_select", "agent_select"):
-                self._set_status("ready")
-
-        if self._web_bridge is not None and result.get("ok"):
-            try:
-                from ..web.state_api import snapshot_from_state
-
-                snap = snapshot_from_state(busy=self._busy())
-                self._web_bridge.emit("snapshot", snap)
-            except Exception:
-                pass
-
-        return result
+    # Web-remote behaviour (_start_web_remote, _handle_web_*, _sync_web_*, etc.)
+    # lives in WebRemoteMixin (jarvis/tui/mixins/web_remote.py).
 
     @work(thread=True)
     def _check_for_updates_background(self) -> None:
@@ -1142,119 +630,10 @@ class JarvisTUI(App):
         bar.update(Text.from_markup(header + "\n" + "\n".join(rows)))
         self._sync_web_queue()
 
-    @staticmethod
-    def _tool_run_glyph(status: str) -> str:
-        return {
-            "queued": "○",
-            "running": "◐",
-            "done": "✓",
-            "error": "✗",
-            "cancelled": "⊘",
-        }.get(status, "·")
-
-    def _format_tool_dock_row(self, run: dict) -> str:
-        status = run.get("status") or "queued"
-        glyph = self._tool_run_glyph(status)
-        if status == "error":
-            g_style = ui.ERR
-        elif status == "done":
-            g_style = ui.OK
-        elif status == "running":
-            g_style = ui.ACCENT
-        else:
-            g_style = ui.FG_DIM
-        name = run.get("name") or "tool"
-        label = (run.get("label") or "").strip() or "…"
-        if "/" in label:
-            base, _, parent = label.rpartition("/")
-            path_bit = f"[{ui.FG}]{_rich_escape(base)}[/] [{ui.FG_DIM}]{_rich_escape(parent)}[/]"
-        else:
-            path_bit = f"[{ui.FG}]{_rich_escape(label)}[/]"
-        tail = ""
-        if status in ("done", "error") and run.get("chars"):
-            tail = f" [{ui.FG_DIM}]{int(run['chars']):,} chars[/]"
-        elif status == "running":
-            elapsed = max(0.0, time.monotonic() - float(run.get("started") or 0))
-            tail = f" [{ui.FG_DIM}]{elapsed:.1f}s[/]"
-        return (
-            f"  [{g_style}]{glyph}[/] [{ui.FG_MUTE}]{name:<14}[/] {path_bit}{tail}"
-        )
-
-    def reset_tool_activity_panel(self) -> None:
-        """Next tool wave appends a fresh panel in the transcript."""
-        self._tool_activity_anchor = None
-        self._tool_activity_line_count = 0
-        self._tool_activity_frozen = False
-
-    def _parallel_panel_verb(self, runs: list[dict]) -> str:
-        if any(r.get("name") in ("multi_edit", "edit_file", "write_file") for r in runs):
-            return "editing"
-        return "reading"
-
-    def _build_tool_activity_panel(self, runs: list[dict]) -> Panel:
-        n = len(runs)
-        n_run = sum(1 for r in runs if r.get("status") == "running")
-        n_q = sum(1 for r in runs if r.get("status") == "queued")
-        verb = self._parallel_panel_verb(runs)
-        title = f"⚡ {n} parallel file{'s' if n != 1 else ''}"
-        if n_run or n_q:
-            bits = []
-            if n_run:
-                bits.append(f"{n_run} {verb}")
-            if n_q:
-                bits.append(f"{n_q} queued")
-            title += f" · {' · '.join(bits)}"
-        body_lines = [self._format_tool_dock_row(r) for r in runs]
-        body_lines.append(f"[{ui.FG_DIM}]^F inspect files[/]")
-        return Panel(
-            Text.from_markup("\n".join(body_lines)),
-            title=title,
-            title_align="left",
-            border_style=ui.ACCENT,
-            padding=(0, 1),
-        )
-
-    def _refresh_tool_dock(self) -> None:
-        """Live-update a parallel-files panel inside the conversation transcript."""
-        with self._tool_activity_lock:
-            if self._tool_activity_frozen:
-                return
-            runs = list_runs()
-            try:
-                log = self.query_one("#transcript", RichLog)
-            except Exception:
-                return
-
-            if not show_parallel_file_panel():
-                if self._tool_activity_anchor is not None:
-                    _truncate_rich_log_lines(log, self._tool_activity_anchor)
-                    self._tool_activity_anchor = None
-                    self._tool_activity_line_count = 0
-                self._tool_activity_frozen = False
-                return
-
-            panel = self._build_tool_activity_panel(runs)
-            anchor = self._tool_activity_anchor
-            all_settled = all(
-                r.get("status") in ("done", "error", "cancelled") for r in runs
-            )
-
-            if anchor is None:
-                anchor = len(log.lines)
-                self._tool_activity_anchor = anchor
-                self._tool_activity_line_count = _append_rich_log_block(
-                    log, panel, scroll_end=True
-                )
-            else:
-                self._tool_activity_line_count = _replace_rich_log_block(
-                    log, anchor, self._tool_activity_line_count, panel
-                )
-                log.scroll_end(animate=False)
-
-            if all_settled:
-                self._tool_activity_anchor = None
-                self._tool_activity_line_count = 0
-                self._tool_activity_frozen = True
+    # Parallel-file "tool dock" panel methods (_tool_run_glyph,
+    # _format_tool_dock_row, reset_tool_activity_panel, _parallel_panel_verb,
+    # _build_tool_activity_panel, _refresh_tool_dock) live in ActivityMixin
+    # (jarvis/tui/mixins/activity.py).
 
     def _stash_prompt(self, text: str) -> None:
         """Queue a prompt while the agent is busy (FIFO; shown only in #queuebar)."""
@@ -1265,40 +644,9 @@ class JarvisTUI(App):
         if self._busy and self._activity_label:
             self._write_status_line(busy=True)
 
-    # ─── activity / spinner ──────────────────────────────────────────
-    def _sync_activity_phase(self, label: str) -> None:
-        label = (label or "").strip()
-        if label != self._activity_label:
-            self._activity_t0 = time.monotonic()
-            self._activity_spinner_i = 0
-        self._activity_label = label
-        self._refresh_activity_widgets()
-
-    def _tick_activity_spinner(self) -> None:
-        if self._busy and self._activity_label:
-            self._activity_spinner_i += 1
-            self._refresh_activity_widgets()
-        if (
-            not self._tool_activity_frozen
-            and show_parallel_file_panel()
-            and any(r.get("status") == "running" for r in list_runs())
-        ):
-            self._refresh_tool_dock()
-
-    def _refresh_activity_widgets(self) -> None:
-        label = self._activity_label
-        if not label or not self._busy:
-            return
-        self._write_status_line(busy=True)
-
-    def _start_activity_pulse(self) -> None:
-        self._stop_activity_pulse()
-        self._activity_timer = self.set_interval(0.1, self._tick_activity_spinner)
-
-    def _stop_activity_pulse(self) -> None:
-        if self._activity_timer is not None:
-            self._activity_timer.stop()
-            self._activity_timer = None
+    # Activity-spinner methods (_sync_activity_phase, _tick_activity_spinner,
+    # _refresh_activity_widgets, _start_activity_pulse, _stop_activity_pulse)
+    # live in ActivityMixin (jarvis/tui/mixins/activity.py).
 
     # ─── palette ─────────────────────────────────────────────────────
     def _run_attachment_tokenize(self) -> None:
@@ -1332,157 +680,9 @@ class JarvisTUI(App):
         finally:
             self._tokenizing_attachments = False
 
-    def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        if event.text_area.id != "prompt":
-            return
-        val = event.text_area.text or ""
-        prev = self._last_input_value
-        self._last_input_value = val
-        if val == "/" and prev == "":
-            event.text_area.clear()
-            self._last_input_value = ""
-            self._open_palette()
-            return
-        if not self._tokenizing_attachments:
-            self._run_attachment_tokenize()
-        self._sync_file_ref_picker()
-        if isinstance(event.text_area, PromptArea):
-            event.text_area.refresh_file_ref_highlights()
-
-    def _prompt_cursor(self) -> tuple[int, int]:
-        inp = self.query_one("#prompt", PromptArea)
-        try:
-            return inp.cursor_location
-        except Exception:
-            text = inp.text or ""
-            lines = text.split("\n")
-            return max(0, len(lines) - 1), len(lines[-1]) if lines else 0
-
-    def _populate_file_ref_picker(self, query: str, *, keep_highlight_id: str | None = None) -> None:
-        opts = self.query_one("#file_ref_picker", OptionList)
-        status = self.query_one("#file_ref_hint", Static)
-        paths = filter_project_files(query)
-        opts.clear_options()
-        if not paths:
-            q = (query or "").strip()
-            status.update(
-                f"📎  no matches @{q or '…'} — root files/folders only until you type more"
-                if not q
-                else f"📎  no files match @{q} — keep typing in chat"
-            )
-            return
-        q = (query or "").strip()
-        scope = "project root" if not q else f"@{q}"
-        status.update(
-            f"📎  {scope} — {len(paths)} match(es) · type in chat · ↑↓ pick · tab/↵ insert · esc close"
-        )
-        for path in paths:
-            opts.add_option(Option(file_ref_option_label(path), id=path))
-        if not opts.option_count:
-            return
-        pick = 0
-        if keep_highlight_id:
-            for i in range(opts.option_count):
-                opt = opts.get_option_at_index(i)
-                if opt and opt.id == keep_highlight_id:
-                    pick = i
-                    break
-        opts.highlighted = pick
-        try:
-            opts.scroll_to_highlight()
-        except Exception:
-            pass
-
-    def _sync_file_ref_picker(self) -> None:
-        inp = self.query_one("#prompt", PromptArea)
-        text = inp.text or ""
-        row, col = self._prompt_cursor()
-        active = active_file_ref_at_cursor(text, row, col)
-        panel = self.query_one("#file_ref_panel", Vertical)
-        if not active:
-            self.close_file_ref_picker()
-            return
-        self._file_ref_mention = active
-        panel.remove_class("hidden")
-        if not self._file_ref_mouse_on:
-            enable_mouse()
-            self._file_ref_mouse_on = True
-        _row, _start, query = active
-        opts = self.query_one("#file_ref_picker", OptionList)
-        keep_id = None
-        if opts.option_count and opts.highlighted is not None:
-            try:
-                opt = opts.get_option_at_index(opts.highlighted)
-                if opt and opt.id:
-                    keep_id = str(opt.id)
-            except Exception:
-                pass
-        if self._file_ref_last_query != query:
-            self._file_ref_last_query = query
-            self._populate_file_ref_picker(query, keep_highlight_id=keep_id)
-        elif opts.option_count == 0:
-            self._populate_file_ref_picker(query)
-
-    def close_file_ref_picker(self) -> None:
-        try:
-            panel = self.query_one("#file_ref_panel", Vertical)
-            panel.add_class("hidden")
-        except Exception:
-            pass
-        self._file_ref_mention = None
-        self._file_ref_last_query = None
-        if self._file_ref_mouse_on:
-            disable_mouse()
-            self._file_ref_mouse_on = False
-
-    def _accept_file_ref(self, rel_path: str) -> None:
-        inp = self.query_one("#prompt", PromptArea)
-        text = inp.text or ""
-        row, col = self._prompt_cursor()
-        new_text, (new_row, new_col) = replace_file_ref_at_cursor(
-            text, row, col, rel_path
-        )
-        inp.text = new_text
-        try:
-            inp.move_cursor((new_row, new_col))
-        except Exception:
-            pass
-        self._last_input_value = new_text
-        self.close_file_ref_picker()
-        inp.refresh_file_ref_highlights()
-        inp.focus()
-
-    def try_accept_file_ref(self) -> bool:
-        if not self.file_ref_picker_active:
-            return False
-        opts = self.query_one("#file_ref_picker", OptionList)
-        if opts.option_count == 0 or opts.highlighted is None:
-            return False
-        opt = opts.get_option_at_index(opts.highlighted)
-        if not opt or not opt.id:
-            return False
-        self._accept_file_ref(str(opt.id))
-        return True
-
-    def handle_prompt_key_for_file_ref(self, key: str) -> bool:
-        if not self.file_ref_picker_active:
-            return False
-        if key == "up":
-            return self._navigate_file_ref_picker(-1)
-        if key == "down":
-            return self._navigate_file_ref_picker(1)
-        if key == "tab":
-            return self.try_accept_file_ref()
-        return False
-
-    def on_text_area_selection_changed(self, event: TextArea.SelectionChanged) -> None:
-        if event.text_area.id == "prompt":
-            self._sync_file_ref_picker()
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option_list.id != "file_ref_picker" or not event.option.id:
-            return
-        self._accept_file_ref(str(event.option.id))
+    # The @file picker core (on_text_area_changed, _prompt_cursor,
+    # _populate/_sync/close/_accept/try_accept_file_ref, key + option handlers)
+    # lives in FileRefPickerMixin (jarvis/tui/mixins/file_ref.py).
 
     def _open_palette(self):
         def after(cmd: str | None):
@@ -2626,10 +1826,6 @@ class JarvisTUI(App):
             return
         self._last_ctrl_c_t = now
         self._set_status("press Ctrl+C again to quit (or Ctrl+D)")
-
-
-def _escape(s: str) -> str:
-    return s.replace("[", r"\[")
 
 
 def run():

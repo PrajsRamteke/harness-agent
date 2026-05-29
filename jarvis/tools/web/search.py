@@ -3,6 +3,7 @@ import json, re, html, urllib.parse, urllib.request
 from datetime import datetime
 
 from ...constants import MAX_TOOL_OUTPUT, SEARCH_DEFAULT_MAX_RESULTS
+from ._common import _DDG_LINK_RE, _DDG_SNIPPET_RE, _HTML_TAG_RE
 
 _RECENCY_RE = re.compile(
     r"\b(latest|current|currently|recent|recently|today|todays?|now|"
@@ -119,14 +120,7 @@ def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str
                 status2 = r.status
                 raw_html = r.read().decode("utf-8", errors="replace")
 
-            link_re = re.compile(
-                r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-                re.S | re.I,
-            )
-            snip_re = re.compile(
-                r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.S | re.I
-            )
-            links = link_re.findall(raw_html)
+            links = _DDG_LINK_RE.findall(raw_html)
             # Block detection: 202 status, OR no result__a markers AND the
             # response is the DDG homepage (canonical URL present).
             html_blocked = (
@@ -135,7 +129,7 @@ def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str
             )
             if html_blocked:
                 ddg_blocked = True
-            snips = [html.unescape(re.sub(r"<[^>]+>", "", s)) for s in snip_re.findall(raw_html)]
+            snips = [html.unescape(_HTML_TAG_RE.sub("", s)) for s in _DDG_SNIPPET_RE.findall(raw_html)]
 
             for i, (href, title) in enumerate(links[:max_results]):
                 try:
@@ -143,7 +137,7 @@ def web_search(query: str, max_results: int = SEARCH_DEFAULT_MAX_RESULTS) -> str
                     href = qs.get("uddg", [href])[0]
                 except Exception:
                     pass
-                clean_title = html.unescape(re.sub(r"<[^>]+>", "", title)).strip()
+                clean_title = html.unescape(_HTML_TAG_RE.sub("", title)).strip()
                 snip = snips[i].strip() if i < len(snips) else ""
                 entry = f"• {clean_title}\n  ⌗ {urllib.parse.unquote(href)}"
                 if snip:

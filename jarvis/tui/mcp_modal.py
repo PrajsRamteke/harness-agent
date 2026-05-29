@@ -42,32 +42,11 @@ from ..mcp.config import (
     _project_config_path,
 )
 from ..mcp.registry import mcp_registry
+from ..mcp.sources import SOURCE_ICONS as _SOURCE_ICONS, format_endpoint as _endpoint_text
 from ..tools.mac.clipboard import clipboard_get
 
 
-_SOURCE_ICONS = {
-    "project":  "▣",
-    "jarvis":   "✦",
-    "claude":   "◆",
-    "opencode": "◇",
-    "cursor":   "⌘",
-    "windsurf": "≈",
-    "vscode":   "⬡",
-}
-
-
 # ── helpers ──────────────────────────────────────────────────────────────
-
-def _endpoint_text(cfg: dict, max_len: int = 64) -> str:
-    if cfg.get("url"):
-        s = str(cfg["url"])
-    else:
-        parts = [str(cfg.get("command", ""))]
-        parts += [str(a) for a in cfg.get("args", [])]
-        s = " ".join(p for p in parts if p)
-    if len(s) > max_len:
-        s = s[: max_len - 1] + "…"
-    return s
 
 
 def _row_label(

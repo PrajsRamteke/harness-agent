@@ -64,41 +64,14 @@ def handle_mcp_command(arg: str) -> Any:
 
 
 # ── shared visual primitives ─────────────────────────────────────────────
-
-_SOURCE_ICONS = {
-    "project":  "▣",
-    "jarvis":   "✦",
-    "claude":   "◆",
-    "opencode": "◇",
-    "cursor":   "⌘",
-    "windsurf": "≈",
-    "vscode":   "⬡",
-}
-
-_SOURCE_LABELS = {
-    "project":  "Project",
-    "jarvis":   "Jarvis",
-    "claude":   "Claude Code",
-    "opencode": "OpenCode",
-    "cursor":   "Cursor",
-    "windsurf": "Windsurf",
-    "vscode":   "VS Code",
-}
-
-_SOURCE_ORDER = ["jarvis", "claude", "opencode", "cursor", "windsurf", "vscode"]
-
-
-def _format_endpoint(cfg: dict, max_len: int = 60) -> str:
-    """Render the runtime command line / URL for display."""
-    if cfg.get("url"):
-        s = str(cfg["url"])
-    else:
-        parts = [str(cfg.get("command", ""))]
-        parts += [str(a) for a in cfg.get("args", [])]
-        s = " ".join(p for p in parts if p)
-    if len(s) > max_len:
-        s = s[: max_len - 1] + "…"
-    return s
+# Source icons/labels/order + endpoint formatting live in mcp/sources.py so the
+# CLI manager and the TUI modal share one definition.
+from .sources import (
+    SOURCE_ICONS as _SOURCE_ICONS,
+    SOURCE_LABELS as _SOURCE_LABELS,
+    SOURCE_ORDER as _SOURCE_ORDER,
+    format_endpoint as _format_endpoint,
+)
 
 
 def _status_cell(connected: bool, tools: int) -> Text:

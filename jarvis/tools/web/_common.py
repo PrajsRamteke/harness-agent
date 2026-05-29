@@ -3,6 +3,17 @@ import re, html, urllib.parse, urllib.request
 
 from ...utils.html_clean import _strip_html
 
+# Precompiled regexes (compiled once at import, not per call).
+_QUERY_KW_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9]{2,}")
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_DDG_LINK_RE = re.compile(
+    r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+    re.S | re.I,
+)
+_DDG_SNIPPET_RE = re.compile(
+    r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.S | re.I
+)
+
 # Query tokens we never treat as candidates for "official domain" matching.
 _QUERY_STOPWORDS: set = {
     "latest", "newest", "current", "currently", "today", "todays", "now",
@@ -19,7 +30,7 @@ _QUERY_STOPWORDS: set = {
 
 def _query_keywords(query: str) -> list:
     """Extract meaningful lowercased keywords from a user query."""
-    toks = re.findall(r"[a-zA-Z][a-zA-Z0-9]{2,}", (query or "").lower())
+    toks = _QUERY_KW_RE.findall((query or "").lower())
     return [t for t in toks if t not in _QUERY_STOPWORDS]
 
 
@@ -155,17 +166,10 @@ def _ddg_organic_urls(query: str, want: int = 12) -> list:
         with urllib.request.urlopen(req, timeout=12) as r:
             raw_html = r.read().decode("utf-8", errors="replace")
 
-        link_re = re.compile(
-            r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-            re.S | re.I,
-        )
-        snip_re = re.compile(
-            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.S | re.I
-        )
-        links = link_re.findall(raw_html)
+        links = _DDG_LINK_RE.findall(raw_html)
         snips = [
-            html.unescape(re.sub(r"<[^>]+>", "", s)).strip()
-            for s in snip_re.findall(raw_html)
+            html.unescape(_HTML_TAG_RE.sub("", s)).strip()
+            for s in _DDG_SNIPPET_RE.findall(raw_html)
         ]
         for i, (href, title) in enumerate(links[:want]):
             try:
@@ -174,7 +178,7 @@ def _ddg_organic_urls(query: str, want: int = 12) -> list:
             except Exception:
                 pass
             href = urllib.parse.unquote(href)
-            clean_title = html.unescape(re.sub(r"<[^>]+>", "", title)).strip()
+            clean_title = html.unescape(_HTML_TAG_RE.sub("", title)).strip()
             snip = snips[i] if i < len(snips) else ""
             results.append((href, clean_title, snip))
     except Exception:
