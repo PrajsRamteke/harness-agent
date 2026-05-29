@@ -39,7 +39,7 @@ def test_anthropic_auth_models_for_picker():
 
     state.anthropic_model_ids = ["claude-sonnet-4-6", "claude-custom-preview"]
     rows = anthropic_auth_models_for_picker()
-    assert rows[0][0] == "claude-opus-4-7"
+    assert rows[0][0] == "claude-opus-4-8"
     assert "claude-custom-preview" in [m for m, _ in rows]
     state.anthropic_model_ids = None
 

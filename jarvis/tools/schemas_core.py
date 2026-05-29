@@ -198,7 +198,7 @@ CORE_TOOLS = CONTEXT_TOOLS + [
         "ext":{"type":"string","description":"Extension filter, e.g. '.png' or 'png,jpg'. Optional."}},
         "required":["query"]}},
     {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{}}},
-    {"name":"git_diff","description":"git diff","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},
+    {"name":"git_diff","description":"git diff. By default shows both staged and unstaged changes (vs HEAD). Set staged=true for only staged (git add'ed) changes, staged=false for only unstaged.","input_schema":{"type":"object","properties":{"path":{"type":"string"},"staged":{"type":"boolean"}}}},
     {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"}}}},
 ]
 

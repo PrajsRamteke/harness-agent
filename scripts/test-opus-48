@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# Verify Claude Opus 4.8 is registered in the repo AND in the live `jarvis` install.
+#
+# Usage:
+#   bash scripts/test-opus-48              # check repo + live jarvis command
+#   bash scripts/test-opus-48 --repo-only  # check this git checkout only
+#   bash scripts/test-opus-48 --jarvis-only
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="${1:-all}"
+OPUS_ID="claude-opus-4-8"
+FAIL=0
+
+pick_repo_python() {
+  local candidate
+  for candidate in \
+    "${ROOT}/.venv/bin/python" \
+    "${HOME}/.local/share/harness-agent/.venv/bin/python3" \
+    "$(command -v python3 2>/dev/null || true)"
+  do
+    [ -n "${candidate}" ] || continue
+    [ -x "${candidate}" ] || continue
+    if PYTHONPATH="${ROOT}" "${candidate}" -c "import jarvis.constants.providers" >/dev/null 2>&1; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+check_python() {
+  local label="$1"
+  local py="$2"
+  local use_repo_path="${3:-0}"
+  echo "==> ${label}"
+  echo "    python: ${py}"
+  run_check() {
+    "${@}" - <<PY
+import sys
+from jarvis.constants.providers import (
+    ANTHROPIC_AUTH_MODEL_IDS,
+    ANTHROPIC_MODELS,
+    MODEL_INFO,
+    PROVIDER_ANTHROPIC,
+    PROVIDER_ANTHROPIC_API,
+    PROVIDER_ANTHROPIC_AUTH,
+    models_for_source,
+)
+
+opus = "${OPUS_ID}"
+errors = []
+
+if opus not in MODEL_INFO:
+    errors.append("missing from MODEL_INFO")
+else:
+    desc, provider, pricing = MODEL_INFO[opus]
+    if provider != PROVIDER_ANTHROPIC:
+        errors.append(f"wrong provider: {provider!r}")
+    if "4.8" not in desc:
+        errors.append(f"unexpected description: {desc!r}")
+    if pricing != (5.0, 25.0):
+        errors.append(f"unexpected pricing: {pricing!r}")
+
+api_ids = [m for m, _ in ANTHROPIC_MODELS]
+if opus not in api_ids:
+    errors.append("missing from ANTHROPIC_MODELS (Anthropic API picker)")
+
+if ANTHROPIC_AUTH_MODEL_IDS[0] != opus:
+    errors.append(
+        f"not first in ANTHROPIC_AUTH_MODEL_IDS (got {ANTHROPIC_AUTH_MODEL_IDS[0]!r})"
+    )
+
+auth_picker = [m for m, _ in models_for_source(PROVIDER_ANTHROPIC_AUTH)]
+api_picker = [m for m, _ in models_for_source(PROVIDER_ANTHROPIC_API)]
+if opus not in auth_picker:
+    errors.append("missing from Anthropic Auth picker")
+if opus not in api_picker:
+    errors.append("missing from Anthropic API picker")
+
+import jarvis.constants.providers as providers_mod
+print(f"    module: {providers_mod.__file__}")
+
+if errors:
+    print("FAIL:")
+    for err in errors:
+        print(f"  - {err}")
+    raise SystemExit(1)
+
+print("PASS: Opus 4.8 registered for Anthropic API + Anthropic Auth")
+PY
+  }
+  if [ "${use_repo_path}" = "1" ]; then
+    if ! run_check env "PYTHONPATH=${ROOT}" "${py}"; then
+      FAIL=1
+    fi
+  elif ! run_check "${py}"; then
+    FAIL=1
+  fi
+  echo
+}
+
+resolve_jarvis_python() {
+  local jarvis_bin
+  jarvis_bin="$(command -v jarvis 2>/dev/null || true)"
+  if [ -z "${jarvis_bin}" ]; then
+    echo "WARN: jarvis not found on PATH" >&2
+    return 1
+  fi
+  echo "    jarvis: ${jarvis_bin}" >&2
+  head -1 "${jarvis_bin}" | sed 's/^#!//' | tr -d '\r'
+}
+
+case "${MODE}" in
+  --repo-only|repo-only)
+    REPO_PY="$(pick_repo_python)" || { echo "FAIL: no python can import jarvis from ${ROOT}" >&2; exit 1; }
+    check_python "repo checkout (${ROOT})" "${REPO_PY}" 1
+    ;;
+  --jarvis-only|jarvis-only)
+    JARVIS_PY="$(resolve_jarvis_python)" || exit 1
+    check_python "live jarvis command" "${JARVIS_PY}"
+    ;;
+  --help|-h)
+    sed -n '2,8p' "$0"
+    exit 0
+    ;;
+  --all|all|"")
+    REPO_PY="$(pick_repo_python)" || { echo "FAIL: no python can import jarvis from ${ROOT}" >&2; exit 1; }
+    check_python "repo checkout (${ROOT})" "${REPO_PY}" 1
+
+    if JARVIS_PY="$(resolve_jarvis_python)"; then
+      check_python "live jarvis command" "${JARVIS_PY}" 0
+    else
+      FAIL=1
+    fi
+
+    REPO_MODULE="$(env PYTHONPATH="${ROOT}" "${REPO_PY}" -c "import jarvis.constants.providers as p; print(p.__file__)" 2>/dev/null || true)"
+    JARVIS_MODULE=""
+    if JARVIS_PY="$(resolve_jarvis_python 2>/dev/null)"; then
+      JARVIS_MODULE="$("${JARVIS_PY}" -c "import jarvis.constants.providers as p; print(p.__file__)" 2>/dev/null || true)"
+    fi
+    if [ -n "${REPO_MODULE}" ] && [ -n "${JARVIS_MODULE}" ] && [ "${REPO_MODULE}" != "${JARVIS_MODULE}" ]; then
+      echo "NOTE: repo and live jarvis load different code (both passed Opus 4.8 checks):"
+      echo "  repo:   ${REPO_MODULE}"
+      echo "  jarvis: ${JARVIS_MODULE}"
+      echo
+      echo "To make \`jarvis\` use this repo directly:"
+      echo "  cd ${ROOT}"
+      echo "  ~/.local/share/harness-agent/.venv/bin/pip install -e ."
+      echo "  # then quit and restart jarvis"
+    fi
+    ;;
+  *)
+    echo "unknown mode: ${MODE} (use --all, --repo-only, or --jarvis-only)" >&2
+    exit 1
+    ;;
+esac
+
+if [ "${FAIL}" -ne 0 ]; then
+  echo "Some checks failed." >&2
+  exit 1
+fi
+
+echo "All Opus 4.8 checks passed."

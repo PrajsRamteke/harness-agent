@@ -67,7 +67,8 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     "claude-haiku-4-5":  ("Haiku 4.5 — fastest, cheapest",     PROVIDER_ANTHROPIC, (1.0,   5.0)),
     "claude-sonnet-4-6": ("Sonnet 4.6 — balanced",             PROVIDER_ANTHROPIC, (3.0,  15.0)),
     "claude-opus-4-6":   ("Opus 4.6 — high capability",        PROVIDER_ANTHROPIC, (5.0, 25.0)),
-    "claude-opus-4-7":   ("Opus 4.7 — most capable",           PROVIDER_ANTHROPIC, (5.0, 25.0)),
+    "claude-opus-4-7":   ("Opus 4.7 — high capability",        PROVIDER_ANTHROPIC, (5.0, 25.0)),
+    "claude-opus-4-8":   ("Opus 4.8 — most capable",           PROVIDER_ANTHROPIC, (5.0, 25.0)),
 
     # ── OpenRouter free-tier (all :free suffix → $0) ─────────────────────────
     "openai/gpt-oss-120b:free":               ("GPT-OSS 120B — default",            PROVIDER_OPENROUTER, (0.0, 0.0)),
@@ -124,6 +125,7 @@ ANTHROPIC_MODELS = [
 # OAuth / Pro-Max subscription catalog (newest first). Live API ids are merged in
 # at runtime when OAuth connects successfully.
 ANTHROPIC_AUTH_MODEL_IDS = (
+    "claude-opus-4-8",
     "claude-opus-4-7",
     "claude-opus-4-6",
     "claude-sonnet-4-6",
