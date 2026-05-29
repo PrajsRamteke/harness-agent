@@ -1,12 +1,21 @@
 """Provider registry: Anthropic, OpenRouter, OpenCode Go, and OpenCode Zen.
 
-SINGLE source of truth for all model definitions. Each model is defined once in
-MODEL_INFO with its description and pricing. The model lists (ANTHROPIC_MODELS,
-OPENCODE_MODELS, etc.) are auto-generated from MODEL_INFO so you never need to
-update more than one dict when adding or changing a model.
+SINGLE source of truth for all model definitions.
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  TO ADD A MODEL: add ONE line to the MODELS list below. That's it.         ║
+║                                                                            ║
+║    ModelSpec("model-id", "Human label — note", PROVIDER_X, in$, out$)      ║
+║                                                                            ║
+║  - in$/out$ are USD per 1M tokens (0.0 for free tiers); used by /cost.     ║
+║  - add default=True to make it that provider's default model.              ║
+║  Everything else — picker lists, pricing, per-provider defaults — is       ║
+║  derived automatically from MODELS. No other file needs touching.          ║
+╚══════════════════════════════════════════════════════════════════════════╝
 """
 
 import os
+from dataclasses import dataclass
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
 PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex")
@@ -57,62 +66,85 @@ MODEL_SOURCES = (
     PROVIDER_OPENAI_CODEX_AUTH,
 )
 
-# ── SINGLE SOURCE OF TRUTH: all models + descriptions + pricing ───────────────
-# Each entry: model_id -> (description, provider, (input_price_per_1M, output_price_per_1M))
-# Provider must be one of PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, etc.
-# Prices are in USD per 1M tokens, used only for /cost estimates.
-# Add a new model HERE, and everything else (picker lists, pricing lookups) updates automatically.
-MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
+# ── SINGLE SOURCE OF TRUTH: all models ────────────────────────────────────────
+@dataclass(frozen=True)
+class ModelSpec:
+    """One model. Add an entry to MODELS to register it everywhere.
+
+    id            provider model id sent on the wire
+    label         human description shown in the /model picker
+    provider      one of the PROVIDER_* identifiers above
+    input_price   USD per 1M input tokens  (0.0 for free tiers) — /cost only
+    output_price  USD per 1M output tokens (0.0 for free tiers) — /cost only
+    default       True marks this model as its provider's default
+    """
+    id: str
+    label: str
+    provider: str
+    input_price: float = 0.0
+    output_price: float = 0.0
+    default: bool = False
+
+
+MODELS: list[ModelSpec] = [
     # ── Anthropic (direct API) ────────────────────────────────────────────────
-    "claude-haiku-4-5":  ("Haiku 4.5 — fastest, cheapest",     PROVIDER_ANTHROPIC, (1.0,   5.0)),
-    "claude-sonnet-4-6": ("Sonnet 4.6 — balanced",             PROVIDER_ANTHROPIC, (3.0,  15.0)),
-    "claude-opus-4-6":   ("Opus 4.6 — high capability",        PROVIDER_ANTHROPIC, (5.0, 25.0)),
-    "claude-opus-4-7":   ("Opus 4.7 — high capability",        PROVIDER_ANTHROPIC, (5.0, 25.0)),
-    "claude-opus-4-8":   ("Opus 4.8 — most capable",           PROVIDER_ANTHROPIC, (5.0, 25.0)),
+    ModelSpec("claude-haiku-4-5",  "Haiku 4.5 — fastest, cheapest",  PROVIDER_ANTHROPIC, 1.0,  5.0),
+    ModelSpec("claude-sonnet-4-6", "Sonnet 4.6 — balanced",          PROVIDER_ANTHROPIC, 3.0, 15.0, default=True),
+    ModelSpec("claude-opus-4-6",   "Opus 4.6 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0),
+    ModelSpec("claude-opus-4-7",   "Opus 4.7 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0),
+    ModelSpec("claude-opus-4-8",   "Opus 4.8 — most capable",        PROVIDER_ANTHROPIC, 5.0, 25.0),
 
     # ── OpenRouter free-tier (all :free suffix → $0) ─────────────────────────
-    "openai/gpt-oss-120b:free":               ("GPT-OSS 120B — default",            PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "minimax/minimax-m2.5:free":              ("MiniMax M2.5 (may be unavailable)", PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "qwen/qwen3-coder:free":                  ("Qwen3 Coder 480B — best for code",  PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "openai/gpt-oss-20b:free":                ("GPT-OSS 20B — smaller, faster",     PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "meta-llama/llama-3.3-70b-instruct:free": ("Llama 3.3 70B Instruct",            PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "qwen/qwen3-next-80b-a3b-instruct:free":  ("Qwen3 Next 80B A3B Instruct",       PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "nvidia/nemotron-3-super-120b-a12b:free": ("Nemotron 3 Super 120B",             PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "z-ai/glm-4.5-air:free":                  ("GLM 4.5 Air",                       PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "google/gemma-3-27b-it:free":             ("Gemma 3 27B Instruct",              PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "nousresearch/hermes-3-llama-3.1-405b:free": ("Hermes 3 Llama 405B",            PROVIDER_OPENROUTER, (0.0, 0.0)),
-    "openrouter/owl-alpha":                   ("Owl Alpha",                         PROVIDER_OPENROUTER, (0.0, 0.0)),
+    ModelSpec("openai/gpt-oss-120b:free",               "GPT-OSS 120B — default",            PROVIDER_OPENROUTER, default=True),
+    ModelSpec("minimax/minimax-m2.5:free",              "MiniMax M2.5 (may be unavailable)", PROVIDER_OPENROUTER),
+    ModelSpec("qwen/qwen3-coder:free",                  "Qwen3 Coder 480B — best for code",  PROVIDER_OPENROUTER),
+    ModelSpec("openai/gpt-oss-20b:free",                "GPT-OSS 20B — smaller, faster",     PROVIDER_OPENROUTER),
+    ModelSpec("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B Instruct",            PROVIDER_OPENROUTER),
+    ModelSpec("qwen/qwen3-next-80b-a3b-instruct:free",  "Qwen3 Next 80B A3B Instruct",       PROVIDER_OPENROUTER),
+    ModelSpec("nvidia/nemotron-3-super-120b-a12b:free", "Nemotron 3 Super 120B",             PROVIDER_OPENROUTER),
+    ModelSpec("z-ai/glm-4.5-air:free",                  "GLM 4.5 Air",                       PROVIDER_OPENROUTER),
+    ModelSpec("google/gemma-3-27b-it:free",             "Gemma 3 27B Instruct",              PROVIDER_OPENROUTER),
+    ModelSpec("nousresearch/hermes-3-llama-3.1-405b:free", "Hermes 3 Llama 405B",            PROVIDER_OPENROUTER),
+    ModelSpec("openrouter/owl-alpha",                   "Owl Alpha",                         PROVIDER_OPENROUTER),
 
     # ── OpenCode Go models (real pricing, help.apiyi) ──────────────────────────
-    "glm-5.1":          ("GLM-5.1 — latest GLM model",                PROVIDER_OPENCODE, (1.40,   4.40)),
-    "glm-5":            ("GLM-5 — high capability",                   PROVIDER_OPENCODE, (1.00,   3.20)),
-    "kimi-k2.6":        ("Kimi K2.6 — Moonshot AI, most capable",     PROVIDER_OPENCODE, (0.32,   1.34)),
-    "kimi-k2.5":        ("Kimi K2.5 — Moonshot AI",                   PROVIDER_OPENCODE, (0.60,   3.00)),
-    "deepseek-v4-pro":  ("DeepSeek V4 Pro — strong reasoning",        PROVIDER_OPENCODE, (1.74,   3.48)),
-    "deepseek-v4-flash":("DeepSeek V4 Flash — fast & cheap",          PROVIDER_OPENCODE, (0.14,   0.28)),
-    "mimo-v2.5-pro":    ("MiMo V2.5 Pro",                              PROVIDER_OPENCODE, (1.00,   3.00)),
-    "mimo-v2.5":        ("MiMo V2.5",                                  PROVIDER_OPENCODE, (0.40,   2.00)),
-    "mimo-v2-pro":      ("MiMo V2 Pro",                                PROVIDER_OPENCODE, (1.00,   3.00)),
-    "mimo-v2-omni":     ("MiMo V2 Omni",                               PROVIDER_OPENCODE, (0.40,   2.00)),
-    "minimax-m2.7":     ("MiniMax M2.7",                               PROVIDER_OPENCODE, (0.30,   1.20)),
-    "minimax-m2.5":     ("MiniMax M2.5",                               PROVIDER_OPENCODE, (0.30,   1.20)),
-    "qwen3.6-plus":     ("Qwen3.6 Plus",                               PROVIDER_OPENCODE, (0.50,   3.00)),
-    "qwen3.5-plus":     ("Qwen3.5 Plus",                               PROVIDER_OPENCODE, (0.20,   1.20)),
+    ModelSpec("glm-5.1",           "GLM-5.1 — latest GLM model",            PROVIDER_OPENCODE, 1.40, 4.40),
+    ModelSpec("glm-5",             "GLM-5 — high capability",               PROVIDER_OPENCODE, 1.00, 3.20),
+    ModelSpec("kimi-k2.6",         "Kimi K2.6 — Moonshot AI, most capable", PROVIDER_OPENCODE, 0.32, 1.34, default=True),
+    ModelSpec("kimi-k2.5",         "Kimi K2.5 — Moonshot AI",               PROVIDER_OPENCODE, 0.60, 3.00),
+    ModelSpec("deepseek-v4-pro",   "DeepSeek V4 Pro — strong reasoning",    PROVIDER_OPENCODE, 1.74, 3.48),
+    ModelSpec("deepseek-v4-flash", "DeepSeek V4 Flash — fast & cheap",      PROVIDER_OPENCODE, 0.14, 0.28),
+    ModelSpec("mimo-v2.5-pro",     "MiMo V2.5 Pro",                         PROVIDER_OPENCODE, 1.00, 3.00),
+    ModelSpec("mimo-v2.5",         "MiMo V2.5",                             PROVIDER_OPENCODE, 0.40, 2.00),
+    ModelSpec("mimo-v2-pro",       "MiMo V2 Pro",                           PROVIDER_OPENCODE, 1.00, 3.00),
+    ModelSpec("mimo-v2-omni",      "MiMo V2 Omni",                          PROVIDER_OPENCODE, 0.40, 2.00),
+    ModelSpec("minimax-m2.7",      "MiniMax M2.7",                          PROVIDER_OPENCODE, 0.30, 1.20),
+    ModelSpec("minimax-m2.5",      "MiniMax M2.5",                          PROVIDER_OPENCODE, 0.30, 1.20),
+    ModelSpec("qwen3.6-plus",      "Qwen3.6 Plus",                          PROVIDER_OPENCODE, 0.50, 3.00),
+    ModelSpec("qwen3.5-plus",      "Qwen3.5 Plus",                          PROVIDER_OPENCODE, 0.20, 1.20),
 
     # ── Harness Agent (free OpenCode Zen — no API key, /model only) ─────────
-    "deepseek-v4-flash-free": ("DeepSeek V4 Flash Free — default", PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
-    "nemotron-3-super-free":  ("Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
-    "mimo-v2.5-free":         ("MiMo V2.5 Free — Xiaomi",          PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
-    "big-pickle":             ("Big Pickle",                       PROVIDER_HARNESS_AGENT, (0.0, 0.0)),
+    ModelSpec("deepseek-v4-flash-free", "DeepSeek V4 Flash Free — default", PROVIDER_HARNESS_AGENT, default=True),
+    ModelSpec("nemotron-3-super-free",  "Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT),
+    ModelSpec("mimo-v2.5-free",         "MiMo V2.5 Free — Xiaomi",          PROVIDER_HARNESS_AGENT),
+    ModelSpec("big-pickle",             "Big Pickle",                       PROVIDER_HARNESS_AGENT),
 
     # ── OpenCode Zen models (API key via /provider opencode_zen) ──────────────
-    "minimax-m2.5-free":      ("MiniMax M2.5 Free — default",   PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
-    "hy3-preview-free":       ("HY3 Preview Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
-    "ring-2.6-1t-free":       ("Ring 2.6 1T Free",              PROVIDER_OPENCODE_ZEN, (0.0, 0.0)),
+    ModelSpec("minimax-m2.5-free", "MiniMax M2.5 Free — default", PROVIDER_OPENCODE_ZEN, default=True),
+    ModelSpec("hy3-preview-free",  "HY3 Preview Free",            PROVIDER_OPENCODE_ZEN),
+    ModelSpec("ring-2.6-1t-free",  "Ring 2.6 1T Free",            PROVIDER_OPENCODE_ZEN),
 
-    "gpt-5.5":                ("GPT-5.5 — Codex recommended",  PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
-    "gpt-5.4":                ("GPT-5.4 — Codex fallback",       PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
-    "gpt-5.4-mini":           ("GPT-5.4 Mini — faster Codex",    PROVIDER_OPENAI_CODEX, (0.0, 0.0)),
+    # ── OpenAI Codex (ChatGPT subscription / OAuth) ───────────────────────────
+    ModelSpec("gpt-5.5",      "GPT-5.5 — Codex recommended", PROVIDER_OPENAI_CODEX, default=True),
+    ModelSpec("gpt-5.4",      "GPT-5.4 — Codex fallback",    PROVIDER_OPENAI_CODEX),
+    ModelSpec("gpt-5.4-mini", "GPT-5.4 Mini — faster Codex", PROVIDER_OPENAI_CODEX),
+]
+
+# model_id -> (description, provider, (input_price_per_1M, output_price_per_1M))
+# Derived from MODELS; kept for back-compat with code that reads MODEL_INFO directly.
+MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
+    m.id: (m.label, m.provider, (m.input_price, m.output_price))
+    for m in MODELS
 }
 
 # ── Auto-generated model lists from MODEL_INFO ─────────────────────────────────
@@ -148,13 +180,9 @@ HARNESS_AGENT_MODELS = [
 ]
 HARNESS_AGENT_MODEL_IDS = frozenset(m for m, _ in HARNESS_AGENT_MODELS)
 
-# Static fallback so /model always lists Harness Agent even on partial/cached installs.
-_HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = (
-    ("deepseek-v4-flash-free", "DeepSeek V4 Flash Free — default"),
-    ("nemotron-3-super-free", "Nemotron 3 Super Free"),
-    ("mimo-v2.5-free", "MiMo V2.5 Free — Xiaomi"),
-    ("big-pickle", "Big Pickle"),
-)
+# Static fallback so /model always lists Harness Agent even on partial/cached
+# installs. Derived from MODELS — no separate copy to keep in sync.
+_HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = tuple(HARNESS_AGENT_MODELS)
 
 
 def harness_agent_models_for_picker() -> list[tuple[str, str]]:
@@ -199,13 +227,15 @@ PRICING: dict[str, tuple[float, float]] = {
     for mid, info in MODEL_INFO.items()
 }
 
-# ── Default models per provider ───────────────────────────────────────────────
-OPENROUTER_DEFAULT_MODEL = "openai/gpt-oss-120b:free"
-OPENCODE_DEFAULT_MODEL = "kimi-k2.6"
-OPENCODE_ZEN_DEFAULT_MODEL = "minimax-m2.5-free"
-HARNESS_AGENT_DEFAULT_MODEL = "deepseek-v4-flash-free"
-CODEX_DEFAULT_MODEL = "gpt-5.5"
-ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
+# ── Default models per provider (derived from ModelSpec.default flags) ─────────
+_DEFAULT_BY_PROVIDER: dict[str, str] = {m.provider: m.id for m in MODELS if m.default}
+
+OPENROUTER_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENROUTER]
+OPENCODE_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENCODE]
+OPENCODE_ZEN_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENCODE_ZEN]
+HARNESS_AGENT_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_HARNESS_AGENT]
+CODEX_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENAI_CODEX]
+ANTHROPIC_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_ANTHROPIC]
 
 _PROVIDER_DEFAULT_MODEL = {
     PROVIDER_ANTHROPIC: ANTHROPIC_DEFAULT_MODEL,
