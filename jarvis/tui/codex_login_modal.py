@@ -87,7 +87,7 @@ class CodexLoginModalScreen(TuiModalScreen[list[str] | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static(
-                    f"⬟  Sign In   [{ui.FG_DIM}]OpenAI Codex · ChatGPT OAuth[/]",
+                    f"⊚  Sign In   [{ui.FG_DIM}]OpenAI Codex · ChatGPT OAuth[/]",
                     id="modal_title",
                 )
                 yield Static("", id="login_info")

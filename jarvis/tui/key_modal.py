@@ -144,7 +144,7 @@ def _format_row(info: dict, is_current_provider: bool) -> Text:
     # Build the row text
     return Text.assemble(
         (marker, marker_style),
-        (f"{info['label']:<16s}", label_style),
+        (f"{info['label']:<22s}", label_style),
         (source_text, source_style),
         ("  ", ""),
         (suffix_part, ui.FG_DIM),

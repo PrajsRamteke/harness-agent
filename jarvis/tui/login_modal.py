@@ -145,7 +145,7 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static(f"⬟  Log In   [{ui.FG_DIM}]Claude Pro / Max OAuth[/]", id="modal_title")
+                yield Static(f"⊚  Log In   [{ui.FG_DIM}]Claude Pro / Max OAuth[/]", id="modal_title")
                 yield Static("", id="login_info")
                 yield Static("", id="login_url")
                 yield Static(

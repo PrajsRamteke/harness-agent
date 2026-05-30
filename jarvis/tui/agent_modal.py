@@ -161,14 +161,14 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⚙  Agents", id="modal_title")
+                yield Static("◈  Agents", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="agent_list")
                 yield Static(
-                    f"{modal_key('↑↓')} nav   {modal_key('↵')} activate   {modal_key('o')} default   "
-                    f"{modal_key('n')} new   {modal_key('e')} edit   {modal_key('p')} preview   "
-                    f"{modal_key('i')} import   {modal_key('g')} global   {modal_key('s')} scope   "
-                    f"{modal_key('r')} refresh   {modal_key('esc')} close",
+                    f"{modal_key('↑↓')} nav · {modal_key('↵')} activate · {modal_key('o')} default   "
+                    f"{modal_key('n')} new · {modal_key('e')} $EDITOR · {modal_key('p')} preview   "
+                    f"{modal_key('i')} import · {modal_key('g')} global · {modal_key('s')} scope   "
+                    f"{modal_key('r')} refresh · {modal_key('esc')} close",
                     id="modal_hint",
                 )
 
@@ -267,7 +267,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         active = state.active_agent_name or "default"
         try:
             self.query_one("#modal_title", Static).update(
-                f"⚙  Agents   [{ui.FG_DIM}]{count} available · scope: {scope}[/]"
+                f"◈  Agents   [{ui.FG_DIM}]{count} available · scope: {scope}[/]"
             )
             self.query_one("#modal_status", Static).update(
                 f"active: [bold {ui.ACCENT}]{active}[/]   ·   new writes to: [bold {ui.FG}]{new_scope}[/]"
@@ -429,7 +429,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
 
     def _notify(self, msg: str, error: bool = False) -> None:
         try:
-            color = ui.ERR if error else ui.FG_MUTE
+            color = ui.ERR if error else ui.OK
             self.query_one("#modal_status", Static).update(f"[{color}]{msg}[/]")
         except Exception:
             pass

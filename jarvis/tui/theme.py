@@ -383,7 +383,7 @@ Screen {{
 #transcript {{
     background: {BG_0};
     color: {FG};
-    padding: 0 2;
+    padding: 0 1;
     border: none;
     height: 1fr;
     min-height: 0;

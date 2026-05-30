@@ -71,7 +71,7 @@ class ToolOutputViewerScreen(TuiModalScreen[None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⚙  Tool output (scrollable)", id="modal_title")
+                yield Static("☰  Tool output (scrollable)", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="tool_output_list")
                 yield RichLog(

@@ -52,7 +52,7 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("✦  Thinking Effort", id="modal_title")
+                yield Static("⊕  Thinking Effort", id="modal_title")
                 yield OptionList(id="think_list")
                 yield Static(
                     f"{modal_key('↑↓')} navigate   {modal_key('↵')} select   {modal_key('esc')} cancel",

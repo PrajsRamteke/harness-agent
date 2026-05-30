@@ -62,7 +62,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⚙  Skills", id="modal_title")
+                yield Static("★  Skills", id="modal_title")
                 yield Static("", id="modal_status")
                 yield Input(placeholder="search name or description…", id="skill_search")
                 yield OptionList(id="skill_list")
@@ -159,7 +159,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         count = len(sk.discover_skills())
         try:
             self.query_one("#modal_title", Static).update(
-                f"⚙  Skills   [{ui.FG_DIM}]{count} available · scope: {scope} · LLM auto-invokes[/]"
+                f"★  Skills   [{ui.FG_DIM}]{count} available · scope: {scope} · LLM auto-invokes[/]"
             )
         except Exception:
             pass

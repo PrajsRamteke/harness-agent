@@ -179,11 +179,11 @@ class AskUserController:
         prompt_line = f"[{ui.FG}]{_rich_escape(q.prompt)}[/]"
         rows: list[str] = []
         for i, opt in enumerate(q.options):
-            marker = "▶" if i == self._option_index else " "
+            marker = f"{ui.ARROW}" if i == self._option_index else " "  # noqa
             if q.allow_multiple and i in self._selected:
-                check = f"[{ui.OK}]☑[/]"
+                check = f"[{ui.OK}]{ui.CHECK}[/]"
             elif q.allow_multiple:
-                check = f"[{ui.FG_DIM}]☐[/]"
+                check = f"[{ui.FG_DIM}]{ui.DOT}[/]"
             else:
                 check = ""
             label = _rich_escape(opt.label)

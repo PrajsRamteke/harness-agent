@@ -11,7 +11,7 @@ from rich.text import Text
 
 from ..storage.settings import get_settings
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, get_modal_chrome_css
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, active_marker, get_modal_chrome_css
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -55,7 +55,7 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("✦  Theme", id="modal_title")
+                yield Static("◉  Theme", id="modal_title")
                 yield OptionList(id="theme_list")
                 yield Static(
                     f"[{ui.ACCENT_3}]↑↓[/] preview   [{ui.ACCENT_3}]↵[/] save   "
@@ -82,9 +82,9 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
         disable_mouse()
 
     def _format_row(self, name: str, desc: str, *, is_active: bool) -> Text:
-        marker = "● " if is_active else "  "
+        marker, marker_style = active_marker(is_active)
         return Text.assemble(
-            (marker, f"bold {ui.OK}"),
+            (marker, marker_style),
             (f"{name:<10s}", f"bold {ui.ACCENT_2}" if is_active else ui.ACCENT_2),
             ("  ", ""),
             (desc, ui.FG_MUTE),
