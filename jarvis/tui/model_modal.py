@@ -35,6 +35,7 @@ _BUILTIN_HARNESS_ROWS: tuple[tuple[str, str], ...] = (
     ("nemotron-3-super-free", "Nemotron 3 Super Free"),
     ("mimo-v2.5-free", "MiMo V2.5 Free — Xiaomi"),
     ("big-pickle", "Big Pickle"),
+    ("minimax-m3-free", "MiniMax M3 Free"),
 )
 
 

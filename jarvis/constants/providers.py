@@ -128,6 +128,7 @@ MODELS: list[ModelSpec] = [
     ModelSpec("nemotron-3-super-free",  "Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT),
     ModelSpec("mimo-v2.5-free",         "MiMo V2.5 Free — Xiaomi",          PROVIDER_HARNESS_AGENT),
     ModelSpec("big-pickle",             "Big Pickle",                       PROVIDER_HARNESS_AGENT),
+    ModelSpec("minimax-m3-free",        "MiniMax M3 Free",                  PROVIDER_HARNESS_AGENT),
 
     # ── OpenCode Zen models (API key via /provider opencode_zen) ──────────────
     ModelSpec("minimax-m2.5-free", "MiniMax M2.5 Free — default", PROVIDER_OPENCODE_ZEN, default=True),
