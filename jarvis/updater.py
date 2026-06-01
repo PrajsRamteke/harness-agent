@@ -11,6 +11,7 @@ from .install_sync import (
     find_install_root,
     harness_agent_models_available,
     pip_install_repo,
+    sync_repo_to_remote,
 )
 
 
@@ -121,8 +122,9 @@ def check_and_update() -> dict | None:
         )
         new_commits = [line.strip() for line in log_out.splitlines() if line.strip()]
 
-        code, _ = _git("pull", "--ff-only", cwd=root, timeout=60)
-        if code != 0:
+        branch = upstream.removeprefix("origin/")
+        sync = sync_repo_to_remote(root, branch=branch, fetch_timeout=30, sync_timeout=60)
+        if not sync.ok:
             return None
 
         pip_ok = pip_install_repo(root)

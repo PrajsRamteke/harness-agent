@@ -10,7 +10,12 @@ import sys
 
 from ..console import console
 from ..constants import VERSION
-from ..install_sync import find_install_root, pip_install_repo, reexec_jarvis
+from ..install_sync import (
+    find_install_root,
+    pip_install_repo,
+    reexec_jarvis,
+    sync_repo_to_remote,
+)
 
 
 def _run(cmd: list[str], cwd: pathlib.Path, timeout: int = 120) -> tuple[int, str, str]:
@@ -30,24 +35,6 @@ def _run(cmd: list[str], cwd: pathlib.Path, timeout: int = 120) -> tuple[int, st
         return -1, "", f"Command not found: {e}"
     except Exception as e:
         return -1, "", str(e)
-
-
-_MANAGED_INSTALL = pathlib.Path("~/.local/share/harness-agent").expanduser()
-
-
-def _is_managed_install(repo_root: pathlib.Path) -> bool:
-    """True for the standard installer checkout (safe to hard-reset on upgrade)."""
-    try:
-        return repo_root.resolve() == _MANAGED_INSTALL.resolve()
-    except Exception:
-        return False
-
-
-def _dirty_files(repo_root: pathlib.Path) -> list[str]:
-    rc, out, _ = _run(["git", "status", "--porcelain"], repo_root)
-    if rc != 0 or not out:
-        return []
-    return [line[3:] for line in out.splitlines() if len(line) > 3]
 
 
 def _format_output(title: str, stdout: str, stderr: str, rc: int) -> str:
@@ -141,53 +128,31 @@ def cmd_upgrade(arg: str) -> bool:
     # ── Actual upgrade ─────────────────────────────────────────────
     console.print("[cyan]↓ Fetching latest changes…[/]")
 
-    # Step 1: git fetch
-    rc, out, err = _run(["git", "fetch", "origin"], repo_root)
-    console.print(_format_output("git fetch", out, err, rc))
-    if rc != 0:
-        console.print("[red]✗ git fetch failed. Aborting.[/]")
-        return True
-
-    # Step 2: fast-forward to origin (discard local edits in managed installs)
-    branch_name = "main"  # default
-    rc, out, _ = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo_root)
-    if rc == 0 and out:
-        branch_name = out.strip()
-
-    dirty = _dirty_files(repo_root)
-    if dirty:
-        preview = ", ".join(dirty[:4])
-        if len(dirty) > 4:
-            preview += f", … (+{len(dirty) - 4} more)"
-        if _is_managed_install(repo_root):
-            console.print(
-                f"[yellow]⚠ Local edits detected[/] [dim]({preview})[/]\n"
-                "[dim]Managed install — discarding local changes before update…[/]"
-            )
-            rc, out, err = _run(
-                ["git", "reset", "--hard", f"origin/{branch_name}"], repo_root
-            )
-            console.print(_format_output(f"git reset --hard origin/{branch_name}", out, err, rc))
-            if rc != 0:
-                console.print("[red]✗ Could not reset to remote. Aborting.[/]")
-                return True
-        else:
+    sync = sync_repo_to_remote(repo_root, fetch_timeout=120, sync_timeout=120)
+    if not sync.ok:
+        if sync.error.startswith("uncommitted local changes"):
             console.print(
                 "[red]✗ Cannot upgrade: uncommitted local changes in this dev clone.[/]\n\n"
-                f"[dim]Modified:[/] {preview}\n\n"
+                f"[dim]{sync.error}[/]\n\n"
                 "Commit or stash your work, then run [cyan]/upgrade[/] again:\n\n"
                 f"  [cyan]cd {repo_root}[/]\n"
                 "  git stash push -m 'before jarvis upgrade'\n"
                 "  /upgrade\n"
             )
-            return True
-    else:
-        console.print(f"[cyan]⬇ Pulling {branch_name}…[/]")
-        rc, out, err = _run(["git", "pull", "--ff-only", "origin", branch_name], repo_root)
-        console.print(_format_output("git pull", out, err, rc))
-        if rc != 0:
-            console.print("[red]✗ git pull failed. Check for merge conflicts.[/]")
-            return True
+        else:
+            console.print(f"[red]✗ Update failed:[/] {sync.error}")
+        return True
+
+    if sync.method == "reset":
+        if sync.discarded_local:
+            preview = ", ".join(sync.discarded_local[:4])
+            if len(sync.discarded_local) > 4:
+                preview += f", … (+{len(sync.discarded_local) - 4} more)"
+            console.print(f"[yellow]⚠ Local edits discarded[/] [dim]({preview})[/]")
+        console.print(f"[green]✓ Synced to origin/{sync.branch}[/]")
+    elif sync.method == "pull":
+        console.print(f"[cyan]⬇ Pulled {sync.branch}[/]")
+        console.print("[green]✓ git pull succeeded[/]")
 
     # Step 3: editable pip install into the running interpreter
     console.print("[cyan]≡ Installing (editable)…[/]")
