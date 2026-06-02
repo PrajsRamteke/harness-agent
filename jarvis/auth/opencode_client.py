@@ -96,8 +96,23 @@ OPENCODE_ALLOWED_THINK_EFFORTS = {"xhigh", "high", "medium", "low", "minimal", "
 _EFFORT_API_MAP = {"xhigh": "high", "minimal": "low"}
 
 
-def _opencode_reasoning_options(_model: str, thinking: dict | None) -> dict[str, Any]:
-    """Translate Jarvis think mode to OpenCode-compatible reasoning options."""
+_MINIMAX_MODEL_PREFIXES = ("minimax-", "minimax/", "miniomax-")
+
+
+def _is_minimax_model(model: str) -> bool:
+    """True when *model* is a MiniMax-powered model."""
+    m = (model or "").strip().lower()
+    return any(m.startswith(p) for p in _MINIMAX_MODEL_PREFIXES)
+
+
+def _opencode_reasoning_options(model: str, thinking: dict | None) -> dict[str, Any]:
+    """Translate Jarvis think mode to OpenCode-compatible reasoning options.
+
+    Some providers (MiniMax) require ``reasoning_split: True`` in the body
+    to properly separate thinking/reasoning from visible content in streaming
+    responses — without it the reasoning leaks into ``content`` deltas and
+    shows up inside the normal assistant message.
+    """
     if not thinking:
         return {}
 
@@ -107,7 +122,12 @@ def _opencode_reasoning_options(_model: str, thinking: dict | None) -> dict[str,
         if effort not in OPENCODE_ALLOWED_THINK_EFFORTS or effort == "none":
             effort = "high"
         effort = _EFFORT_API_MAP.get(effort, effort)
-        return {"reasoning_effort": effort}
+        opts: dict[str, Any] = {"reasoning_effort": effort}
+        # MiniMax models need reasoning_split to separate thinking from content
+        # in streaming — without it the reasoning bleeds into text content.
+        if _is_minimax_model(model):
+            opts["extra_body"] = {"reasoning_split": True}
+        return opts
     if mode == "disabled":
         return {"reasoning_effort": OPENCODE_THINK_OFF_EFFORT}
     return {}

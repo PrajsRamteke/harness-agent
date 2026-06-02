@@ -233,6 +233,16 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
                 rich_live.stop()
             except Exception:
                 pass
+        # If /think mode was ON but the model never emitted any reasoning
+        # deltas, the backend may not support separate thinking for this
+        # model.  Post a gentle notice so the user isn't misled into
+        # thinking their think setting is broken — it's a provider limit.
+        if state.think_mode and not thinking_started:
+            from ..console import console as _console
+            _console.print(
+                "[dim]— thinking mode on but model/provider doesn't return "
+                "separate reasoning (thinking may appear inside the reply)[/]"
+            )
 
 
 def _stop_on_rate_limit(detail: str = "") -> None:
