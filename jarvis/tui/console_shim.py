@@ -184,6 +184,12 @@ class TUIConsole:
         self._active_shell_waiter: _PromptWaiter | None = None
         self._active_ask_waiter: _PromptWaiter | None = None
         self._active_input_waiter: _PromptWaiter | None = None
+        # Live spinner beside a slash command (e.g. /upgrade) in the transcript.
+        self._cmd_progress_anchor: int | None = None
+        self._cmd_progress_line_count: int = 0
+        self._cmd_progress_command: str = ""
+        self._cmd_progress_phase: str = ""
+        self._cmd_progress_spinner_i: int = 0
 
     # ─── thinking streaming (reasoning deltas before reply text) ───────
     def thinking_stream_start(self) -> None:
@@ -381,6 +387,113 @@ class TUIConsole:
         except Exception:
             pass
 
+    def _command_progress_panel(self) -> Panel:
+        from . import theme as _t
+
+        frames = _t.SPINNER_FRAMES
+        sp = frames[self._cmd_progress_spinner_i % len(frames)]
+        phase = self._cmd_progress_phase or "working…"
+        body = (
+            f"{self._cmd_progress_command}  "
+            f"[{_t.ACCENT}]{sp}[/] [{_t.FG_DIM}]{phase}[/]"
+        )
+        return Panel(
+            _safe_from_markup(body),
+            title="you",
+            title_align="left",
+            border_style=_t.OK,
+            padding=(0, 1),
+        )
+
+    def _render_command_progress_panel(self) -> None:
+        if self._cmd_progress_anchor is None:
+            return
+        panel = self._command_progress_panel()
+        anchor = self._cmd_progress_anchor
+        old_count = self._cmd_progress_line_count
+
+        def _upd() -> None:
+            self._cmd_progress_line_count = _replace_rich_log_block(
+                self._log, anchor, old_count, panel
+            )
+            self._log.scroll_end(animate=False)
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _upd()
+            else:
+                self._app.call_from_thread(_upd)
+        except Exception:
+            pass
+
+    def start_command_progress(self, command: str, *, phase: str = "upgrading…") -> None:
+        """Show the user's slash command with a live spinner beside it."""
+        self._cmd_progress_command = (command or "").strip()
+        self._cmd_progress_phase = phase
+        self._cmd_progress_spinner_i = 0
+
+        def _start() -> None:
+            self._cmd_progress_anchor = len(self._log.lines)
+            self._cmd_progress_line_count = _append_rich_log_block(
+                self._log, self._command_progress_panel(), scroll_end=True
+            )
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _start()
+            else:
+                self._app.call_from_thread(_start)
+        except Exception:
+            self._cmd_progress_anchor = None
+            self._cmd_progress_line_count = 0
+
+    def update_command_progress(self, phase: str) -> None:
+        phase = (phase or "").strip()
+        if not phase or self._cmd_progress_anchor is None:
+            return
+        if phase == self._cmd_progress_phase:
+            return
+        self._cmd_progress_phase = phase
+        self._render_command_progress_panel()
+
+    def tick_command_progress_spinner(self) -> None:
+        if self._cmd_progress_anchor is None:
+            return
+        self._cmd_progress_spinner_i += 1
+        self._render_command_progress_panel()
+
+    def finish_command_progress(self) -> None:
+        """Replace the live panel with a plain user panel (no spinner)."""
+        if self._cmd_progress_anchor is None:
+            return
+        command = self._cmd_progress_command
+        anchor = self._cmd_progress_anchor
+        old_count = self._cmd_progress_line_count
+        from . import theme as _t
+
+        panel = Panel(
+            Markdown(command),
+            title="you",
+            title_align="left",
+            border_style=_t.OK,
+            padding=(0, 1),
+        )
+        self._cmd_progress_anchor = None
+        self._cmd_progress_line_count = 0
+        self._cmd_progress_command = ""
+        self._cmd_progress_phase = ""
+
+        def _finish() -> None:
+            _replace_rich_log_block(self._log, anchor, old_count, panel)
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _finish()
+            else:
+                self._app.call_from_thread(_finish)
+        except Exception:
+            pass
+
     def report_turn_phase(self, label: str) -> None:
         """Update the TUI activity line (spinner + phase + clock). Safe from any thread."""
         app = self._app
@@ -389,6 +502,7 @@ class TUIConsole:
 
         def _go() -> None:
             app._sync_activity_phase(label)
+            self.update_command_progress(label)
             # Avoid leaving the footer stuck on the initial "thinking…" for whole turns.
             if hasattr(app, "_set_status") and label:
                 short = label if len(label) <= 56 else label[:53] + "…"

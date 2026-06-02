@@ -153,6 +153,9 @@ class ActivityMixin:
         if self._busy and self._activity_label:
             self._activity_spinner_i += 1
             self._refresh_activity_widgets()
+        tick_cmd = getattr(self._tui_console, "tick_command_progress_spinner", None)
+        if callable(tick_cmd):
+            tick_cmd()
         if (
             not self._tool_activity_frozen
             and show_parallel_file_panel()

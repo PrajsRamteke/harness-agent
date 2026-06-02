@@ -104,6 +104,11 @@ def _pin_status_markup() -> str:
     )
 
 
+def _is_upgrade_command(text: str) -> bool:
+    head = (text or "").strip().split(maxsplit=1)[0].lower()
+    return head == "/upgrade"
+
+
 # ─── multi-line prompt (Enter submits, Ctrl+J / Alt+Enter for newline) ───
 # PromptArea lives in prompt_area.py; re-exported so callers/tests that import
 # it from jarvis.tui.app keep working.
@@ -1053,6 +1058,10 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             self._route_modal_slash(text)
             return
 
+        if _is_upgrade_command(text):
+            self._begin_turn(text)
+            return
+
         if _is_key_command(text):
             self._open_key_modal()
             return
@@ -1293,7 +1302,14 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         state.cancel_requested.clear()
 
         log = self.query_one("#transcript", RichLog)
-        log.write(self._user_panel(inp))
+        upgrading = _is_upgrade_command(inp)
+        if upgrading:
+            arg = inp.strip().split(maxsplit=1)[1].strip().lower() if " " in inp.strip() else ""
+            checking = arg == "check"
+            phase = "checking…" if checking else "upgrading…"
+            self._tui_console.start_command_progress(inp.strip(), phase=phase)
+        else:
+            log.write(self._user_panel(inp))
         if self._web_bridge is not None:
             self._web_bridge.emit(
                 "message",
@@ -1301,9 +1317,13 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             )
         self._busy = True
         self._turn_t0 = time.monotonic()
-        self._sync_activity_phase("Thinking…")
+        if upgrading:
+            self._sync_activity_phase("Checking…" if checking else "Upgrading…")
+            self._set_status("checking…" if checking else "upgrading…")
+        else:
+            self._sync_activity_phase("Thinking…")
+            self._set_status("thinking…")
         self._start_activity_pulse()
-        self._set_status("thinking…")
         self._sync_web_busy()
         self._run_turn(inp)
 
@@ -1629,6 +1649,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
 
     def _turn_done(self):
         state.cancel_requested.clear()
+        finish_cmd = getattr(self._tui_console, "finish_command_progress", None)
+        if callable(finish_cmd):
+            finish_cmd()
         self._busy = False
         self._turn_t0 = 0.0
         self._stop_activity_pulse()

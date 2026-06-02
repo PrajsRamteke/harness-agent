@@ -10,6 +10,7 @@ import sys
 
 from ..console import console
 from ..constants import VERSION
+from ..repl.turn_progress import report_turn_phase
 from ..install_sync import (
     find_install_root,
     pip_install_repo,
@@ -63,6 +64,7 @@ def cmd_upgrade(arg: str) -> bool:
     # Fast-path: if user typed /upgrade (no args or "check")
     arg = arg.strip().lower()
 
+    report_turn_phase("Locating install…")
     console.print("[cyan]◎ Locating Jarvis installation…[/]")
 
     repo_root = find_install_root()
@@ -95,6 +97,7 @@ def cmd_upgrade(arg: str) -> bool:
         remote_url = out or "unknown"
 
         # Fetch without pulling
+        report_turn_phase("Checking for updates…")
         console.print("[dim]Fetching remote info…[/]")
         rc, out, err = _run(["git", "fetch", "origin"], repo_root)
 
@@ -126,6 +129,7 @@ def cmd_upgrade(arg: str) -> bool:
         return True
 
     # ── Actual upgrade ─────────────────────────────────────────────
+    report_turn_phase("Fetching changes…")
     console.print("[cyan]↓ Fetching latest changes…[/]")
 
     sync = sync_repo_to_remote(repo_root, fetch_timeout=120, sync_timeout=120)
@@ -155,6 +159,7 @@ def cmd_upgrade(arg: str) -> bool:
         console.print("[green]✓ git pull succeeded[/]")
 
     # Step 3: editable pip install into the running interpreter
+    report_turn_phase("Installing package…")
     console.print("[cyan]≡ Installing (editable)…[/]")
     pip_ok = pip_install_repo(repo_root, timeout=240)
     if not pip_ok:
@@ -179,6 +184,7 @@ def cmd_upgrade(arg: str) -> bool:
         new_ver = "?"
 
     console.print(f"\n[green bold]✓ Upgrade complete![/] [dim]v{VERSION} → v{new_ver}[/]")
+    report_turn_phase("Restarting…")
     console.print("[dim]Restarting to load Harness Agent models…[/]")
     reexec_jarvis()
     return True
