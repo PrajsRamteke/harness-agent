@@ -317,6 +317,37 @@ def invalidate_cache() -> None:
     _cache_key = ""
 
 
+def export_skill_to_global(name: str) -> dict:
+    """Copy one project skill into the global ``~/.harness/skills/`` tree."""
+    name_l = name.strip().lower()
+    skills = discover_skills(force=True, include_global=True)
+    rec = next((s for s in skills if s["name"] == name_l), None)
+    if rec is None:
+        return {"added": [], "skipped": [], "error": f"'{name_l}' not found"}
+
+    if rec.get("scope") == "global":
+        return {
+            "added": [],
+            "skipped": [name_l],
+            "path": str(rec["path"]),
+        }
+
+    src_dir = pathlib.Path(rec["path"]).parent
+    target_dir = HARNESS_SKILLS_DIR / name_l
+
+    if target_dir.exists():
+        return {"added": [], "skipped": [name_l], "path": str(target_dir / "SKILL.md")}
+
+    try:
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src_dir, target_dir)
+    except OSError as e:
+        return {"added": [], "skipped": [], "error": str(e)}
+
+    invalidate_cache()
+    return {"added": [name_l], "skipped": [], "path": str(target_dir / "SKILL.md")}
+
+
 def import_skill_to_project(name: str) -> dict:
     """Copy one global skill directory into the project ``.harness/skills/`` tree."""
     name_l = name.strip().lower()

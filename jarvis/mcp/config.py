@@ -584,6 +584,37 @@ def import_server_to_project(
     return {"added": [name], "skipped": [], "path": str(path)}
 
 
+def export_server_to_global(
+    name: str,
+) -> dict[str, Any]:
+    """Copy one project MCP server into the Jarvis global config file."""
+    path = MCP_GLOBAL_CONFIG_FILE
+    global_servers, global_auto = (
+        _parse_config_file(path) if path.exists() else ({}, [])
+    )
+
+    if name in global_servers:
+        return {"added": [], "skipped": [name], "path": str(path)}
+
+    project_servers, project_auto = _parse_config_file(_project_config_path())
+    entry = project_servers.get(name)
+    if entry is None:
+        return {
+            "added": [],
+            "skipped": [],
+            "path": str(path),
+            "error": f"'{name}' not found in project MCP config",
+        }
+
+    entry = {k: v for k, v in entry.items() if not k.startswith("_")}
+    global_servers[name] = entry
+    if name in project_auto and name not in global_auto:
+        global_auto.append(name)
+
+    save_project_mcp_file(global_servers, global_auto, path)
+    return {"added": [name], "skipped": [], "path": str(path)}
+
+
 def import_global_to_project(
     project_path: str | pathlib.Path | None = None,
 ) -> dict[str, Any]:

@@ -422,6 +422,33 @@ def import_agent_to_project(name: str) -> dict:
     return {"added": [name_l], "skipped": [], "path": str(target)}
 
 
+def export_agent_to_global(name: str) -> dict:
+    """Copy one project agent into the global ``~/.harness/agents/`` directory."""
+    name_l = name.strip().lower()
+    agents = discover_agents(force=True, include_global=True)
+    rec = next((a for a in agents if a["name"] == name_l), None)
+    if rec is None:
+        return {"added": [], "skipped": [], "error": f"'{name_l}' not found"}
+
+    if rec.get("scope") == SCOPE_GLOBAL:
+        return {"added": [], "skipped": [name_l], "path": str(rec["path"])}
+
+    target_dir = HARNESS_AGENTS_DIR
+    target = target_dir / f"{name_l}.md"
+
+    if target.exists():
+        return {"added": [], "skipped": [name_l], "path": str(target)}
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(rec["path"], target)
+    except OSError as e:
+        return {"added": [], "skipped": [], "error": str(e)}
+
+    invalidate_cache()
+    return {"added": [name_l], "skipped": [], "path": str(target)}
+
+
 def auto_activate_coding_agent() -> None:
     """On **every** ``jarvis`` launch: check the current directory.
 

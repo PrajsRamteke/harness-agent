@@ -6,6 +6,7 @@ User interaction:
 * Space/Enter  toggle the highlighted server (connect ↔ disconnect)
 * g           toggle global scope (project-only ↔ project + global)
 * i           import the highlighted global server into this project's .mcp.json
+* e           export the highlighted project server to your global MCP config
 * a           manually add MCP JSON (paste/type in input area)
 * r           re-scan all config files
 * d           delete a Jarvis-managed global server (refuses other tools' entries)
@@ -37,6 +38,7 @@ from ..mcp.config import (
     MCP_PROJECT_CONFIG_FILENAME,
     get_config,
     import_server_to_project,
+    export_server_to_global,
     merge_json_into_project,
     reload_config,
     _project_config_path,
@@ -314,6 +316,7 @@ class MCPModalScreen(TuiModalScreen[None]):
         Binding("enter",  "toggle",   "Toggle", show=False),
         Binding("g",      "toggle_global", "Global", show=True),
         Binding("i",      "import_global", "Import", show=True),
+        Binding("e",      "export_global", "Export", show=True),
         Binding("a",      "manual_add",    "Add",    show=True),
         Binding("r",      "refresh",  "Refresh", show=True),
         Binding("d",      "delete",   "Delete", show=True),
@@ -345,9 +348,9 @@ class MCPModalScreen(TuiModalScreen[None]):
                 yield Static("", id="mcp_status")
                 yield Static(
                     f"[{ui.ACCENT_3}]space[/] toggle   [{ui.ACCENT_3}]g[/] global   "
-                    f"[{ui.ACCENT_3}]i[/] import selected   [{ui.ACCENT_3}]a[/] add   "
-                    f"[{ui.ACCENT_3}]r[/] refresh   [{ui.ACCENT_3}]d[/] delete   "
-                    f"[{ui.ACCENT_3}]esc[/] close",
+                    f"[{ui.ACCENT_3}]i[/] import   [{ui.ACCENT_3}]e[/] export   "
+                    f"[{ui.ACCENT_3}]a[/] add   [{ui.ACCENT_3}]r[/] refresh   "
+                    f"[{ui.ACCENT_3}]d[/] delete   [{ui.ACCENT_3}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -804,6 +807,40 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._set_status(f"{name} already in project", ok=True)
         else:
             self._set_status("nothing to import", ok=False)
+
+    def action_export_global(self) -> None:
+        """Copy the highlighted project MCP server into the Jarvis global config."""
+        if self._scope_busy or self._connecting_names:
+            return
+        name = self._selected_name()
+        if not name:
+            return
+
+        config = get_config()
+        if config.get_scope(name) == "global":
+            self._set_status(f"{name} is already in global MCP config", ok=False)
+            return
+
+        try:
+            result = export_server_to_global(name)
+        except OSError as e:
+            self._set_status(f"export failed: {e}", ok=False)
+            return
+
+        if result.get("error"):
+            self._set_status(str(result["error"]), ok=False)
+            return
+
+        reload_config()
+        self._refresh_rows()
+
+        dest = result.get("path", "~/.config/harness-agent/mcp.json")
+        if result.get("added"):
+            self._set_status(f"exported {name} → {dest}", ok=True)
+        elif result.get("skipped"):
+            self._set_status(f"{name} already in global", ok=True)
+        else:
+            self._set_status("nothing to export", ok=False)
 
     def action_manual_add(self) -> None:
         def after(result: dict | None) -> None:

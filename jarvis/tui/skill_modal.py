@@ -9,6 +9,7 @@ NOT change any persistent activation state.
 * ↑/↓ to navigate
 * Enter to preview the highlighted skill's body in the transcript
 * i to import the highlighted global skill into this project
+* e to export the highlighted project skill to your global config
 * g to toggle global-scope visibility (re-scans + reloads list)
 * r to refresh (re-scan disk)
 * Esc to close
@@ -55,6 +56,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         Binding("up", "cursor_up", show=False),
         Binding("g", "toggle_global", "Global", show=True),
         Binding("i", "import_to_project", "Import", show=True),
+        Binding("e", "export_to_global", "Export", show=True),
         Binding("r", "refresh", "Refresh", show=True),
         Binding("slash", "focus_search", "Search", show=True),
     ]
@@ -68,7 +70,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
                 yield OptionList(id="skill_list")
                 yield Static(
                     f"{modal_key('↑↓')} navigate   {modal_key('↵')} preview   {modal_key('i')} import   "
-                    f"{modal_key('/')} search   {modal_key('g')} global   "
+                    f"{modal_key('e')} export   {modal_key('/')} search   {modal_key('g')} global   "
                     f"{modal_key('r')} refresh   {modal_key('esc')} close",
                     id="modal_hint",
                 )
@@ -243,6 +245,24 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
             self._notify(f"{name} already in project")
         else:
             self._notify("nothing to import", error=True)
+
+    def action_export_to_global(self) -> None:
+        name = self._current_skill_name()
+        if not name:
+            self._notify("(highlight a project skill to export)", error=True)
+            return
+        result = sk.export_skill_to_global(name)
+        if result.get("error"):
+            self._notify(str(result["error"]), error=True)
+            return
+        sk.invalidate_cache()
+        self._populate()
+        if result.get("added"):
+            self._notify(f"exported {name} → {result['path']}")
+        elif result.get("skipped"):
+            self._notify(f"{name} already in global")
+        else:
+            self._notify("nothing to export", error=True)
 
     def action_refresh(self) -> None:
         try:
