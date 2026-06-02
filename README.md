@@ -105,21 +105,34 @@ Add that line to your `~/.zshrc` to make it permanent.
 
 ### Development setup
 
+From the repository root, run these **one at a time** (Python **3.10+**):
+
 ```bash
 git clone https://github.com/PrajsRamteke/harness-agent.git
 cd harness-agent
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -e .
+jarvis --help                # verify the CLI is on PATH
 ```
 
-Then run:
+`pip install -e .` installs runtime dependencies from `pyproject.toml` and registers the `jarvis` command. You do **not** need `pip install -r requirements.txt` for normal development (that file mirrors the same deps for reference or tooling-only installs).
+
+**Run the agent:**
 
 ```bash
-jarvis        # TUI mode (default)
-# or
+jarvis                     # TUI mode (default)
+python agent.py            # same as jarvis
 python agent.py --legacy   # Rich REPL mode
 ```
+
+**Run tests** (after `pip install pytest`):
+
+```bash
+python -m pytest tests/ -q
+```
+
+The same setup sequence is documented at the top of `requirements.txt`.
 
 ---
 
@@ -283,7 +296,7 @@ harness/
 │
 ├── scripts/                # Install scripts
 ├── assets/                 # Screenshots
-└── tests/                  # (empty — manual testing)
+└── tests/                  # pytest unit tests (`python -m pytest tests/ -q`)
 ```
 
 ---

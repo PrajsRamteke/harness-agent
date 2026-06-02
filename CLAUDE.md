@@ -5,23 +5,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Set up development environment
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+# Set up development environment (run from repo root, one step at a time)
+python3 -m venv .venv
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
+pip install -e .             # installs deps + registers `jarvis`
+jarvis --help                # verify CLI
 
 # Run the TUI (default)
-python agent.py
-# or after install:
 jarvis
+# or:
+python agent.py
 
 # Run legacy Rich REPL
 python agent.py --legacy
 
-# Install dependencies only
-pip install -r requirements.txt
+# Run unit tests
+pip install pytest
+python -m pytest tests/ -q
 ```
 
-There is no automated test suite — `tests/` is empty. Manual testing is done by running `jarvis` directly.
+`pip install -r requirements.txt` installs libraries only (no `jarvis` entry point). Prefer `pip install -e .` for local development. See `requirements.txt` header for the full verified sequence.
 
 ## Environment Variables
 
