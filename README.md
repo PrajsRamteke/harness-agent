@@ -17,6 +17,24 @@ Harness is a **terminal-native AI agent** that lives in your terminal. You talk 
 
 ## 🚀 Quick Start
 
+**macOS without Python 3.10+** (install Python, then Jarvis):
+
+```bash
+brew install python@3.11
+curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
+source ~/.zshrc   # or ~/.zprofile on macOS — needed so `jarvis` is on PATH
+jarvis
+```
+
+If `jarvis` is not found in the same terminal right after install:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+jarvis
+```
+
+**Already have Python 3.10+:**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
 source ~/.zshrc   # or ~/.zprofile on macOS
@@ -67,10 +85,11 @@ That's it. You'll be prompted to pick an auth method on first run.
 
 ## ✅ Requirements
 
-- **Python 3.10+** — If your system Python is older, install a newer one:
+- **Python 3.10+** — macOS ships with older system Python (`/usr/bin/python3`). Install a newer one before the install script:
   ```bash
   brew install python@3.11
   ```
+  The install script also checks `/opt/homebrew/bin/python3.*` if Homebrew is not on your `PATH` yet.
 - **macOS** — required for macOS control features. Core agent works on any platform.
 - **API key** (sk-ant-…) or a **Pro/Max subscription**
 

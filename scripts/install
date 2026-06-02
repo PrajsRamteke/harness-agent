@@ -33,6 +33,22 @@ choose_python() {
     fi
   done
 
+  # brew install python@3.11 does not always put Homebrew on PATH in the current shell
+  if [ "$(uname -s)" = "Darwin" ]; then
+    for candidate in \
+      /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 \
+      /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 \
+      /opt/homebrew/bin/python3.10 \
+      /usr/local/bin/python3.14 /usr/local/bin/python3.13 \
+      /usr/local/bin/python3.12 /usr/local/bin/python3.11 \
+      /usr/local/bin/python3.10; do
+      if [ -x "${candidate}" ] && python_ok "${candidate}"; then
+        echo "${candidate}"
+        return
+      fi
+    done
+  fi
+
   echo "error: Jarvis requires Python 3.10 or newer" >&2
   echo "install one, for example: brew install python@3.11" >&2
   exit 1
