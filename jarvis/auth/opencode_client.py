@@ -28,8 +28,15 @@ def _get_usage_value(usage_obj, attr_name: str, default: int = 0) -> int:
     if usage_obj is None:
         return default
     if isinstance(usage_obj, dict):
-        return usage_obj.get(attr_name, default)
-    return getattr(usage_obj, attr_name, default)
+        val = usage_obj.get(attr_name, default)
+    else:
+        val = getattr(usage_obj, attr_name, default)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
 
 
 def _repair_truncated_json(raw: str) -> Optional[dict]:
