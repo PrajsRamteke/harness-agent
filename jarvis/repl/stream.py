@@ -174,6 +174,12 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
             think_push = getattr(console, "thinking_stream_push", None)
             think_flush = getattr(console, "thinking_stream_flush", None)
             think_finalize = getattr(console, "thinking_stream_finalize", None)
+            # Drop any thinking state left by the previous iteration of this
+            # turn (e.g. thinking → tool_use with no text) so its stale
+            # anchor can never truncate content written since.
+            think_reset = getattr(console, "thinking_stream_reset", None)
+            if think_reset:
+                think_reset()
         else:
             think_start = think_push = think_flush = think_finalize = None
             rich_live = RichAssistantStreamDisplay(console)

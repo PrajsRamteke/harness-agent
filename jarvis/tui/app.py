@@ -144,6 +144,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         Binding("home", "scroll_transcript('home')", show=False, priority=True),
         Binding("end", "scroll_transcript('end')", show=False, priority=True),
         Binding("ctrl+shift+u", "copy_web_url", "Copy URL", show=False),
+        Binding("ctrl+y", "copy_last_reply", "Copy reply", show=False),
     ]
 
     def action_scroll_transcript(self, direction: str) -> None:
@@ -316,21 +317,13 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
 
         from ..auth.client import make_client
         from ..storage.sessions import db_init, db_create_session
-        from ..repl.banners import welcome_banner
 
         if state.client is None:
             state.client = make_client(interactive=False)
-        welcome_banner()
-        if state.client is None:
-            tui_console.print(
-                f"[{ui.WARN}]Not signed in[/] — use [cyan]/login[/] for OAuth "
-                "(Anthropic or Codex) or [cyan]/key[/] for API keys"
-            )
-        elif state.harness_agent_free:
-            tui_console.print(
-                f"[{ui.OK}]Harness Agent[/] ready — "
-                f"[cyan]{state.MODEL}[/] [dim](free, no API key needed)[/]"
-            )
+        # Welcome art is width-responsive but the transcript has no size until
+        # the first layout pass — defer the intro so the art renders full-size
+        # (rendering it here picks the no-art fallback for width 24).
+        self.call_after_refresh(self._render_welcome_intro)
         db_init()
         state.current_session_id = db_create_session(state.MODEL)
 
@@ -350,12 +343,29 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         from ..storage.agents import auto_activate_coding_agent
         auto_activate_coding_agent()
 
-        self._write_context_strip(log)
-
         self.query_one("#prompt", PromptArea).focus()
 
         if state.startup_prompt:
             self.set_timer(0.05, self._submit_startup_prompt)
+
+    def _render_welcome_intro(self) -> None:
+        """Welcome art + card + sign-in line + context strip.
+
+        Runs via ``call_after_refresh`` so the transcript width is known and
+        ``welcome_banner()`` can pick the full-size art. Background workers
+        that print to the transcript (MCP auto-connect, updater) are started
+        from here — not ``on_mount`` — so their output can never land above
+        the welcome art.
+        """
+        from ..repl.banners import welcome_banner
+
+        welcome_banner()
+        if state.client is None:
+            self._tui_console.print(
+                f"[{ui.WARN}]Not signed in[/] — use [cyan]/login[/] for OAuth "
+                "(Anthropic or Codex) or [cyan]/key[/] for API keys"
+            )
+        self._write_context_strip()
 
         self._auto_connect_mcp_background()
         self._check_for_updates_background()
@@ -401,7 +411,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                 f"[{ui.ACCENT_3}]@[/] file · ↑↓ tab",
                 f"[{ui.ACCENT_3}]⇥[/] agent",
                 f"[{ui.ACCENT_3}]esc[/] cancel",
-                f"[{ui.ACCENT_3}]^C[/] copy/cancel",
+                f"[{ui.ACCENT_3}]^Y[/] copy reply",
                 f"[{ui.ACCENT_3}]^T[/] trace:{trace}",
                 f"[{ui.ACCENT_3}]^F[/] tools",
                 f"[{ui.ACCENT_3}]^D[/] quit",
@@ -498,9 +508,14 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             except AttributeError:
                 current = 0
             if current and current != self._last_t_width:
+                first_measure = self._last_t_width == 0
                 self._last_t_width = current
+                # Width was unknown at mount (layout hadn't run) — record it
+                # without rebuilding, or the first tick stomps the transcript.
+                if first_measure:
+                    pass
                 # During streaming skip the full rebuild — just clear cache
-                if self._busy:
+                elif self._busy:
                     log._line_cache.clear()
                     if hasattr(log, '_render_cache'):
                         log._render_cache = {}
@@ -1537,8 +1552,10 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                     )
 
         # Refresh status bar, hint bar, and composer prefix with new colors.
+        # Keep whatever status message was showing — a resize-triggered
+        # rebuild must not stomp feedback like "✓ copied …".
         self._render_hintbar()
-        self._set_status("ready")
+        self._set_status(self._status_msg or "ready")
 
     @work(thread=True, exclusive=True)
     def _run_turn(self, inp: str) -> None:
@@ -1547,6 +1564,11 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         from ..repl.stream import call_claude_stream
         from ..repl.render import render_assistant
         from ..storage.sessions import db_append_message, db_set_title_if_empty
+
+        # Stale anchors/flags from a cancelled previous turn must never
+        # survive into this one — a later abort would truncate at them and
+        # wipe everything written since.
+        self._tui_console.reset_stream_ui()
 
         try:
             if inp.startswith("/"):
@@ -1777,40 +1799,28 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         self.action_open_tools_inspector()
 
     def _copy_to_system_clipboard(self, text: str) -> bool:
+        from ..utils.clipboard import copy_text_to_clipboard
+
+        return copy_text_to_clipboard(text)
+
+    def action_copy_last_reply(self) -> None:
+        """⌃Y — copy the last assistant reply as clean text (no borders/padding)."""
+        from ..utils.clipboard import normalize_copy_text
+
+        text = normalize_copy_text(state.last_assistant_text or "")
         if not text:
-            return False
+            self._set_status("nothing to copy yet")
+            return
         try:
-            import pyperclip  # type: ignore
-            pyperclip.copy(text)
-            return True
+            self.copy_to_clipboard(text)  # OSC52 — works over SSH
         except Exception:
             pass
-
-        import platform
-        import shutil
-        import subprocess
-
-        sysname = platform.system()
-        candidates: list[list[str]] = []
-        if sysname == "Darwin":
-            candidates.append(["pbcopy"])
-        elif sysname == "Windows":
-            candidates.append(["clip"])
+        sys_ok = self._copy_to_system_clipboard(text)
+        n = len(text)
+        if sys_ok:
+            self._set_status(f"✓ copied last reply ({n} chars) — /copy code · /copy all")
         else:
-            if shutil.which("wl-copy"):
-                candidates.append(["wl-copy"])
-            if shutil.which("xclip"):
-                candidates.append(["xclip", "-selection", "clipboard"])
-            if shutil.which("xsel"):
-                candidates.append(["xsel", "--clipboard", "--input"])
-
-        for cmd in candidates:
-            try:
-                subprocess.run(cmd, input=text.encode("utf-8"), check=True, timeout=2)
-                return True
-            except Exception:
-                continue
-        return False
+            self._set_status(f"copied to terminal clipboard ({n} chars)")
 
     def action_cancel_or_quit(self):
         try:

@@ -15,6 +15,7 @@ from textual.widgets import RichLog
 
 from ..console_shim import (
     _append_rich_log_block,
+    _at_bottom,
     _replace_rich_log_block,
     _truncate_rich_log_lines,
 )
@@ -123,17 +124,19 @@ class ActivityMixin:
                 r.get("status") in ("done", "error", "cancelled") for r in runs
             )
 
+            follow = _at_bottom(log)
             if anchor is None:
                 anchor = len(log.lines)
                 self._tool_activity_anchor = anchor
                 self._tool_activity_line_count = _append_rich_log_block(
-                    log, panel, scroll_end=True
+                    log, panel, scroll_end=follow
                 )
             else:
                 self._tool_activity_line_count = _replace_rich_log_block(
                     log, anchor, self._tool_activity_line_count, panel
                 )
-                log.scroll_end(animate=False)
+                if follow:
+                    log.scroll_end(animate=False)
 
             if all_settled:
                 self._tool_activity_anchor = None

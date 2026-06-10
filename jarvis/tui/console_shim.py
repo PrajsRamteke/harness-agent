@@ -79,13 +79,47 @@ class _PromptWaiter:
         self._app.call_from_thread(_go)
 
 
+def _at_bottom(log: RichLog) -> bool:
+    """True when the user hasn't scrolled up — safe to auto-follow new output.
+
+    Forcing ``scroll_end=True`` on every streaming flush makes it impossible
+    to scroll back (or select text) while a reply streams; callers should pass
+    ``scroll_end=_at_bottom(log)`` instead.
+    """
+    try:
+        return bool(log.is_vertical_scroll_end)
+    except Exception:
+        return True
+
+
 def _truncate_rich_log_lines(log: RichLog, line_count: int) -> None:
-    """Drop lines from ``line_count`` onward (used to replace in-progress stream block)."""
+    """Drop lines from ``line_count`` onward (used to replace in-progress stream block).
+
+    Deliberately does NOT touch ``virtual_size`` or the scroll offset — this
+    runs on every streaming flush, and resizing/clamping here makes the view
+    jitter (shrink-clamp-up, write-scroll-down, dozens of times per second).
+    Callers that remove content permanently (cancel/abort) must follow up
+    with ``_fixup_rich_log_viewport``.
+    """
     log.lines = log.lines[:line_count]
     log._line_cache.clear()
     if hasattr(log, '_render_cache'):
         log._render_cache = {}
     log.refresh(layout=True)
+
+
+def _fixup_rich_log_viewport(log: RichLog) -> None:
+    """Sync ``virtual_size`` to the real line count and pull the viewport
+    back inside the content after a permanent removal (esc-cancel). Without
+    this the scroll offset can point past the end — an all-black transcript
+    until the user scrolls."""
+    try:
+        log.virtual_size = Size(log._widest_line_width, len(log.lines))
+        if log.scroll_offset.y > log.max_scroll_y:
+            log.scroll_end(animate=False)
+        log.refresh(layout=True)
+    except Exception:
+        pass
 
 
 def _render_to_strips(
@@ -175,12 +209,17 @@ class TUIConsole:
         self._as_buffer = ""
         self._as_dirty = 0
         self._as_flush_every = 28
+        # How many lines the live reply panel currently occupies — lets the
+        # abort path replace exactly its own block instead of truncating to
+        # the end of the log (which would eat lines printed after it).
+        self._as_line_count = 0
         # In-log thinking stream (extended thinking / reasoning deltas)
         self._think_line_anchor = 0
         self._think_buffer = ""
         self._think_dirty = 0
         self._think_flush_every = 48
         self._think_finalized = False
+        self._think_rendered = False
         self._active_shell_waiter: _PromptWaiter | None = None
         self._active_ask_waiter: _PromptWaiter | None = None
         self._active_input_waiter: _PromptWaiter | None = None
@@ -198,6 +237,7 @@ class TUIConsole:
         self._think_buffer = ""
         self._think_dirty = 0
         self._think_finalized = False
+        self._think_rendered = False
         _state._thinking_stream_ui_active = True
 
         def _anchor() -> int:
@@ -243,6 +283,12 @@ class TUIConsole:
         anchor = self._think_line_anchor
 
         def _upd():
+            from .. import state as _state
+
+            if self._think_finalized or not _state._thinking_stream_ui_active:
+                return
+            self._think_rendered = True
+            follow = _at_bottom(self._log)
             _truncate_rich_log_lines(self._log, anchor)
             preview = buf if buf.strip() else " "
             if len(preview) > 4000:
@@ -255,7 +301,7 @@ class TUIConsole:
                     border_style=self._think_border(),
                     padding=(0, 1),
                 ),
-                scroll_end=True,
+                scroll_end=follow,
             )
 
         try:
@@ -263,21 +309,39 @@ class TUIConsole:
         except Exception:
             pass
 
-    def _clear_thinking_stream(self) -> None:
+    def thinking_stream_reset(self) -> None:
+        """Forget thinking state at the start of a stream iteration.
+
+        Without this, an iteration that streams thinking and then issues only
+        tool calls (no text) leaves the active flag + an old anchor behind;
+        the next commit or cancel would truncate at that stale anchor and
+        wipe the tool panels written since. Called from the stream layer
+        before each API response is consumed. Worker-thread safe.
+        """
         from .. import state as _state
 
-        self._think_buffer = ""
-        self._think_dirty = 0
-        self._think_finalized = False
-        if _state._thinking_stream_ui_active:
-            _truncate_rich_log_lines(self._log, self._think_line_anchor)
-        _state._thinking_stream_ui_active = False
+        def _reset() -> None:
+            self._think_buffer = ""
+            self._think_dirty = 0
+            self._think_finalized = False
+            self._think_rendered = False
+            self._think_line_anchor = len(self._log.lines)
+            _state._thinking_stream_ui_active = False
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _reset()
+            else:
+                self._app.call_from_thread(_reset)
+        except Exception:
+            pass
 
     # ─── assistant streaming (worker thread → main via call_from_thread) ─
     def assistant_stream_start(self, title: str) -> None:
         self._as_title = title
         self._as_buffer = ""
         self._as_dirty = 0
+        self._as_line_count = 0
 
         def _anchor() -> int:
             return len(self._log.lines)
@@ -316,6 +380,13 @@ class TUIConsole:
         anchor = self._stream_line_anchor
 
         def _upd():
+            from .. import state as _state
+
+            # A cancel may land between scheduling and execution — repainting
+            # then would resurrect a ghost partial panel.
+            if not _state._assistant_stream_ui_active:
+                return
+            follow = _at_bottom(self._log)
             _truncate_rich_log_lines(self._log, anchor)
             body = buf if buf.strip() else " "
             self._log.write(
@@ -326,8 +397,9 @@ class TUIConsole:
                     border_style=self._asst_border(),
                     padding=(0, 1),
                 ),
-                scroll_end=True,
+                scroll_end=follow,
             )
+            self._as_line_count = len(self._log.lines) - anchor
 
         try:
             self._app.call_from_thread(_upd)
@@ -347,11 +419,17 @@ class TUIConsole:
         anchor = self._stream_line_anchor
 
         def _commit():
+            follow = _at_bottom(self._log)
             _truncate_rich_log_lines(self._log, anchor)
             self._as_buffer = ""
             self._as_dirty = 0
+            self._as_line_count = 0
             _state._assistant_stream_ui_active = False
-            streamed_thinking = _state._thinking_stream_ui_active and self._think_buffer.strip()
+            streamed_thinking = (
+                _state._thinking_stream_ui_active
+                and self._think_rendered
+                and self._think_buffer.strip()
+            )
             if thinking_blocks and _state.show_internal:
                 if streamed_thinking:
                     _truncate_rich_log_lines(self._log, self._think_line_anchor)
@@ -364,11 +442,12 @@ class TUIConsole:
                             border_style=self._think_border(),
                             padding=(0, 1),
                         ),
-                        scroll_end=True,
+                        scroll_end=follow,
                     )
             self._think_buffer = ""
             self._think_dirty = 0
             self._think_finalized = False
+            self._think_rendered = False
             _state._thinking_stream_ui_active = False
             if re.search(r"\S", text):
                 self._log.write(
@@ -379,7 +458,7 @@ class TUIConsole:
                         border_style=self._asst_border(),
                         padding=(0, 1),
                     ),
-                    scroll_end=True,
+                    scroll_end=follow,
                 )
 
         try:
@@ -413,10 +492,12 @@ class TUIConsole:
         old_count = self._cmd_progress_line_count
 
         def _upd() -> None:
+            follow = _at_bottom(self._log)
             self._cmd_progress_line_count = _replace_rich_log_block(
                 self._log, anchor, old_count, panel
             )
-            self._log.scroll_end(animate=False)
+            if follow:
+                self._log.scroll_end(animate=False)
 
         try:
             if threading.current_thread() is threading.main_thread():
@@ -555,16 +636,61 @@ class TUIConsole:
             pass
 
     def assistant_stream_abort(self) -> None:
-        """Remove a partial in-log stream (cancel / error)."""
+        """Stop a live stream IN PLACE (cancel / error).
+
+        Everything already streamed stays in the transcript — the partial
+        reply panel is re-rendered once with the full buffer (the last
+        ~flush-interval of characters may not have been painted yet) and an
+        "interrupted" marker. Nothing is deleted: an earlier version removed
+        the partial panel here, which read as the whole chat being wiped.
+        """
         from .. import state as _state
 
         def _abort():
+            was_streaming = _state._assistant_stream_ui_active
+            buf = self._as_buffer
             self._as_buffer = ""
             self._as_dirty = 0
-            if _state._assistant_stream_ui_active:
-                _truncate_rich_log_lines(self._log, self._stream_line_anchor)
+            if was_streaming:
+                from . import theme as _t
+
+                follow = _at_bottom(self._log)
+                anchor = self._stream_line_anchor
+                if buf.strip():
+                    # Replace ONLY the live panel's block — lines printed
+                    # after it (e.g. "⏹ cancelled by user") must survive.
+                    self._as_line_count = _replace_rich_log_block(
+                        self._log,
+                        anchor,
+                        self._as_line_count,
+                        Panel(
+                            Markdown(buf),
+                            title=f"{self._as_title} · ⏹ interrupted",
+                            title_align="left",
+                            border_style=_t.WARN,
+                            padding=(0, 1),
+                        ),
+                    )
+                elif self._as_line_count:
+                    # Nothing streamed — drop the empty placeholder block.
+                    self._log.lines = (
+                        self._log.lines[:anchor]
+                        + self._log.lines[anchor + self._as_line_count:]
+                    )
+                    self._as_line_count = 0
+                    _refresh_rich_log_layout(self._log)
+                if follow:
+                    self._log.scroll_end(animate=False)
             _state._assistant_stream_ui_active = False
-            self._clear_thinking_stream()
+            # Keep any thinking panel (live or finalized) as-is — just stop
+            # updating it and forget the bookkeeping.
+            self._think_buffer = ""
+            self._think_dirty = 0
+            self._think_finalized = False
+            self._think_rendered = False
+            _state._thinking_stream_ui_active = False
+            if was_streaming:
+                _fixup_rich_log_viewport(self._log)
 
         try:
             self._app.call_from_thread(_abort)
@@ -572,13 +698,48 @@ class TUIConsole:
             _state._assistant_stream_ui_active = False
             _state._thinking_stream_ui_active = False
 
+    def reset_stream_ui(self) -> None:
+        """Drop all stream bookkeeping at the start of a turn.
+
+        A previous turn can leave ``_thinking_stream_ui_active`` set with an
+        old anchor (e.g. it streamed thinking but was cancelled before the
+        text committed). If that stale anchor survives into this turn, the
+        next cancel truncates at it — wiping every line written since.
+        Re-anchoring to the current end of the log makes that impossible.
+        """
+        from .. import state as _state
+
+        def _reset() -> None:
+            self._as_buffer = ""
+            self._as_dirty = 0
+            self._as_line_count = 0
+            self._think_buffer = ""
+            self._think_dirty = 0
+            self._think_finalized = False
+            self._think_rendered = False
+            self._stream_line_anchor = len(self._log.lines)
+            self._think_line_anchor = len(self._log.lines)
+            _state._assistant_stream_ui_active = False
+            _state._thinking_stream_ui_active = False
+
+        try:
+            if threading.current_thread() is threading.main_thread():
+                _reset()
+            else:
+                self._app.call_from_thread(_reset)
+        except Exception:
+            pass
+
     # ─── internal ───────────────────────────────────────────────────────
     def _write(self, renderable):
+        def _go() -> None:
+            self._log.write(renderable, scroll_end=_at_bottom(self._log))
+
         try:
-            self._app.call_from_thread(self._log.write, renderable)
+            self._app.call_from_thread(_go)
         except Exception:
             try:
-                self._log.write(renderable)
+                _go()
             except Exception:
                 pass
 

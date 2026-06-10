@@ -121,5 +121,9 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
         if opts.option_count == 0 or opts.highlighted is None:
             self.dismiss(None)
             return
-        opt = opts.get_option_at_index(opts.highlighted)
+        try:
+            opt = opts.get_option_at_index(opts.highlighted)
+        except Exception:
+            self.dismiss(None)
+            return
         self.dismiss(opt.id)

@@ -149,6 +149,16 @@ class PromptArea(TextArea):
             except Exception:
                 self.app.exit()
             return
+        if key == "ctrl+y":
+            # Copy last reply (would otherwise be TextArea "redo", which is
+            # near-useless in a chat composer; undo via ctrl+z still works).
+            event.stop()
+            event.prevent_default()
+            try:
+                self.app.action_copy_last_reply()
+            except Exception:
+                pass
+            return
         if key == "ctrl+f":
             event.stop()
             event.prevent_default()

@@ -41,7 +41,9 @@ _SECTIONS = [
         ("  (available: /ls /cd /pwd /find /run /undo /git /diff)", "type or arrow-key to filter"),
     ]),
     ("Clipboard", [
-        ("/copy", "copy last assistant response to clipboard"),
+        ("/copy", "copy last reply as clean text (no borders/padding) — same as Ctrl+Y"),
+        ("/copy code", "copy the last fenced code block from the reply"),
+        ("/copy all", "copy the whole conversation as markdown"),
         ("/paste", "send clipboard text, or OCR a clipboard image, as the next message"),
         ("plain prompt + image clipboard", "type your prompt normally; a fresh clipboard image is OCR'd and attached"),
     ]),
@@ -50,7 +52,7 @@ _SECTIONS = [
         ("/agent init", "scaffold a .harness/ tree in the current project"),
     ]),
     ("Theme", [
-        ("/theme", "open the theme picker (red · purple)"),
+        ("/theme", "open the theme picker (15 themes — live preview)"),
     ]),
     ("MCP (Model Context Protocol)", [
         ("/mcp", "open the MCP control modal — list, toggle, import JSON, scope"),
@@ -86,7 +88,8 @@ _SECTIONS = [
         ("Ctrl+T", "toggle internal tool trace (logs/thinking panels)"),
         ("Ctrl+F", "open scrollable full tool output viewer"),
         ("Esc", "cancel current turn"),
-        ("Ctrl+C", "copy selection · cancel turn · press twice to quit"),
+        ("Ctrl+Y", "copy last reply to clipboard (clean text)"),
+        ("Ctrl+C", "cancel turn · press twice to quit"),
         ("Ctrl+D", "quit"),
     ]),
 ]

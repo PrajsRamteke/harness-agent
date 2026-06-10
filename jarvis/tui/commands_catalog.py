@@ -37,13 +37,13 @@ COMMANDS = [
     # Local commands — shell/file/git that run without LLM
     ("/local", "open the local commands modal (pick and run ls, pwd, cd, git, find, run, undo, diff)"),
     # Clipboard
-    ("/copy", "copy last assistant response"),
+    ("/copy", "copy last reply — ⌃Y · 'code' = last code block · 'all' = whole chat"),
     ("/paste", "send clipboard text / OCR clipboard image"),
     # Agents — modal handles browse · activate · new · edit · global · scope
     ("/agent", "open the agent control modal"),
     ("/agent init", "scaffold a .harness/ tree in the current project"),
     # Theme — modal handles the picker
-    ("/theme", "open the theme picker (red · purple)"),
+    ("/theme", "open the theme picker (15 themes — live preview)"),
     # Scan
     ("/scan", "AI-powered deep scan: identity / docs / projects → memory"),
     # MCP — single modal for everything

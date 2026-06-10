@@ -3,7 +3,7 @@ from rich.markup import escape
 
 from ..console import console, Panel, Markdown
 from ..constants import NOTES_FILE, PANEL_PREVIEW_CHARS, PIN_FILE
-from ..tools.mac.clipboard import clipboard_get, clipboard_set
+from ..tools.mac.clipboard import clipboard_get
 from ..tools.image_input import append_image_block, clipboard_image_to_file, file_digest, ocr_image_block
 from ..storage.prefs import save_aliases
 from ..storage import pin as pin_store
@@ -58,6 +58,64 @@ def _handle_pin_toggle(arg: str) -> bool:
     return False
 
 
+def _copy_to_clipboard(text: str) -> bool:
+    """Copy via the system clipboard, plus OSC52 when running inside the TUI
+    (so copy works over SSH too)."""
+    from ..utils.clipboard import copy_text_to_clipboard
+
+    app = getattr(console, "_app", None)
+    if app is not None:
+        try:
+            app.call_from_thread(app.copy_to_clipboard, text)
+        except Exception:
+            pass
+    return copy_text_to_clipboard(text)
+
+
+def _handle_copy(arg: str) -> None:
+    """/copy [code|all] — clean-text copy without panel borders or padding."""
+    from ..utils.clipboard import (
+        conversation_plain_text,
+        extract_last_code_block,
+        normalize_copy_text,
+    )
+
+    sub = (arg or "").strip().lower()
+    if sub in ("help", "?"):
+        console.print(
+            "[cyan]/copy[/]       copy last reply  [dim](also ⌃Y)[/]\n"
+            "[cyan]/copy code[/]  copy last code block from the reply\n"
+            "[cyan]/copy all[/]   copy the whole conversation as markdown"
+        )
+        return
+    if sub in ("all", "chat", "conversation"):
+        text = conversation_plain_text(state.messages)
+        if not text:
+            console.print("[dim]nothing to copy — conversation is empty[/]")
+            return
+        what = "conversation"
+    elif sub in ("code", "block"):
+        text = extract_last_code_block(state.last_assistant_text or "")
+        if text is None:
+            console.print("[dim]no code block in the last reply[/]")
+            return
+        what = "code block"
+    else:
+        text = normalize_copy_text(state.last_assistant_text or "")
+        if not text:
+            console.print("[dim]nothing to copy yet — ask something first[/]")
+            return
+        what = "last reply"
+    ok = _copy_to_clipboard(text)
+    if ok:
+        console.print(f"[green]✓ copied {what} ({len(text)} chars)[/]")
+    else:
+        console.print(
+            f"[yellow]sent {what} to the terminal clipboard (OSC52) — "
+            "no system clipboard tool found[/]"
+        )
+
+
 def handle_context(c: str, arg: str):
     """Return (handled, new_inp_or_None). new_inp signals fall-through send."""
     if c == "/pin":
@@ -99,10 +157,7 @@ def handle_context(c: str, arg: str):
             console.print(f"  [cyan]/{k}[/] → {v}")
         return True, None
     if c == "/copy":
-        if not state.last_assistant_text:
-            console.print("[dim]nothing to copy[/]"); return True, None
-        clipboard_set(state.last_assistant_text)
-        console.print(f"[green]copied {len(state.last_assistant_text)} chars[/]")
+        _handle_copy(arg)
         return True, None
     if c == "/paste":
         # First check if clipboard has an image

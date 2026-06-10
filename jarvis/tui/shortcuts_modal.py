@@ -15,7 +15,15 @@ _SHORTCUTS = """
   ↵              send message
   ⇧↵  ⌃J         new line in prompt
   esc            cancel turn (when busy)
-  ⌃C             copy selection / cancel
+  ⌃C             cancel turn · press twice to quit
+
+[bold]Copy & paste[/]
+  ⌃Y             copy last reply (clean text, no borders)
+  /copy          same as ⌃Y
+  /copy code     copy last code block from the reply
+  /copy all      copy whole conversation as markdown
+  mouse drag     native terminal selection (may include panel
+                 borders/padding — prefer ⌃Y · /copy for clean text)
 
 [bold]Navigation[/]
   /              command palette
@@ -23,6 +31,8 @@ _SHORTCUTS = """
   drag-drop      drop whitelisted media/docs into composer → [image 1], …
   ⇥              cycle agent
   ↑↓             scroll transcript (or @file picker)
+  pgup pgdn      scroll transcript by page
+  home end       jump to top / bottom (end re-enables follow while streaming)
 
 [bold]Tools & trace[/]
   ⌃F             tools inspector — files + shell/git output

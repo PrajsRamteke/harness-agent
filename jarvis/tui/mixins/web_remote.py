@@ -261,7 +261,7 @@ class WebRemoteMixin:
             try:
                 from ...web.state_api import snapshot_from_state
 
-                snap = snapshot_from_state(busy=self._busy())
+                snap = snapshot_from_state(busy=self._busy)
                 self._web_bridge.emit("snapshot", snap)
             except Exception:
                 pass

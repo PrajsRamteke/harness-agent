@@ -89,7 +89,7 @@ python -m pytest tests/ -q
 
 ### Themes and agents
 
-- **Themes**: Two built-in (`"red"`, `"purple"`) stored in `state.THEMES`; persisted to `~/.config/harness-agent/settings.json` under `theme`.
+- **Themes**: 15 built-in palettes defined in `jarvis/tui/theme.py:PALETTES` (red, blue, purple, green, orange, yellow, rose, slate, ocean, cyberpunk, monochrome, forest, dracula, sunset, dark); persisted to `~/.config/harness-agent/settings.json` under `theme`. `/theme` switches live at runtime.
 - **Agents** (replaced the legacy mode system): User-creatable markdown files. The active agent's body is appended to the system prompt as an addon. Status bar shows the active agent (icon + name + scope hint). Tab key cycles through discovered agents. `/agent` opens the picker; `/agent init` scaffolds `.harness/`. Active agent persisted by name as `agent.active`.
 
 ### Adding a new agent
