@@ -16,7 +16,7 @@ def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
     return max(min_value, min(max_value, value))
 
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 # Startup model: CLAUDE_MODEL env override, else the free Harness Agent default.
 MODEL = os.getenv("CLAUDE_MODEL", HARNESS_AGENT_DEFAULT_MODEL)
 MAX_TOOL_OUTPUT = 6000   # trimmed from 15000 — cuts tool-result token cost ~60%

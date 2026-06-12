@@ -140,6 +140,12 @@ active_agent: Optional[dict] = None
 # visible on fresh install. Users can toggle with `/agent global off`.
 global_agents: bool = True
 
+# ── custom slash commands ──────────────────────────────────────────────────
+# User-authored prompt templates (markdown files) triggered directly as
+# `/<name> [args]`. Discovered by ``jarvis.storage.commands``. Defaults to
+# True so commands exported to ~/.harness/commands/ work in every project.
+global_commands: bool = True
+
 # ── visual theme ────────────────────────────────────────────────────────────
 # These are kept in sync with jarvis/tui/theme.py PALETTES.
 THEMES = {
@@ -320,6 +326,27 @@ def _reload_saved_mcp() -> None:
         pass
 
 
+def save_commands_config() -> None:
+    """Persist ``commands.global`` to settings.json."""
+    try:
+        from .storage.settings import get_settings
+        get_settings().set("commands.global", global_commands)
+    except Exception:
+        pass
+
+
+def _reload_saved_commands() -> None:
+    """Restore ``commands.global`` from settings.json."""
+    global global_commands
+    try:
+        from .storage.settings import get_settings
+        v = get_settings().get("commands.global")
+        if isinstance(v, bool):
+            global_commands = v
+    except Exception:
+        pass
+
+
 # ── agent persistence ──────────────────────────────────────────────────────
 
 
@@ -460,6 +487,7 @@ def apply_settings_to_state() -> None:
     _reload_saved_theme()
     prev_mcp = global_mcp
     _reload_saved_skills()
+    _reload_saved_commands()
     _reload_saved_mcp()
     _reload_saved_think()
     _reload_saved_trace()
@@ -488,6 +516,7 @@ def apply_settings_to_state() -> None:
 
 _reload_saved_theme()
 _reload_saved_skills()
+_reload_saved_commands()
 _reload_saved_think()
 _reload_saved_trace()
 _reload_saved_pin()

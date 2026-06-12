@@ -10,12 +10,14 @@ CONFIG_DIR = pathlib.Path.home() / ".config" / "harness-agent"
 HARNESS_HOME = pathlib.Path.home() / ".harness"
 HARNESS_AGENTS_DIR = HARNESS_HOME / "agents"
 HARNESS_SKILLS_DIR = HARNESS_HOME / "skills"
+HARNESS_COMMANDS_DIR = HARNESS_HOME / "commands"
 HARNESS_SETTINGS_FILE = HARNESS_HOME / "settings.json"
 
 # Project-local Harness directory (per-repo .harness/).
 PROJECT_HARNESS_DIRNAME = ".harness"
 PROJECT_AGENTS_DIRNAME = ".harness/agents"
 PROJECT_SKILLS_DIRNAME = ".harness/skills"
+PROJECT_COMMANDS_DIRNAME = ".harness/commands"
 PROJECT_HARNESS_SETTINGS = ".harness/settings.json"
 
 

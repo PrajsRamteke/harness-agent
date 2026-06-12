@@ -47,6 +47,11 @@ def _is_skill_picker_command(text: str) -> bool:
     return s in ("/skill", "/skills")
 
 
+def _is_command_manager_command(text: str) -> bool:
+    s = (text or "").strip().lower()
+    return s in ("/command", "/commands")
+
+
 def _is_memory_modal_command(text: str) -> bool:
     s = (text or "").strip().lower()
     return s in ("/memory", "/memories")

@@ -42,6 +42,8 @@ COMMANDS = [
     # Agents — modal handles browse · activate · new · edit · global · scope
     ("/agent", "open the agent control modal"),
     ("/agent init", "scaffold a .harness/ tree in the current project"),
+    # Custom commands — user-defined prompt templates triggered as /<name>
+    ("/command", "open the command manager modal (new · edit · delete · import/export · global)"),
     # Theme — modal handles the picker
     ("/theme", "open the theme picker (15 themes — live preview)"),
     # Scan
@@ -73,12 +75,38 @@ COMMANDS = [
 ]
 
 
+def _custom_command_entries():
+    """User-defined commands from .harness/commands/ (and global dirs).
+
+    Listed after the built-ins so the palette stays predictable. Failures
+    (e.g. during early startup) silently yield no extra entries.
+    """
+    try:
+        from ..storage.commands import list_commands
+        builtin_heads = {c.split()[0] for c, _ in COMMANDS}
+        entries = []
+        for rec in list_commands():
+            if f"/{rec['name']}" in builtin_heads:
+                # built-ins always win in dispatch — don't advertise the shadowed file
+                continue
+            hint = f" {rec['argument_hint']}" if rec.get("argument_hint") else ""
+            tag = "global" if rec.get("scope") == "global" else "project"
+            entries.append((
+                f"/{rec['name']} ",
+                f"⌘ custom ({tag}){hint} — {rec.get('description') or 'user-defined prompt'}",
+            ))
+        return entries
+    except Exception:
+        return []
+
+
 def filter_commands(query: str):
     """Return commands whose cmd or description matches the query substring."""
+    catalog = COMMANDS + _custom_command_entries()
     q = query.strip().lower()
     if not q or q == "/":
-        return COMMANDS
+        return catalog
     return [
-        (c, d) for (c, d) in COMMANDS
+        (c, d) for (c, d) in catalog
         if q in c.lower() or q in d.lower()
     ]

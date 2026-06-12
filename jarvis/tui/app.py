@@ -58,6 +58,7 @@ from .app_commands import (  # noqa: F401
     _is_mcp_modal_command,
     _is_agent_picker_command,
     _is_skill_picker_command,
+    _is_command_manager_command,
     _is_memory_modal_command,
     _is_pin_modal_command,
     _is_lesson_modal_command,
@@ -742,6 +743,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                 self._open_skill_browser()
                 inp.focus()
                 return
+            if _is_command_manager_command(cmd):
+                self._open_command_manager()
+                return
             if _is_memory_modal_command(cmd):
                 self._open_memory_modal()
                 inp.focus()
@@ -893,6 +897,25 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         from .skill_modal import SkillBrowserScreen
 
         self.push_screen(SkillBrowserScreen(), after)
+
+    def _open_command_manager(self):
+        """Open the custom-command manager modal.
+
+        A string dismiss value (an `/<name> ` invocation or a full template)
+        lands in the prompt box so the user can edit it before sending.
+        """
+        def after(result: object) -> None:
+            inp = self.query_one("#prompt", PromptArea)
+            if isinstance(result, str) and result:
+                inp.text = result
+                lines = result.split("\n")
+                inp.move_cursor((len(lines) - 1, len(lines[-1])))
+                self._last_input_value = result
+            inp.focus()
+            self._set_status("ready")
+        from .command_modal import CommandManagerScreen
+
+        self.push_screen(CommandManagerScreen(), after)
 
     def _open_memory_modal(self):
         def after(_: object) -> None:
@@ -1174,6 +1197,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         if stripped in ("/skill", "/skills"):
             self._open_skill_browser()
             return
+        if stripped in ("/command", "/commands"):
+            self._open_command_manager()
+            return
         if stripped in ("/memory",):
             self._open_memory_modal()
             return
@@ -1263,6 +1289,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             return
         if _is_skill_picker_command(text):
             self._open_skill_browser()
+            return
+        if _is_command_manager_command(text):
+            self._open_command_manager()
             return
         if _is_memory_modal_command(text):
             self._open_memory_modal()

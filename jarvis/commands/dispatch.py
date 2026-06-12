@@ -16,6 +16,7 @@ from .memory import handle_memory
 from .lesson import handle_lesson
 from .skill import handle_skill
 from .agent import handle_agent
+from .command import handle_command, try_custom_command
 from .scan import handle_scan
 from .upgrade import cmd_upgrade
 from .settings import handle_settings
@@ -67,6 +68,12 @@ def handle_slash(inp: str):
     if handled:
         return ("ok", False, inp)
 
+    handled, cmd_inp = handle_command(c, arg)
+    if handled:
+        if cmd_inp:
+            return ("ok", True, cmd_inp)
+        return ("ok", False, inp)
+
     handled, scan_inp = handle_scan(c, arg)
     if handled:
         if scan_inp:
@@ -95,5 +102,10 @@ def handle_slash(inp: str):
             return ("ok", True, new_inp)
         return ("ok", False, inp)
 
-    console.print(f"[red]unknown: {c}[/]  (/help)")
+    # last chance: user-defined custom command (/pr-description, /test, …)
+    expanded = try_custom_command(c, arg)
+    if expanded is not None:
+        return ("ok", True, expanded)
+
+    console.print(f"[red]unknown: {c}[/]  (/help — or /command new {c.lstrip('/')} to define it)")
     return ("ok", False, inp)

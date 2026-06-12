@@ -60,7 +60,7 @@ python -m pytest tests/ -q
 | `repl/` | Stream handling (`stream.py`), response rendering (`render.py`), hallucination guard (`hallucination.py`), context trimming (`trim.py`) |
 | `tui/` | Textual app (`app.py`), command palette, session/model/agent/skill pickers, MCP modal |
 | `commands/` | Slash command handlers dispatched from `dispatch.py` (`agent.py` activates agents, `skill.py` lists/loads skills) |
-| `storage/` | SQLite sessions (`sessions.py`), user memory (`memory.py`), **agents (`agents.py`)**, **skills (`skills.py`)**, unified settings (`settings.py`), prefs (`prefs.py`) |
+| `storage/` | SQLite sessions (`sessions.py`), user memory (`memory.py`), **agents (`agents.py`)**, **skills (`skills.py`)**, **custom commands (`commands.py`)**, unified settings (`settings.py`), prefs (`prefs.py`) |
 | `mcp/` | MCP server management: config (`config.py`), registry (`registry.py`), manager (`manager.py`) |
 | `utils/` | Shared helpers: `io.py` (secure file writes), `http.py`, `html_clean.py`, `serialize.py`, `time_fmt.py` |
 | `state.py` | **Module-level mutable globals** shared across the package (client, messages, model, flags, theme, **active_agent**) — mutate via `jarvis.state.<name> = ...` |
@@ -76,6 +76,7 @@ python -m pytest tests/ -q
 - **Project context**: On startup, detects `AGENTS.md`, `AGENT.md`, `CLAUDE.md`, or `JARVIS.md` in CWD and stores only the path in `state.project_context_*`; file content is loaded on demand via `read_file()`.
 - **Agents**: Markdown files with YAML frontmatter (`storage/agents.py`). Project sources scanned always: `.harness/agents/`, `.claude/agents/`, `.opencode/agents/`, `.agents/`, `.cursor/agents/`. Global (opt-in via `agent.global`): `~/.harness/agents/`, `~/.claude/agents/`, `~/.config/opencode/agents/`. At most one active agent at a time; its body is appended to the system prompt by `repl/system.py:_agent_addon_block()`. Bundled defaults (coding/reverse_eng/setup) seeded into `~/.harness/agents/` on first run.
 - **Skills**: SKILL.md packs auto-invoked by the LLM based on `description:` frontmatter. Project sources: `.harness/skills/`, `.skills/`, `.opencode/skills/`, `.claude/skills/`, `.agents/skills/`. Global (opt-in via `skills.global`): `~/.harness/skills/`, `~/.config/harness-agent/skills/`, `~/.claude/skills/`, `~/.config/opencode/skills/`. The picker modal (`tui/skill_modal.py`) is read-only browsing — no sticky selection.
+- **Custom commands**: User-defined prompt templates (`storage/commands.py`) triggered directly as `/<name> [args]` — dispatch falls through to them after all built-ins (`commands/dispatch.py:try_custom_command`). Project sources (recursive): `.harness/commands/`, `.claude/commands/`, `.opencode/command(s)/`, `.agents/commands/`. Global (opt-in via `commands.global`, default **on**): `~/.harness/commands/`, `~/.config/harness-agent/commands/`, `~/.claude/commands/`, `~/.config/opencode/command(s)/`. Body placeholders `$ARGUMENTS` and `$1`…`$9` are filled from the typed args (`expand_template`); args with no placeholder are appended. Managed via `/command` (`commands/command.py`): new/edit/show/delete/refresh/run, `global on|off`, `scope`, `export`/`import`. In the TUI, bare `/command` opens the manager modal (`tui/command_modal.py`): Enter inserts `/<name> ` into the prompt box, `t` inserts the full template for editing, `n`/`e` open an in-app editor sub-modal (name + description inputs + template TextArea; `^s` saves via `storage/commands.py:write_command`, which edits project AND global files in place and renames on name change), `d` delete, `i`/`x` import/export, `g`/`s` scope toggles. Custom commands also appear in the palette via `commands_catalog.filter_commands`; built-ins always shadow same-named custom commands.
 
 ### Adding a new tool
 
@@ -104,3 +105,10 @@ python -m pytest tests/ -q
 1. Create `.harness/skills/<name>/SKILL.md` (project) or `~/.harness/skills/<name>/SKILL.md` (global).
 2. Required frontmatter: `name`, `description`. The directory name MUST equal `name`.
 3. Body markdown is the skill content. The LLM auto-invokes via `/skill load <name>` when the description matches the task.
+
+### Adding a custom command
+
+1. Run `/command new <name> [description]` — or drop a markdown file at `.harness/commands/<name>.md` (project) / `~/.harness/commands/<name>.md` (global).
+2. Frontmatter is optional (`name`, `description`, `argument-hint`); without it the whole file is the template and the first line becomes the description. If `name` is given it must match the filename stem (lowercase-kebab).
+3. The body is the prompt template; `$ARGUMENTS` and `$1`…`$9` are substituted from whatever the user types after `/<name>`.
+4. Trigger with `/<name> [args]` (or `/command run <name> [args]`). `/command refresh` re-scans; `/command export|import <name>` moves between scopes.

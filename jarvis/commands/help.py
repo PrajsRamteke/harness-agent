@@ -51,6 +51,16 @@ _SECTIONS = [
         ("/agent", "open the agent control modal · n new · e edit · p preview · g global · s scope · o default"),
         ("/agent init", "scaffold a .harness/ tree in the current project"),
     ]),
+    ("Custom Commands (your reusable prompts)", [
+        ("/<name> [args]", "trigger a custom command directly — e.g. /pr-description extra notes"),
+        ("/command", "open the command manager modal · ↵ to input · t template · n new · e edit · d delete · i/x import/export · g global"),
+        ("/command new <name> [desc]", "create one — edit the .md template, then trigger as /<name>"),
+        ("/command edit|show|delete <name>", "manage a command file"),
+        ("/command export|import <name>", "copy between project (.harness/commands) and global (~/.harness/commands)"),
+        ("/command global on|off", "toggle global command discovery (persisted)"),
+        ("/command scope project|global", "where /command new writes"),
+        ("  $ARGUMENTS · $1…$9", "placeholders in the template, filled from what you type after /<name>"),
+    ]),
     ("Theme", [
         ("/theme", "open the theme picker (15 themes — live preview)"),
     ]),

@@ -24,6 +24,7 @@ from ..constants import (
     PROJECT_HARNESS_DIRNAME,
     PROJECT_AGENTS_DIRNAME,
     PROJECT_SKILLS_DIRNAME,
+    PROJECT_COMMANDS_DIRNAME,
 )
 from ..storage import agents as ag
 from .. import state
@@ -239,10 +240,12 @@ _README_BODY = (
     "- `agents/<name>.md` — project-local agents (frontmatter + body markdown).\n"
     "- `skills/<name>/SKILL.md` — instruction packs the LLM auto-invokes when\n"
     "  their `description:` matches the task.\n"
+    "- `commands/<name>.md` — custom slash commands: reusable prompt templates\n"
+    "  triggered as `/<name> [args]` (placeholders: `$ARGUMENTS`, `$1`…`$9`).\n"
     "- `settings.json` — overrides for this project (merged over the global\n"
     "  `~/.config/harness-agent/settings.json`).\n\n"
-    "See `/agent` and `/skill` for activation and `~/.harness/` for the\n"
-    "user-global counterpart.\n"
+    "See `/agent`, `/skill`, and `/command` for activation and `~/.harness/`\n"
+    "for the user-global counterpart.\n"
 )
 
 
@@ -268,9 +271,10 @@ def _scaffold_project_tree(force: bool = False) -> tuple[bool, str]:
         harness = root / PROJECT_HARNESS_DIRNAME
         agents_dir = root / PROJECT_AGENTS_DIRNAME
         skills_dir = root / PROJECT_SKILLS_DIRNAME
+        commands_dir = root / PROJECT_COMMANDS_DIRNAME
 
         created: list[str] = []
-        for d in (harness, agents_dir, skills_dir):
+        for d in (harness, agents_dir, skills_dir, commands_dir):
             if not d.exists():
                 d.mkdir(parents=True, exist_ok=True)
                 created.append(str(d.relative_to(root)))
@@ -280,8 +284,8 @@ def _scaffold_project_tree(force: bool = False) -> tuple[bool, str]:
             readme.write_text(_README_BODY, encoding="utf-8")
             created.append(str(readme.relative_to(root)))
 
-        # .gitkeep so empty agents/skills survive git
-        for d in (agents_dir, skills_dir):
+        # .gitkeep so empty agents/skills/commands survive git
+        for d in (agents_dir, skills_dir, commands_dir):
             keep = d / ".gitkeep"
             if not keep.exists() and not any(d.iterdir()):
                 keep.write_text(_GITKEEP, encoding="utf-8")
