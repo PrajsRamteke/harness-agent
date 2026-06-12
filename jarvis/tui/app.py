@@ -357,10 +357,26 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         that print to the transcript (MCP auto-connect, updater) are started
         from here — not ``on_mount`` — so their output can never land above
         the welcome art.
+
+        When the full block-letter art fits, it enters with a one-second
+        shine sweep (see ``intro_anim.py``); the rest of the intro and the
+        background workers start only after the sweep settles, so the
+        transcript stays exclusively ours while frames are redrawn.
         """
-        from ..repl.banners import welcome_banner
+        from ..repl.banners import welcome_banner, welcome_art_for_width, _console_width
+
+        art = welcome_art_for_width(_console_width())
+        # Animate only the block art, and never when a CLI prompt is about
+        # to be auto-submitted into the transcript.
+        if art and "█" in art and not state.startup_prompt:
+            self._animate_welcome_art(art)
+            return
 
         welcome_banner()
+        self._finish_welcome_intro()
+
+    def _finish_welcome_intro(self) -> None:
+        """Everything after the banner: sign-in hint, context strip, workers."""
         if state.client is None:
             self._tui_console.print(
                 f"[{ui.WARN}]Not signed in[/] — use [cyan]/login[/] for OAuth "
@@ -370,6 +386,47 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
 
         self._auto_connect_mcp_background()
         self._check_for_updates_background()
+
+    # ─── welcome art shine animation ──────────────────────────────────
+    def _animate_welcome_art(self, art: str) -> None:
+        """Sweep a bright band across the art, then settle into the banner."""
+        from .intro_anim import shine_frame, sweep_centers
+
+        log = self.query_one("#transcript", RichLog)
+        self._intro_art = art
+        self._intro_centers = sweep_centers(art)
+        self._intro_idx = 0
+        log.write(shine_frame(art, self._intro_centers[0], ui.ACCENT_3))
+        self._intro_expected_lines = len(log.lines)
+        self._intro_timer = self.set_interval(1 / 22, self._intro_anim_tick)
+
+    def _intro_anim_tick(self) -> None:
+        from ..repl.banners import welcome_banner
+        from .intro_anim import shine_frame
+
+        log = self.query_one("#transcript", RichLog)
+
+        # Someone else wrote to the transcript mid-sweep (e.g. a very fast
+        # user) — stop redrawing immediately and finish the intro without
+        # clearing, so nothing they see gets eaten.
+        if len(log.lines) != self._intro_expected_lines:
+            self._intro_timer.stop()
+            welcome_banner(skip_art=True)
+            self._finish_welcome_intro()
+            return
+
+        self._intro_idx += 1
+        if self._intro_idx >= len(self._intro_centers):
+            # Sweep done — settle into the exact static banner.
+            self._intro_timer.stop()
+            log.clear()
+            welcome_banner()
+            self._finish_welcome_intro()
+            return
+
+        log.clear()
+        log.write(shine_frame(self._intro_art, self._intro_centers[self._intro_idx], ui.ACCENT_3))
+        self._intro_expected_lines = len(log.lines)
 
     # Web-remote behaviour (_start_web_remote, _handle_web_*, _sync_web_*, etc.)
     # lives in WebRemoteMixin (jarvis/tui/mixins/web_remote.py).

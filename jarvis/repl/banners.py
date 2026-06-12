@@ -141,11 +141,13 @@ def welcome_art_for_width(width: int) -> str | None:
     return None
 
 
-def welcome_banner(compact: bool = False):
+def welcome_banner(compact: bool = False, skip_art: bool = False):
     """Render the welcome card into the active console (transcript in TUI).
 
     Colors are resolved live from the current theme so the art and panel
-    shift when the user switches themes mid-session.
+    shift when the user switches themes mid-session. ``skip_art`` prints
+    only the card — used by the TUI after the animated art sweep has
+    already drawn the banner art itself.
     """
     c = _theme_colors()
     from ..constants import VERSION
@@ -167,7 +169,7 @@ def welcome_banner(compact: bool = False):
     #   dracula   → #8be9fd (cyan)
     #   sunset    → #f7c08a (peach)
     #   dark      → #ce9178 (warm orange)
-    art = None if compact else welcome_art_for_width(_console_width())
+    art = None if (compact or skip_art) else welcome_art_for_width(_console_width())
     if art:
         console.print(f"[{c['accent_3']}]{art}[/]")
 
