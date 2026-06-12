@@ -62,6 +62,10 @@ startup_prompt: str = ""  # one-shot prompt from `jarvis "..."` CLI args
 web_enabled: bool = False
 web_port: int = 8765
 auto_approve: bool = False
+# Plan mode — session-scoped (never persisted). While True the tool router
+# exposes only read-only tools + exit_plan_mode; flipped off when the user
+# approves a plan (tools/plan.py) or runs /plan off.
+plan_mode: bool = False
 session_start: float = time.time()
 tool_calls_count: int = 0
 last_assistant_text: str = ""

@@ -565,6 +565,10 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             f"=[{ui.FG_MUTE}]{state.total_tokens}[/]"
         )
 
+        # ── plan mode ─────────────────────────────────────────────────
+        if state.plan_mode:
+            segs.append(f"[b {ui.WARN}]⊘ plan[/]")
+
         # ── think ─────────────────────────────────────────────────────
         if state.think_mode:
             segs.append(f"[{ui.OK}]think:{state.think_effort}[/]")

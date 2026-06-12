@@ -23,5 +23,10 @@ def emit_tool_start(*, tool_id: str, name: str, label: str) -> None:
     _emit("tool_start", {"id": tool_id, "name": name, "label": label})
 
 
-def emit_tool_done(*, tool_id: str, name: str, label: str, error: bool = False) -> None:
-    _emit("tool_done", {"id": tool_id, "name": name, "label": label, "error": error})
+def emit_tool_done(
+    *, tool_id: str, name: str, label: str, error: bool = False, repaired: bool = False
+) -> None:
+    _emit(
+        "tool_done",
+        {"id": tool_id, "name": name, "label": label, "error": error, "repaired": repaired},
+    )

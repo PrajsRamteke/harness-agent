@@ -19,6 +19,7 @@ from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .lessons import lesson_save, lesson_search, lesson_list, lesson_delete, LESSON_TOOLS
 from .skills import skill_list, skill_load, SKILL_TOOLS
 from .ask_user import ask_user_question
+from .plan import exit_plan_mode, PLAN_TOOLS, PLAN_MODE_ALLOWED
 from .schemas_core import CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS
 from .schemas_mac import MAC_TOOLS
 
@@ -36,6 +37,7 @@ TOOL_GROUPS: dict[str, list[dict]] = {
     "skills": SKILL_TOOLS,
     "ocr": OCR_TOOLS,
     "mcp": MCP_TOOLS,
+    "plan": PLAN_TOOLS,
 }
 TOOL_NAME_TO_GROUP: dict[str, str] = {
     tool["name"]: group
@@ -81,6 +83,8 @@ FUNC = {
     "read_images_text": read_images_text,
     # user input
     "ask_user_question": ask_user_question,
+    # plan mode gate
+    "exit_plan_mode": exit_plan_mode,
 }
 
 # ── MCP registry integration ─────────────────────────────────────────────

@@ -7,7 +7,7 @@ from rich.text import Text
 from ..console import console, Panel, Markdown
 from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT, MAX_PARALLEL_TOOLS, CONTEXT_BUNDLE_MAX_CHARS
 from ..tools import FUNC
-from ..utils.tool_repair import repair_tool_input
+from ..utils.tool_repair import REPAIR_NOTE_MARKER, has_repair_note, repair_tool_input
 from .. import state
 from .hallucination import _scrub_hallucinations
 from .tool_activity import describe_tool_activity
@@ -60,6 +60,7 @@ _SERIAL_TOOLS = {
     # context — builds/shared state
     "resolve_context", "read_bundle",
     "ask_user_question",
+    "exit_plan_mode",
     # JSON-backed storage — file-level read/write races when run in parallel
     "memory_save", "memory_delete",
     "lesson_save", "lesson_delete",
@@ -126,6 +127,7 @@ def _run_tool(b):
             name=b.name,
             label=activity_label,
             error=str(out_str).startswith("ERROR"),
+            repaired=has_repair_note(out_str),
         )
         return b, icon, args_preview, out_str
 
@@ -138,14 +140,22 @@ def _run_tool(b):
 
     # Strip unknown kwargs that some models hallucinate (e.g. `language`,
     # `description`) which would otherwise crash the tool with a confusing
-    # `unexpected keyword argument` TypeError.
-    call_input = b.input if isinstance(b.input, dict) else {}
+    # `unexpected keyword argument` TypeError. Strings are passed through so
+    # the repair layer can parse stringified JSON argument objects.
+    call_input = b.input if isinstance(b.input, (dict, str)) else {}
 
     # ── smart repair layer ─────────────────────────────────────────
     # Auto-fix common formatting mistakes in model tool arguments
-    # (null on optional fields, stringified arrays, markdown in paths, …)
-    # so open-source models don't look "dumb" for small harness-level issues.
+    # (null on optional fields, wrong param names, stringified arrays,
+    # markdown in paths, …) so models don't look "dumb" for small
+    # harness-level issues.
     call_input, repair_log = repair_tool_input(b.name, call_input)
+    if not isinstance(call_input, dict):
+        return _finish(
+            f"ERROR: tool '{b.name}' received non-object arguments that could "
+            "not be parsed. Re-issue the call with a JSON object matching the "
+            "tool's input_schema."
+        )
 
     if b.name not in FUNC:
         if is_mcp_tool(b.name):
@@ -165,6 +175,17 @@ def _run_tool(b):
         else:
             out = f"ERROR: tool '{b.name}' is not available in this session"
         return _finish(str(out))
+
+    # Plan mode guard — the router withholds mutating schemas, but a model can
+    # still emit a remembered tool name. Never execute one while planning.
+    if state.plan_mode:
+        from ..tools.plan import PLAN_MODE_ALLOWED
+        if b.name not in PLAN_MODE_ALLOWED:
+            return _finish(
+                f"ERROR: PLAN MODE is active — '{b.name}' is blocked (read-only "
+                "research only). Finish the plan and call exit_plan_mode to "
+                "request user approval before making any changes."
+            )
 
     try:
         out = FUNC[b.name](**call_input)
@@ -199,7 +220,7 @@ def _run_tool(b):
 
     out_str = str(out)
     if repair_log:
-        out_str += "\n[repair note: " + "; ".join(repair_log) + "]"
+        out_str += f"\n{REPAIR_NOTE_MARKER} " + "; ".join(repair_log) + "]"
     return _finish(out_str)
 
 
@@ -359,7 +380,10 @@ def render_assistant(resp) -> bool:
                 icon, ap, out_str = outputs[b.id]
                 state.record_tool_output(b.name, ap, out_str)
                 if state.show_internal and not compact_file_tool_ui():
-                    console.print(f"{icon} [{_ui.WARN}]{b.name}[/] [{_ui.FG_DIM}]{ap}[/]")
+                    repaired_tag = (
+                        f" [{_ui.WARN}]⚒ repaired[/]" if has_repair_note(out_str) else ""
+                    )
+                    console.print(f"{icon} [{_ui.WARN}]{b.name}[/] [{_ui.FG_DIM}]{ap}[/]{repaired_tag}")
                     if re.search(r"\S", out_str):
                         body, _trunc = format_tool_output_preview(out_str)
                         console.print(

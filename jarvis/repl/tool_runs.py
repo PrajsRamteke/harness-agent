@@ -119,6 +119,7 @@ def _register_run_entry(
             "chars": 0,
             "content": "",
             "error": False,
+            "repaired": False,
         }
         if tool_id not in _order:
             _order.append(tool_id)
@@ -301,7 +302,10 @@ def set_running(tool_id: str) -> None:
 
 
 def set_done(tool_id: str, content: str) -> None:
+    from ..utils.tool_repair import has_repair_note
+
     raw = content or ""
+    repaired = has_repair_note(raw)
     children = _children_of(tool_id)
     if children:
         paths = [_runs[tid]["label"] for tid in children if tid in _runs]
@@ -319,6 +323,7 @@ def set_done(tool_id: str, content: str) -> None:
                 run["chars"] = len(snippet)
                 run["content"] = snippet
                 run["error"] = err
+                run["repaired"] = repaired
         _notify_ui()
         return
 
@@ -331,6 +336,7 @@ def set_done(tool_id: str, content: str) -> None:
             run["chars"] = len(raw)
             run["content"] = raw
             run["error"] = err
+            run["repaired"] = repaired
     _notify_ui()
 
 

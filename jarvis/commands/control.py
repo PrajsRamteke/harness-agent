@@ -1,4 +1,4 @@
-"""Handlers for /think /auto /verbose /multi /tokens /cost /stats /model and auth subcmds."""
+"""Handlers for /think /auto /plan /verbose /multi /tokens /cost /stats /model and auth subcmds."""
 import os, time
 
 from ..console import console, Panel, Table
@@ -55,6 +55,9 @@ def handle_control(c: str, arg: str):
         return True, None
     if c == "/auto":
         state.auto_approve = not state.auto_approve; header_panel(); return True, None
+    if c == "/plan":
+        _handle_plan(arg)
+        return True, None
     if c in ("/verbose", "/debug"):
         state.show_internal = not state.show_internal
         state.save_trace_config()
@@ -143,6 +146,30 @@ def handle_control(c: str, arg: str):
         _handle_provider(arg)
         return True, None
     return False, None
+
+
+def _handle_plan(arg: str = "") -> None:
+    """/plan [on|off] — toggle read-only plan mode (session-scoped)."""
+    value = (arg or "").strip().lower()
+    if not value:
+        state.plan_mode = not state.plan_mode
+    elif value in ("on", "true", "yes"):
+        state.plan_mode = True
+    elif value in ("off", "false", "no"):
+        state.plan_mode = False
+    else:
+        console.print("[red]usage:[/] /plan [on|off]")
+        return
+
+    if state.plan_mode:
+        console.print(
+            "[green]✓ plan mode on[/] [dim]— read-only tools only; the agent "
+            "researches, presents a plan, and asks for your approval before "
+            "any file edits or shell commands. /plan off to exit manually.[/]"
+        )
+    else:
+        console.print("[green]✓ plan mode off[/] [dim]— full tool access restored[/]")
+    header_panel()
 
 
 def _handle_think(arg: str = "") -> None:

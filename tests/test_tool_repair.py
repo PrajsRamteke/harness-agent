@@ -849,7 +849,9 @@ def _minimal_valid_input(schema: dict[str, Any]) -> dict[str, Any]:
             if items.get("type") == "string":
                 data[key] = ["a"]
             elif items.get("type") == "object":
-                data[key] = [{"key": "value"}]
+                # build a schema-valid item recursively so the nested
+                # array-object fixer has nothing to repair
+                data[key] = [_minimal_valid_input(items)]
             else:
                 data[key] = []
         elif ptype == "object":
@@ -902,6 +904,152 @@ class TestAllToolsRepairCoverage(unittest.TestCase):
                     self.assertEqual(data, expected)
                 if name == "write_file":
                     self.assertIsInstance(data["content"], str)
+
+
+class TestAliasRepairs(unittest.TestCase):
+    """Claude-Code / OpenAI style param names must be renamed, not stripped."""
+
+    def test_read_file_file_path_alias(self):
+        data, log = repair_tool_input("read_file", {"file_path": "main.py"})
+        self.assertEqual(data, {"path": "main.py"})
+        self.assertTrue(any("renamed" in entry for entry in log))
+
+    def test_edit_file_claude_style_params(self):
+        data, log = repair_tool_input(
+            "edit_file",
+            {"file_path": "main.py", "old_string": "a", "new_string": "b"},
+        )
+        self.assertEqual(data, {"path": "main.py", "old_str": "a", "new_str": "b"})
+        self.assertEqual(len(log), 3)
+
+    def test_run_bash_command_alias(self):
+        data, log = repair_tool_input("run_bash", {"command": "ls"})
+        self.assertEqual(data, {"cmd": "ls"})
+
+    def test_search_code_query_alias(self):
+        data, log = repair_tool_input("search_code", {"query": "def main"})
+        self.assertEqual(data, {"pattern": "def main"})
+
+    def test_bool_not_renamed_into_string_field(self):
+        """edit_file replace=true must not become new_str=True."""
+        data, log = repair_tool_input(
+            "edit_file",
+            {"path": "a.py", "old_str": "x", "new_str": "y", "replace": True},
+        )
+        self.assertEqual(data["new_str"], "y")
+        self.assertNotIn("replace", data)  # stripped, not renamed
+
+
+class TestWrappedArguments(unittest.TestCase):
+    def test_unwraps_arguments_envelope(self):
+        data, log = repair_tool_input(
+            "read_file", {"arguments": {"path": "main.py"}}
+        )
+        self.assertEqual(data, {"path": "main.py"})
+        self.assertTrue(any("envelope" in entry for entry in log))
+
+    def test_does_not_unwrap_real_schema_property(self):
+        schema = {
+            "type": "object",
+            "properties": {"input": {"type": "object"}},
+            "required": ["input"],
+        }
+        raw = {"input": {"a": 1}}
+        data, log = repair_tool_input("fake_tool", raw, schema=schema)
+        self.assertEqual(data, {"input": {"a": 1}})
+        self.assertEqual(log, [])
+
+
+class TestContainerWrapping(unittest.TestCase):
+    def test_bare_string_wrapped_for_string_array(self):
+        data, log = repair_tool_input("read_bundle", {"paths": "a.py"})
+        self.assertEqual(data["paths"], ["a.py"])
+
+    def test_bare_object_wrapped_for_object_array(self):
+        data, log = repair_tool_input(
+            "multi_edit",
+            {"edits": {"path": "a.py", "old_str": "x", "new_str": "y"}},
+        )
+        self.assertEqual(
+            data["edits"], [{"path": "a.py", "old_str": "x", "new_str": "y"}]
+        )
+
+    def test_malformed_json_array_string_not_wrapped(self):
+        data, log = repair_tool_input("read_bundle", {"paths": "[broken"})
+        self.assertEqual(data["paths"], "[broken")
+
+
+class TestNestedArrayObjectRepair(unittest.TestCase):
+    def test_multi_edit_items_with_claude_style_names(self):
+        data, log = repair_tool_input(
+            "multi_edit",
+            {
+                "edits": [
+                    {"file_path": "a.py", "old_string": "x", "new_string": "y"},
+                    {"path": "b.py", "old_str": "1", "new_str": "2"},
+                ]
+            },
+        )
+        self.assertEqual(
+            data["edits"][0], {"path": "a.py", "old_str": "x", "new_str": "y"}
+        )
+        self.assertEqual(
+            data["edits"][1], {"path": "b.py", "old_str": "1", "new_str": "2"}
+        )
+        self.assertTrue(any("edits[0]" in entry for entry in log))
+
+    def test_does_not_mutate_caller_input(self):
+        raw = {"edits": [{"file_path": "a.py", "old_string": "x", "new_string": "y"}]}
+        repair_tool_input("multi_edit", raw)
+        self.assertEqual(
+            raw["edits"][0],
+            {"file_path": "a.py", "old_string": "x", "new_string": "y"},
+        )
+
+    def test_valid_items_untouched(self):
+        raw = {"edits": [{"path": "a.py", "old_str": "x", "new_str": "y"}]}
+        data, log = repair_tool_input("multi_edit", raw)
+        self.assertIs(data, raw)
+        self.assertEqual(log, [])
+
+
+class TestNewCoercions(unittest.TestCase):
+    def test_float_string_for_integer_field(self):
+        data, log = repair_tool_input("run_bash", {"cmd": "ls", "timeout": "30.0"})
+        self.assertEqual(data["timeout"], 30)
+        self.assertIsInstance(data["timeout"], int)
+
+    def test_boolean_yes_and_one(self):
+        data, _ = repair_tool_input("read_file", {"path": "a.py", "force": "yes"})
+        self.assertIs(data["force"], True)
+        data, _ = repair_tool_input("read_file", {"path": "a.py", "force": "0"})
+        self.assertIs(data["force"], False)
+
+    def test_cmd_single_element_list_unwrapped(self):
+        data, log = repair_tool_input("run_bash", {"cmd": ["ls -la"]})
+        self.assertEqual(data["cmd"], "ls -la")
+
+    def test_content_lines_joined_not_json(self):
+        data, log = repair_tool_input(
+            "write_file", {"path": "a.txt", "content": ["line1", "line2"]}
+        )
+        self.assertEqual(data["content"], "line1\nline2")
+
+    def test_stringified_whole_arguments(self):
+        data, log = repair_tool_input("read_file", '{"path": "main.py"}')
+        self.assertEqual(data, {"path": "main.py"})
+        self.assertTrue(any("stringified JSON arguments" in entry for entry in log))
+
+    def test_unparseable_string_arguments_returned_as_is(self):
+        data, log = repair_tool_input("read_file", "not json at all")
+        self.assertEqual(data, "not json at all")
+        self.assertEqual(log, [])
+
+    def test_markdown_link_with_trailing_text_untouched(self):
+        """fullmatch only — values that merely START with a link are content."""
+        raw = {"path": "[main.py](url) and more"}
+        data, log = repair_tool_input("read_file", raw)
+        self.assertEqual(data["path"], "[main.py](url) and more")
 
 
 class TestRepairInRenderFlow(unittest.TestCase):

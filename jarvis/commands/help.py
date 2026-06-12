@@ -68,6 +68,7 @@ _SECTIONS = [
         ("/think mode", "open thinking effort picker (xhigh/high/medium/low/minimal/none)"),
         ("/verbose", "toggle internal tool trace (thinking panels only with /think on)"),
         ("/auto", "toggle auto-approve bash"),
+        ("/plan", "toggle plan mode — read-only research until you approve a plan"),
         ("/multi", "enter a multiline message (end with ';;' line)"),
         ("/model <name>", "switch model (Harness Agent free tier listed first)"),
         ("/mode", "alias for /model — open model picker"),

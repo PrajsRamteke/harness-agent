@@ -202,25 +202,114 @@ def write_file(path: str, content: str, allow_outside_project: bool = False) -> 
     return f"WROTE {p} ({len(content)} bytes)"
 
 
+# Invisible characters that commonly differ between model output and file
+# content (non-breaking / narrow spaces pasted from rendered text).
+_INVISIBLE_SPACE_CHARS = ("\u00a0", "\u202f", "\u2007")  # NBSP, narrow NBSP, figure space
+
+
+def _norm_match_line(line: str) -> str:
+    for ch in _INVISIBLE_SPACE_CHARS:
+        line = line.replace(ch, " ")
+    return line.rstrip()
+
+
+def _whitespace_tolerant_spans(txt: str, old_str: str) -> list[tuple[int, int]]:
+    """Find old_str in txt comparing line-by-line, ignoring trailing
+    whitespace, CRLF vs LF, and non-breaking-space differences.
+
+    Returns non-overlapping (start, end) character spans covering the exact
+    file text that corresponds to old_str, so replacement preserves the rest
+    of the file byte-for-byte.
+    """
+    old_lines = old_str.splitlines()
+    if not old_lines:
+        return []
+    file_lines = txt.splitlines(keepends=True)
+    old_norm = [_norm_match_line(line) for line in old_lines]
+    file_norm = [_norm_match_line(line) for line in file_lines]
+    n = len(old_norm)
+
+    offsets: list[int] = []
+    pos = 0
+    for line in file_lines:
+        offsets.append(pos)
+        pos += len(line)
+
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i <= len(file_lines) - n:
+        if file_norm[i:i + n] == old_norm:
+            start = offsets[i]
+            last_line = file_lines[i + n - 1]
+            end = offsets[i + n - 1] + len(last_line)
+            # old_str without a trailing newline must not consume the file's
+            if not old_str.endswith(("\n", "\r")):
+                end -= len(last_line) - len(last_line.rstrip("\r\n"))
+            spans.append((start, end))
+            i += n
+        else:
+            i += 1
+    return spans
+
+
 def _apply_text_edit(
     txt: str,
     old_str: str,
     new_str: str,
     replace_all: bool = False,
-) -> tuple[str | None, str | None, int]:
-    """Return (new_text, error_message, match_count)."""
+) -> tuple[str | None, str | None, int, str | None]:
+    """Return (new_text, error_message, match_count, note).
+
+    Matching is exact first; if that fails, falls back to a whitespace-
+    tolerant line match (trailing whitespace / CRLF / non-breaking spaces)
+    and reports the fallback via *note*.
+    """
+    if not old_str:
+        return None, "old_str is empty — provide the exact text to replace", 0, None
+    if old_str == new_str:
+        return None, "old_str and new_str are identical — nothing would change", 0, None
     n = txt.count(old_str)
     if n == 0:
-        return None, "old_str not found", 0
+        spans = _whitespace_tolerant_spans(txt, old_str)
+        if not spans:
+            return (
+                None,
+                "old_str not found — re-read the file and copy the exact text "
+                "(check indentation, tabs vs spaces, and line endings)",
+                0,
+                None,
+            )
+        if len(spans) > 1 and not replace_all:
+            return (
+                None,
+                f"old_str not found exactly; a whitespace-tolerant match hits "
+                f"{len(spans)} locations — add more context or pass replace_all=true",
+                len(spans),
+                None,
+            )
+        targets = spans if replace_all else spans[:1]
+        parts: list[str] = []
+        prev = 0
+        for start, end in targets:
+            parts.append(txt[prev:start])
+            parts.append(new_str)
+            prev = end
+        parts.append(txt[prev:])
+        note = (
+            "matched via whitespace-tolerant fallback — old_str differed in "
+            "trailing whitespace or line endings"
+        )
+        return "".join(parts), None, len(targets), note
     if n > 1 and not replace_all:
         return (
             None,
             f"old_str matches {n} times; pass replace_all=true or add more context",
             n,
+            None,
         )
     new_txt = txt.replace(old_str, new_str) if replace_all else txt.replace(old_str, new_str, 1)
     replacements = n if replace_all else 1
-    return new_txt, None, replacements
+    return new_txt, None, replacements, None
 
 
 def edit_file(
@@ -239,13 +328,16 @@ def edit_file(
         if not p.exists():
             return f"ERROR: {path} not found"
         txt = p.read_text(errors="ignore")
-        new_txt, err, n = _apply_text_edit(txt, old_str, new_str, replace_all)
+        new_txt, err, n, note = _apply_text_edit(txt, old_str, new_str, replace_all)
         if err:
             return f"ERROR: {err}"
         _save_backup(p)
         p.write_text(new_txt)
         _cache_invalidate(p)
-    return f"EDITED {p} ({n} replacement{'s' if n > 1 else ''})"
+    msg = f"EDITED {p} ({n} replacement{'s' if n > 1 else ''})"
+    if note:
+        msg += f"\n[{note}]"
+    return msg
 
 
 _MULTI_EDIT_MAX = 30
@@ -316,7 +408,7 @@ def multi_edit(
                     lines.append(f"{idx}/{len(edits)} ERROR {path}: old_str and new_str are required")
                     continue
 
-                new_txt, err, n = _apply_text_edit(
+                new_txt, err, n, note = _apply_text_edit(
                     txt,
                     str(old_str),
                     str(new_str),
@@ -332,7 +424,10 @@ def multi_edit(
                     backed_up = True
                 txt = new_txt
                 ok += 1
-                lines.append(f"{idx}/{len(edits)} EDITED {path} ({n} replacement{'s' if n > 1 else ''})")
+                lines.append(
+                    f"{idx}/{len(edits)} EDITED {path} ({n} replacement{'s' if n > 1 else ''})"
+                    + (f" [{note}]" if note else "")
+                )
 
             if backed_up:
                 p.write_text(txt)

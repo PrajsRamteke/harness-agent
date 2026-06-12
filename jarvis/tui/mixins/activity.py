@@ -61,6 +61,8 @@ class ActivityMixin:
         elif status == "running":
             elapsed = max(0.0, time.monotonic() - float(run.get("started") or 0))
             tail = f" [{ui.FG_DIM}]{elapsed:.1f}s[/]"
+        if run.get("repaired"):
+            tail += f" [{ui.WARN}]⚒[/]"
         return (
             f"  [{g_style}]{glyph}[/] [{ui.FG_MUTE}]{name:<14}[/] {path_bit}{tail}"
         )

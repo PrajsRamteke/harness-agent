@@ -6,8 +6,10 @@ import re
 from typing import Iterable
 
 from . import TOOL_GROUPS, TOOL_NAME_TO_GROUP, FUNC
+from .plan import PLAN_MODE_ALLOWED
 from ..storage.skills import skill_count
 from ..utils.schema import sanitize_tools
+from .. import state
 
 WEB_RE = re.compile(
     r"\b(web|internet|search online|look up|latest|today|news|price|weather|url|https?://|docs?|documentation)\b",
@@ -119,10 +121,19 @@ def select_tools(messages: list[dict]) -> list[dict]:
     if mcp_tools:
         groups.append("mcp")
 
+    # Plan mode — read-only research until the user approves a plan. Expose
+    # the exit_plan_mode gate and strip every tool that can mutate the
+    # machine, repo, or stored data (writes, shell, mac control, MCP).
+    if state.plan_mode:
+        groups.append("plan")
+
     # Defense in depth: sanitize every tool schema right before it leaves
     # the process. Anthropic rejects top-level oneOf/anyOf/allOf, and some
     # MCP servers (ClickUp, GitHub, TestSprite, …) ship those. Doing it here
     # means a stale TOOL_GROUPS entry from an older registration cycle can't
     # leak the broken shape into the API call.
     tools = sanitize_tools(_dedupe_tools(groups))
-    return [t for t in tools if t["name"] in FUNC]
+    tools = [t for t in tools if t["name"] in FUNC]
+    if state.plan_mode:
+        tools = [t for t in tools if t["name"] in PLAN_MODE_ALLOWED]
+    return tools

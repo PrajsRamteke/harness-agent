@@ -115,6 +115,24 @@ def _agent_addon_block() -> str:
     return "\n\n" + body
 
 
+_PLAN_MODE_BLOCK = (
+    "\n\nPLAN MODE — ACTIVE (read-only):\n"
+    "The user enabled plan mode. You may ONLY research: read files, search, "
+    "inspect git, fetch docs, and ask questions. File edits, shell commands, "
+    "and any mutating tools are unavailable and will be rejected.\n"
+    "Workflow: 1) investigate the codebase until you understand the change; "
+    "2) write a concrete implementation plan (files, edits, order, "
+    "verification); 3) call exit_plan_mode with the full plan to request user "
+    "approval. Do not describe edits as done — nothing can be changed until "
+    "the plan is approved."
+)
+
+
+def _plan_mode_block() -> str:
+    """Plan-mode addon — appended dynamically; never part of the cached body."""
+    return _PLAN_MODE_BLOCK if state.plan_mode else ""
+
+
 def _build_static_body() -> str:
     """Everything except the date/time line and agent addon. Cached between turns."""
     global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key
@@ -232,6 +250,7 @@ def build_system() -> Union[str, List[Dict]]:
 
     body = _selected_model_block() + _build_static_body()
     body += _agent_addon_block()
+    body += _plan_mode_block()
     body += date_line
 
     if state.auth_mode == AUTH_OAUTH:

@@ -58,6 +58,7 @@ COMMANDS = [
     ("/think", "toggle extended thinking (bare /think) — or open effort picker"),
     ("/verbose", "toggle internal tool trace (thinking UI needs /think)"),
     ("/auto", "toggle auto-approve bash"),
+    ("/plan", "toggle plan mode — read-only research until you approve a plan"),
     ("/multi", "enter a multiline message"),
     ("/model", "open model picker (Harness Agent free models listed first)"),
     ("/mode", "alias for /model — open model picker"),
