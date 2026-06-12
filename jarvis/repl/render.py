@@ -110,6 +110,13 @@ def _should_flush_parallel_batch(batch, new_block) -> bool:
 
 
 def _run_tool(b):
+    # Stream-level JSON repair marker injected by the provider adapters when
+    # malformed tool arguments were recovered. Pop it so it never reaches the
+    # tool or the conversation history; surface it through the same
+    # [repair note: …] / ⚒ path as schema-level repairs below.
+    stream_repair_note = None
+    if isinstance(b.input, dict):
+        stream_repair_note = b.input.pop("__stream_repair__", None)
     dock = is_dock_tool(b.name)
     if dock:
         set_running(b.id)
@@ -150,6 +157,8 @@ def _run_tool(b):
     # markdown in paths, …) so models don't look "dumb" for small
     # harness-level issues.
     call_input, repair_log = repair_tool_input(b.name, call_input)
+    if stream_repair_note:
+        repair_log = [stream_repair_note, *repair_log]
     if not isinstance(call_input, dict):
         return _finish(
             f"ERROR: tool '{b.name}' received non-object arguments that could "

@@ -136,9 +136,10 @@ CORE_TOOLS = CONTEXT_TOOLS + [
                     "path":{"type":"string"},
                     "old_str":{"type":"string"},
                     "new_str":{"type":"string"},
-                    "replace_all":{"type":"boolean"}},
+                    "replace_all":{"type":"boolean"},
+                    "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
                     "required":["path","old_str","new_str"]}},
-        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
+        "allow_outside_project":{"type":"boolean","description":"Default false. Applies to ALL edits. Only true if the user explicitly asked to edit outside the current project."}},
         "required":["edits"]}},
     {"name":"list_dir","description":(
         "List project directory entries with full paths. Refuses outside-project "

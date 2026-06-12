@@ -39,55 +39,9 @@ def _get_usage_value(usage_obj, attr_name: str, default: int = 0) -> int:
         return default
 
 
-def _repair_truncated_json(raw: str) -> Optional[dict]:
-    """Best-effort recovery of a JSON object whose stream was cut mid-flight.
-
-    Streaming tool-call arguments occasionally get truncated when a provider
-    hits its output-token cap mid-string (typical when writing a large file).
-    The accumulated buffer looks like::
-
-        {"path": "index.html", "content": "<!DOCTYPE html><html...
-
-    — a valid prefix with an unterminated string and unclosed braces. This
-    function walks the buffer tracking string/brace state, then appends the
-    minimum suffix needed to make it parseable. Returns the parsed dict if
-    repair succeeds, or None otherwise.
-    """
-    if not raw or not raw.lstrip().startswith("{"):
-        return None
-    in_string = False
-    escape = False
-    stack: list[str] = []  # tracks '{' / '[' nesting
-    for ch in raw:
-        if escape:
-            escape = False
-            continue
-        if in_string:
-            if ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-            continue
-        if ch == '"':
-            in_string = True
-        elif ch in "{[":
-            stack.append(ch)
-        elif ch in "}]" and stack:
-            stack.pop()
-    repaired = raw
-    if in_string:
-        # Drop a trailing backslash that would re-open the escape state, then close the string.
-        if repaired.endswith("\\"):
-            repaired = repaired[:-1]
-        repaired += '"'
-    # Close any open arrays/objects, innermost first.
-    for opener in reversed(stack):
-        repaired += "}" if opener == "{" else "]"
-    try:
-        parsed = json.loads(repaired)
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+# Multi-strategy recovery of malformed streamed tool arguments (truncation,
+# unescaped inner quotes, raw control chars, fences, concatenated objects).
+from ..utils.json_repair import repair_json_arguments as _repair_truncated_json
 
 # _ContentBlock replaces the old @dataclass approach so blocks support
 # both attribute access (render.py) and .get()/.model_dump() (trim.py / JSON).
@@ -337,13 +291,19 @@ def _openai_response_to_anthropic(response) -> _FakeMessage:
                 except json.JSONDecodeError as e:
                     repaired = _repair_truncated_json(raw_args)
                     if repaired is not None:
+                        repaired["__stream_repair__"] = (
+                            f"recovered malformed streamed JSON arguments "
+                            f"({e.msg} at pos {e.pos})"
+                        )
                         args = repaired
                     else:
                         args = {"__stream_error__": (
                             f"Provider returned invalid JSON arguments "
                             f"({e.msg} at pos {e.pos}); auto-repair also failed. "
-                            f"Likely cause: response hit the output-token cap mid-write. "
-                            f"For large files, write a skeleton first then edit_file to append."
+                            f"Recover by splitting the work into smaller calls: "
+                            f"for large files write a skeleton first then edit_file to "
+                            f"append; for multi_edit, issue individual edit_file calls. "
+                            f"Keep embedded quotes/HTML in string values properly escaped."
                         )}
             content.append(_ToolUseBlock(
                 type="tool_use",
@@ -485,14 +445,20 @@ class _OpenCodeStream:
                 except json.JSONDecodeError as e:
                     repaired = _repair_truncated_json(raw_args)
                     if repaired is not None:
+                        repaired["__stream_repair__"] = (
+                            f"recovered malformed streamed JSON arguments "
+                            f"({e.msg} at pos {e.pos})"
+                        )
                         args = repaired
                     else:
                         args = {"__stream_error__": (
                             f"Provider streamed truncated/invalid JSON arguments "
                             f"({e.msg} at pos {e.pos}); auto-repair also failed. "
-                            f"Likely cause: response hit the output-token cap mid-write. "
-                            f"For large files, write in chunks: create a small skeleton "
-                            f"first, then use edit_file to append sections."
+                            f"Recover by splitting the work into smaller calls: "
+                            f"for large files create a small skeleton first then use "
+                            f"edit_file to append sections; for multi_edit, issue "
+                            f"individual edit_file calls instead. Keep embedded "
+                            f"quotes/HTML in string values properly escaped."
                         )}
             content.append(_ToolUseBlock(type="tool_use", id=tc["id"], name=tc["name"], input=args))
         usage = _Usage(

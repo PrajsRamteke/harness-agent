@@ -9,6 +9,7 @@ from typing import Any, Generator, Optional
 from openai import OpenAI
 
 from ..constants.providers import CODEX_BASE_URL
+from ..utils.json_repair import repair_json_arguments
 from .http_timeout import harness_http_timeout
 
 
@@ -199,13 +200,29 @@ class _CodexStream:
             args_raw = tc.get("arguments") or "{}"
             try:
                 parsed = json.loads(args_raw)
+                if not isinstance(parsed, dict):
+                    parsed = None
             except json.JSONDecodeError:
-                parsed = {}
+                parsed = None
+            if parsed is None:
+                parsed = repair_json_arguments(args_raw)
+                if parsed is not None:
+                    parsed["__stream_repair__"] = (
+                        "recovered malformed streamed JSON arguments"
+                    )
+            if parsed is None:
+                parsed = {"__stream_error__": (
+                    f"Provider streamed truncated/invalid JSON arguments for "
+                    f"{tc.get('name') or 'tool'}; auto-repair also failed. "
+                    f"Retry with smaller calls: for large files write a skeleton "
+                    f"first then edit_file to append; for multi_edit, issue "
+                    f"individual edit_file calls instead."
+                )}
             blocks.append(_ContentBlock(
                 type="tool_use",
                 id=tc.get("id") or "",
                 name=tc.get("name") or "",
-                input=parsed if isinstance(parsed, dict) else {},
+                input=parsed,
             ))
         stop = "tool_use" if any(b.type == "tool_use" for b in blocks) else "end_turn"
         self._final = _FakeMessage(

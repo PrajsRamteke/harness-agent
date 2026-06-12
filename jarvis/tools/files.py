@@ -380,7 +380,12 @@ def multi_edit(
             j += 1
 
         p = robust_resolve(path)
-        if not allow_outside_project:
+        # The flag is honored both top-level and per edit item — models often
+        # attach it to the edit object (mirroring edit_file's schema).
+        allow_block = allow_outside_project or any(
+            bool(e.get("allow_outside_project")) for e in block
+        )
+        if not allow_block:
             scope_err = project_scope_error(p, "multi_edit", "allow_outside_project=true")
             if scope_err:
                 for k, _ in enumerate(block):
