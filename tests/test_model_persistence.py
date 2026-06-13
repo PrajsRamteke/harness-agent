@@ -100,7 +100,7 @@ def test_stale_provider_file_does_not_override_saved_model(
 ):
     """Saved settings win over a stale ~/.config/harness-agent/provider file."""
     global_settings.write_text(
-        json.dumps({"model": "nemotron-3-super-free", "provider": "opencode_zen"}) + "\n"
+        json.dumps({"model": "deepseek-v4-flash-free", "provider": "opencode_zen"}) + "\n"
     )
     provider_file = tmp_path / "provider"
     provider_file.write_text("anthropic")
@@ -109,10 +109,10 @@ def test_stale_provider_file_does_not_override_saved_model(
     monkeypatch.setattr("jarvis.auth.client.PROVIDER_FILE", provider_file)
     monkeypatch.setattr("jarvis.constants.paths.PROVIDER_FILE", provider_file)
     monkeypatch.setattr("jarvis.auth.client.KEY_FILE", key_file)
-    monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "nemotron-3-super-free")
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "deepseek-v4-flash-free")
     monkeypatch.setattr(
         "jarvis.storage.prefs.load_saved_preferences",
-        lambda: ("nemotron-3-super-free", "opencode_zen"),
+        lambda: ("deepseek-v4-flash-free", "opencode_zen"),
     )
     monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: False)
     monkeypatch.setattr("jarvis.auth.client._build_opencode_zen_client_for_model", lambda *a, **k: MagicMock())
@@ -123,7 +123,7 @@ def test_stale_provider_file_does_not_override_saved_model(
 
     client = make_client(interactive=False)
     assert client is not None
-    assert state.MODEL == "nemotron-3-super-free"
+    assert state.MODEL == "deepseek-v4-flash-free"
     assert state.provider == PROVIDER_OPENCODE_ZEN
     assert state.harness_agent_free is True
     assert provider_file.read_text().strip() == PROVIDER_OPENCODE_ZEN

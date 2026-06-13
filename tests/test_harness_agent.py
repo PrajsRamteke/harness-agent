@@ -23,7 +23,7 @@ class HarnessAgentTests(unittest.TestCase):
         ids = {m for m, _ in HARNESS_AGENT_MODELS}
         self.assertEqual(
             ids,
-            {"deepseek-v4-flash-free", "nemotron-3-super-free", "nemotron-3-ultra-free", "mimo-v2.5-free", "big-pickle", "minimax-m3-free"},
+            {"deepseek-v4-flash-free", "nemotron-3-ultra-free", "mimo-v2.5-free", "big-pickle"},
         )
 
     def test_harness_agent_always_in_model_sources(self):
@@ -33,7 +33,7 @@ class HarnessAgentTests(unittest.TestCase):
 
     def test_models_for_harness_agent_source(self):
         models = models_for_source(PROVIDER_HARNESS_AGENT)
-        self.assertEqual(len(models), 6)
+        self.assertEqual(len(models), 4)
         self.assertEqual(models[0][0], HARNESS_AGENT_DEFAULT_MODEL)
 
     def test_opencode_zen_models_include_exclusive_and_shared(self):

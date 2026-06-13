@@ -125,11 +125,11 @@ MODELS: list[ModelSpec] = [
 
     # ── Harness Agent (free OpenCode Zen — no API key, /model only) ─────────
     ModelSpec("deepseek-v4-flash-free", "DeepSeek V4 Flash Free — default", PROVIDER_HARNESS_AGENT, default=True),
-    ModelSpec("nemotron-3-super-free",  "Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT),
+    # ModelSpec("nemotron-3-super-free",  "Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT),  # no longer free
     ModelSpec("nemotron-3-ultra-free",  "Nemotron 3 Ultra Free",            PROVIDER_HARNESS_AGENT),
     ModelSpec("mimo-v2.5-free",         "MiMo V2.5 Free — Xiaomi",          PROVIDER_HARNESS_AGENT),
     ModelSpec("big-pickle",             "Big Pickle",                       PROVIDER_HARNESS_AGENT),
-    ModelSpec("minimax-m3-free",        "MiniMax M3 Free",                  PROVIDER_HARNESS_AGENT),
+    # ModelSpec("minimax-m3-free",        "MiniMax M3 Free",                  PROVIDER_HARNESS_AGENT),  # no longer free
     ModelSpec("north-mini-code-free",  "North Mini Code 1.0 XL — free",    PROVIDER_HARNESS_AGENT),
 
     # ── OpenCode Zen models (API key via /provider opencode_zen) ──────────────
