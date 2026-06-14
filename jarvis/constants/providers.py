@@ -18,12 +18,13 @@ import os
 from dataclasses import dataclass
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
-PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex")
+PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "kimchi")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_OPENCODE_ZEN = "opencode_zen"
 PROVIDER_OPENAI_CODEX = "openai_codex"
+PROVIDER_KIMCHI = "kimchi"
 # Model-picker only — free OpenCode Zen tier (no API key). Backend: opencode_zen.
 PROVIDER_HARNESS_AGENT = "harness_agent"
 
@@ -43,6 +44,7 @@ PROVIDER_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX: "OpenAI Codex",
+    PROVIDER_KIMCHI: "Kimchi",
 }
 
 MODEL_SOURCE_LABELS = {
@@ -53,6 +55,7 @@ MODEL_SOURCE_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX_AUTH: "OpenAI Codex Auth",
+    PROVIDER_KIMCHI: "Kimchi",
 }
 
 # Picker display order (Harness Agent first — always free, no setup).
@@ -64,6 +67,7 @@ MODEL_SOURCES = (
     PROVIDER_OPENCODE,
     PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX_AUTH,
+    PROVIDER_KIMCHI,
 )
 
 # ── SINGLE SOURCE OF TRUTH: all models ────────────────────────────────────────
@@ -141,6 +145,13 @@ MODELS: list[ModelSpec] = [
     ModelSpec("gpt-5.5",      "GPT-5.5 — Codex recommended", PROVIDER_OPENAI_CODEX, default=True),
     ModelSpec("gpt-5.4",      "GPT-5.4 — Codex fallback",    PROVIDER_OPENAI_CODEX),
     ModelSpec("gpt-5.4-mini", "GPT-5.4 Mini — faster Codex", PROVIDER_OPENAI_CODEX),
+
+    # ── Kimchi (llm.kimchi.dev — OpenAI-compatible, BYO API key) ───────────────
+    ModelSpec("kimi-k2.6",         "Kimi K2.6 — reasoning, most capable",  PROVIDER_KIMCHI, default=True),
+    ModelSpec("minimax-m2.7",      "MiniMax M2.7",                          PROVIDER_KIMCHI),
+    ModelSpec("minimax-m3",        "MiniMax M3",                            PROVIDER_KIMCHI),
+    ModelSpec("nemotron-3-ultra-fp4", "Nemotron 3 Ultra FP4",               PROVIDER_KIMCHI),
+    ModelSpec("nemotron-3-super-fp4", "Nemotron 3 Super FP4",               PROVIDER_KIMCHI),
 ]
 
 # model_id -> (description, provider, (input_price_per_1M, output_price_per_1M))
@@ -182,6 +193,12 @@ HARNESS_AGENT_MODELS = [
     if info[1] == PROVIDER_HARNESS_AGENT
 ]
 HARNESS_AGENT_MODEL_IDS = frozenset(m for m, _ in HARNESS_AGENT_MODELS)
+KIMCHI_MODELS = [
+    (mid, info[0])
+    for mid, info in MODEL_INFO.items()
+    if info[1] == PROVIDER_KIMCHI
+]
+KIMCHI_MODEL_IDS = frozenset(m for m, _ in KIMCHI_MODELS)
 
 # Static fallback so /model always lists Harness Agent even on partial/cached
 # installs. Derived from MODELS — no separate copy to keep in sync.
@@ -239,6 +256,7 @@ OPENCODE_ZEN_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENCODE_ZEN]
 HARNESS_AGENT_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_HARNESS_AGENT]
 CODEX_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENAI_CODEX]
 ANTHROPIC_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_ANTHROPIC]
+KIMCHI_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_KIMCHI]
 
 _PROVIDER_DEFAULT_MODEL = {
     PROVIDER_ANTHROPIC: ANTHROPIC_DEFAULT_MODEL,
@@ -246,6 +264,7 @@ _PROVIDER_DEFAULT_MODEL = {
     PROVIDER_OPENCODE: OPENCODE_DEFAULT_MODEL,
     PROVIDER_OPENCODE_ZEN: OPENCODE_ZEN_DEFAULT_MODEL,
     PROVIDER_OPENAI_CODEX: CODEX_DEFAULT_MODEL,
+    PROVIDER_KIMCHI: KIMCHI_DEFAULT_MODEL,
 }
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
@@ -253,6 +272,9 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
 OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
+KIMCHI_BASE_URL = "https://llm.kimchi.dev/openai/v1"
+# Kimchi rejects requests without this header (returns misleading 402 "exhausted credits").
+KIMCHI_USER_AGENT = "kimchi/0.1.20"
 
 
 def _has_anthropic_api() -> bool:
@@ -326,6 +348,15 @@ def connected_model_sources() -> list[str]:
                 sources.append(PROVIDER_OPENCODE_ZEN)
         except OSError:
             pass
+    if os.getenv("KIMCHI_API_KEY"):
+        sources.append(PROVIDER_KIMCHI)
+    else:
+        from .paths import KIMCHI_KEY_FILE
+        try:
+            if KIMCHI_KEY_FILE.exists() and KIMCHI_KEY_FILE.read_text().strip():
+                sources.append(PROVIDER_KIMCHI)
+        except OSError:
+            pass
     # Harness Agent must always appear — even when other providers are configured.
     out: list[str] = []
     seen: set[str] = set()
@@ -384,6 +415,8 @@ def models_for_source(source: str):
         return anthropic_auth_models_for_picker()
     if source == PROVIDER_OPENAI_CODEX_AUTH:
         return list(CODEX_MODELS)
+    if source == PROVIDER_KIMCHI:
+        return list(KIMCHI_MODELS)
     return models_for(source)
 
 
@@ -405,12 +438,15 @@ def connected_providers() -> set[str]:
         connected.add(PROVIDER_OPENCODE)
     if os.getenv("OPENCODE_ZEN_API_KEY"):
         connected.add(PROVIDER_OPENCODE_ZEN)
+    if os.getenv("KIMCHI_API_KEY"):
+        connected.add(PROVIDER_KIMCHI)
 
     # ── Key files on disk ──────────────────────────────────────────────────
     # Lazy import to avoid circular dependency (paths → no providers imports)
     from .paths import (
         KEY_FILE, OPENROUTER_KEY_FILE,
         OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
+        KIMCHI_KEY_FILE,
     )
 
     def _has_content(p) -> bool:
@@ -429,6 +465,8 @@ def connected_providers() -> set[str]:
         connected.add(PROVIDER_OPENCODE)
     if _has_content(OPENCODE_ZEN_KEY_FILE):
         connected.add(PROVIDER_OPENCODE_ZEN)
+    if _has_content(KIMCHI_KEY_FILE):
+        connected.add(PROVIDER_KIMCHI)
 
     # First run — no keys at all → show everything so user can see options
     if not connected:
@@ -467,6 +505,8 @@ def models_for(provider: str):
         return opencode_zen_models_for_picker()
     if provider == PROVIDER_OPENAI_CODEX:
         return CODEX_MODELS
+    if provider == PROVIDER_KIMCHI:
+        return KIMCHI_MODELS
     return list(ANTHROPIC_MODELS)
 
 
@@ -484,6 +524,8 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
         return "/" in m
     if provider == PROVIDER_ANTHROPIC:
         return m.startswith("claude-")
+    if provider == PROVIDER_KIMCHI:
+        return m in KIMCHI_MODEL_IDS
     return False
 
 

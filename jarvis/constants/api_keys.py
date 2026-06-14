@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from .paths import (
-    KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
+    KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE, KIMCHI_KEY_FILE,
 )
 from .providers import (
-    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
+    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_KIMCHI,
 )
 
 API_KEY_SPECS: tuple[dict[str, Any], ...] = (
@@ -42,6 +42,14 @@ API_KEY_SPECS: tuple[dict[str, Any], ...] = (
         "label": "OpenCode Zen",
         "file_path": OPENCODE_ZEN_KEY_FILE,
         "env_var": "OPENCODE_ZEN_API_KEY",
+        "key_prefix": None,
+    },
+    {
+        "id": "kimchi",
+        "provider": PROVIDER_KIMCHI,
+        "label": "Kimchi",
+        "file_path": KIMCHI_KEY_FILE,
+        "env_var": "KIMCHI_API_KEY",
         "key_prefix": None,
     },
 )

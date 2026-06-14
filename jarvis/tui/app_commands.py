@@ -77,18 +77,22 @@ def _is_theme_modal_command(text: str) -> bool:
     return s in ("/theme", "/themes")
 
 
-def _is_oauth_modal_command(text: str) -> bool:
+def _is_provider_hub_command(text: str) -> bool:
+    """Provider setup is reached only through the unified ``/provider`` command.
+
+    The old ``/login``, ``/logout``, ``/auth``, ``/key`` aliases were removed —
+    everything lives behind ``/provider``.
+    """
     s = (text or "").strip().lower()
-    return s in ("/login", "/signin", "/sign-in", "/logout", "/auth")
+    return s == "/provider" or s.startswith("/provider ")
+
+
+def _is_oauth_modal_command(text: str) -> bool:
+    return _is_provider_hub_command(text)
 
 
 def _oauth_modal_title(text: str) -> str:
-    s = (text or "").strip().lower()
-    if s == "/logout":
-        return "Sign out"
-    if s in ("/login", "/signin", "/sign-in"):
-        return "Sign in"
-    return "OAuth login"
+    return "Provider Setup"
 
 
 def _is_local_command(text: str) -> bool:
@@ -97,5 +101,4 @@ def _is_local_command(text: str) -> bool:
 
 
 def _is_key_command(text: str) -> bool:
-    s = (text or "").strip().lower()
-    return s in ("/key", "/keys", "/key reset")
+    return _is_provider_hub_command(text)

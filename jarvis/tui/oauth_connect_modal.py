@@ -73,7 +73,6 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
         Binding("escape", "cancel", "Close", show=True),
         Binding("down", "cursor_down", show=False),
         Binding("up", "cursor_up", show=False),
-        Binding("enter", "primary_action", "Sign in", show=True),
         Binding("d", "disconnect", "Sign out", show=True),
         Binding("a", "activate", "Activate", show=True),
     ]
@@ -89,7 +88,7 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
                 yield Static(
                     Text.from_markup(
                         "[bold]OAuth login[/] — subscription accounts only.\n"
-                        f"[dim]API keys (Anthropic billing, OpenRouter, OpenCode) → [/][{ui.ACCENT}]/key[/]"
+                        f"[dim]API keys (Anthropic billing, OpenRouter, OpenCode, Kimchi) → [/][{ui.ACCENT}]/key[/]"
                     ),
                     id="oauth_info",
                 )
@@ -167,6 +166,13 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
             self._start_login(spec)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Enter (or click) signs in / activates the highlighted provider.
+
+        The focused ``OptionList`` consumes Enter and posts this message, so the
+        primary action must live here — a screen-level ``enter`` binding would be
+        shadowed and only appear to "work once".
+        """
+        event.stop()
         oid = event.option.id
         if not oid:
             return
@@ -182,11 +188,6 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
 
     def action_cursor_up(self) -> None:
         self.query_one("#oauth_list", OptionList).action_cursor_up()
-
-    def action_primary_action(self) -> None:
-        spec = self._highlighted()
-        if spec:
-            self._handle_spec(spec)
 
     def action_activate(self) -> None:
         spec = self._highlighted()

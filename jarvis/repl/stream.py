@@ -627,7 +627,7 @@ def call_claude_stream():
                                   "[yellow]OAuth session expired. Run /login to re-authenticate.[/]")
                 else:
                     console.print("[red]Auth error — Provider: Anthropic (API key)[/]\n"
-                                  "[yellow]Run /key reset (or /login) and restart.[/]")
+                                  "[yellow]Run /provider and set a new API key.[/]")
                 raise HarnessAPIError("auth error")
             if e.status_code == 402:
                 console.print(

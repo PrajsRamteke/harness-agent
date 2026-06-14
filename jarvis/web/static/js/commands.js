@@ -78,10 +78,7 @@ export const COMMAND_CATEGORIES = [
     label: 'Auth',
     icon: 'key-round',
     items: [
-      { cmd: '/login', label: 'Sign in', desc: 'OAuth — Anthropic or Codex', icon: 'log-in' },
-      { cmd: '/logout', label: 'Sign out', desc: 'OAuth sign out', icon: 'log-out' },
-      { cmd: '/auth', label: 'Auth status', desc: 'View sign-in status', icon: 'shield-check' },
-      { cmd: '/key', label: 'API keys', desc: 'Manage API keys', icon: 'key' },
+      { cmd: '/provider', label: 'Provider setup', desc: 'OAuth login, API keys, provider switch — all in one place', icon: 'settings-2' },
     ],
   },
   {
@@ -113,7 +110,7 @@ export const COMMAND_CATEGORIES = [
 const LAPTOP_MODALS = new Set([
   '/provider', '/settings', '/setting', '/theme', '/themes', '/local',
   '/memory', '/memories', '/lesson', '/lessons', '/pin', '/think', '/think mode',
-  '/login', '/logout', '/auth', '/key', '/keys', '/agent init',
+  '/provider', '/agent init',
 ]);
 
 let activeCategory = 'pickers';

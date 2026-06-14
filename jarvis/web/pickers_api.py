@@ -11,6 +11,7 @@ from ..constants import (
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_HARNESS_AGENT,
+    PROVIDER_KIMCHI,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_OPENCODE_ZEN,
@@ -36,6 +37,8 @@ def _model_is_active(source: str, model_id: str) -> bool:
         return state.provider == PROVIDER_ANTHROPIC and state.auth_mode == AUTH_API_KEY
     if source == PROVIDER_OPENAI_CODEX_AUTH:
         return state.provider == PROVIDER_OPENAI_CODEX and state.auth_mode == AUTH_OAUTH
+    if source == PROVIDER_KIMCHI:
+        return state.provider == PROVIDER_KIMCHI
     return state.provider == source
 
 

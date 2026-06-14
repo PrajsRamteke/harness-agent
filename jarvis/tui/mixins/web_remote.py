@@ -18,7 +18,7 @@ from ..console_swap import _swap_console_everywhere
 from ..web_bar import WebRemoteBar, WebRemoteQR
 from ..app_commands import (
     _is_bare_model_command,
-    _is_bare_provider_command,
+    _is_provider_hub_command,
     _is_session_picker_command,
     _is_think_picker_command,
     _is_mcp_modal_command,
@@ -29,8 +29,6 @@ from ..app_commands import (
     _is_lesson_modal_command,
     _is_settings_modal_command,
     _is_theme_modal_command,
-    _is_oauth_modal_command,
-    _is_key_command,
 )
 from .. import theme as ui
 from ... import state
@@ -161,7 +159,7 @@ class WebRemoteMixin:
             return False
         return (
             _is_bare_model_command(s)
-            or _is_bare_provider_command(s)
+            or _is_provider_hub_command(s)
             or _is_session_picker_command(s)
             or _is_think_picker_command(s)
             or _is_mcp_modal_command(s)
@@ -172,8 +170,7 @@ class WebRemoteMixin:
             or _is_lesson_modal_command(s)
             or _is_settings_modal_command(s)
             or _is_theme_modal_command(s)
-            or _is_oauth_modal_command(s)
-            or _is_key_command(s)
+
             or s.lower() == "/local"
             or s.lower() == "/agent init"
         )

@@ -213,7 +213,6 @@ class KeyModalScreen(TuiModalScreen[None]):
         Binding("escape", "dismiss_cancel", "Close", show=True),
         Binding("down", "cursor_down", show=False),
         Binding("up", "cursor_up", show=False),
-        Binding("enter", "edit", show=False),
         Binding("e", "edit", "Edit", show=True),
         Binding("d", "delete", "Delete", show=True),
         Binding("a", "add", "Add", show=True),
@@ -301,6 +300,16 @@ class KeyModalScreen(TuiModalScreen[None]):
             pass
 
     # ── bindings / actions ─────────────────────────────────────────────────
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Enter (or click) on a key row edits it — fires every time, not just once.
+
+        The focused ``OptionList`` consumes Enter and posts this message, which
+        shadows any screen-level ``enter`` binding, so the primary action must
+        live here.
+        """
+        event.stop()
+        self.action_edit()
 
     def action_dismiss_cancel(self) -> None:
         self.dismiss(None)

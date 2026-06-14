@@ -52,7 +52,6 @@ from .. import state
 # (and tests) that import them from jarvis.tui.app keep working.
 from .app_commands import (  # noqa: F401
     _is_bare_model_command,
-    _is_bare_provider_command,
     _is_session_picker_command,
     _is_think_picker_command,
     _is_mcp_modal_command,
@@ -64,10 +63,8 @@ from .app_commands import (  # noqa: F401
     _is_lesson_modal_command,
     _is_settings_modal_command,
     _is_theme_modal_command,
-    _is_oauth_modal_command,
-    _oauth_modal_title,
+    _is_provider_hub_command,
     _is_local_command,
-    _is_key_command,
 )
 
 
@@ -782,8 +779,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                 self._open_model_picker()
                 inp.focus()
                 return
-            if _is_bare_provider_command(cmd):
-                self._open_provider_picker()
+            if _is_provider_hub_command(cmd):
+                self._open_provider_hub()
                 inp.focus()
                 return
             if _is_think_picker_command(cmd):
@@ -823,14 +820,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                 return
             if _is_theme_modal_command(cmd):
                 self._open_theme_modal()
-                inp.focus()
-                return
-            if _is_oauth_modal_command(cmd):
-                self._open_oauth_modal(title=_oauth_modal_title(cmd))
-                inp.focus()
-                return
-            if _is_key_command(cmd):
-                self._open_key_modal()
                 inp.focus()
                 return
             if _is_local_command(cmd):
@@ -1099,6 +1088,30 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
     def _open_login_modal(self):
         self._open_oauth_modal(title="Sign in")
 
+    def _open_provider_hub(self) -> None:
+        """Open the unified provider setup hub.
+
+        Dismisses with one of: "oauth", "api", or None.
+        The hub stays simple — it just returns a result; we handle the
+        sub-screen navigation here to keep the screen stack clean.
+        """
+        def after(mode: object) -> None:
+            if mode == "oauth":
+                self.push_screen(
+                    OAuthConnectModalScreen(title="Auth · OAuth"),
+                    lambda _r: self._set_status("ready"),
+                )
+            elif mode == "api":
+                self.push_screen(KeyModalScreen(), lambda _r: self._set_status("ready"))
+            else:
+                self._set_status("ready")
+
+        from .provider_hub import ProviderHubScreen
+        from .oauth_connect_modal import OAuthConnectModalScreen
+        from .key_modal import KeyModalScreen
+
+        self.push_screen(ProviderHubScreen(), after)
+
     def _open_key_modal(self) -> None:
         def after(_: object) -> None:
             self._set_status("ready")
@@ -1153,7 +1166,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             reset_registry()
             return
 
-        if head in ("/login", "/logout", "/auth", "/model", "/mode", "/session", "/sessions"):
+        if head in ("/model", "/mode", "/session", "/sessions"):
             # Route these to their proper modal/command handler
             # rather than treating them as "thinking" interactions.
             self._route_modal_slash(text)
@@ -1163,8 +1176,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             self._begin_turn(text)
             return
 
-        if _is_key_command(text):
-            self._open_key_modal()
+        if _is_provider_hub_command(text):
+            self._open_provider_hub()
             return
 
         result, should_send, new_inp = handle_slash(text)
@@ -1205,16 +1218,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             self._open_session_picker()
             return
 
-        if head in ("/login",):
-            self._open_oauth_modal(title="Sign in")
-            return
-
-        if head in ("/logout",):
-            self._open_oauth_modal(title="Sign out")
-            return
-
-        if head in ("/auth",):
-            self._open_oauth_modal(title="OAuth login")
+        if head == "/provider":
+            self._open_provider_hub()
             return
 
         self._set_status("ready")
@@ -1229,14 +1234,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         stripped = cmd.strip()
 
         # Map head -> handler
-        if stripped in ("/login", "/signin", "/sign-in"):
-            self._open_oauth_modal(title="Sign in")
-            return
-        if stripped in ("/logout",):
-            self._open_oauth_modal(title="Sign out")
-            return
-        if stripped in ("/auth",):
-            self._open_oauth_modal(title="OAuth login")
+        if stripped == "/provider" or stripped.startswith("/provider "):
+            self._open_provider_hub()
             return
         if stripped in ("/session", "/sessions", "/session list", "/session ls"):
             self._open_session_picker()
@@ -1271,8 +1270,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         if stripped in ("/settings", "/setting"):
             self._open_settings_modal()
             return
-        if _is_key_command(stripped):
-            self._open_key_modal()
+        if _is_provider_hub_command(stripped):
+            self._open_provider_hub()
             return
         if stripped in ("/theme",):
             self._open_theme_modal()
@@ -1334,8 +1333,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         if _is_bare_model_command(text):
             self._open_model_picker()
             return
-        if _is_bare_provider_command(text):
-            self._open_provider_picker()
+        if _is_provider_hub_command(text):
+            self._open_provider_hub()
             return
         if _is_think_picker_command(text):
             self._open_think_picker()
@@ -1367,9 +1366,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         if _is_theme_modal_command(text):
             self._open_theme_modal()
             return
-        if _is_oauth_modal_command(text):
-            self._open_oauth_modal(title=_oauth_modal_title(text))
-            return
 
         if _is_local_command(text):
             rest = text[len("/local "):] if text.startswith("/local ") else ""
@@ -1393,8 +1389,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             )
             return
 
-        if _is_key_command(stripped):
-            self._open_key_modal()
+        if _is_provider_hub_command(stripped):
+            self._open_provider_hub()
             return
 
         if self._busy:
@@ -1793,14 +1789,14 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             # which sets misleading "thinking…" status.
             if next_prompt.startswith("/"):
                 head = next_prompt.split(maxsplit=1)[0]
-                if head in ("/login", "/model", "/mode", "/session", "/sessions",
-                            "/logout", "/auth", "/settings",
+                if head in ("/model", "/mode", "/session", "/sessions",
+                            "/settings",
                             "/theme", "/agent", "/skills", "/memory",
                             "/lesson", "/mcp", "/think", "/local"):
                     self._handle_queued_command(next_prompt)
                     return
-                if _is_key_command(next_prompt):
-                    self._open_key_modal()
+                if _is_provider_hub_command(next_prompt):
+                    self._open_provider_hub()
                     return
 
             self._begin_turn(next_prompt)

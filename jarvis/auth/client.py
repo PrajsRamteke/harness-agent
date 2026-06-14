@@ -14,7 +14,8 @@ from ..constants import (
     OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_OPENAI_CODEX,
+    PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI,
+    KIMCHI_BASE_URL, KIMCHI_USER_AGENT,
     is_harness_agent_model,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
@@ -25,6 +26,7 @@ from .api_key import load_key, prompt_for_key
 from .openrouter import load_openrouter_key, prompt_for_openrouter_key
 from .opencode import load_opencode_key, prompt_for_opencode_key
 from .opencode_zen import load_opencode_zen_key, prompt_for_opencode_zen_key, has_opencode_zen_key
+from .kimchi import load_kimchi_key, prompt_for_kimchi_key, has_kimchi_key
 from .harness_agent import build_harness_agent_client, should_use_harness_agent_client
 from .opencode_client import OpenCodeClient
 from .oauth_tokens import (
@@ -107,6 +109,10 @@ def _has_opencode_zen_key() -> bool:
     return has_opencode_zen_key()
 
 
+def _has_kimchi_key() -> bool:
+    return has_kimchi_key()
+
+
 def _has_usable_anthropic_auth() -> bool:
     if _has_anthropic_api_key() or load_oauth_tokens():
         return True
@@ -130,11 +136,12 @@ def _has_usable_provider_credentials() -> bool:
         or os.getenv("OPENROUTER_API_KEY")
         or os.getenv("OPENCODE_API_KEY")
         or os.getenv("OPENCODE_ZEN_API_KEY")
+        or os.getenv("KIMCHI_API_KEY")
     ):
         return True
     if _has_usable_anthropic_auth() or load_codex_oauth_tokens():
         return True
-    if _has_openrouter_key() or _has_opencode_key() or _has_opencode_zen_key():
+    if _has_openrouter_key() or _has_opencode_key() or _has_opencode_zen_key() or _has_kimchi_key():
         return True
     return False
 
@@ -174,7 +181,7 @@ def _resolve_auth_mode(*, interactive: bool) -> str | None:
 def _resolve_provider(*, interactive: bool = True) -> str:
     """Decide provider from env → saved → stored → first-run Harness Agent default."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
-    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX):
+    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI):
         return env_provider
     # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -185,6 +192,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_OPENCODE
     if os.getenv("OPENCODE_ZEN_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
         return PROVIDER_OPENCODE_ZEN
+    if os.getenv("KIMCHI_API_KEY") and not KEY_FILE.exists() and not AUTH_MODE_FILE.exists():
+        return PROVIDER_KIMCHI
     try:
         from ..storage.prefs import load_saved_preferences
         saved_model, saved_provider = load_saved_preferences()
@@ -207,6 +216,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_OPENCODE
     if saved_provider == PROVIDER_OPENCODE_ZEN:
         return PROVIDER_OPENCODE_ZEN
+    if saved_provider == PROVIDER_KIMCHI and _has_kimchi_key():
+        return PROVIDER_KIMCHI
     if PROVIDER_FILE.exists():
         try:
             stored = PROVIDER_FILE.read_text().strip()
@@ -225,6 +236,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
                 return PROVIDER_OPENCODE_ZEN
             if not _has_usable_provider_credentials():
                 return PROVIDER_OPENCODE_ZEN
+        if stored == PROVIDER_KIMCHI and _has_kimchi_key():
+            return PROVIDER_KIMCHI
     if _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if load_codex_oauth_tokens():
@@ -235,6 +248,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_OPENCODE
     if _has_opencode_zen_key():
         return PROVIDER_OPENCODE_ZEN
+    if _has_kimchi_key():
+        return PROVIDER_KIMCHI
     # First run — free Harness Agent (no API key, no provider prompt).
     return PROVIDER_OPENCODE_ZEN
 
@@ -269,16 +284,28 @@ def _pick_fallback_provider(*, interactive: bool = True) -> str | None:
         return PROVIDER_ANTHROPIC
     if _has_openrouter_key():
         return PROVIDER_OPENROUTER
-    from ..constants.paths import OPENCODE_KEY_FILE
+    from ..constants.paths import OPENCODE_KEY_FILE, KIMCHI_KEY_FILE
     try:
         if OPENCODE_KEY_FILE.exists() and OPENCODE_KEY_FILE.read_text().strip():
             return PROVIDER_OPENCODE
         if OPENCODE_ZEN_KEY_FILE.exists() and OPENCODE_ZEN_KEY_FILE.read_text().strip():
             return PROVIDER_OPENCODE_ZEN
+        if KIMCHI_KEY_FILE.exists() and KIMCHI_KEY_FILE.read_text().strip():
+            return PROVIDER_KIMCHI
     except OSError:
         pass
     # Always fall back to free Harness Agent rather than blocking startup.
     return PROVIDER_OPENCODE_ZEN
+
+
+def _build_kimchi_client() -> OpenCodeClient:
+    """Kimchi client — OpenAI-compatible via OpenCodeClient."""
+    key = load_kimchi_key()
+    return OpenCodeClient(
+        api_key=key,
+        base_url=f"{KIMCHI_BASE_URL}/",
+        default_headers={"User-Agent": KIMCHI_USER_AGENT},
+    )
 
 
 def _build_codex_client() -> CodexClient | None:
@@ -422,6 +449,24 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         if use_free:
             console.print("[red]Harness Agent connection failed[/]"); sys.exit(1)
         console.print("[red]Too many OpenCode Zen auth failures[/]"); sys.exit(1)
+
+    if state.provider == PROVIDER_KIMCHI:
+        if not interactive and not _has_kimchi_key():
+            return _none_or_harness(interactive=interactive, preferred_model=preferred_model)
+        for attempt in range(DEFAULT_RETRIES):
+            try:
+                c = _build_kimchi_client()
+                return c
+            except Exception as e:
+                if "401" in str(e) or "unauthorized" in str(e).lower():
+                    from ..constants import KIMCHI_KEY_FILE
+                    KIMCHI_KEY_FILE.unlink(missing_ok=True)
+                    prompt_for_kimchi_key(
+                        reason="Stored Kimchi key rejected (401). Please re-enter."
+                    )
+                    continue
+                raise
+        console.print("[red]Too many Kimchi auth failures[/]"); sys.exit(1)
 
     if state.provider == PROVIDER_OPENAI_CODEX:
         state.auth_mode = AUTH_OAUTH

@@ -185,17 +185,7 @@ def welcome_banner(compact: bool = False, skip_art: bool = False):
     else:
         location = f"[{c['fg_mute']}]📁 {cwd_text}[/]"
 
-    hints = (
-        f"[{c['fg_dim']}]━━━[/]  "
-        f"[{c['accent_2']}]/[/] commands  "
-        f"[{c['accent_2']}]/model[/] model  "
-        f"[{c['accent_2']}]/agent[/] agent "
-        f"[{c['accent_2']}]/session[/] history  "
-        f"[{c['accent_2']}]/help[/] reference  "
-        f"[{c['fg_dim']}]━━━[/]"
-    )
-
-    body = f"{title}  {location}\n{hints}"
+    body = f"{title}  {location}"
     console.print(Panel(body, border_style=c['accent'], padding=(0, 2)))
 
     if state.update_result:

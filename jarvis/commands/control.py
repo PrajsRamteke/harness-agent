@@ -3,14 +3,15 @@ import os, time
 
 from ..console import console, Panel, Table
 from ..constants import (
-    KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
+    KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE, KIMCHI_KEY_FILE,
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, MODEL_SOURCE_LABELS,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS, OPENCODE_ZEN_MODEL_IDS,
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for, is_harness_agent_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_HARNESS_AGENT,
+    PROVIDER_HARNESS_AGENT, PROVIDER_KIMCHI,
+    KIMCHI_DEFAULT_MODEL, KIMCHI_MODEL_IDS,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
@@ -18,10 +19,8 @@ from ..constants import (
 from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
 from ..utils.io import _secure_write
 from ..utils.time_fmt import fmt_duration
-from ..auth.oauth_tokens import load_oauth_tokens, clear_oauth_tokens
-from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, clear_codex_oauth_tokens
-from ..auth.oauth_flow import oauth_login
-from ..auth.anthropic_models import sync_anthropic_model_ids, format_anthropic_model_lines
+from ..auth.oauth_tokens import load_oauth_tokens
+from ..auth.codex_oauth_tokens import load_codex_oauth_tokens
 from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
 from ..auth.opencode import prompt_for_opencode_key, load_opencode_key
 from ..auth.opencode_zen import prompt_for_opencode_zen_key, has_opencode_zen_key
@@ -102,46 +101,6 @@ def handle_control(c: str, arg: str):
     if c == "/theme":
         _handle_theme(arg)
         return True, None
-    if c == "/key" and arg == "reset":
-        KEY_FILE.unlink(missing_ok=True)
-        console.print("[green]key deleted — restart the agent[/]")
-        return True, None
-    if c == "/login":
-        clear_oauth_tokens()
-        tokens = oauth_login()
-        if not tokens:
-            return True, None
-        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
-        state.auth_mode = AUTH_OAUTH
-        try:
-            state.client = _build_client_from_mode(AUTH_OAUTH)
-            model_ids = sync_anthropic_model_ids(state.client)
-            if not model_ids:
-                state.client.models.list(limit=1)
-            console.print("[green]✓ OAuth client active[/]")
-            if model_ids:
-                console.print("[dim]Available models:[/]")
-                for line in format_anthropic_model_lines(model_ids):
-                    console.print(f"  [cyan]{line}[/]")
-        except Exception as e:
-            console.print(f"[red]login validation failed: {e}[/]")
-        return True, None
-    if c == "/logout":
-        clear_oauth_tokens()
-        if KEY_FILE.exists() or os.getenv("ANTHROPIC_API_KEY"):
-            _secure_write(AUTH_MODE_FILE, AUTH_API_KEY)
-            state.auth_mode = AUTH_API_KEY
-            try:
-                state.client = _build_client_from_mode(AUTH_API_KEY)
-                console.print("[green]logged out — falling back to API key[/]")
-            except Exception as e:
-                console.print(f"[red]{e}[/]")
-        else:
-            console.print("[yellow]logged out — no API key configured, restart to set one[/]")
-        return True, None
-    if c == "/auth":
-        _handle_auth()
-        return True, None
     if c == "/provider":
         _handle_provider(arg)
         return True, None
@@ -215,6 +174,7 @@ _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
 _OPENCODE_ZEN_MODEL_IDS = set(OPENCODE_ZEN_MODEL_IDS)
 _HARNESS_AGENT_MODEL_IDS = set(HARNESS_AGENT_MODEL_IDS)
 _CODEX_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENAI_CODEX)}
+_KIMCHI_MODEL_IDS = set(KIMCHI_MODEL_IDS)
 
 
 def _provider_for_model(model: str) -> str:
@@ -223,6 +183,8 @@ def _provider_for_model(model: str) -> str:
         return PROVIDER_OPENAI_CODEX
     if model in _HARNESS_AGENT_MODEL_IDS:
         return PROVIDER_OPENCODE_ZEN
+    if model in _KIMCHI_MODEL_IDS:
+        return PROVIDER_KIMCHI
     if model in _OPENCODE_MODEL_IDS:
         return PROVIDER_OPENCODE
     if model in _OPENCODE_ZEN_MODEL_IDS:
@@ -238,7 +200,9 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
         target_provider = PROVIDER_OPENCODE_ZEN
     elif source == PROVIDER_OPENCODE_ZEN:
         target_provider = PROVIDER_OPENCODE_ZEN
-    if source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
+    if source == PROVIDER_KIMCHI:
+        target_provider = PROVIDER_KIMCHI
+    elif source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
         target_provider = PROVIDER_ANTHROPIC
     elif source == PROVIDER_OPENAI_CODEX_AUTH:
         target_provider = PROVIDER_OPENAI_CODEX
@@ -427,6 +391,10 @@ def _prompt_provider_key_if_needed(
         elif target == PROVIDER_OPENCODE_ZEN:
             if not skip_key_prompt and not has_opencode_zen_key():
                 prompt_for_opencode_zen_key()
+        elif target == PROVIDER_KIMCHI:
+            from ..auth.kimchi import has_kimchi_key, prompt_for_kimchi_key
+            if not has_kimchi_key():
+                prompt_for_kimchi_key()
     except (EOFError, KeyboardInterrupt):
         console.print("[dim]provider switch cancelled[/]")
         _revert_provider_switch(prev_provider)
@@ -447,13 +415,13 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
             "  [cyan]1[/]  Anthropic          [dim](Claude models)[/]\n"
             "  [cyan]2[/]  OpenRouter         [dim](free & paid)[/]\n"
             "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
-            "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n\n"
-            "usage: [dim]/provider anthropic[/], [dim]/provider openrouter[/], "
-            "[dim]/provider opencode[/], or [dim]/provider opencode_zen[/]",
+            "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n"
+            "  [cyan]5[/]  Kimchi             [dim](Kimi, MiniMax, Nemotron)[/]\n\n"
+            "usage: [dim]/provider <name>[/]",
             title="◎ provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, 5=Kimchi, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
                           "[cyan]/provider openrouter[/], [cyan]/provider opencode[/], "
@@ -463,10 +431,11 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
         elif sel in ("2", "openrouter", "or"):         target = PROVIDER_OPENROUTER
         elif sel in ("3", "opencode", "oc"):           target = PROVIDER_OPENCODE
         elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
+        elif sel in ("5", "kimchi", "k"):              target = PROVIDER_KIMCHI
         else: return
     if target not in (
         PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
-        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI,
     ):
         console.print(f"[red]unknown provider: {target}[/]"); return
     if target == state.provider:
@@ -497,11 +466,14 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
             return
         state.auth_mode = AUTH_OAUTH
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+    elif target == PROVIDER_KIMCHI:
+        if state.MODEL not in _KIMCHI_MODEL_IDS:
+            state.MODEL = KIMCHI_DEFAULT_MODEL
     else:
         if "/" in state.MODEL or state.MODEL in _OPENCODE_MODEL_IDS:
             state.MODEL = _DEFAULT_ANTHROPIC_MODEL
 
-    if target in (PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+    if target in (PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_KIMCHI):
         if not _prompt_provider_key_if_needed(
             target, prev_provider, skip_key_prompt=skip_key_prompt,
         ):
@@ -522,6 +494,9 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
             state.client = _build_codex_client()
             if state.client is None:
                 raise RuntimeError("Codex OAuth client unavailable")
+        elif target == PROVIDER_KIMCHI:
+            from ..auth.client import _build_kimchi_client
+            state.client = _build_kimchi_client()
         else:
             state.client = _build_client_from_mode(
                 PROVIDER_OPENROUTER if target == PROVIDER_OPENROUTER else state.auth_mode
