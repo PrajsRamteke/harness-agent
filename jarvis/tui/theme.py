@@ -316,6 +316,25 @@ PALETTES: dict[str, Palette] = {
         "accent_2": "#4ec9b0",
         "accent_3": "#ce9178",
     },
+    "kimchi": {
+        "bg_0": "#090b0d",
+        "bg_1": "#0e1014",
+        "bg_2": "#14171c",
+        "bg_3": "#1a1d24",
+        "bg_4": "#20242c",
+        "border": "#262b34",
+        "border_fc": "#5dc9a5",
+        "fg": "#e2e3e7",
+        "fg_mute": "#949eb0",
+        "fg_dim": "#647284",
+        "sep": "#181b22",
+        "ok": "#4a967d",
+        "warn": "#ef9f27",
+        "err": "#cc6666",
+        "accent": "#5dc9a5",
+        "accent_2": "#8abab7",
+        "accent_3": "#93c5fd",
+    },
 }
 
 
@@ -410,7 +429,7 @@ Screen {{
     padding: 0 3;
     margin: 0;
     min-width: 0;
-    border-top: thick {WARN};
+    border-top: hkey {WARN};
     overflow-y: auto;
     overflow-x: hidden;
 }}
@@ -433,7 +452,7 @@ Screen {{
     padding: 0 3;
     margin: 0;
     min-width: 0;
-    border-top: thick {ACCENT};
+    border-top: hkey {ACCENT};
     overflow-y: auto;
     overflow-x: hidden;
 }}
@@ -470,7 +489,7 @@ Screen {{
     max-height: 12;
     margin: 0 2 0 2;
     background: {BG_3};
-    border: round {BORDER};
+    border: tall {BORDER};
     padding: 0 1;
     min-width: 0;
 }}
@@ -508,18 +527,18 @@ Screen {{
     height: auto;
     margin: 0 2 0 2;
     background: {BG_2};
-    border: round {BORDER};
+    border: tall {BORDER};
     min-width: 0;
     padding: 0 1;
 }}
 #composer:focus-within {{
-    border: round {BORDER_FC};
+    border: tall {BORDER_FC};
 }}
 #prompt_prefix {{
     width: 3;
     padding: 0;
     content-align: center middle;
-    color: {BORDER_FC};
+    color: {ACCENT};
     text-style: bold;
     dock: left;
     background: {BG_2};
@@ -543,11 +562,33 @@ Screen {{
     height: 1;
     max-height: 1;
     background: {BG_0};
-    color: {FG_DIM};
+    color: {FG_MUTE};
     padding: 0 2;
-    margin: 0;
+    margin: 0 2;
     overflow: hidden;
 }}
+
+#webar {{
+    height: 1;
+    max-height: 1;
+    background: {BG_0};
+    border-top: hkey {ACCENT};
+    color: {FG};
+    text-align: left;
+    padding: 0 1;
+    min-width: 0;
+    overflow: hidden;
+}}
+#webar.hidden {{ display: none; }}
+#webar > #web_open {{
+    height: 1;
+    max-height: 1;
+    color: {FG_MUTE};
+    overflow: hidden;
+    min-width: 0;
+}}
+
+#web_qr_overlay.hidden {{ display: none; }}
 
 /* WebRemoteQR styling lives on the widget (web_bar.py DEFAULT_CSS). */
 
@@ -592,6 +633,21 @@ TextArea > .text-area--cursor {{
     background: {BORDER_FC};
     color: {BG_0};
 }}
+
+/* ── Selection styling ────────────────────────────────────────── */
+*:focus TextArea > .text-area--selection,
+TextArea > .text-area--selection {{
+    background: {BORDER_FC}33;
+    color: {FG};
+}}
+
+/* ── Vertical scrollbar (generic) ─────────────────────────────── */
+Scrollbar {{
+    scrollbar-background: {BG_0};
+    scrollbar-color: {BORDER};
+    scrollbar-color-hover: {FG_DIM};
+    scrollbar-color-active: {BORDER_FC};
+}}
 """
 
 
@@ -608,7 +664,7 @@ def _build_modal_css() -> str:
 .tui-modal-screen #modal {{
     height: auto;
     background: {BG_2};
-    border: round {BORDER};
+    border: tall {BORDER};
     padding: 1 2;
 }}
 
@@ -667,12 +723,15 @@ def _build_modal_css() -> str:
 }}
 .tui-modal-screen OptionList > .option-list--option {{
     padding: 0 1;
+    margin: 0 0;
 }}
 .tui-modal-screen OptionList > .option-list--option-highlighted,
 .tui-modal-screen OptionList:focus > .option-list--option-highlighted {{
     background: {BG_4};
     color: #ffffff;
     text-style: none;
+    /* subtle left accent border */
+    border-left: solid {ACCENT};
 }}
 .tui-modal-screen OptionList > .option-list--option-disabled {{
     color: {FG_DIM};
@@ -704,7 +763,7 @@ MODAL_CSS: str = ""
 
 # ── Theme switcher ────────────────────────────────────────────────────────
 
-_ACTIVE_THEME: str = "red"
+_ACTIVE_THEME: str = "kimchi"
 
 
 def set_theme(name: str) -> None:
@@ -758,4 +817,4 @@ def active_theme() -> str:
 
 
 # ── Init at module load time ─────────────────────────────────────────────
-set_theme("red")
+set_theme("kimchi")

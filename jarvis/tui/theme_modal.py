@@ -32,6 +32,7 @@ _THEMES = [
     ("dracula",   "classic dark: purple/pink accents, green highlights"),
     ("sunset",    "warm brick bg, orange coral accents, amber glow"),
     ("dark",      "pure black bg, clean blue/teal accents, classic dark"),
+    ("kimchi",    "teal accents, dark terminal vibe — inspired by Kimchi"),
 ]
 
 

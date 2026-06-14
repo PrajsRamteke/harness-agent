@@ -180,20 +180,22 @@ def welcome_banner(compact: bool = False, skip_art: bool = False):
     # Live git branch — shown in the welcome card instead of the old tagline.
     branch = _current_git_branch(cwd_path)
     if branch:
-        branch_label = f"[{c['accent_2']}]⑂ ({escape(branch)})[/]"
-        location = f"[{c['fg_mute']}]▣ {cwd_text}[/]   {branch_label}"
+        branch_label = f"[{c['accent_2']}]⤳ {escape(branch)}[/]"
+        location = f"[{c['fg_mute']}]📁 {cwd_text}[/]  {branch_label}"
     else:
-        location = f"[{c['fg_mute']}]▣ {cwd_text}[/]"
+        location = f"[{c['fg_mute']}]📁 {cwd_text}[/]"
 
     hints = (
+        f"[{c['fg_dim']}]━━━[/]  "
         f"[{c['accent_2']}]/[/] commands  "
-        f"[{c['accent_2']}]/agent[/] pick agent  "
-        f"[{c['accent_2']}]/model[/] switch model "
-        f"[{c['accent_2']}]/help[/] full reference "
-        f"[{c['accent_2']}]/session[/] history "
+        f"[{c['accent_2']}]/model[/] model  "
+        f"[{c['accent_2']}]/agent[/] agent "
+        f"[{c['accent_2']}]/session[/] history  "
+        f"[{c['accent_2']}]/help[/] reference  "
+        f"[{c['fg_dim']}]━━━[/]"
     )
 
-    body = f"{title}    {location}\n{hints}"
+    body = f"{title}  {location}\n{hints}"
     console.print(Panel(body, border_style=c['accent'], padding=(0, 2)))
 
     if state.update_result:

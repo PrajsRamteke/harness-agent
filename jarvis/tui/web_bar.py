@@ -133,9 +133,9 @@ class WebRemoteBar(Horizontal):
         if len(short) > 72:
             short = short[:69] + "…"
         open_line = (
-            f"🌐 [{ui.FG_DIM}]remote[/]  "
-            f"[link={esc}]{short}[/link]  "
-            f"[{ui.FG_DIM}]· scan QR top-right · click · ⌃⇧U copy[/]"
+            f"[{ui.ACCENT}]🌐[/]  "
+            f"[link={esc}][{ui.ACCENT_2}]{short}[/link]  "
+            f"[{ui.FG_DIM}]· scan QR · ⌃⇧U copy[/]"
         )
         try:
             self.query_one("#web_open", Static).update(Text.from_markup(open_line))

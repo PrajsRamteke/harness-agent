@@ -463,19 +463,20 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         try:
             trace = "on" if state.show_internal else "off"
             hints = [
-                f"[{ui.ACCENT_3}]↵[/] send",
-                f"[{ui.ACCENT_3}]⇧↵[/]/[{ui.ACCENT_3}]⌃J[/] newline",
-                f"[{ui.ACCENT_3}]/[/] commands",
-                f"[{ui.ACCENT_3}]@[/] file · ↑↓ tab",
-                f"[{ui.ACCENT_3}]⇥[/] agent",
-                f"[{ui.ACCENT_3}]esc[/] cancel",
-                f"[{ui.ACCENT_3}]^Y[/] copy reply",
-                f"[{ui.ACCENT_3}]^T[/] trace:{trace}",
-                f"[{ui.ACCENT_3}]^F[/] tools",
-                f"[{ui.ACCENT_3}]^D[/] quit",
-                f"[{ui.ACCENT_3}]?[/] help",
+                f"[{ui.ACCENT_3}]↵[/] [{ui.FG_DIM}]send[/]",
+                f"[{ui.ACCENT_3}]⇧↵[/] [{ui.FG_DIM}]nl[/]",
+                f"[{ui.ACCENT_3}]/[/] [{ui.FG_DIM}]cmd[/]",
+                f"[{ui.ACCENT_3}]@[/] [{ui.FG_DIM}]file · ↑↓ tab[/]",
+                f"[{ui.ACCENT_3}]⇥[/] [{ui.FG_DIM}]agent[/]",
+                f"[{ui.ACCENT_3}]esc[/] [{ui.FG_DIM}]cancel[/]",
+                f"[{ui.ACCENT_3}]^Y[/] [{ui.FG_DIM}]reply[/]",
+                f"[{ui.ACCENT_3}]^T[/] [{ui.FG_DIM}]trace:{trace}[/]",
+                f"[{ui.ACCENT_3}]^F[/] [{ui.FG_DIM}]tools[/]",
+                f"[{ui.ACCENT_3}]^D[/] [{ui.FG_DIM}]quit[/]",
+                f"[{ui.ACCENT_3}]?[/] [{ui.FG_DIM}]help[/]",
             ]
-            line = f"  [{ui.SEP}]{ui.DOT}[/]  ".join(hints)
+            sep = f" [{ui.FG_DIM}]{ui.DOT}[/] "
+            line = sep.join(hints)
             self.query_one("#hintbar", Static).update(Text.from_markup(line))
         except Exception:
             pass
@@ -585,7 +586,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         self._width_check_timer = self.set_timer(0.3, self._check_width)
 
     # ─── status bar (single line with everything) ────────────────────
-    _STATUS_SEP = f"  [{ui.SEP}]{ui.DOT}[/]  "
+    _STATUS_SEP = f"  [{ui.FG_DIM}]{ui.DOT}[/]  "
 
     def _build_status_segments(self, *, busy: bool) -> list[str]:
         """Build all segments for the status bar — brand, activity, model,
@@ -605,7 +606,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             segs.append(f"[{ui.FG}]{self._status_msg}[/]")
 
         # ── model ─────────────────────────────────────────────────────
-        segs.append(f"[{ui.ACCENT}]{state.MODEL}[/]")
+        segs.append(f"[b {ui.ACCENT}]{state.MODEL}[/]")
 
         # ── agent ─────────────────────────────────────────────────────
         segs.append(_agent_badge_markup())
@@ -615,12 +616,13 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             segs.append(f"[{ui.FG_DIM}]#{state.current_session_id}[/]")
 
         # ── messages count ────────────────────────────────────────────
-        segs.append(f"◈ [{ui.FG_MUTE}]{len(state.messages)}[/]")
+        segs.append(f"[{ui.FG_MUTE}]{len(state.messages)} msgs[/]")
 
         # ── tokens ────────────────────────────────────────────────────
         segs.append(
-            f"⇅ [{ui.FG_MUTE}]{state.total_in}[/]/[{ui.FG_MUTE}]{state.total_out}[/]"
-            f"=[{ui.FG_MUTE}]{state.total_tokens}[/]"
+            f"[{ui.FG_MUTE}]{state.total_in}[/]→"
+            f"[{ui.FG_MUTE}]{state.total_out}[/]"
+            f"=[{ui.FG_MUTE}]{state.total_tokens}t[/]"
         )
 
         # ── plan mode ─────────────────────────────────────────────────
@@ -650,11 +652,11 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         # ── git branch (cached, refreshed every few seconds) ──────────
         self._refresh_git_branch()
         if self._git_branch:
-            segs.append(f"[{ui.ACCENT_2}]⑂ ({self._git_branch})[/]")
+            segs.append(f"[{ui.ACCENT_2}]⤳ {self._git_branch}[/]")
 
         # ── internal trace ────────────────────────────────────────────
         if state.show_internal:
-            segs.append(f"[{ui.FG_DIM}]trace:on[/]")
+            segs.append(f"[{ui.WARN}]trace[/]")
 
         # ── turn timer ────────────────────────────────────────────────
         if busy and self._turn_t0:
