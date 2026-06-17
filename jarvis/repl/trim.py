@@ -49,7 +49,14 @@ def _content_chars(content: Any) -> int:
       - plain str (user typed text)
       - list of blocks (tool_use, tool_result, text, thinking, image)
     Tool_result content is counted from the 'content' key, not 'text'.
+    Image blocks use a fixed estimate (~3K tokens / 12K chars) to avoid
+    inflating the budget with base64 data.
     """
+    # Approximate image cost: most multimodal APIs charge ~1000-3000 tokens
+    # per image regardless of size.  We use 2000 tokens ≈ 8000 chars as a
+    # conservative estimate that prevents premature trimming of text content.
+    _IMAGE_ESTIMATE_CHARS = 8_000
+
     if isinstance(content, str):
         return len(content)
     if isinstance(content, list):
@@ -65,6 +72,8 @@ def _content_chars(content: Any) -> int:
                     total += len(b.get("thinking", ""))
                 elif kind == "tool_use":
                     total += len(str(b.get("input", "")))
+                elif kind == "image":
+                    total += _IMAGE_ESTIMATE_CHARS
                 else:
                     total += len(str(b))
             else:

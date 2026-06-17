@@ -19,7 +19,10 @@ from .tools.image_input import (
     file_digest,
     ocr_image_block,
     process_input_for_images,
+    process_input_for_images_multimodal,
 )
+from .tools.image_multimodal import build_image_content_block, is_text_reading_intent
+from .constants.providers import model_supports_images
 from . import state
 
 
@@ -61,8 +64,15 @@ def init_runtime(*, quiet: bool = False) -> None:
     start_background_update()
 
 
-def prepare_user_prompt(inp: str, *, include_clipboard: bool = True) -> str | None:
-    """Normalize one user prompt before sending (aliases, slash, @files, images)."""
+def prepare_user_prompt(inp: str, *, include_clipboard: bool = True) -> str | list[dict] | None:
+    """Normalize one user prompt before sending (aliases, slash, @files, images).
+
+    Image routing logic:
+      • **Text-reading intent** (read, extract, ocr, transcribe, …) → OCR
+      • **Multiple images / bulk** → OCR
+      • **Single image + visual analysis + model supports images** → native image content blocks
+      • **Single image + model does NOT support images** → OCR
+    """
     inp = (inp or "").strip()
     if not inp:
         return None
@@ -105,30 +115,106 @@ def prepare_user_prompt(inp: str, *, include_clipboard: bool = True) -> str | No
 
     if not dropped:
         hits = extract_image_paths(inp)
-        if hits:
-            names = ", ".join(p.name for _, p in hits)
-            console.print(f"[dim]▣ detected image(s): {names} — running OCR…[/]")
-            inp = process_input_for_images(inp)
-        elif include_clipboard:
-            img = clipboard_image_to_file()
-            if img is None:
-                state.last_clipboard_image_digest = ""
-            else:
-                digest = file_digest(img)
-                if digest != state.last_clipboard_image_digest:
-                    state.last_clipboard_image_digest = digest
-                    console.print(f"[dim]▣ fresh clipboard image detected → OCR ({img})[/]")
-                    block, ocr = ocr_image_block(img, label="clipboard")
-                    inp = append_image_block(inp, block)
-                    console.print(
-                        Panel(
-                            ocr[:PANEL_PREVIEW_CHARS]
-                            + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
-                            title="▣ attached clipboard image (OCR)",
-                            border_style="cyan",
-                        )
-                    )
+        # Does the current model support native image inputs?
+        images_natively = model_supports_images(state.MODEL)
 
+        if hits:
+            if len(hits) > 1:
+                names = ", ".join(p.name for _, p in hits)
+                console.print(f"[dim]▣ detected {len(hits)} images: {names} — bulk OCR…[/]")
+                inp = process_input_for_images(inp)
+            elif len(hits) == 1 and _should_use_native_image(inp, images_natively):
+                name = hits[0][1].name
+                raw = hits[0][0]
+                console.print(f"[dim]▣ native image: {name} (multimodal model)[/]")
+                inp = process_input_for_images_multimodal(inp, model_supports_images=True)
+            else:
+                names = ", ".join(p.name for _, p in hits)
+                console.print(f"[dim]▣ detected image(s): {names} — running OCR…[/]")
+                inp = process_input_for_images(inp)
+        elif include_clipboard:
+            inp = _handle_clipboard_image(inp, images_natively)
+
+    return inp
+
+
+def _should_use_native_image(text: str, model_natively_multimodal: bool) -> bool:
+    """Return True if the current turn should use a native image block.
+
+    Criteria:
+      • Model must support native images
+      • User intent must NOT be text reading (→ OCR is more precise for dense text)
+    """
+    if not model_natively_multimodal:
+        return False
+    if is_text_reading_intent(text):
+        return False
+    return True
+
+
+def _text_from_content_blocks(blocks: list[dict]) -> str:
+    """Extract plain text from an Anthropic-format content block list for display/title."""
+    parts: list[str] = []
+    for b in blocks:
+        if b.get("type") == "text":
+            parts.append(b.get("text", ""))
+    return " ".join(p.strip() for p in parts if p.strip())
+
+
+def _handle_clipboard_image(inp: str, images_natively: bool) -> str | list[dict] | None:
+    """Process a clipboard image, returning either OCR text or native image blocks."""
+    img = clipboard_image_to_file()
+    if img is None:
+        state.last_clipboard_image_digest = ""
+        return inp
+
+    digest = file_digest(img)
+    if digest == state.last_clipboard_image_digest:
+        return inp  # same image, skip
+    state.last_clipboard_image_digest = digest
+
+    # Check if this clipboard paste should use native vision
+    if _should_use_native_image(inp, images_natively):
+        console.print(f"[dim]▣ fresh clipboard image — multimodal ({img})[/]")
+        from .tools.image_multimodal import build_content_blocks
+        # Build content blocks: the existing text + the clipboard image
+        text_blocks = [{"type": "text", "text": inp}] if inp else []
+        img_block = build_image_content_block(img)
+        if img_block:
+            console.print(
+                Panel(
+                    "Image sent to model as native content block.",
+                    title="▣ attached clipboard image (multimodal)",
+                    border_style="cyan",
+                )
+            )
+            return text_blocks + [img_block] if text_blocks else [img_block]
+        # Fallback: if image block failed, try OCR
+        console.print(f"[dim]▣ clipboard image → OCR fallback ({img})[/]")
+        block, ocr = ocr_image_block(img, label="clipboard")
+        inp = append_image_block(inp, block)
+        console.print(
+            Panel(
+                ocr[:PANEL_PREVIEW_CHARS]
+                + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
+                title="▣ attached clipboard image (OCR)",
+                border_style="cyan",
+            )
+        )
+        return inp
+
+    # OCR path (text reading intent or non-multimodal model)
+    console.print(f"[dim]▣ fresh clipboard image detected → OCR ({img})[/]")
+    block, ocr = ocr_image_block(img, label="clipboard")
+    inp = append_image_block(inp, block)
+    console.print(
+        Panel(
+            ocr[:PANEL_PREVIEW_CHARS]
+            + ("…" if len(ocr) > PANEL_PREVIEW_CHARS else ""),
+            title="▣ attached clipboard image (OCR)",
+            border_style="cyan",
+        )
+    )
     return inp
 
 
@@ -203,14 +289,22 @@ def main():
         _send_and_loop(prepared)
 
 
-def _send_and_loop(inp: str):
-    """Append the user message and run the tool-call loop until end_turn."""
+def _send_and_loop(inp: str | list[dict]):
+    """Append the user message and run the tool-call loop until end_turn.
+
+    *inp* may be a plain string (text-only or OCR output) or a list of
+    Anthropic-format content blocks (text + native image blocks).
+    """
     user_msg = {"role": "user", "content": inp}
     state.messages.append(user_msg)
     state.web_tool_used_this_turn = False
     if state.current_session_id:
         db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
-        db_set_title_if_empty(state.current_session_id, inp)
+        if isinstance(inp, list):
+            title = _text_from_content_blocks(inp)
+        else:
+            title = inp
+        db_set_title_if_empty(state.current_session_id, title)
     try:
         while True:
             if state.cancel_requested.is_set():

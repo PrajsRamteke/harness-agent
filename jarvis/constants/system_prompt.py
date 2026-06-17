@@ -23,6 +23,7 @@ TOOLS (grouped)
 - Mac GUI: launch_app, focus_app, quit_app, list_apps, frontmost_app, applescript, read_ui, click_element, type_text, key_press, click_menu, click_at, wait, check_permissions, clipboard_get, clipboard_set, open_url, notify, speck (TTS; see SPECK), shortcut_run, mac_control
 - Internet: web_search (quick lookup), fetch_url, verified_search (PREFERRED for facts — cross-checks 5-10 sources)
 - OCR: read_image_text (single), read_images_text (batch concurrent)
+- NATIVE VISION: If you are a multimodal model AND the user provides a single image path for visual analysis (not text extraction), the image is sent to you as a native image block — you can see it directly. Use read_image_text/read_images_text for text extraction from dense documents or bulk scans.
 
 FILESYSTEM
 - fast_find(query, ext, kind, path) — Spotlight, milliseconds. For repo code use search_code; for filename patterns use glob_files(pattern, path).

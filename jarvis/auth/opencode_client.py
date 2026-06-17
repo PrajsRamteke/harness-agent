@@ -188,12 +188,28 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
         # content is a list of blocks
         if role == "user":
             text_parts = []
+            image_parts = []
             tool_results = []
+            has_image = False
             for raw_block in content:
                 block = _block_as_dict(raw_block)
-                if block.get("type") == "text":
+                btype = block.get("type", "")
+                if btype == "text":
                     text_parts.append(block.get("text", ""))
-                elif block.get("type") == "tool_result":
+                elif btype == "image":
+                    has_image = True
+                    source = block.get("source", {})
+                    source_type = source.get("type", "base64")
+                    media_type = source.get("media_type", "image/png")
+                    data = source.get("data", "")
+                    if source_type == "base64" and data:
+                        image_parts.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{media_type};base64,{data}"
+                            },
+                        })
+                elif btype == "tool_result":
                     result_content = block.get("content", "")
                     if isinstance(result_content, list):
                         result_content = "\n".join(
@@ -209,7 +225,14 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
                     # plain string block
                     if isinstance(raw_block, str):
                         text_parts.append(raw_block)
-            if text_parts:
+            if has_image:
+                # Build an array of content parts (text + image_url)
+                content_parts: list[dict] = []
+                if text_parts:
+                    content_parts.append({"type": "text", "text": "\n".join(text_parts)})
+                content_parts.extend(image_parts)
+                out.append({"role": "user", "content": content_parts})
+            elif text_parts:
                 out.append({"role": "user", "content": "\n".join(text_parts)})
             out.extend(tool_results)
 

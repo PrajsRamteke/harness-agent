@@ -81,6 +81,7 @@ class ModelSpec:
     input_price   USD per 1M input tokens  (0.0 for free tiers) — /cost only
     output_price  USD per 1M output tokens (0.0 for free tiers) — /cost only
     default       True marks this model as its provider's default
+    supports_images  True if the model can natively process image inputs
     """
     id: str
     label: str
@@ -88,15 +89,16 @@ class ModelSpec:
     input_price: float = 0.0
     output_price: float = 0.0
     default: bool = False
+    supports_images: bool = False
 
 
 MODELS: list[ModelSpec] = [
     # ── Anthropic (direct API) ────────────────────────────────────────────────
-    ModelSpec("claude-haiku-4-5",  "Haiku 4.5 — fastest, cheapest",  PROVIDER_ANTHROPIC, 1.0,  5.0),
-    ModelSpec("claude-sonnet-4-6", "Sonnet 4.6 — balanced",          PROVIDER_ANTHROPIC, 3.0, 15.0, default=True),
-    ModelSpec("claude-opus-4-6",   "Opus 4.6 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0),
-    ModelSpec("claude-opus-4-7",   "Opus 4.7 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0),
-    ModelSpec("claude-opus-4-8",   "Opus 4.8 — most capable",        PROVIDER_ANTHROPIC, 5.0, 25.0),
+    ModelSpec("claude-haiku-4-5",  "Haiku 4.5 — fastest, cheapest",  PROVIDER_ANTHROPIC, 1.0,  5.0, supports_images=True),
+    ModelSpec("claude-sonnet-4-6", "Sonnet 4.6 — balanced",          PROVIDER_ANTHROPIC, 3.0, 15.0, default=True, supports_images=True),
+    ModelSpec("claude-opus-4-6",   "Opus 4.6 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0, supports_images=True),
+    ModelSpec("claude-opus-4-7",   "Opus 4.7 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0, supports_images=True),
+    ModelSpec("claude-opus-4-8",   "Opus 4.8 — most capable",        PROVIDER_ANTHROPIC, 5.0, 25.0, supports_images=True),
 
     # ── OpenRouter free-tier (all :free suffix → $0) ─────────────────────────
     ModelSpec("openai/gpt-oss-120b:free",               "GPT-OSS 120B — default",            PROVIDER_OPENROUTER, default=True),
@@ -112,16 +114,16 @@ MODELS: list[ModelSpec] = [
     ModelSpec("openrouter/owl-alpha",                   "Owl Alpha",                         PROVIDER_OPENROUTER),
 
     # ── OpenCode Go models (real pricing, help.apiyi) ──────────────────────────
-    ModelSpec("glm-5.1",           "GLM-5.1 — latest GLM model",            PROVIDER_OPENCODE, 1.40, 4.40),
-    ModelSpec("glm-5",             "GLM-5 — high capability",               PROVIDER_OPENCODE, 1.00, 3.20),
-    ModelSpec("kimi-k2.6",         "Kimi K2.6 — Moonshot AI, most capable", PROVIDER_OPENCODE, 0.32, 1.34, default=True),
-    ModelSpec("kimi-k2.5",         "Kimi K2.5 — Moonshot AI",               PROVIDER_OPENCODE, 0.60, 3.00),
+    ModelSpec("glm-5.1",           "GLM-5.1 — latest GLM model",            PROVIDER_OPENCODE, 1.40, 4.40, supports_images=True),
+    ModelSpec("glm-5",             "GLM-5 — high capability",               PROVIDER_OPENCODE, 1.00, 3.20, supports_images=True),
+    ModelSpec("kimi-k2.6",         "Kimi K2.6 — Moonshot AI, most capable", PROVIDER_OPENCODE, 0.32, 1.34, default=True, supports_images=True),
+    ModelSpec("kimi-k2.5",         "Kimi K2.5 — Moonshot AI",               PROVIDER_OPENCODE, 0.60, 3.00, supports_images=True),
     ModelSpec("deepseek-v4-pro",   "DeepSeek V4 Pro — strong reasoning",    PROVIDER_OPENCODE, 1.74, 3.48),
     ModelSpec("deepseek-v4-flash", "DeepSeek V4 Flash — fast & cheap",      PROVIDER_OPENCODE, 0.14, 0.28),
     ModelSpec("mimo-v2.5-pro",     "MiMo V2.5 Pro",                         PROVIDER_OPENCODE, 1.00, 3.00),
     ModelSpec("mimo-v2.5",         "MiMo V2.5",                             PROVIDER_OPENCODE, 0.40, 2.00),
     ModelSpec("mimo-v2-pro",       "MiMo V2 Pro",                           PROVIDER_OPENCODE, 1.00, 3.00),
-    ModelSpec("mimo-v2-omni",      "MiMo V2 Omni",                          PROVIDER_OPENCODE, 0.40, 2.00),
+    ModelSpec("mimo-v2-omni",      "MiMo V2 Omni",                          PROVIDER_OPENCODE, 0.40, 2.00, supports_images=True),
     ModelSpec("minimax-m2.7",      "MiniMax M2.7",                          PROVIDER_OPENCODE, 0.30, 1.20),
     ModelSpec("minimax-m2.5",      "MiniMax M2.5",                          PROVIDER_OPENCODE, 0.30, 1.20),
     ModelSpec("qwen3.6-plus",      "Qwen3.6 Plus",                          PROVIDER_OPENCODE, 0.50, 3.00),
@@ -142,12 +144,12 @@ MODELS: list[ModelSpec] = [
     ModelSpec("ring-2.6-1t-free",  "Ring 2.6 1T Free",            PROVIDER_OPENCODE_ZEN),
 
     # ── OpenAI Codex (ChatGPT subscription / OAuth) ───────────────────────────
-    ModelSpec("gpt-5.5",      "GPT-5.5 — Codex recommended", PROVIDER_OPENAI_CODEX, default=True),
-    ModelSpec("gpt-5.4",      "GPT-5.4 — Codex fallback",    PROVIDER_OPENAI_CODEX),
-    ModelSpec("gpt-5.4-mini", "GPT-5.4 Mini — faster Codex", PROVIDER_OPENAI_CODEX),
+    ModelSpec("gpt-5.5",      "GPT-5.5 — Codex recommended", PROVIDER_OPENAI_CODEX, default=True, supports_images=True),
+    ModelSpec("gpt-5.4",      "GPT-5.4 — Codex fallback",    PROVIDER_OPENAI_CODEX, supports_images=True),
+    ModelSpec("gpt-5.4-mini", "GPT-5.4 Mini — faster Codex", PROVIDER_OPENAI_CODEX, supports_images=True),
 
     # ── Kimchi (llm.kimchi.dev — OpenAI-compatible, BYO API key) ───────────────
-    ModelSpec("kimi-k2.6",         "Kimi K2.6 — reasoning, most capable",  PROVIDER_KIMCHI, default=True),
+    ModelSpec("kimi-k2.6",         "Kimi K2.6 — reasoning, most capable",  PROVIDER_KIMCHI, default=True, supports_images=True),
     ModelSpec("minimax-m2.7",      "MiniMax M2.7",                          PROVIDER_KIMCHI),
     ModelSpec("minimax-m3",        "MiniMax M3",                            PROVIDER_KIMCHI),
     ModelSpec("nemotron-3-ultra-fp4", "Nemotron 3 Ultra FP4",               PROVIDER_KIMCHI),
@@ -160,6 +162,16 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
     m.id: (m.label, m.provider, (m.input_price, m.output_price))
     for m in MODELS
 }
+
+# Set of model IDs that support native image inputs (multimodal).
+IMAGE_SUPPORTING_MODELS: frozenset[str] = frozenset(
+    m.id for m in MODELS if m.supports_images
+)
+
+
+def model_supports_images(model_id: str) -> bool:
+    """Return True if the given model ID can natively process image inputs."""
+    return model_id in IMAGE_SUPPORTING_MODELS
 
 # ── Auto-generated model lists from MODEL_INFO ─────────────────────────────────
 ANTHROPIC_MODELS = [
