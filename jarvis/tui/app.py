@@ -541,7 +541,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                 title_align="left",
                 border_style=ui.ACCENT,
                 padding=(0, 1),
-            )
+            ),
+            expand=True,
         )
 
     # ─── width monitor (reflow on resize) ─────────────────────────────
@@ -1186,7 +1187,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             return
         if should_send and new_inp:
             log = self.query_one("#transcript", RichLog)
-            log.write(self._user_panel(new_inp))
+            log.write(self._user_panel(new_inp), expand=True)
             self._busy = True
             self._turn_t0 = time.monotonic()
             self._sync_activity_phase("Thinking…")
@@ -1280,7 +1281,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         head = stripped.split(maxsplit=1)[0]
         if head in ("/local",):
             log = self.query_one("#transcript", RichLog)
-            log.write(self._user_panel(stripped))
+            log.write(self._user_panel(stripped), expand=True)
             self._busy = True
             self._turn_t0 = time.monotonic()
             self._sync_activity_phase("Processing…")
@@ -1412,7 +1413,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             phase = "checking…" if checking else "upgrading…"
             self._tui_console.start_command_progress(inp.strip(), phase=phase)
         else:
-            log.write(self._user_panel(inp))
+            log.write(self._user_panel(inp), expand=True)
         if self._web_bridge is not None:
             self._web_bridge.emit(
                 "message",
@@ -1501,7 +1502,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                 title_align="left",
                 border_style=ui.ACCENT,
                 padding=(0, 1),
-            )
+            ),
+            expand=True,
         )
 
     def _render_internal_blocks(self, content) -> None:
@@ -1530,7 +1532,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                             title_align="left",
                             border_style=ui.SEP,
                             padding=(0, 1),
-                        )
+                        ),
+                        expand=True,
                     )
                 continue
             if not state.show_internal:
@@ -1547,7 +1550,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                         title_align="left",
                         border_style=ui.WARN,
                         padding=(0, 1),
-                    )
+                    ),
+                    expand=True,
                 )
             elif kind == "tool_result":
                 if hide_tool_results:
@@ -1564,7 +1568,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                         title_align="left",
                         border_style=ui.SEP,
                         padding=(0, 1),
-                    )
+                    ),
+                    expand=True,
                 )
 
     def _render_loaded_session(self) -> None:
@@ -1583,7 +1588,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             text = self._content_text(content).strip()
             if role == "user":
                 if text:
-                    log.write(self._user_panel(text))
+                    log.write(self._user_panel(text), expand=True)
                 self._render_internal_blocks(content)
             elif role == "assistant":
                 self._render_internal_blocks(content)
@@ -1595,7 +1600,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                             title_align="left",
                             border_style=ui.ACCENT_2,
                             padding=(0, 1),
-                        )
+                        ),
+                        expand=True,
                     )
         backfill_tool_output_history()
         self._set_status("session loaded")
@@ -1624,7 +1630,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             text = self._content_text(content).strip()
             if role == "user":
                 if text:
-                    log.write(self._user_panel(text))
+                    log.write(self._user_panel(text), expand=True)
                 self._render_internal_blocks(content)
             elif role == "assistant":
                 self._render_internal_blocks(content)
@@ -1636,7 +1642,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                             title_align="left",
                             border_style=ui.ACCENT_2,
                             padding=(0, 1),
-                        )
+                        ),
+                        expand=True,
                     )
 
         # Refresh status bar, hint bar, and composer prefix with new colors.

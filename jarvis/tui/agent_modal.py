@@ -440,7 +440,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
                 Markdown(body or "*(empty body)*"),
                 title=f"⚙  Agent preview: {name}",
                 border_style="cyan",
-            ))
+            ), expand=True)
             self._notify(f"previewed '{name}' in transcript")
         except Exception as e:
             self._notify(f"preview failed: {e}", error=True)

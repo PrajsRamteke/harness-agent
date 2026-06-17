@@ -447,7 +447,7 @@ class CommandManagerScreen(TuiModalScreen[str | None]):
                 Markdown(body or "*(empty template)*"),
                 title=f"⌘  Command preview: /{name}",
                 border_style="cyan",
-            ))
+            ), expand=True)
             self._notify(f"previewed '/{name}' in transcript")
         except Exception as e:
             self._notify(f"preview failed: {e}", error=True)

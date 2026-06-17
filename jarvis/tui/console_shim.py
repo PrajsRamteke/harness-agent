@@ -126,7 +126,7 @@ def _render_to_strips(
     log: RichLog,
     content,
     *,
-    expand: bool = False,
+    expand: bool = True,
     shrink: bool = True,
 ) -> tuple[list[Strip], int]:
     """Render *content* the same way ``RichLog.write`` would, without mutating the log."""
@@ -193,7 +193,7 @@ def _append_rich_log_block(
 ) -> int:
     """Append *content* and return how many lines were added."""
     before = len(log.lines)
-    log.write(content, scroll_end=scroll_end)
+    log.write(content, scroll_end=scroll_end, expand=True)
     return len(log.lines) - before
 
 
@@ -302,6 +302,7 @@ class TUIConsole:
                     padding=(0, 1),
                 ),
                 scroll_end=follow,
+                expand=True,
             )
 
         try:
@@ -398,6 +399,7 @@ class TUIConsole:
                     padding=(0, 1),
                 ),
                 scroll_end=follow,
+                expand=True,
             )
             self._as_line_count = len(self._log.lines) - anchor
 
@@ -443,6 +445,7 @@ class TUIConsole:
                             padding=(0, 1),
                         ),
                         scroll_end=follow,
+                        expand=True,
                     )
             self._think_buffer = ""
             self._think_dirty = 0
@@ -459,6 +462,7 @@ class TUIConsole:
                         padding=(0, 1),
                     ),
                     scroll_end=follow,
+                    expand=True,
                 )
 
         try:
@@ -732,8 +736,14 @@ class TUIConsole:
 
     # ─── internal ───────────────────────────────────────────────────────
     def _write(self, renderable):
+        # Bordered panels should always fill the transcript width so they read
+        # consistently; plain text / rules keep their natural sizing.
+        expand = isinstance(renderable, Panel)
+
         def _go() -> None:
-            self._log.write(renderable, scroll_end=_at_bottom(self._log))
+            self._log.write(
+                renderable, scroll_end=_at_bottom(self._log), expand=expand
+            )
 
         try:
             self._app.call_from_thread(_go)

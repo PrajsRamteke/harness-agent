@@ -182,7 +182,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
                 Markdown(content),
                 title=f"⚙ Skill preview: {oid}",
                 border_style="cyan",
-            ))
+            ), expand=True)
         except Exception:
             pass
         self.dismiss(oid)
