@@ -42,7 +42,11 @@ CONTEXT_TOOLS = [
      }, "required": ["paths"]}},
 ]
 
-CORE_TOOLS = CONTEXT_TOOLS + [
+# NOTE: CONTEXT_TOOLS (resolve_context/read_bundle) are intentionally NOT part
+# of CORE_TOOLS. Core is always exposed to the model; the context-pack tools are
+# coding-only and gated by router.select_tools() to the active coding agent so
+# the model can't reach for whole-codebase bundling on non-coding turns.
+CORE_TOOLS = [
     {"name": "ask_user_question", "description": (
         "Ask the user one or more multiple-choice questions when you need their "
         "input to proceed — architecture choices, scope, preferences, or "

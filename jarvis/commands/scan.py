@@ -1,7 +1,7 @@
 """Handle /scan command — one-time LLM-driven system scan.
 
 Usage:
-  /scan me     — Triggers the LLM to deeply explore the system using its tools
+  /scan        — Triggers the LLM to deeply explore the system using its tools
                  (fast_find, read_file, read_document, read_images_text, search_code,
                  etc.), find important personal/user info, and save only genuinely
                  durable facts to memory via memory_save.
@@ -10,7 +10,7 @@ Usage:
                  showing "already completed". The scan prompt is designed so the
                  LLM decides what's important — not the command itself.
 
-  /scan        — Shows usage hint (does nothing).
+  /scan me     — Accepted as an alias for bare /scan (backward compatible).
 """
 
 from typing import Tuple
@@ -35,9 +35,11 @@ def handle_scan(c: str, arg: str) -> Tuple[bool, str]:
 
     mode = (arg or "").strip().lower()
 
-    if mode != "me":
+    # `/scan` runs the scan directly. `/scan me` is still accepted as an alias.
+    # Any other argument is rejected so typos don't silently kick off a scan.
+    if mode not in ("", "me"):
         console.print(
-            "[yellow]Usage: /scan me[/] — one-time AI-driven system scan.\n"
+            f"[yellow]Unknown argument '{mode}'.[/] Usage: [cyan]/scan[/] — one-time AI-driven system scan.\n"
             "[dim]The LLM will explore your machine and save important facts to memory.[/]"
         )
         return True, ""

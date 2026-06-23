@@ -74,6 +74,29 @@ def _recent_tool_groups(messages: list[dict], max_messages: int = 4) -> set[str]
     return groups
 
 
+def _coding_agent_active() -> bool:
+    """Whether the context-pack tools should be exposed this turn.
+
+    ``resolve_context`` / ``read_bundle`` bundle large slices of a codebase and
+    are only useful while actually working on code. We expose them solely when
+    the coding agent is active so the model can't reach for them on unrelated
+    turns. Matches the bundled coding agent by name and, defensively, any active
+    agent whose body documents the context tools (covers renamed/custom coding
+    agents) — without touching any prompt text.
+    """
+    rec = state.active_agent
+    if rec is None and state.active_agent_name:
+        try:
+            rec = state.resolve_active_agent()
+        except Exception:
+            rec = None
+    if not rec:
+        return False
+    if (rec.get("name") or "").strip().lower() == "coding":
+        return True
+    return "resolve_context" in (rec.get("_body") or "")
+
+
 def _dedupe_tools(groups: Iterable[str]) -> list[dict]:
     out = []
     seen = set()
@@ -96,6 +119,12 @@ def select_tools(messages: list[dict]) -> list[dict]:
     text = _latest_text(messages)
     groups = ["core"]
     active = _recent_tool_groups(messages)
+
+    # Context-pack tools — coding-only. Exposed solely while the coding agent is
+    # active (or mid tool-loop if it already started using them). This keeps the
+    # model from reaching for whole-codebase bundling on non-coding turns.
+    if _coding_agent_active() or "context" in active:
+        groups.append("context")
 
     # Skills — always include when any skill is discovered. Headers are injected
     # into the system prompt and the model must be able to call skill_load on
