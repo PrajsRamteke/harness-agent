@@ -1,5 +1,6 @@
 """Call the configured model API with streaming + retry + OAuth refresh."""
 import ctypes
+import os
 import threading
 import time
 from typing import Any, Dict
@@ -45,6 +46,19 @@ from .turn_progress import report_turn_phase
 # handler) can abort an in-flight response.
 _current_stream = None
 _worker_thread_id: int = 0  # set at the start of each turn
+# Set True once the current attempt receives its first delta. Lets the timeout
+# handler tell a "no first token" stall (safe to retry on a fresh connection)
+# apart from a stall that struck mid-reply (retrying would duplicate text).
+_got_first_delta: bool = False
+
+
+def _stall_retry_enabled() -> bool:
+    """Auto-retry a stalled stream on a fresh connection. Disable with
+    HARNESS_STREAM_STALL_RETRY=0 (a transient provider queue/throttle usually
+    clears on a fresh request faster than waiting out the read timeout)."""
+    return os.getenv("HARNESS_STREAM_STALL_RETRY", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
 
 _STREAM_TIMEOUT_ERRORS = (
     APITimeoutError,
@@ -186,6 +200,8 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
 
         for kind, chunk in _iter_live_deltas(stream):
             last_progress[0] = time.monotonic()
+            if not _got_first_delta:
+                globals()["_got_first_delta"] = True
             if kind == "thinking":
                 if phase[0] != "thinking":
                     phase[0] = "thinking"
@@ -553,6 +569,7 @@ def call_claude_stream():
     for attempt in range(len(delays) + 1):
         try:
             report_turn_phase("Jarvis: API waiting...")
+            globals()["_got_first_delta"] = False
             with state.client.messages.stream(**kwargs) as stream:
                 _current_stream = stream
                 try:
@@ -581,8 +598,26 @@ def call_claude_stream():
             )
             return final
         except _STREAM_TIMEOUT_ERRORS:
+            _current_stream = None
+            # User pressed Esc — don't retry, just bail.
+            if state.cancel_requested.is_set():
+                raise
+            # A stall AFTER text/thinking started can't be retried safely — a
+            # fresh request would re-stream content the user already saw. Only
+            # auto-retry a "no first token" stall (queue/throttle), on a fresh
+            # connection, within the existing retry budget.
+            if _stall_retry_enabled() and not _got_first_delta and attempt < len(delays):
+                report_turn_phase(
+                    f"API stalled — retrying ({attempt + 1}/{len(delays)})…"
+                )
+                console.print(
+                    f"[yellow]API stalled (no data) — retrying on a fresh "
+                    f"connection ({attempt + 1}/{len(delays)})…[/]"
+                )
+                time.sleep(delays[attempt])
+                continue
             _report_http_timeout()
-            raise
+            raise HarnessAPIError("stream timeout")
         except RateLimitError as e:
             _stop_on_rate_limit(str(e))
             raise
