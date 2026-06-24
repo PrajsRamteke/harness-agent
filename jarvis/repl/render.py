@@ -35,6 +35,56 @@ except Exception:  # pragma: no cover
     )
 
 
+# Maximum automatic re-tries when the model returns a turn with no visible
+# output (no text, no tool calls). One retry handles transient provider hiccups
+# without risking an infinite loop on a deterministically empty response.
+EMPTY_TURN_MAX_RETRIES = 1
+
+
+def response_has_visible_output(resp) -> bool:
+    """True if a response will render something the user can see.
+
+    Visible == at least one tool_use block (tools produce dock/output) or a
+    text block with non-whitespace content. Thinking-only or empty responses
+    return False — those are what make a turn "just stop" with a blank screen.
+    """
+    for b in getattr(resp, "content", None) or []:
+        t = getattr(b, "type", None)
+        if t == "tool_use":
+            return True
+        if t == "text" and re.search(r"\S", getattr(b, "text", "") or ""):
+            return True
+    return False
+
+
+def classify_empty_turn(resp, empty_retries: int) -> str | None:
+    """Decide what the turn loop should do with a possibly-empty response.
+
+    Returns ``"retry"`` (transient empty — re-call once), ``"stop"`` (give up
+    and surface a message), or ``None`` (response is productive — proceed).
+    """
+    if response_has_visible_output(resp):
+        return None
+    reason = getattr(resp, "stop_reason", None)
+    if reason in (None, "end_turn") and empty_retries < EMPTY_TURN_MAX_RETRIES:
+        return "retry"
+    return "stop"
+
+
+def empty_turn_message(resp) -> str:
+    """User-facing explanation for a turn that produced no visible output."""
+    reason = getattr(resp, "stop_reason", None) or "unknown"
+    if reason == "max_tokens":
+        return (
+            "⚠ The response hit the max-token limit before any text was "
+            "produced — try a shorter request or a higher token budget."
+        )
+    return (
+        f"⚠ The model returned an empty response (stop_reason={reason}). "
+        "Nothing to display — try again or rephrase."
+    )
+
+
 def assistant_model_label() -> str:
     """Short label for assistant panels (Sonnet / Opus / Haiku / raw model id)."""
     m = state.MODEL.lower()

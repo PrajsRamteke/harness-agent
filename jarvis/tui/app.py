@@ -1657,7 +1657,11 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         """Mirror of jarvis.main._send_and_loop, adapted for the TUI."""
         from ..commands.dispatch import handle_slash
         from ..repl.stream import call_claude_stream
-        from ..repl.render import render_assistant
+        from ..repl.render import (
+            render_assistant,
+            classify_empty_turn,
+            empty_turn_message,
+        )
         from ..storage.sessions import db_append_message, db_set_title_if_empty
 
         # Stale anchors/flags from a cancelled previous turn must never
@@ -1734,10 +1738,29 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                 db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
                 db_set_title_if_empty(state.current_session_id, inp)
 
+            empty_retries = 0
             while True:
                 if state.cancel_requested.is_set():
                     raise KeyboardInterrupt()
                 resp = call_claude_stream()
+                # A turn with no visible output (no text, no tool calls) would
+                # otherwise break the loop and leave a blank screen — the "it
+                # just stops / no API response" symptom. Retry once for a
+                # transient empty, then surface a clear message.
+                decision = classify_empty_turn(resp, empty_retries)
+                if decision in ("retry", "stop"):
+                    self._tui_console.assistant_stream_abort()
+                    if decision == "retry":
+                        empty_retries += 1
+                        self._tui_console.print(
+                            f"[{ui.FG_DIM}]⚠ empty response — retrying…[/]"
+                        )
+                        continue
+                    self._tui_console.print(
+                        f"[{ui.WARN}]{_rich_escape(empty_turn_message(resp))}[/]"
+                    )
+                    break
+                empty_retries = 0
                 asst_msg = {"role": "assistant", "content": resp.content}
                 state.messages.append(asst_msg)
                 if state.current_session_id:

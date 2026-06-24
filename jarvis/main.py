@@ -8,7 +8,7 @@ from .storage.sessions import (
 )
 from .repl.banners import welcome_banner, header_panel
 from .repl.stream import call_claude_stream
-from .repl.render import render_assistant
+from .repl.render import render_assistant, classify_empty_turn, empty_turn_message
 from .commands.dispatch import handle_slash
 from .tools.shell import run_bash
 from .constants import PANEL_PREVIEW_CHARS
@@ -305,12 +305,26 @@ def _send_and_loop(inp: str | list[dict]):
         else:
             title = inp
         db_set_title_if_empty(state.current_session_id, title)
+    empty_retries = 0
     try:
         while True:
             if state.cancel_requested.is_set():
                 raise KeyboardInterrupt()
             with console.status("[dim]thinking…[/]", spinner="dots"):
                 resp = call_claude_stream()
+            # Guard against a turn that produced nothing visible (no text, no
+            # tool calls) — otherwise the loop would break and the user would
+            # see a blank "no response". Retry once for transient empties,
+            # then surface a clear message instead of stopping silently.
+            decision = classify_empty_turn(resp, empty_retries)
+            if decision == "retry":
+                empty_retries += 1
+                console.print("[dim]⚠ empty response — retrying…[/]")
+                continue
+            if decision == "stop":
+                console.print(f"[yellow]{empty_turn_message(resp)}[/]")
+                break
+            empty_retries = 0
             asst_msg = {"role": "assistant", "content": resp.content}
             state.messages.append(asst_msg)
             if state.current_session_id:
