@@ -79,6 +79,15 @@ def _cache_invalidate(p: pathlib.Path) -> None:
     _read_cache.pop(str(p.resolve()), None)
 
 
+def _emit_diff(path: str, before: str, after: str, *, action: str) -> None:
+    """Render a live diff for a write/edit. Lazy import avoids a tools→repl cycle."""
+    try:
+        from ..repl.file_diffs import emit_file_diff
+        emit_file_diff(path, before, after, action=action)
+    except Exception:
+        pass
+
+
 def _save_backup(p: pathlib.Path):
     if not p.exists():
         return
@@ -195,10 +204,13 @@ def write_file(path: str, content: str, allow_outside_project: bool = False) -> 
         if scope_err:
             return scope_err
     with _path_lock(p):
+        existed = p.exists()
+        before = p.read_text(errors="ignore") if existed else ""
         _save_backup(p)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         _cache_invalidate(p)
+    _emit_diff(str(p), before, content, action="write" if existed else "create")
     return f"WROTE {p} ({len(content)} bytes)"
 
 
@@ -334,6 +346,7 @@ def edit_file(
         _save_backup(p)
         p.write_text(new_txt)
         _cache_invalidate(p)
+    _emit_diff(str(p), txt, new_txt, action="edit")
     msg = f"EDITED {p} ({n} replacement{'s' if n > 1 else ''})"
     if note:
         msg += f"\n[{note}]"
@@ -403,6 +416,7 @@ def multi_edit(
                 continue
 
             txt = p.read_text(errors="ignore")
+            before_txt = txt
             backed_up = False
             for k, edit in enumerate(block):
                 idx = i + k + 1
@@ -437,6 +451,9 @@ def multi_edit(
             if backed_up:
                 p.write_text(txt)
                 _cache_invalidate(p)
+
+        if backed_up:
+            _emit_diff(path, before_txt, txt, action="edit")
 
         i = j
 

@@ -87,6 +87,12 @@ def record_tool_output(name: str, args_preview: str, content: str) -> None:
         }
     )
 
+# Live unified diffs for file create/edit tools, rendered in the transcript as
+# each write lands. Disable with HARNESS_SHOW_DIFFS=0.
+show_file_diffs: bool = os.getenv("HARNESS_SHOW_DIFFS", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+
 # live typing/streaming of assistant text (API deltas → UI). Disable with HARNESS_STREAM_REPLY=0.
 stream_reply_live: bool = os.getenv("HARNESS_STREAM_REPLY", "1").strip().lower() not in (
     "0", "false", "no", "off",
