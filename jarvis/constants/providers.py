@@ -150,6 +150,7 @@ MODELS: list[ModelSpec] = [
 
     # ── Kimchi (llm.kimchi.dev — OpenAI-compatible, BYO API key) ───────────────
     ModelSpec("kimi-k2.6",         "Kimi K2.6 — reasoning, most capable",  PROVIDER_KIMCHI, default=True, supports_images=True),
+    ModelSpec("kimi-k2.7",         "Kimi K2.7 — reasoning, most capable",  PROVIDER_KIMCHI, default=True, supports_images=True),
     ModelSpec("minimax-m2.7",      "MiniMax M2.7",                          PROVIDER_KIMCHI),
     ModelSpec("minimax-m3",        "MiniMax M3",                            PROVIDER_KIMCHI),
     ModelSpec("nemotron-3-ultra-fp4", "Nemotron 3 Ultra FP4",               PROVIDER_KIMCHI),
