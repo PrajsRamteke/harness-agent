@@ -149,6 +149,7 @@ MODELS: list[ModelSpec] = [
     ModelSpec("gpt-5.4-mini", "GPT-5.4 Mini — faster Codex", PROVIDER_OPENAI_CODEX, supports_images=True),
 
     # ── Kimchi (llm.kimchi.dev — OpenAI-compatible, BYO API key) ───────────────
+    ModelSpec("glm-5.2-fp8",       "GLM-5.2 FP8 — latest GLM model",       PROVIDER_KIMCHI, supports_images=True),
     ModelSpec("kimi-k2.6",         "Kimi K2.6 — reasoning, most capable",  PROVIDER_KIMCHI, default=True, supports_images=True),
     ModelSpec("kimi-k2.7",         "Kimi K2.7 — reasoning, most capable",  PROVIDER_KIMCHI, default=True, supports_images=True),
     ModelSpec("minimax-m2.7",      "MiniMax M2.7",                          PROVIDER_KIMCHI),
