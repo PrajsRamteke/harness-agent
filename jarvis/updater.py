@@ -149,6 +149,88 @@ def check_and_update() -> dict | None:
         return None
 
 
+def force_update() -> dict:
+    """Force an update regardless of the check interval/stamp (for ``jarvis update``).
+
+    Always returns a status dict describing the outcome (never ``None``)::
+
+        {"status": "no_repo" | "git_error" | "up_to_date" | "sync_failed"
+                    | "updated",
+         "version": <current VERSION>,
+         ... (extra keys per status)}
+    """
+    from .constants.models import VERSION
+
+    base = {"version": VERSION}
+
+    root = find_install_root()
+    if root is None:
+        return {**base, "status": "no_repo",
+                "error": "could not locate the jarvis git checkout"}
+
+    code, old_head = _git("rev-parse", "HEAD", cwd=root, timeout=10)
+    if code != 0 or not old_head:
+        return {**base, "status": "git_error", "error": "git rev-parse HEAD failed"}
+
+    code, _ = _git("fetch", "origin", cwd=root, timeout=60)
+    if code != 0:
+        return {**base, "status": "git_error", "error": "git fetch origin failed"}
+
+    code, upstream = _git(
+        "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}",
+        cwd=root, timeout=10,
+    )
+    if code != 0 or not upstream:
+        for candidate in ("origin/main", "origin/master"):
+            c, _ = _git("rev-parse", candidate, cwd=root, timeout=10)
+            if c == 0:
+                upstream = candidate
+                break
+        else:
+            return {**base, "status": "git_error",
+                    "error": "no upstream branch found"}
+
+    code, remote_head = _git("rev-parse", upstream, cwd=root, timeout=10)
+    if code != 0 or not remote_head:
+        return {**base, "status": "git_error",
+                "error": f"git rev-parse {upstream} failed"}
+
+    code, behind_str = _git(
+        "rev-list", "--count", f"HEAD..{upstream}", cwd=root, timeout=10,
+    )
+    behind = int(behind_str) if code == 0 and behind_str.isdigit() else 0
+
+    if remote_head == old_head or behind == 0:
+        return {**base, "status": "up_to_date", "head": old_head[:7]}
+
+    code, log_out = _git("log", "--oneline", f"HEAD..{upstream}", cwd=root, timeout=10)
+    new_commits = [line.strip() for line in log_out.splitlines() if line.strip()]
+
+    branch = upstream.removeprefix("origin/")
+    sync = sync_repo_to_remote(root, branch=branch, fetch_timeout=60, sync_timeout=120)
+    if not sync.ok:
+        return {**base, "status": "sync_failed", "error": sync.error,
+                "count": behind, "commits": new_commits}
+
+    pip_ok = pip_install_repo(root)
+    if not pip_ok:
+        pip_ok = pip_install_repo(root, timeout=240)
+
+    _record_update_check()
+
+    return {
+        **base,
+        "status": "updated",
+        "count": behind,
+        "commits": new_commits,
+        "pip_installed": pip_ok,
+        "pip_ok": pip_ok,
+        "old_head": old_head[:7],
+        "new_head": remote_head[:7],
+        "harness_models": harness_agent_models_available(),
+    }
+
+
 def _update_banner_from_result(result: dict) -> dict:
     return {
         "count": result.get("count", 0),

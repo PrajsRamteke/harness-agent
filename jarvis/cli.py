@@ -28,6 +28,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jarvis",
         description="Start the Jarvis terminal agent.",
+        epilog=(
+            "commands:\n"
+            "  jarvis update           pull the latest version and reinstall\n"
+            "  jarvis upgrade          alias for `jarvis update`\n"
+            "  jarvis update --check   show available updates without applying them\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--legacy",
@@ -83,6 +90,80 @@ def _handle_post_reexec_banner() -> None:
         _restore_update_banner()
 
 
+_UPDATE_ALIASES = {"update", "upgrade", "self-update", "selfupdate"}
+
+
+def run_update_cli(argv: list[str]) -> int:
+    """Handle ``jarvis update`` / ``jarvis upgrade`` — pull latest + reinstall.
+
+    ``--check`` reports whether an update is available without applying it.
+    Returns a process exit code.
+    """
+    check_only = any(a in ("--check", "-n", "--dry-run") for a in argv)
+
+    from .updater import force_update
+
+    print("jarvis: checking for updates…", file=sys.stderr)
+    result = force_update()
+    status = result.get("status")
+    version = result.get("version", "?")
+
+    if status == "no_repo":
+        print(
+            "jarvis: cannot self-update — this install is not a git checkout.\n"
+            "        Reinstall with the official installer to enable updates.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if status == "git_error":
+        print(f"jarvis: update failed — {result.get('error', 'git error')}", file=sys.stderr)
+        return 1
+
+    if status == "up_to_date":
+        print(f"jarvis: already up to date (v{version}, {result.get('head', '')}).")
+        return 0
+
+    count = result.get("count", 0)
+    commits = result.get("commits", [])
+
+    if check_only:
+        print(f"jarvis: {count} update(s) available (currently v{version}):")
+        for line in commits[:20]:
+            print(f"  • {line}")
+        if len(commits) > 20:
+            print(f"  … (+{len(commits) - 20} more)")
+        print("\nRun `jarvis update` to apply.")
+        return 0
+
+    if status == "sync_failed":
+        print(
+            f"jarvis: update failed — {result.get('error', 'sync failed')}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if status == "updated":
+        print(f"jarvis: updated {result.get('old_head', '')} → {result.get('new_head', '')} "
+              f"({count} commit{'s' if count != 1 else ''}):")
+        for line in commits[:20]:
+            print(f"  • {line}")
+        if len(commits) > 20:
+            print(f"  … (+{len(commits) - 20} more)")
+        if not result.get("pip_ok", True):
+            print(
+                "\njarvis: WARNING — `pip install -e .` did not complete cleanly.\n"
+                "        Try re-running `jarvis update` or reinstall manually.",
+                file=sys.stderr,
+            )
+            return 1
+        print("\njarvis: done. New version is live on next launch.")
+        return 0
+
+    print(f"jarvis: unexpected update status: {status}", file=sys.stderr)
+    return 1
+
+
 def main() -> None:
     """Start Jarvis.
 
@@ -92,7 +173,11 @@ def main() -> None:
     """
     _handle_post_reexec_banner()
 
-    args = _build_parser().parse_args(_normalize_web_args(sys.argv[1:]))
+    argv = sys.argv[1:]
+    if argv and argv[0] in _UPDATE_ALIASES:
+        raise SystemExit(run_update_cli(argv[1:]))
+
+    args = _build_parser().parse_args(_normalize_web_args(argv))
 
     if args.run_prompt:
         from .updater import maybe_update_and_reexec
