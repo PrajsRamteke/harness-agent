@@ -20,7 +20,7 @@ _PROVIDER_DESCRIPTIONS = {
     "anthropic":     "Claude models — Haiku, Sonnet, Opus",
     "openrouter":    "Free & paid models — open models, OpenAI, more",
     "opencode":      "OpenCode Go — GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen",
-    "opencode_zen":  "OpenCode Zen — MiniMax, HY3, Nemotron, DeepSeek Flash",
+    "opencode_zen":  "OpenCode Zen — Hy3, Nemotron, MiMo, Big Pickle, Ox Alpha",
 }
 
 

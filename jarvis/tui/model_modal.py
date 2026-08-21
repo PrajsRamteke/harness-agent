@@ -31,12 +31,13 @@ from . import theme as ui
 
 # Hard-coded so /model always lists Harness Agent even on stale installs (pre-pip-sync).
 _BUILTIN_HARNESS_ROWS: tuple[tuple[str, str], ...] = (
-    ("deepseek-v4-flash-free", "DeepSeek V4 Flash Free — default"),
-    # ("nemotron-3-super-free", "Nemotron 3 Super Free"),  # no longer free
+    ("hy3-free", "Hy3 Free — default"),
     ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free"),
-    ("mimo-v2.5-free", "MiMo V2.5 Free — Xiaomi"),
+    ("mimo-v2.5-free", "MiMo V2.5 Free"),
     ("big-pickle", "Big Pickle"),
-    # ("minimax-m3-free", "MiniMax M3 Free"),  # no longer free
+    ("x-preview-f-free", "Ox Alpha Free"),
+    ("nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning Free"),
+    ("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free"),
 )
 
 

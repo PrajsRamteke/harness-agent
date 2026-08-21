@@ -8,4 +8,4 @@ def test_model_picker_rows_always_includes_harness_agent():
     harness = [(src, mid) for src, mid, _ in rows if src == PROVIDER_HARNESS_AGENT]
     assert len(harness) >= len(_BUILTIN_HARNESS_ROWS)
     assert rows[0][0] == PROVIDER_HARNESS_AGENT
-    assert rows[0][1] == "deepseek-v4-flash-free"
+    assert rows[0][1] == "hy3-free"

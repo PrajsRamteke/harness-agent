@@ -23,7 +23,15 @@ class HarnessAgentTests(unittest.TestCase):
         ids = {m for m, _ in HARNESS_AGENT_MODELS}
         self.assertEqual(
             ids,
-            {"deepseek-v4-flash-free", "nemotron-3-ultra-free", "mimo-v2.5-free", "big-pickle"},
+            {
+                "hy3-free",
+                "nemotron-3-ultra-free",
+                "mimo-v2.5-free",
+                "big-pickle",
+                "x-preview-f-free",
+                "nemotron-3.5-lightning-free",
+                "muse-spark-1.2-contributor-free",
+            },
         )
 
     def test_harness_agent_always_in_model_sources(self):
@@ -33,23 +41,25 @@ class HarnessAgentTests(unittest.TestCase):
 
     def test_models_for_harness_agent_source(self):
         models = models_for_source(PROVIDER_HARNESS_AGENT)
-        self.assertEqual(len(models), 4)
+        self.assertEqual(len(models), 7)
         self.assertEqual(models[0][0], HARNESS_AGENT_DEFAULT_MODEL)
 
     def test_opencode_zen_models_include_exclusive_and_shared(self):
         ids = {m for m, _ in OPENCODE_ZEN_MODELS}
-        self.assertIn("minimax-m2.5-free", ids)
-        self.assertIn("deepseek-v4-flash-free", ids)
+        self.assertIn("hy3-free", ids)
         self.assertIn("mimo-v2.5-free", ids)
         self.assertIn("big-pickle", ids)
+        self.assertIn("x-preview-f-free", ids)
+        self.assertNotIn("deepseek-v4-flash-free", ids)
+        self.assertNotIn("minimax-m2.5-free", ids)
 
     def test_is_harness_agent_model(self):
-        self.assertTrue(is_harness_agent_model("deepseek-v4-flash-free"))
+        self.assertTrue(is_harness_agent_model("hy3-free"))
         self.assertTrue(is_harness_agent_model("mimo-v2.5-free"))
-        self.assertFalse(is_harness_agent_model("minimax-m2.5-free"))
+        self.assertFalse(is_harness_agent_model("minimax-m2.7"))
 
     def test_should_use_harness_agent_client(self):
-        state.MODEL = "deepseek-v4-flash-free"
+        state.MODEL = "hy3-free"
         self.assertTrue(should_use_harness_agent_client(source=PROVIDER_HARNESS_AGENT))
         self.assertFalse(should_use_harness_agent_client(source=PROVIDER_OPENCODE_ZEN))
         state.MODEL = "claude-sonnet-4-6"

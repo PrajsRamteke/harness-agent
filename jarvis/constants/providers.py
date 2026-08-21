@@ -130,18 +130,15 @@ MODELS: list[ModelSpec] = [
     ModelSpec("qwen3.5-plus",      "Qwen3.5 Plus",                          PROVIDER_OPENCODE, 0.20, 1.20),
 
     # ── Harness Agent (free OpenCode Zen — no API key, /model only) ─────────
-    ModelSpec("deepseek-v4-flash-free", "DeepSeek V4 Flash Free — default", PROVIDER_HARNESS_AGENT, default=True),
-    # ModelSpec("nemotron-3-super-free",  "Nemotron 3 Super Free",            PROVIDER_HARNESS_AGENT),  # no longer free
-    ModelSpec("nemotron-3-ultra-free",  "Nemotron 3 Ultra Free",            PROVIDER_HARNESS_AGENT),
-    ModelSpec("mimo-v2.5-free",         "MiMo V2.5 Free — Xiaomi",          PROVIDER_HARNESS_AGENT),
-    ModelSpec("big-pickle",             "Big Pickle",                       PROVIDER_HARNESS_AGENT),
-    # ModelSpec("minimax-m3-free",        "MiniMax M3 Free",                  PROVIDER_HARNESS_AGENT),  # no longer free
-    ModelSpec("north-mini-code-free",  "North Mini Code 1.0 XL — free",    PROVIDER_HARNESS_AGENT),
+    ModelSpec("hy3-free",                        "Hy3 Free — default",              PROVIDER_HARNESS_AGENT, default=True),
+    ModelSpec("nemotron-3-ultra-free",           "Nemotron 3 Ultra Free",            PROVIDER_HARNESS_AGENT),
+    ModelSpec("mimo-v2.5-free",                  "MiMo V2.5 Free",                   PROVIDER_HARNESS_AGENT),
+    ModelSpec("big-pickle",                      "Big Pickle",                       PROVIDER_HARNESS_AGENT),
+    ModelSpec("x-preview-f-free",                "Ox Alpha Free",                    PROVIDER_HARNESS_AGENT),
+    ModelSpec("nemotron-3.5-lightning-free",     "Nemotron 3.5 Lightning Free",      PROVIDER_HARNESS_AGENT),
+    ModelSpec("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free",              PROVIDER_HARNESS_AGENT),
 
-    # ── OpenCode Zen models (API key via /provider opencode_zen) ──────────────
-    ModelSpec("minimax-m2.5-free", "MiniMax M2.5 Free — default", PROVIDER_OPENCODE_ZEN, default=True),
-    ModelSpec("hy3-preview-free",  "HY3 Preview Free",            PROVIDER_OPENCODE_ZEN),
-    ModelSpec("ring-2.6-1t-free",  "Ring 2.6 1T Free",            PROVIDER_OPENCODE_ZEN),
+    # Paid OpenCode Zen picker reuses these slugs; exclusive free IDs have expired.
 
     # ── OpenAI Codex (ChatGPT subscription / OAuth) ───────────────────────────
     ModelSpec("gpt-5.5",      "GPT-5.5 — Codex recommended", PROVIDER_OPENAI_CODEX, default=True, supports_images=True),
@@ -266,8 +263,8 @@ _DEFAULT_BY_PROVIDER: dict[str, str] = {m.provider: m.id for m in MODELS if m.de
 
 OPENROUTER_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENROUTER]
 OPENCODE_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENCODE]
-OPENCODE_ZEN_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENCODE_ZEN]
 HARNESS_AGENT_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_HARNESS_AGENT]
+OPENCODE_ZEN_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER.get(PROVIDER_OPENCODE_ZEN, HARNESS_AGENT_DEFAULT_MODEL)
 CODEX_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENAI_CODEX]
 ANTHROPIC_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_ANTHROPIC]
 KIMCHI_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_KIMCHI]

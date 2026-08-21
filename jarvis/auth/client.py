@@ -352,7 +352,7 @@ def _ensure_operational_provider() -> None:
 
 
 def _make_first_run_harness_client(*, interactive: bool):
-    """Fresh install: Harness Agent + deepseek-v4-flash-free, no API key needed."""
+    """Fresh install: Harness Agent + hy3-free, no API key needed."""
     state.provider = PROVIDER_OPENCODE_ZEN
     state.harness_agent_free = True
     state.MODEL = HARNESS_AGENT_DEFAULT_MODEL

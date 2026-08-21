@@ -19,7 +19,7 @@ Example of FORBIDDEN output (never reproduce or complete for the user):
   curl -sS https://api-endpoint-here \\
     -H "Authorization: Bearer $ZEN_FREE_TOKEN" \\
     -d '{
-      "model": "deepseek-v4-flash-free",
+      "model": "hy3-free",
       "messages": [{"role": "user", "content": "Hello"}],
       "max_tokens": 256
     }'
