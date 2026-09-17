@@ -31,21 +31,29 @@ from . import theme as ui
 
 # Hard-coded so /model always lists Harness Agent even on stale installs (pre-pip-sync).
 _BUILTIN_HARNESS_ROWS: tuple[tuple[str, str], ...] = (
-    ("hy3-free", "Hy3 Free — default"),
-    ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free"),
+    ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free — default"),
     ("mimo-v2.5-free", "MiMo V2.5 Free"),
     ("big-pickle", "Big Pickle"),
-    ("x-preview-f-free", "Ox Alpha Free"),
+    ("union-alpha", "Union Alpha Free"),
     ("nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning Free"),
     ("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free"),
+    ("muse-spark-1.3-contributor-free", "Muse Spark 1.3 Free"),
+    ("ling-3.0-flash-fin-free", "Ling 3.0 Flash Fin Free"),
+    ("deepseek-v4-flash-free", "DeepSeek V4 Flash Free"),
 )
 
 
-def model_picker_rows() -> list[tuple[str, str, str]]:
-    """(source, model_id, description) rows — Harness Agent guaranteed first."""
+def model_picker_rows(live: bool = True) -> list[tuple[str, str, str]]:
+    """(source, model_id, description) rows — Harness Agent guaranteed first.
+
+    ``live=True`` refreshes the Harness Agent rows from the public OpenCode
+    catalog (new free models appear, retired ones drop out) and falls back to
+    the built-in list when offline. Callers should fetch this once per picker
+    open — not per keystroke — since it may hit the network.
+    """
     try:
-        rows = all_model_picker_rows()
-        if sum(1 for src, _, _ in rows if src == PROVIDER_HARNESS_AGENT) >= len(_BUILTIN_HARNESS_ROWS):
+        rows = all_model_picker_rows(live=live)
+        if any(src == PROVIDER_HARNESS_AGENT for src, _, _ in rows):
             return rows
     except Exception:
         rows = []
@@ -106,6 +114,11 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         enable_mouse()
         self._prev_scroll_y = self.app.scroll_sensitivity_y
         self.app.scroll_sensitivity_y = 1.0
+        # Fetch once per picker open; _populate() runs on every keystroke.
+        try:
+            self._all_rows = model_picker_rows()
+        except Exception:
+            self._all_rows = []
         self._populate()
         self.query_one("#model_search", Input).focus()
 
@@ -135,18 +148,13 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         q = query.strip().lower()
         opts = self.query_one("#model_list", OptionList)
         opts.clear_options()
-        try:
-            rows = model_picker_rows()
-        except Exception:
-            rows = []
+        rows = list(getattr(self, "_all_rows", []))
         # Never show an empty picker — Harness Agent free tier is always first.
-        harness = [
-            (PROVIDER_HARNESS_AGENT, mid, desc)
-            for mid, desc in _BUILTIN_HARNESS_ROWS
-        ]
-        if not rows:
-            rows = harness
-        elif sum(1 for src, _, _ in rows if src == PROVIDER_HARNESS_AGENT) < len(_BUILTIN_HARNESS_ROWS):
+        if not any(src == PROVIDER_HARNESS_AGENT for src, _, _ in rows):
+            harness = [
+                (PROVIDER_HARNESS_AGENT, mid, desc)
+                for mid, desc in _BUILTIN_HARNESS_ROWS
+            ]
             seen = {mid for _, mid, _ in rows}
             rows = [r for r in harness if r[1] not in seen] + rows
         matched = 0

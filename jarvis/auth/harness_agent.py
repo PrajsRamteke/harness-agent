@@ -1,15 +1,13 @@
 """Free Harness Agent tier — OpenCode Zen with public bearer (no API key)."""
 from __future__ import annotations
 
-import uuid
-
 from ..constants import (
     OPENCODE_ZEN_BASE_URL,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENCODE_ZEN,
     is_harness_agent_model,
 )
-from ._zen_wire import session_id, zen_client_kwargs
+from ._zen_wire import new_session_id, zen_client_kwargs
 from .opencode_client import OpenCodeClient
 from .opencode_zen import has_opencode_zen_key
 
@@ -34,8 +32,7 @@ def should_use_harness_agent_client(model: str | None = None, *, source: str = "
 
 def build_harness_agent_client() -> OpenCodeClient:
     """OpenCode Zen client for the free Harness Agent tier."""
-    sid = session_id(uuid.uuid4().hex[:12])
     return OpenCodeClient(
         base_url=f"{OPENCODE_ZEN_BASE_URL}/",
-        **zen_client_kwargs(sid),
+        **zen_client_kwargs(new_session_id()),
     )

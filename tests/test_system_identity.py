@@ -56,10 +56,10 @@ class SystemIdentityTests(unittest.TestCase):
     def test_harness_agent_free_provider_label(self):
         state.harness_agent_free = True
         state.provider = "opencode_zen"
-        state.MODEL = "hy3-free"
+        state.MODEL = "nemotron-3-ultra-free"
         state.auth_mode = AUTH_API_KEY
         with mock.patch.object(system, "_build_static_body", return_value="BASE"):
             prompt = system.build_system()
-        self.assertIn("SELECTED MODEL: hy3-free", prompt)
-        self.assertIn("MODEL NAME: Hy3 Free — default", prompt)
+        self.assertIn("SELECTED MODEL: nemotron-3-ultra-free", prompt)
+        self.assertIn("MODEL NAME: Nemotron 3 Ultra Free — default", prompt)
         self.assertIn("PROVIDER: Harness Agent (free)", prompt)

@@ -131,13 +131,18 @@ MODELS: list[ModelSpec] = [
     ModelSpec("qwen3.5-plus",      "Qwen3.5 Plus",                          PROVIDER_OPENCODE, 0.20, 1.20),
 
     # ── Harness Agent (free OpenCode Zen — no API key, /model only) ─────────
-    ModelSpec("hy3-free",                        "Hy3 Free — default",              PROVIDER_HARNESS_AGENT, default=True),
-    ModelSpec("nemotron-3-ultra-free",           "Nemotron 3 Ultra Free",            PROVIDER_HARNESS_AGENT),
+    # NOTE: hy3-free / x-preview-f-free were retired by the gateway (401 "Model
+    # not supported"). Kept in sync with the free ids the live /zen/v1/models
+    # endpoint returns (run: opencode-free-api.sh models).
+    ModelSpec("nemotron-3-ultra-free",           "Nemotron 3 Ultra Free — default",  PROVIDER_HARNESS_AGENT, default=True),
     ModelSpec("mimo-v2.5-free",                  "MiMo V2.5 Free",                   PROVIDER_HARNESS_AGENT),
     ModelSpec("big-pickle",                      "Big Pickle",                       PROVIDER_HARNESS_AGENT),
-    ModelSpec("x-preview-f-free",                "Ox Alpha Free",                    PROVIDER_HARNESS_AGENT),
+    ModelSpec("union-alpha",                     "Union Alpha Free",                 PROVIDER_HARNESS_AGENT),
     ModelSpec("nemotron-3.5-lightning-free",     "Nemotron 3.5 Lightning Free",      PROVIDER_HARNESS_AGENT),
     ModelSpec("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free",              PROVIDER_HARNESS_AGENT),
+    ModelSpec("muse-spark-1.3-contributor-free", "Muse Spark 1.3 Free",              PROVIDER_HARNESS_AGENT),
+    ModelSpec("ling-3.0-flash-fin-free",         "Ling 3.0 Flash Fin Free",          PROVIDER_HARNESS_AGENT),
+    ModelSpec("deepseek-v4-flash-free",          "DeepSeek V4 Flash Free",           PROVIDER_HARNESS_AGENT),
 
     # Paid OpenCode Zen picker reuses these slugs; exclusive free IDs have expired.
 
@@ -217,15 +222,39 @@ KIMCHI_MODEL_IDS = frozenset(m for m, _ in KIMCHI_MODELS)
 _HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = tuple(HARNESS_AGENT_MODELS)
 
 
-def harness_agent_models_for_picker() -> list[tuple[str, str]]:
-    """Harness Agent models — always shown in /model (no credentials required)."""
+def harness_agent_models_for_picker(live: bool = False) -> list[tuple[str, str]]:
+    """Harness Agent models — always shown in /model (no credentials required).
+
+    With ``live=True`` the list is refreshed from the public OpenCode catalog
+    (see :mod:`jarvis.auth.zen_catalog`) so newly added free models appear — and
+    retired ones disappear — without a code change. Falls back to the static
+    list when the network is unavailable.
+    """
     order = [m for m, _ in _HARNESS_AGENT_MODEL_FALLBACK]
     merged: dict[str, str] = {m: d for m, d in _HARNESS_AGENT_MODEL_FALLBACK}
     for mid, desc in HARNESS_AGENT_MODELS:
         if mid not in merged:
             order.append(mid)
         merged[mid] = desc
-    return [(m, merged[m]) for m in order]
+    static = [(m, merged[m]) for m in order]
+
+    if not live:
+        return static
+
+    try:
+        from ..auth.zen_catalog import fetch_free_models
+
+        dynamic = fetch_free_models()
+    except Exception:
+        dynamic = None
+    if not dynamic:
+        return static
+
+    labels = dict(dynamic)
+    ordered = [m for m, _ in dynamic if m != HARNESS_AGENT_DEFAULT_MODEL]
+    if HARNESS_AGENT_DEFAULT_MODEL in labels:
+        ordered.insert(0, HARNESS_AGENT_DEFAULT_MODEL)
+    return [(m, labels[m]) for m in ordered]
 
 
 def opencode_zen_models_for_picker() -> list[tuple[str, str]]:
@@ -385,11 +414,11 @@ def connected_model_sources() -> list[str]:
     return out
 
 
-def all_model_picker_rows() -> list[tuple[str, str, str]]:
+def all_model_picker_rows(live: bool = False) -> list[tuple[str, str, str]]:
     """All /model rows as (source, model_id, description). Harness Agent always first."""
     rows: list[tuple[str, str, str]] = [
         (PROVIDER_HARNESS_AGENT, mid, desc)
-        for mid, desc in harness_agent_models_for_picker()
+        for mid, desc in harness_agent_models_for_picker(live=live)
     ]
     try:
         for src in connected_model_sources():
