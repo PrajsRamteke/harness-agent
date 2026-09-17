@@ -112,6 +112,7 @@ MODELS: list[ModelSpec] = [
     ModelSpec("google/gemma-3-27b-it:free",             "Gemma 3 27B Instruct",              PROVIDER_OPENROUTER),
     ModelSpec("nousresearch/hermes-3-llama-3.1-405b:free", "Hermes 3 Llama 405B",            PROVIDER_OPENROUTER),
     ModelSpec("openrouter/owl-alpha",                   "Owl Alpha",                         PROVIDER_OPENROUTER),
+    ModelSpec("deepseek/deepseek-v4.1-flash",           "DeepSeek V4.1 Flash — fast & cheap", PROVIDER_OPENROUTER, 0.15, 1.20, supports_images=True),
 
     # ── OpenCode Go models (real pricing, help.apiyi) ──────────────────────────
     ModelSpec("glm-5.1",           "GLM-5.1 — latest GLM model",            PROVIDER_OPENCODE, 1.40, 4.40, supports_images=True),
