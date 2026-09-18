@@ -383,6 +383,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
 
         self._auto_connect_mcp_background()
         self._check_for_updates_background()
+        self._warm_model_catalogs_background()
 
     # ─── welcome art shine animation ──────────────────────────────────
     def _animate_welcome_art(self, art: str) -> None:
@@ -434,6 +435,24 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         from ..updater import maybe_update_and_reexec
 
         maybe_update_and_reexec()
+
+    @work(thread=True)
+    def _warm_model_catalogs_background(self) -> None:
+        """Pre-fetch the live free-model catalogs so /model opens instantly.
+
+        Without this the first picker open pays for the network round-trips.
+        Silent by design — a failed refresh just leaves the cached/static list.
+        """
+        from ..constants.providers import (
+            model_catalogs_are_fresh,
+            refresh_model_catalogs,
+        )
+
+        try:
+            if not model_catalogs_are_fresh():
+                refresh_model_catalogs()
+        except Exception:
+            pass
 
     @work(thread=True)
     def _auto_connect_mcp_background(self) -> None:
@@ -896,11 +915,29 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             self.call_from_thread(self._provider_action_done)
 
     @work(thread=True)
-    def _apply_model_selection_worker(self, model_id: str, *, source: str = "") -> None:
-        """Run model selection off the main thread (may prompt for API keys)."""
-        from ..commands.control import _apply_model_selection
+    def _refresh_model_catalog_worker(self) -> None:
+        """/model refresh — re-read the live free-model catalogs off-thread."""
+        from ..commands.control import refresh_model_catalog
 
         try:
+            refresh_model_catalog()
+        except Exception as e:
+            self.call_from_thread(
+                lambda err=e: self._tui_console.print(f"[{ui.ERR}]catalog refresh failed: {err}[/]")
+            )
+        finally:
+            self.call_from_thread(self._provider_action_done)
+
+    @work(thread=True)
+    def _apply_model_selection_worker(self, model_id: str, *, source: str = "") -> None:
+        """Run model selection off the main thread (may prompt for API keys)."""
+        from ..commands.control import _apply_model_selection, resolve_model_arg
+
+        try:
+            if not source:
+                hit = resolve_model_arg(model_id)
+                if hit:
+                    model_id, source = hit
             _apply_model_selection(model_id, source=source)
         except RuntimeError as e:
             self.call_from_thread(
@@ -1209,7 +1246,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
 
         if head in ("/model", "/mode"):
             arg = text.split(maxsplit=1)[1] if " " in text else ""
-            if arg:
+            if arg.strip().lower() in ("refresh", "reload", "sync"):
+                self._refresh_model_catalog_worker()
+            elif arg:
                 self._apply_model_selection_worker(arg)
             else:
                 self._open_model_picker()

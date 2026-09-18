@@ -100,18 +100,21 @@ MODELS: list[ModelSpec] = [
     ModelSpec("claude-opus-4-7",   "Opus 4.7 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0, supports_images=True),
     ModelSpec("claude-opus-4-8",   "Opus 4.8 — most capable",        PROVIDER_ANTHROPIC, 5.0, 25.0, supports_images=True),
 
-    # ── OpenRouter free-tier (all :free suffix → $0) ─────────────────────────
-    ModelSpec("openai/gpt-oss-120b:free",               "GPT-OSS 120B — default",            PROVIDER_OPENROUTER, default=True),
-    ModelSpec("minimax/minimax-m2.5:free",              "MiniMax M2.5 (may be unavailable)", PROVIDER_OPENROUTER),
-    ModelSpec("qwen/qwen3-coder:free",                  "Qwen3 Coder 480B — best for code",  PROVIDER_OPENROUTER),
-    ModelSpec("openai/gpt-oss-20b:free",                "GPT-OSS 20B — smaller, faster",     PROVIDER_OPENROUTER),
-    ModelSpec("meta-llama/llama-3.3-70b-instruct:free", "Llama 3.3 70B Instruct",            PROVIDER_OPENROUTER),
-    ModelSpec("qwen/qwen3-next-80b-a3b-instruct:free",  "Qwen3 Next 80B A3B Instruct",       PROVIDER_OPENROUTER),
-    ModelSpec("nvidia/nemotron-3-super-120b-a12b:free", "Nemotron 3 Super 120B",             PROVIDER_OPENROUTER),
-    ModelSpec("z-ai/glm-4.5-air:free",                  "GLM 4.5 Air",                       PROVIDER_OPENROUTER),
-    ModelSpec("google/gemma-3-27b-it:free",             "Gemma 3 27B Instruct",              PROVIDER_OPENROUTER),
-    ModelSpec("nousresearch/hermes-3-llama-3.1-405b:free", "Hermes 3 Llama 405B",            PROVIDER_OPENROUTER),
-    ModelSpec("openrouter/owl-alpha",                   "Owl Alpha",                         PROVIDER_OPENROUTER),
+    # ── OpenRouter ────────────────────────────────────────────────────────────
+    # The free tier is discovered LIVE from https://openrouter.ai/api/v1/models
+    # (see jarvis/auth/openrouter_catalog.py) — every $0 model OpenRouter serves
+    # shows up in /model on its own, and retired ones disappear. The entries
+    # below are only the offline seed list, used before the first refresh or
+    # when the network is unavailable. Don't curate free models here by hand.
+    ModelSpec("deepseek/deepseek-v4-flash-0731:free",   "DeepSeek V4 Flash — 1M ctx, free",  PROVIDER_OPENROUTER, default=True),
+    ModelSpec("nvidia/nemotron-3-ultra-550b-a55b:free", "Nemotron 3 Ultra — 1M ctx, free",   PROVIDER_OPENROUTER),
+    ModelSpec("nvidia/nemotron-3.5-lightning:free",     "Nemotron 3.5 Lightning — 1M, free", PROVIDER_OPENROUTER),
+    ModelSpec("thinkingmachines/inkling:free",          "Inkling — 1M ctx, free",            PROVIDER_OPENROUTER, supports_images=True),
+    ModelSpec("nvidia/nemotron-3-super-120b-a12b:free", "Nemotron 3 Super 120B — free",      PROVIDER_OPENROUTER),
+    ModelSpec("qwen/qwen3.8-27b:free",                  "Qwen3.8 27B — free",                PROVIDER_OPENROUTER, supports_images=True),
+    ModelSpec("google/gemma-4-31b-it:free",             "Gemma 4 31B — free",                PROVIDER_OPENROUTER, supports_images=True),
+    ModelSpec("cohere/north-mini-code:free",            "North Mini Code — free",            PROVIDER_OPENROUTER),
+    ModelSpec("openrouter/free",                        "OpenRouter Free — auto-routed",     PROVIDER_OPENROUTER),
     ModelSpec("deepseek/deepseek-v4.1-flash",           "DeepSeek V4.1 Flash — fast & cheap", PROVIDER_OPENROUTER, 0.15, 1.20, supports_images=True),
 
     # ── OpenCode Go models (real pricing, help.apiyi) ──────────────────────────
@@ -169,14 +172,40 @@ MODEL_INFO: dict[str, tuple[str, str, tuple[float, float]]] = {
 }
 
 # Set of model IDs that support native image inputs (multimodal).
-IMAGE_SUPPORTING_MODELS: frozenset[str] = frozenset(
-    m.id for m in MODELS if m.supports_images
-)
+# Mutable: models discovered at runtime (e.g. the live OpenRouter free tier)
+# register themselves here via register_dynamic_model().
+IMAGE_SUPPORTING_MODELS: set[str] = {m.id for m in MODELS if m.supports_images}
 
 
 def model_supports_images(model_id: str) -> bool:
     """Return True if the given model ID can natively process image inputs."""
     return model_id in IMAGE_SUPPORTING_MODELS
+
+
+def register_dynamic_model(
+    model_id: str,
+    label: str,
+    provider: str,
+    *,
+    input_price: float = 0.0,
+    output_price: float = 0.0,
+    supports_images: bool = False,
+) -> None:
+    """Register a model discovered at runtime so lookups downstream work.
+
+    Live catalogs (OpenRouter's free tier) surface models that no ModelSpec
+    describes. Without this, /cost would fall back to Anthropic pricing and
+    image inputs would be silently dropped for models that accept them.
+    Static ModelSpec entries always win — they carry curated pricing.
+    """
+    if not model_id or model_id in MODEL_INFO:
+        if supports_images:
+            IMAGE_SUPPORTING_MODELS.add(model_id)
+        return
+    MODEL_INFO[model_id] = (label, provider, (input_price, output_price))
+    PRICING[model_id] = (input_price, output_price)
+    if supports_images:
+        IMAGE_SUPPORTING_MODELS.add(model_id)
 
 # ── Auto-generated model lists from MODEL_INFO ─────────────────────────────────
 ANTHROPIC_MODELS = [
@@ -199,6 +228,57 @@ OPENROUTER_FREE_MODELS = [
     for mid, info in MODEL_INFO.items()
     if info[1] == PROVIDER_OPENROUTER
 ]
+_OPENROUTER_SEED_MODELS: tuple[tuple[str, str], ...] = tuple(OPENROUTER_FREE_MODELS)
+
+
+def openrouter_models_for_picker(live: bool = False) -> list[tuple[str, str]]:
+    """OpenRouter rows: every free model it serves right now, then the paid seeds.
+
+    The free tier is read from the public catalog (no API key needed) so the
+    user gets all of it without a code change — see
+    :mod:`jarvis.auth.openrouter_catalog`. ``live=False`` reads the on-disk
+    cache only and never blocks; ``live=True`` refreshes over the network.
+    """
+    try:
+        from ..auth.openrouter_catalog import free_models
+
+        discovered = free_models(live=live)
+    except Exception:
+        discovered = []
+
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for m in discovered:
+        register_dynamic_model(
+            m.id, m.label, PROVIDER_OPENROUTER, supports_images=m.supports_images
+        )
+        if m.id not in seen:
+            seen.add(m.id)
+            out.append((m.id, m.label))
+    for mid, desc in _OPENROUTER_SEED_MODELS:
+        if mid not in seen:
+            seen.add(mid)
+            out.append((mid, desc))
+    return out
+
+
+def openrouter_default_model() -> str:
+    """Default OpenRouter model: the best free one that actually works.
+
+    Pinning a hard-coded id here rots — OpenRouter retires free models
+    regularly, and a dead default means the first request 404s. Models that
+    can't call tools or that refused this account are listed in the picker but
+    never chosen automatically: this is the id a failed turn falls back to.
+    """
+    try:
+        from ..auth.openrouter_catalog import usable_free_models
+
+        discovered = usable_free_models()
+    except Exception:
+        discovered = []
+    if discovered:
+        return discovered[0].id
+    return OPENROUTER_DEFAULT_MODEL
 OPENCODE_MODELS = [
     (mid, info[0])
     for mid, info in MODEL_INFO.items()
@@ -222,13 +302,19 @@ KIMCHI_MODEL_IDS = frozenset(m for m, _ in KIMCHI_MODELS)
 _HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = tuple(HARNESS_AGENT_MODELS)
 
 
-def harness_agent_models_for_picker(live: bool = False) -> list[tuple[str, str]]:
+def harness_agent_models_for_picker(
+    live: bool = False, cached: bool = False
+) -> list[tuple[str, str]]:
     """Harness Agent models — always shown in /model (no credentials required).
 
     With ``live=True`` the list is refreshed from the public OpenCode catalog
     (see :mod:`jarvis.auth.zen_catalog`) so newly added free models appear — and
     retired ones disappear — without a code change. Falls back to the static
     list when the network is unavailable.
+
+    With ``cached=True`` the same discovery is read from the on-disk cache
+    instead — instant, no network — and unioned with the static list so the
+    picker is never thinner than the built-in set. This is what UI threads use.
     """
     order = [m for m, _ in _HARNESS_AGENT_MODEL_FALLBACK]
     merged: dict[str, str] = {m: d for m, d in _HARNESS_AGENT_MODEL_FALLBACK}
@@ -239,12 +325,30 @@ def harness_agent_models_for_picker(live: bool = False) -> list[tuple[str, str]]
     static = [(m, merged[m]) for m in order]
 
     if not live:
-        return static
+        if not cached:
+            return static
+        try:
+            from ..auth.zen_catalog import cached_free_models
+
+            discovered = cached_free_models()
+        except Exception:
+            discovered = []
+        if not discovered:
+            return static
+        labels = dict(static)
+        labels.update(discovered)
+        ids = [m for m, _ in discovered]
+        ids += [m for m, _ in static if m not in set(ids)]
+        if HARNESS_AGENT_DEFAULT_MODEL in labels:
+            ids = [HARNESS_AGENT_DEFAULT_MODEL] + [
+                m for m in ids if m != HARNESS_AGENT_DEFAULT_MODEL
+            ]
+        return [(m, labels[m]) for m in ids]
 
     try:
-        from ..auth.zen_catalog import fetch_free_models
+        from ..auth.zen_catalog import refresh_free_models
 
-        dynamic = fetch_free_models()
+        dynamic = refresh_free_models()
     except Exception:
         dynamic = None
     if not dynamic:
@@ -414,17 +518,26 @@ def connected_model_sources() -> list[str]:
     return out
 
 
-def all_model_picker_rows(live: bool = False) -> list[tuple[str, str, str]]:
-    """All /model rows as (source, model_id, description). Harness Agent always first."""
+def all_model_picker_rows(
+    live: bool = False, cached: bool = False
+) -> list[tuple[str, str, str]]:
+    """All /model rows as (source, model_id, description). Harness Agent always first.
+
+    ``cached=True`` serves discovered models from the on-disk catalog cache so
+    the caller never blocks on the network — what the picker uses on open.
+    """
     rows: list[tuple[str, str, str]] = [
         (PROVIDER_HARNESS_AGENT, mid, desc)
-        for mid, desc in harness_agent_models_for_picker(live=live)
+        for mid, desc in harness_agent_models_for_picker(live=live, cached=cached)
     ]
     try:
         for src in connected_model_sources():
             if src == PROVIDER_HARNESS_AGENT:
                 continue
-            rows.extend((src, mid, desc) for mid, desc in models_for_source(src))
+            rows.extend(
+                (src, mid, desc)
+                for mid, desc in models_for_source(src, live=live, cached=cached)
+            )
     except Exception:
         pass
     if not rows:
@@ -446,9 +559,11 @@ def parse_model_option_id(option_id: str) -> tuple[str, str]:
     return "", option_id
 
 
-def models_for_source(source: str):
+def models_for_source(source: str, live: bool = False, cached: bool = False):
     if source == PROVIDER_HARNESS_AGENT:
-        return harness_agent_models_for_picker()
+        return harness_agent_models_for_picker(live=live, cached=cached)
+    if source == PROVIDER_OPENROUTER:
+        return openrouter_models_for_picker(live=live)
     if source == PROVIDER_ANTHROPIC_API:
         return list(ANTHROPIC_MODELS)
     if source == PROVIDER_ANTHROPIC_AUTH:
@@ -539,7 +654,7 @@ def provider_connection_status(provider: str) -> tuple[str, str]:
 
 def models_for(provider: str):
     if provider == PROVIDER_OPENROUTER:
-        return OPENROUTER_FREE_MODELS
+        return openrouter_models_for_picker()
     if provider == PROVIDER_OPENCODE:
         return OPENCODE_MODELS
     if provider == PROVIDER_OPENCODE_ZEN:
@@ -594,4 +709,43 @@ def normalize_model_for_provider(model: str, provider: str) -> str:
         return model.strip()
     if provider == PROVIDER_OPENCODE_ZEN:
         return OPENCODE_ZEN_DEFAULT_MODEL
+    if provider == PROVIDER_OPENROUTER:
+        return openrouter_default_model()
     return _PROVIDER_DEFAULT_MODEL.get(provider, ANTHROPIC_DEFAULT_MODEL)
+
+
+def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
+    """Refresh every live model catalog into the on-disk cache.
+
+    Safe to call from a background thread — it only performs public, unauthenticated
+    GETs. Returns True when at least one catalog came back, so a caller that is
+    showing cached rows knows whether re-rendering is worthwhile.
+
+    ``retry_blocked=True`` (an explicit ``/model refresh``) also clears the
+    record of models that previously refused this account.
+    """
+    ok = False
+    try:
+        from ..auth.zen_catalog import refresh_free_models as _zen_refresh
+
+        ok = bool(_zen_refresh()) or ok
+    except Exception:
+        pass
+    try:
+        from ..auth.openrouter_catalog import refresh_free_models as _or_refresh
+
+        ok = bool(_or_refresh(retry_blocked=retry_blocked)) or ok
+    except Exception:
+        pass
+    return ok
+
+
+def model_catalogs_are_fresh() -> bool:
+    """True when every live catalog cache is within its TTL (no refresh needed)."""
+    try:
+        from ..auth.zen_catalog import cache_is_fresh as _zen_fresh
+        from ..auth.openrouter_catalog import cache_is_fresh as _or_fresh
+
+        return _zen_fresh() and _or_fresh()
+    except Exception:
+        return False

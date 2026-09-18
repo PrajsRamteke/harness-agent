@@ -1,6 +1,7 @@
 """Modal model picker — replaces console.input-based /model flow in the TUI."""
 from __future__ import annotations
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import CenterMiddle, Vertical
@@ -43,16 +44,19 @@ _BUILTIN_HARNESS_ROWS: tuple[tuple[str, str], ...] = (
 )
 
 
-def model_picker_rows(live: bool = True) -> list[tuple[str, str, str]]:
+def model_picker_rows(live: bool = False) -> list[tuple[str, str, str]]:
     """(source, model_id, description) rows — Harness Agent guaranteed first.
 
-    ``live=True`` refreshes the Harness Agent rows from the public OpenCode
-    catalog (new free models appear, retired ones drop out) and falls back to
-    the built-in list when offline. Callers should fetch this once per picker
-    open — not per keystroke — since it may hit the network.
+    ``live=False`` (the default, and what the picker uses on open) reads the
+    on-disk catalog cache, so building the list never touches the network and
+    the modal appears immediately. ``live=True`` refreshes over the network
+    first — call it from a worker thread, never from the UI thread.
+
+    Either way the free models discovered from OpenCode Zen and OpenRouter are
+    included, so newly released free models show up without a code change.
     """
     try:
-        rows = all_model_picker_rows(live=live)
+        rows = all_model_picker_rows(live=live, cached=not live)
         if any(src == PROVIDER_HARNESS_AGENT for src, _, _ in rows):
             return rows
     except Exception:
@@ -98,10 +102,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static("✦  Models", id="modal_title")
-                yield Static(
-                    "[dim]Harness Agent models are free — no API key required[/]",
-                    id="model_subtitle",
-                )
+                yield Static(self._SUBTITLE, id="model_subtitle")
                 yield Input(value="", placeholder="search models…", id="model_search")
                 yield OptionList(id="model_list")
                 yield Static(
@@ -110,17 +111,85 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                     id="modal_hint",
                 )
 
+    _SUBTITLE = "[dim]Harness Agent models are free — no API key required[/]"
+    _SUBTITLE_BUSY = (
+        "[dim]Harness Agent models are free — no API key required   "
+        "· refreshing free model list…[/]"
+    )
+
     def on_mount(self) -> None:
         enable_mouse()
         self._prev_scroll_y = self.app.scroll_sensitivity_y
         self.app.scroll_sensitivity_y = 1.0
-        # Fetch once per picker open; _populate() runs on every keystroke.
+        # Cached rows only — never a network call on the UI thread, so the
+        # modal paints immediately. The live refresh runs below in a worker.
         try:
             self._all_rows = model_picker_rows()
         except Exception:
             self._all_rows = []
         self._populate()
         self.query_one("#model_search", Input).focus()
+        self._refresh_catalogs()
+
+    # ─── background catalog refresh ────────────────────────────────────
+    @work(thread=True, exclusive=True)
+    def _refresh_catalogs(self) -> None:
+        """Pull the live free-model catalogs, then swap the rows in place.
+
+        Runs off the UI thread: opening /model stays instant even on a cold
+        cache or a slow link, and newly released free models appear a moment
+        later without the user reopening the picker.
+        """
+        from ..constants.providers import (
+            model_catalogs_are_fresh,
+            refresh_model_catalogs,
+        )
+
+        if model_catalogs_are_fresh():
+            return
+        self._from_thread(lambda: self._set_busy(True))
+        rows: list[tuple[str, str, str]] | None = None
+        try:
+            if refresh_model_catalogs():
+                rows = model_picker_rows()
+        except Exception:
+            rows = None
+        self._from_thread(lambda r=rows: self._apply_refreshed_rows(r))
+
+    def _from_thread(self, fn) -> None:
+        """call_from_thread that tolerates the picker being closed mid-refresh."""
+        try:
+            self.app.call_from_thread(fn)
+        except Exception:
+            pass
+
+    def _set_busy(self, busy: bool) -> None:
+        try:
+            self.query_one("#model_subtitle", Static).update(
+                self._SUBTITLE_BUSY if busy else self._SUBTITLE
+            )
+        except Exception:
+            pass
+
+    def _apply_refreshed_rows(self, rows) -> None:
+        self._set_busy(False)
+        if not rows or rows == getattr(self, "_all_rows", None):
+            return
+        self._all_rows = rows
+        try:
+            query = self.query_one("#model_search", Input).value or ""
+        except Exception:
+            query = ""
+        self._populate(query, keep=self._highlighted_option_id())
+
+    def _highlighted_option_id(self) -> str | None:
+        try:
+            opts = self.query_one("#model_list", OptionList)
+            if opts.highlighted is None:
+                return None
+            return opts.get_option_at_index(opts.highlighted).id
+        except Exception:
+            return None
 
     def on_unmount(self) -> None:
         disable_mouse()
@@ -144,7 +213,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             return state.provider == PROVIDER_OPENAI_CODEX and state.auth_mode == AUTH_OAUTH
         return state.provider == source
 
-    def _populate(self, query: str = "") -> None:
+    def _populate(self, query: str = "", keep: str | None = None) -> None:
         q = query.strip().lower()
         opts = self.query_one("#model_list", OptionList)
         opts.clear_options()
@@ -179,6 +248,11 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             matched += 1
         if opts.option_count:
             opts.highlighted = 0
+            if keep:
+                try:
+                    opts.highlighted = opts.get_option_index(keep)
+                except Exception:
+                    opts.highlighted = 0
             opts.disabled = False
         elif matched == 0 and q:
             opts.add_option(Option(f"(no models matching \"{q}\")", id="__none__"))

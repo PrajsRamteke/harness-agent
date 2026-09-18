@@ -19,8 +19,10 @@ from __future__ import annotations
 import json
 import urllib.request
 
+from . import catalog_cache
 from ._zen_wire import OPENCODE_USER_AGENT
 
+CACHE_NAME = "zen_free"
 CATALOG_URL = "https://models.opencode.ai/api.json"
 SERVED_URL = "https://opencode.ai/zen/v1/models"
 CATALOG_PROVIDER = "opencode"
@@ -72,3 +74,32 @@ def fetch_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[tuple[str, str]]
         if mid and _is_free(info):
             out.append((mid, (info.get("name") or mid)))
     return out or None
+
+
+def cached_free_models() -> list[tuple[str, str]]:
+    """Free models from the on-disk cache. Never touches the network.
+
+    Used on UI threads (the ``/model`` picker) so opening it is instant; a
+    background refresh keeps the cache current.
+    """
+    payload, _fresh = catalog_cache.read(CACHE_NAME)
+    if not isinstance(payload, list):
+        return []
+    return [
+        (row[0], row[1])
+        for row in payload
+        if isinstance(row, (list, tuple)) and len(row) >= 2 and row[0]
+    ]
+
+
+def cache_is_fresh() -> bool:
+    _payload, fresh = catalog_cache.read(CACHE_NAME)
+    return fresh
+
+
+def refresh_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[tuple[str, str]] | None:
+    """Fetch over the network and persist. None when the fetch failed."""
+    models = fetch_free_models(timeout)
+    if models:
+        catalog_cache.write(CACHE_NAME, [list(m) for m in models])
+    return models

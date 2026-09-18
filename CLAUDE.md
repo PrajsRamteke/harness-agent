@@ -34,6 +34,8 @@ python -m pytest tests/ -q
 - `OPENCODE_ZEN_API_KEY` — OpenCode Zen key
 - `HARNESS_PROVIDER` — pin provider explicitly: `anthropic`, `openrouter`, `opencode`, or `opencode_zen`
 - `CLAUDE_MODEL` — override default model (default: `sonnet-4-6`)
+- `HARNESS_MODEL_CATALOG_TTL` — seconds a fetched free-model catalog stays fresh (default: 21600 / 6h)
+- `HARNESS_OPENROUTER_HIDE_NO_TOOLS` — set to `1` to drop free OpenRouter models that can't call tools (listed by default, labelled `no tool use`)
 - `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent tool workers (default/cap: 64)
 - `HARNESS_BUNDLE_MAX_CHARS` — max chars in resolve_context/read_bundle output (default: 120000)
 - `HARNESS_BUNDLE_PER_FILE_MAX` — per-file cap inside a bundle (default: 20000)
@@ -65,6 +67,37 @@ python -m pytest tests/ -q
 | `utils/` | Shared helpers: `io.py` (secure file writes), `http.py`, `html_clean.py`, `serialize.py`, `time_fmt.py` |
 | `state.py` | **Module-level mutable globals** shared across the package (client, messages, model, flags, theme, **active_agent**) — mutate via `jarvis.state.<name> = ...` |
 | `constants/` | Paths (`~/.config/harness-agent/`, `~/.harness/`), model names, OAuth endpoints, system prompt, provider identifiers, **`default_agents/*.md`** (bundled coding/reverse_eng/setup) |
+
+### Live model discovery
+
+Free model line-ups change constantly, so free tiers are **discovered at
+runtime**, not hard-coded:
+
+- `auth/zen_catalog.py` — OpenCode Zen free tier (Harness Agent source).
+- `auth/openrouter_catalog.py` — every $0 model in `openrouter.ai/api/v1/models`.
+  **Nothing is hidden**: a row missing from `/model` is more confusing than a
+  caveated one, so unusable models are labelled and sorted last instead.
+  Two flags do that — `no tool use` (the harness always sends tools, so those
+  models fail every turn) and `restricted` (answered `403 permission_denied`;
+  OpenRouter gates a few free models to its allowlisted apps, and nothing in
+  the catalog marks them, so the only way to know is to be refused once —
+  entries age out after a week). `FreeModel.usable` is the combined check, and
+  only usable models are ever auto-selected as a fallback.
+- `auth/catalog_cache.py` — stale-while-revalidate disk cache under
+  `~/.config/harness-agent/model_catalog/`.
+
+**The picker never fetches on the UI thread.** `ModelPickerScreen.on_mount`
+builds rows from the cache (sub-millisecond) and runs `refresh_model_catalogs()`
+in a `@work(thread=True)` worker that swaps the rows in when it lands; the TUI
+also warms the cache at startup (`_warm_model_catalogs_background`). Anything
+calling `model_picker_rows(live=True)` **must** be on a worker thread.
+`/model refresh` forces a live refresh and retries previously-refused models.
+
+The `ModelSpec` entries in `constants/providers.py` for OpenRouter are only an
+offline seed list — don't curate free models there by hand. Models discovered
+at runtime register their pricing and vision support via
+`register_dynamic_model()`, and `openrouter_default_model()` resolves the
+default from the live catalog so a retired id never becomes a dead fallback.
 
 ### Key data flows
 

@@ -160,14 +160,58 @@ def _handle_think(arg: str = "") -> None:
     header_panel()
 
 
-def _all_models():
-    """Combined list: [(source, model_id, description), ...] for /model."""
+def _all_models(live: bool = False):
+    """Combined list: [(source, model_id, description), ...] for /model.
+
+    ``live=False`` reads the cached catalogs (instant). ``live=True`` refreshes
+    the free-model catalogs over the network first.
+    """
     try:
         from ..tui.model_modal import model_picker_rows
-        return model_picker_rows()
+        return model_picker_rows(live=live)
     except Exception:
         from ..constants import all_model_picker_rows
-        return all_model_picker_rows()
+        return all_model_picker_rows(live=live, cached=not live)
+
+
+def refresh_model_catalog() -> int:
+    """/model refresh — re-read the live free-model catalogs. Returns row count."""
+    from ..constants import refresh_model_catalogs
+
+    refresh_model_catalogs(retry_blocked=True)
+    rows = _all_models()
+    free = sum(1 for _s, _m, desc in rows if "free" in desc.lower())
+    console.print(
+        f"[green]✓ model catalog refreshed[/] [dim]— {len(rows)} models "
+        f"({free} free)[/]"
+    )
+    return len(rows)
+
+
+def resolve_model_arg(arg: str) -> tuple[str, str] | None:
+    """Map a ``/model <arg>`` argument to ``(model_id, source)``.
+
+    Accepts a 1-based row number, an exact id, or a unique substring. Returns
+    None for an unmatched non-numeric arg so callers can fall back to treating
+    it as a raw provider model id.
+    """
+    arg = (arg or "").strip()
+    if not arg:
+        return None
+    rows = _all_models()
+    if arg.isdigit():
+        i = int(arg) - 1
+        if 0 <= i < len(rows):
+            src, mid, _d = rows[i]
+            return mid, src
+        return None
+    for src, mid, _d in rows:
+        if arg == mid:
+            return mid, src
+    for src, mid, _d in rows:
+        if arg in mid:
+            return mid, src
+    return None
 
 
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
@@ -261,25 +305,32 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
     header_panel()
 
 
+def _catalogs_fresh() -> bool:
+    try:
+        from ..constants import model_catalogs_are_fresh
+        return model_catalogs_are_fresh()
+    except Exception:
+        return True
+
+
 def _handle_model(arg: str):
-    rows = _all_models()
+    arg = (arg or "").strip()
+    if arg.lower() in ("refresh", "reload", "sync"):
+        refresh_model_catalog()
+        return
+    # Listing is the one place worth paying for a live fetch: the user is about
+    # to choose, and a freshly retired free model is a dead end.
+    rows = _all_models(live=not arg and not _catalogs_fresh())
     if arg:
         chosen = None
-        if arg.isdigit():
-            i = int(arg) - 1
-            if 0 <= i < len(rows):
-                src, chosen, _d = rows[i]
-                _apply_model_selection(chosen, source=src)
-                return
-        else:
-            for src, m, _d in rows:
-                if arg == m or arg in m:
-                    _apply_model_selection(m, source=src)
-                    return
-            if arg:
-                # Freeform: accept any string. '/' → OpenRouter slug, else Anthropic id.
-                _apply_model_selection(arg)
-                return
+        hit = resolve_model_arg(arg)
+        if hit:
+            _apply_model_selection(hit[0], source=hit[1])
+            return
+        if not arg.isdigit():
+            # Freeform: accept any string. '/' → OpenRouter slug, else Anthropic id.
+            _apply_model_selection(arg)
+            return
         console.print(f"[red]unknown model: {arg}[/]")
         return
 
@@ -448,7 +499,8 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
     # Switch to a sensible default model for the new provider.
     if target == PROVIDER_OPENROUTER:
         if "/" not in state.MODEL:
-            state.MODEL = OPENROUTER_DEFAULT_MODEL
+            from ..constants import openrouter_default_model
+            state.MODEL = openrouter_default_model()
     elif target == PROVIDER_OPENCODE:
         if state.MODEL not in _OPENCODE_MODEL_IDS:
             state.MODEL = OPENCODE_DEFAULT_MODEL

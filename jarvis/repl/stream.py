@@ -672,8 +672,41 @@ def call_claude_stream():
                     "https://openrouter.ai/credits[/]"
                 )
                 raise HarnessAPIError("payment required")
+            if e.status_code == 403 and state.provider == PROVIDER_OPENROUTER:
+                # A handful of free models are gated to OpenRouter's allowlisted
+                # apps and refuse every other caller. Nothing in the catalog
+                # marks them, so remember the refusal and move to the next free
+                # model instead of dead-ending the turn.
+                from ..auth.openrouter_catalog import mark_unavailable
+                from ..constants.providers import openrouter_default_model
+
+                mark_unavailable(state.MODEL)
+                fallback = openrouter_default_model()
+                if not openrouter_model_retried and state.MODEL != fallback:
+                    openrouter_model_retried = True
+                    console.print(
+                        f"[yellow]OpenRouter: '{state.MODEL}' is restricted to "
+                        f"approved apps — switching to [cyan]{fallback}[/]. "
+                        "It stays in /model, marked restricted.[/]"
+                    )
+                    state.MODEL = fallback
+                    kwargs["model"] = fallback
+                    try:
+                        from ..storage.prefs import save_last_model
+                        save_last_model()
+                    except Exception:
+                        pass
+                    continue
+                console.print(
+                    f"[red]OpenRouter refused '{state.MODEL}'.[/]\n"
+                    "[yellow]Run /model to pick another free model.[/]"
+                )
+                raise HarnessAPIError("model not permitted")
             if e.status_code == 404 and state.provider == PROVIDER_OPENROUTER:
-                fallback = OPENROUTER_DEFAULT_MODEL
+                # Resolve from the live catalog: a hard-coded fallback is just
+                # as likely to have been retired as the model that 404'd.
+                from ..constants.providers import openrouter_default_model
+                fallback = openrouter_default_model()
                 if not openrouter_model_retried and state.MODEL != fallback:
                     openrouter_model_retried = True
                     console.print(
@@ -688,10 +721,18 @@ def call_claude_stream():
                     except Exception:
                         pass
                     continue
-                console.print(
-                    f"[red]OpenRouter: model '{state.MODEL}' not found.[/]\n"
-                    "[yellow]Run /model to pick a valid slug.[/]"
-                )
+                if "tool" in str(e).lower():
+                    console.print(
+                        f"[red]OpenRouter: '{state.MODEL}' has no endpoint that "
+                        "supports tool use.[/]\n[yellow]This harness always sends "
+                        "tools, so that model can't run here — /model marks these "
+                        "'no tool use'.[/]"
+                    )
+                else:
+                    console.print(
+                        f"[red]OpenRouter: model '{state.MODEL}' not found.[/]\n"
+                        "[yellow]Run /model to pick a valid slug.[/]"
+                    )
                 raise HarnessAPIError("model not found")
             if e.status_code == 429:
                 _stop_on_rate_limit(str(e))

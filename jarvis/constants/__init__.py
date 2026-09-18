@@ -50,6 +50,8 @@ from .providers import (
     models_for, models_for_source, connected_providers, connected_model_sources,
     provider_is_operational, provider_connection_status,
     all_model_picker_rows, harness_agent_models_for_picker,
+    openrouter_models_for_picker, openrouter_default_model,
+    register_dynamic_model, refresh_model_catalogs, model_catalogs_are_fresh,
     model_option_id, parse_model_option_id,
     model_belongs_to_provider, normalize_model_for_provider,
     CODEX_DEFAULT_MODEL, CODEX_MODELS, CODEX_BASE_URL,
