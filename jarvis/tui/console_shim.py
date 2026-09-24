@@ -457,6 +457,12 @@ class TUIConsole:
             error=bool(data.get("error")) or None,
             repaired=bool(data.get("repaired")),
         )
+        pet_hook = getattr(self._app, "_pet_tool_finished", None)
+        if callable(pet_hook):
+            try:
+                pet_hook(blk.tool_name, error=blk.status == "error")
+            except Exception:
+                pass
 
     def cancel_running_tools(self) -> None:
         def _go() -> None:

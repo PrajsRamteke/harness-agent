@@ -59,6 +59,7 @@ from .app_commands import (  # noqa: F401
     _is_theme_modal_command,
     _is_provider_hub_command,
     _is_local_command,
+    _is_pet_card_command,
 )
 
 
@@ -143,6 +144,8 @@ from .console_swap import _swap_console_everywhere  # noqa: F401, E402
 from .mixins.web_remote import WebRemoteMixin  # noqa: E402
 from .mixins.activity import ActivityLine, ActivityMixin  # noqa: E402
 from .mixins.file_ref import FileRefPickerMixin  # noqa: E402
+from .mixins.pet import PetMixin  # noqa: E402
+from .pet_widget import PetBubble, PetBuddy  # noqa: E402
 from .prompt_history import PromptHistory  # noqa: E402
 from .sidebar import Sidebar  # noqa: E402
 from .footer import FooterBar  # noqa: E402
@@ -175,7 +178,7 @@ _TIPS = (
 # ─── App ─────────────────────────────────────────────────────────────────
 
 
-class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
+class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
 
@@ -233,6 +236,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         self._tokenizing_attachments = False
         self._tool_activity_lock = threading.Lock()
         self._ask_user = AskUserController(self)
+        self._pet_init()
         self._history = PromptHistory()
         self._turn_is_llm = False
         self._turn_cancelled = False
@@ -319,6 +323,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
     # ─── compose ─────────────────────────────────────────────────────
     def compose(self) -> ComposeResult:
         yield WebRemoteQR(id="web_qr_overlay")
+        yield PetBubble(id="pet_bubble")
         with Horizontal(id="main"):
             with Vertical(id="body"):
                 yield Transcript(id="transcript")
@@ -342,6 +347,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
                     placeholder=_PLACEHOLDER,
                     soft_wrap=True,
                 )
+                yield PetBuddy(id="pet")
             with Horizontal(id="footer"):
                 yield FooterBar(id="footer_left", classes="-left")
                 yield FooterBar(id="footer_right")
@@ -387,6 +393,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         self._sync_activity_phase("")
         self._sync_agent_color()
         self._apply_sidebar_visibility()
+        self._pet_apply_visibility()
 
         self.query_one("#prompt", PromptArea).focus()
         self.call_after_refresh(self._render_welcome_intro)
@@ -397,6 +404,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_sidebar_visibility()
+        self._pet_apply_visibility()
+        self._pet_hide_bubble()
 
     def _sync_trace(self) -> None:
         """Follow trace changes made outside ⌃T (/verbose, web settings)."""
@@ -407,6 +416,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         """Footer + sidebar refresh (tokens, branch, MCP health)."""
         self._sync_trace()
         self._render_footer()
+        self._pet_slow_tick()
         try:
             sb = self.query_one("#sidebar", Sidebar)
             if not sb.has_class("hidden"):
@@ -499,6 +509,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         self._auto_connect_mcp_background()
         self._check_for_updates_background()
         self._warm_model_catalogs_background()
+        self._pet_mount()
 
     # Kept for callers that refreshed the old context strip.
     def _write_context_strip(self, log=None) -> None:
@@ -723,6 +734,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         sb.set_class(not show, "hidden")
         if show:
             sb.refresh_body()
+        self._pet_apply_visibility()  # pen in the sidebar ↔ kitty in the input box
 
     def action_toggle_sidebar(self) -> None:
         try:
@@ -872,6 +884,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             self._open_local_cmd_modal(initial=rest)
         elif stripped == "/sidebar":
             self.action_toggle_sidebar()
+        elif _is_pet_card_command(stripped):
+            self._open_pet_card()
         else:
             return False
         return True
@@ -1399,6 +1413,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             )
         self._busy = True
         self._turn_t0 = time.monotonic()
+        self._pet_turn_started()
         if upgrading:
             self._sync_activity_phase("Checking" if checking else "Upgrading")
             self._set_status("checking…" if checking else "upgrading…")
@@ -1720,6 +1735,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
             self._turns_done += 1
             if seconds >= 15 and not self._app_focused:
                 self.bell()  # long turn finished while you were in another window
+        self._pet_turn_finished(seconds, interrupted=self._turn_cancelled, llm=self._turn_is_llm)
         self._turn_is_llm = False
         self._busy = False
         self._turn_t0 = 0.0

@@ -43,6 +43,10 @@ _SHORTCUTS = """
   ⌃B             toggle the session sidebar (auto on wide terminals)
   ?  F1          this help · ⌃D quit
 
+[bold]Jarvis the pet[/]
+  click kitty    pet Jarvis · double-click for the pet card (/pet)
+  /pet feed      snack time · /pet play · /pet nap · /pet off hides it
+
 [bold]Tips[/]
   • Click a "Thought for…" block to expand long reasoning.
   • HARNESS_MOUSE=0 (or settings ui.mouse=false) restores native

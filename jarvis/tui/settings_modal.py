@@ -41,6 +41,8 @@ _DESCRIPTIONS: dict[str, str] = {
     "think.effort":  "Thinking effort — none / low / medium / high",
     "trace.on":      "Show thinking + tool panels in chat (^T trace)",
     "pin.enabled":   "Inject pinned.txt into every system prompt (/pin off to pause)",
+    "pet.enabled":   "Show Jarvis the kitty in the input box (/pet for the card)",
+    "pet.nudges":    "Let Jarvis nudge you — stretch breaks, full context, late nights",
 }
 
 

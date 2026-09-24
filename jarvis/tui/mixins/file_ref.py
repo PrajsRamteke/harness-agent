@@ -100,6 +100,10 @@ class FileRefPickerMixin:
             self._run_attachment_tokenize()
         self._sync_file_ref_picker()
         self._sync_composer_mode()
+        if val:
+            typing = getattr(self, "_pet_typing", None)
+            if callable(typing):
+                typing()
         if isinstance(event.text_area, PromptArea):
             event.text_area.refresh_file_ref_highlights()
 

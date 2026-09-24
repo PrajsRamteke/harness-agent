@@ -723,7 +723,7 @@ Screen {{
     height: auto;
     background: {BG_2};
     border-left: outer {ACCENT};
-    padding: 1 2;
+    padding: 0 2;
     margin: 0;
 }}
 #composer.-busy {{
@@ -732,9 +732,12 @@ Screen {{
 #composer.-shell {{
     border-left: outer {WARN};
 }}
+/* Vertical breathing room lives on the children (not composer padding) so
+   the pet (#pet, 3 rows) can use the composer's full height. */
 #prompt_prefix {{
     width: 2;
     height: 1;
+    margin: 1 0;
     color: {ACCENT};
     text-style: bold;
     background: {BG_2};
@@ -746,6 +749,7 @@ Screen {{
     height: auto;
     min-height: 1;
     max-height: 14;
+    margin: 1 0;
     width: 1fr;
     background: {BG_2};
     border: none;

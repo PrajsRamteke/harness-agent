@@ -1,7 +1,8 @@
 """Session sidebar (opencode-style) — shown on wide terminals, ⌃B toggles.
 
 Sections: session title, context/tokens (+cost when the model is priced),
-model & agent, MCP server health, and files modified this session.
+model & agent, MCP server health, and files modified this session — with
+Jarvis the pet's pen docked at the bottom (``pet_pen.PetPen``).
 Everything is read from ``state`` at paint time; the app calls
 ``refresh()`` after turns and on a slow timer.
 """
@@ -229,7 +230,10 @@ class Sidebar(VerticalScroll):
     can_focus = False
 
     def compose(self):
+        from .pet_pen import PetPen
+
         yield SidebarBody()
+        yield PetPen(id="pet_pen")
 
     def refresh_body(self) -> None:
         try:

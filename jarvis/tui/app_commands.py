@@ -77,6 +77,12 @@ def _is_theme_modal_command(text: str) -> bool:
     return s in ("/theme", "/themes")
 
 
+def _is_pet_card_command(text: str) -> bool:
+    """Bare ``/pet`` opens Jarvis's card; ``/pet feed`` etc. dispatch normally."""
+    s = (text or "").strip().lower()
+    return s in ("/pet", "/pets", "/jarvis", "/pet card")
+
+
 def _is_provider_hub_command(text: str) -> bool:
     """Provider setup is reached only through the unified ``/provider`` command.
 

@@ -64,6 +64,13 @@ _SECTIONS = [
     ("Theme", [
         ("/theme", "open the theme picker (15 themes — live preview)"),
     ]),
+    ("Pet (Jarvis the kitty)", [
+        ("/pet", "open the pet card · ↵ pat · f feed · p play · n nap · t trick · ? tip · r rename · c fur · h hide"),
+        ("/pet pat|feed|play|nap|wake|trick", "care for Jarvis from the prompt (feed takes fish · milk · cookie)"),
+        ("/pet name <name> · /pet fur [name]", "rename · change fur (ginger · midnight · snow · smoky · cocoa · theme)"),
+        ("/pet on|off · /pet nudges on|off", "show/hide the kitty in the input box · gentle reminders"),
+        ("click / double-click the kitty", "pet it · open the card"),
+    ]),
     ("MCP (Model Context Protocol)", [
         ("/mcp", "open the MCP control modal — list, toggle, import JSON, scope"),
     ]),

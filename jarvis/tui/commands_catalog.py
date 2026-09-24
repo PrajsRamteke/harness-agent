@@ -46,6 +46,12 @@ COMMANDS = [
     ("/command", "open the command manager modal (new · edit · delete · import/export · global)"),
     # Theme — modal handles the picker
     ("/theme", "open the theme picker (live preview)"),
+    # Pet — Jarvis the kitty
+    ("/pet", "Jarvis the pet — card with stats · pat · feed · play · nap · tricks"),
+    ("/pet feed", "give Jarvis a snack (fish · milk · cookie)"),
+    ("/pet play", "play with Jarvis (yarn!)"),
+    ("/pet name ", "rename your pet"),
+    ("/pet off", "hide the kitty from the input box (/pet on to bring it back)"),
     # Scan
     ("/scan", "AI-powered deep scan: identity / docs / projects → memory"),
     # MCP — single modal for everything

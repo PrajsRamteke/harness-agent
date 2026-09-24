@@ -20,6 +20,7 @@ from .command import handle_command, try_custom_command
 from .scan import handle_scan
 from .upgrade import cmd_upgrade
 from .settings import handle_settings
+from .pet import handle_pet
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/retry", "/paste", "/multi"}
@@ -53,6 +54,10 @@ def handle_slash(inp: str):
         return ("ok", False, inp)
 
     handled, _ = handle_memory(c, arg)
+    if handled:
+        return ("ok", False, inp)
+
+    handled, _ = handle_pet(c, arg)
     if handled:
         return ("ok", False, inp)
 
