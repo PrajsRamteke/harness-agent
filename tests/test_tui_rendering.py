@@ -116,3 +116,17 @@ def test_paste_chips_round_trip():
     assert pc.expand_chips(f"see {chip} please") == f"see {big} please"
     pc.reset()
     assert pc.expand_chips(chip) == chip  # unknown after reset: left as-is
+
+
+def test_shell_commands_display_without_cwd_noise():
+    import os
+
+    from jarvis.utils.display_paths import shorten_command, shorten_paths
+
+    cwd = os.getcwd()
+    home = os.path.expanduser("~")
+    assert shorten_command(f"cd {cwd} && pytest -q") == "pytest -q"
+    assert shorten_command(f'cd "{cwd}" ; ls {cwd}/jarvis') == "ls jarvis"
+    assert shorten_command("cd /somewhere/else && ls") == "cd /somewhere/else && ls"
+    assert shorten_paths(f"{cwd}/a.py and {home}/x") == "a.py and ~/x"
+    assert tf.tool_args("run_bash", {"cmd": f"cd {cwd} && make test"}) == "make test"

@@ -162,8 +162,8 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
                 )
                 yield Static("", id="login_status")
                 yield Static(
-                    f"[{ui.ACCENT_3}]ctrl+s[/] submit   [{ui.ACCENT_3}]ctrl+o[/] re-open browser   "
-                    f"[{ui.ACCENT_3}]ctrl+r[/] fresh code   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]ctrl+s[/] submit   [bold {ui.FG_MUTE}]ctrl+o[/] re-open browser   "
+                    f"[bold {ui.FG_MUTE}]ctrl+r[/] fresh code   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 

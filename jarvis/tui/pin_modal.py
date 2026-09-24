@@ -36,7 +36,7 @@ class _AddPinScreen(TuiModalScreen[str | None]):
                 )
                 yield TextArea("", id="pin_input", show_line_numbers=False)
                 yield Static(
-                    f"[{ui.ACCENT_3}]ctrl+s[/] append   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]ctrl+s[/] append   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -71,7 +71,7 @@ class _ConfirmClearPinScreen(TuiModalScreen[bool]):
                 )
                 yield Input(placeholder="yes", id="confirm_input")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] confirm   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↵[/] confirm   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -120,9 +120,9 @@ class PinModalScreen(TuiModalScreen[None]):
                     yield Static("", id="pin_preview")
                 yield Static("", id="modal_meta")
                 yield Static(
-                    f"[{ui.ACCENT_3}]a[/] append   [{ui.ACCENT_3}]t[/] enable/disable   "
-                    f"[{ui.ACCENT_3}]c[/] clear   [{ui.ACCENT_3}]r[/] refresh   "
-                    f"[{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]a[/] append   [bold {ui.FG_MUTE}]t[/] enable/disable   "
+                    f"[bold {ui.FG_MUTE}]c[/] clear   [bold {ui.FG_MUTE}]r[/] refresh   "
+                    f"[bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 

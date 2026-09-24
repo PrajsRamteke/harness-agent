@@ -22,11 +22,12 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from ..storage import skills as sk
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, _ellipsis, modal_key, primary_style
+from .modal_chrome import (
+    TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, empty_row, hint_line, picker_row, section_header,
+)
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -69,9 +70,8 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
                 yield Input(placeholder="search name or description…", id="skill_search")
                 yield OptionList(id="skill_list")
                 yield Static(
-                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} preview   {modal_key('i')} import   "
-                    f"{modal_key('e')} export   {modal_key('/')} search   {modal_key('g')} global   "
-                    f"{modal_key('r')} refresh   {modal_key('esc')} close",
+                    hint_line(("↵", "preview"), ("/", "search"), ("g", "global"),
+                              ("i/e", "import/export"), ("r", "refresh"), ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -111,9 +111,8 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
             ]
 
         if not skills:
-            opts.add_option(Option(
-                Text("(no skills found — drop SKILL.md files into .harness/skills/<name>/)", style="dim"),
-                disabled=True,
+            opts.add_option(empty_row(
+                "No skills found — drop SKILL.md files into .harness/skills/<name>/"
             ))
             opts.highlighted = 0
             opts.focus()
@@ -124,35 +123,23 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         glob = [s for s in skills if s.get("scope") == "global"]
 
         if project:
-            opts.add_option(Option(
-                Text("  PROJECT  ·  .harness/skills/  .skills/  .claude/skills/",
-                     style=f"bold {ui.FG_DIM}"),
-                disabled=True,
-            ))
+            opts.add_option(section_header("Project", ".harness/skills/ · .skills/ · .claude/skills/",
+                                           first=True))
             for s in project:
-                opts.add_option(Option(_format_skill_row(s), id=s["name"]))
+                opts.add_option(Option(_format_skill_row(s, q), id=s["name"]))
 
         if glob:
-            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
-            opts.add_option(Option(
-                Text("  GLOBAL   ·  ~/.harness/skills/  ~/.claude/skills/",
-                     style=f"bold {ui.FG_DIM}"),
-                disabled=True,
-            ))
+            opts.add_option(section_header("Global", "~/.harness/skills/ · ~/.claude/skills/",
+                                           first=not project))
             for s in glob:
-                opts.add_option(Option(_format_skill_row(s), id=s["name"]))
+                opts.add_option(Option(_format_skill_row(s, q), id=s["name"]))
 
         if not state.global_skills:
             gc = sk.global_count()
             if gc:
-                opts.add_option(Option(Text(" ", style="dim"), disabled=True))
-                opts.add_option(Option(
-                    Text(f"  {gc} global skill{'s' if gc != 1 else ''} hidden — press 'g' to show",
-                         style=f"italic {ui.FG_DIM}"),
-                    disabled=True,
-                ))
+                opts.add_option(section_header("Global", f"{gc} hidden — press g to show"))
 
-        opts.highlighted = 1 if opts.option_count > 1 else 0
+        opts.action_first()
         opts.focus()
         self._refresh_title()
 
@@ -288,12 +275,12 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
             pass
 
 
-def _format_skill_row(skill: dict) -> Text:
-    name = skill.get("name", "")
-    desc = skill.get("description", "")
-    return Text.assemble(
-        ("  ", ""),
-        (f"{name:<{ROW_NAME_WIDTH}s}", primary_style(True)),
-        ("  ", ""),
-        (_ellipsis(desc), ui.FG_MUTE),
+def _format_skill_row(skill: dict, query: str = ""):
+    return picker_row(
+        skill.get("name", ""),
+        detail=skill.get("description", ""),
+        query=query,
+        icon="✧",
+        icon_style=ui.ACCENT_3,
+        title_width=ROW_NAME_WIDTH,
     )

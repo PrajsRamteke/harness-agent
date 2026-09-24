@@ -95,8 +95,8 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
                 yield OptionList(id="oauth_list")
                 yield Static("", id="oauth_status")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] sign in   [{ui.ACCENT_3}]d[/] sign out   "
-                    f"[{ui.ACCENT_3}]a[/] activate   [{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]↵[/] sign in   [bold {ui.FG_MUTE}]d[/] sign out   "
+                    f"[bold {ui.FG_MUTE}]a[/] activate   [bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -132,20 +132,23 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
             if st.connected:
                 signed_in += 1
             active = is_active_oauth(spec)
+            from .modal_chrome import picker_row
+
             if not spec.available:
-                marker = "  "
-                status_text = "coming soon"
-                status_style = ui.FG_DIM
+                right, right_style, dot, dot_style = "coming soon", ui.FG_DIM, "○", ui.FG_DIM
+            elif st.connected:
+                right, right_style, dot, dot_style = st.detail or "signed in", ui.OK, "●", ui.OK
             else:
-                marker = "● " if active else ("◉ " if st.connected else "  ")
-                status_style = ui.OK if st.connected else ui.FG_DIM
-                status_text = st.detail
-            marker_style = f"bold {ui.OK}" if active else (ui.ACCENT if st.connected else ui.FG_DIM)
-            row = Text.assemble(
-                (marker, marker_style),
-                (f"{spec.label:<16s}", f"bold {ui.ACCENT}" if active else ui.ACCENT),
-                ("OAuth login     ", ui.ACCENT_2),
-                (status_text[:32], status_style),
+                right, right_style, dot, dot_style = st.detail or "not signed in", ui.FG_DIM, "○", ui.FG_DIM
+            row = picker_row(
+                spec.label,
+                detail="subscription sign-in",
+                right=right[:40],
+                right_style=right_style,
+                active=active,
+                icon=dot,
+                icon_style=dot_style,
+                title_width=16,
             )
             opts.add_option(Option(row, id=_option_id(spec.id)))
         if opts.option_count:

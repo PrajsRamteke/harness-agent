@@ -85,7 +85,7 @@ class ShortcutsHelpScreen(TuiModalScreen[None]):
                 with ScrollableContainer():
                     yield Static(_SHORTCUTS.strip(), id="shortcuts_body", markup=True)
                 yield Static(
-                    f"[{ui.ACCENT_3}]esc[/] or [{ui.ACCENT_3}]?[/] close",
+                    f"[bold {ui.FG_MUTE}]esc[/] or [bold {ui.FG_MUTE}]?[/] close",
                     id="modal_hint",
                 )
 

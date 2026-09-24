@@ -16,10 +16,10 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from ..storage import memory as mem
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import empty_row, picker_row
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -39,7 +39,7 @@ class _AddFactScreen(TuiModalScreen[str | None]):
                 yield Static("➕  New Memory Fact", id="modal_title")
                 yield Input(placeholder="e.g. user prefers TypeScript over JavaScript", id="fact_text")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] save   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↵[/] save   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -76,7 +76,7 @@ class _ConfirmClearScreen(TuiModalScreen[bool]):
                 )
                 yield Input(placeholder="yes", id="confirm_input")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] confirm   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↵[/] confirm   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -117,9 +117,9 @@ class MemoryModalScreen(TuiModalScreen[None]):
                 yield Static("", id="modal_status")
                 yield OptionList(id="fact_list")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] navigate   [{ui.ACCENT_3}]a[/] add   "
-                    f"[{ui.ACCENT_3}]d[/] delete   [{ui.ACCENT_3}]c[/] clear   "
-                    f"[{ui.ACCENT_3}]r[/] refresh   [{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]↑↓[/] navigate   [bold {ui.FG_MUTE}]a[/] add   "
+                    f"[bold {ui.FG_MUTE}]d[/] delete   [bold {ui.FG_MUTE}]c[/] clear   "
+                    f"[bold {ui.FG_MUTE}]r[/] refresh   [bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -135,20 +135,14 @@ class MemoryModalScreen(TuiModalScreen[None]):
         opts.clear_options()
         facts = mem.list_facts()
         if not facts:
-            opts.add_option(Option(
-                Text("  memory is empty — press 'a' to add a fact",
-                     style=f"italic {ui.FG_DIM}"),
-                disabled=True,
-            ))
+            opts.add_option(empty_row("Memory is empty — press a to add a fact"))
         else:
             for f in facts:
-                row = Text.assemble(
-                    ("  ", ""),
-                    (f"#{f['id']:<5d}", ui.FG_DIM),
-                    ("  ", ""),
-                    (_ellipsis(f["text"], 78), ui.FG),
-                )
-                opts.add_option(Option(row, id=f"fact:{f['id']}"))
+                opts.add_option(Option(
+                    picker_row(" ".join(str(f["text"]).split()), right=f"#{f['id']}", icon="◆",
+                               icon_style=ui.ACCENT),
+                    id=f"fact:{f['id']}",
+                ))
         try:
             self.query_one("#modal_title", Static).update(
                 f"◆  Memory   [{ui.FG_DIM}]{len(facts)} fact{'s' if len(facts) != 1 else ''}[/]"

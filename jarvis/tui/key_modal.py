@@ -125,29 +125,28 @@ def _provider_from_id(oid: str) -> str | None:
     return None
 
 
-def _format_row(info: dict, is_current_provider: bool) -> Text:
-    """Build a rich Text row for the key list."""
-    marker = "● " if is_current_provider else "  "
-    marker_style = f"bold {ui.OK}" if is_current_provider else ui.FG_DIM
-    label_style = f"bold {ui.ACCENT}" if is_current_provider else ui.ACCENT
+def _format_row(info: dict, is_current_provider: bool):
+    """One provider row: status dot, name, where the key comes from."""
+    from .modal_chrome import picker_row
 
-    source_text = info["source_text"]
-    source_style = {
-        "env": ui.WARN,
-        "file": ui.ACCENT,
-        "none": ui.FG_DIM,
-    }.get(info["source"], ui.FG_DIM)
-
+    source = info["source"]
     suffix = info["suffix"]
-    suffix_part = f"{'…' if suffix else ''}{suffix}" if suffix else "—"
-
-    # Build the row text
-    return Text.assemble(
-        (marker, marker_style),
-        (f"{info['label']:<22s}", label_style),
-        (source_text, source_style),
-        ("  ", ""),
-        (suffix_part, ui.FG_DIM),
+    if source == "none":
+        right, right_style, dot, dot_style = "not configured", ui.FG_DIM, "○", ui.FG_DIM
+    else:
+        where = "env var" if source == "env" else "saved key"
+        right = f"{where} · …{suffix}" if suffix else where
+        right_style = ui.WARN if source == "env" else ui.FG_MUTE
+        dot, dot_style = "●", ui.OK
+    return picker_row(
+        info["label"],
+        detail=info.get("env_var") or "",
+        right=right,
+        right_style=right_style,
+        active=is_current_provider,
+        icon=dot,
+        icon_style=dot_style,
+        title_width=18,
     )
 
 
@@ -183,7 +182,7 @@ class _ConfirmDeleteScreen(TuiModalScreen[bool]):
                 yield Static(
                     f"[{ui.FG_MUTE}]This will remove:[/]\n"
                     f"[{ui.FG}]{self._file_name}[/]\n\n"
-                    f"[{ui.ACCENT_3}]y[/] yes   [{ui.ACCENT_3}]n[/] no   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]y[/] yes   [bold {ui.FG_MUTE}]n[/] no   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -225,9 +224,9 @@ class KeyModalScreen(TuiModalScreen[None]):
                 yield Static("", id="modal_status")
                 yield OptionList(id="key_list")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] nav   [{ui.ACCENT_3}]↵/e[/] edit   "
-                    f"[{ui.ACCENT_3}]d[/] delete   [{ui.ACCENT_3}]a[/] add   "
-                    f"[{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]↑↓[/] nav   [bold {ui.FG_MUTE}]↵/e[/] edit   "
+                    f"[bold {ui.FG_MUTE}]d[/] delete   [bold {ui.FG_MUTE}]a[/] add   "
+                    f"[bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 

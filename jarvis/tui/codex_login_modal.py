@@ -93,7 +93,7 @@ class CodexLoginModalScreen(TuiModalScreen[list[str] | None]):
                 yield Static("", id="login_info")
                 yield Static("", id="login_status")
                 yield Static(
-                    f"[{ui.ACCENT_3}]ctrl+o[/] re-open browser   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]ctrl+o[/] re-open browser   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 

@@ -937,6 +937,13 @@ def _build_modal_css() -> str:
 }}
 .tui-modal-screen OptionList > .option-list--option-disabled {{
     color: {FG_DIM};
+    text-style: none;
+}}
+.tui-modal-screen #modal_status, .tui-modal-screen #model_subtitle,
+.tui-modal-screen #modal_subtitle {{
+    color: {FG_DIM};
+    padding: 0 1;
+    margin-bottom: 1;
 }}
 .tui-modal-screen OptionList > .option-list--separator {{
     color: {BG_4};

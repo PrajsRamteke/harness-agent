@@ -150,8 +150,8 @@ class ShellApprovalScreen(TuiModalScreen[str]):
                 )
                 yield OptionList(id="approval_list")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] choose   [{ui.ACCENT_3}]↵[/] confirm   "
-                    f"[{ui.ACCENT_3}]esc[/] cancel   [{ui.FG_DIM}]or press a key chip[/]",
+                    f"[bold {ui.FG_MUTE}]↑↓[/] choose   [bold {ui.FG_MUTE}]↵[/] confirm   "
+                    f"[bold {ui.FG_MUTE}]esc[/] cancel   [{ui.FG_DIM}]or press a key chip[/]",
                     id="modal_hint",
                 )
 

@@ -28,7 +28,6 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static, TextArea
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from ..storage import commands as cc
 from ..commands import command as command_cmd
@@ -37,9 +36,11 @@ from .modal_chrome import (
     TUI_MODAL_CHROME_CSS,
     TuiModalScreen,
     ROW_NAME_WIDTH,
-    _ellipsis,
+    empty_row,
+    hint_line,
+    picker_row,
+    section_header,
     modal_key,
-    primary_style,
 )
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
@@ -226,10 +227,9 @@ class CommandManagerScreen(TuiModalScreen[str | None]):
                 yield Input(placeholder="search name or description…", id="cmd_search")
                 yield OptionList(id="cmd_list")
                 yield Static(
-                    f"{modal_key('↑↓')} nav · {modal_key('↵')} to input · {modal_key('t')} template   "
-                    f"{modal_key('n')} new · {modal_key('e')} edit · {modal_key('p')} preview · {modal_key('d')} delete   "
-                    f"{modal_key('i')} import · {modal_key('x')} export · {modal_key('g')} global · {modal_key('s')} scope   "
-                    f"{modal_key('r')} refresh · {modal_key('esc')} close",
+                    hint_line(("↵", "insert"), ("t", "template"), ("n", "new"), ("e", "edit"),
+                              ("p", "preview"), ("d", "delete"), ("g", "global"),
+                              ("i/x", "import/export"), ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -269,11 +269,8 @@ class CommandManagerScreen(TuiModalScreen[str | None]):
             ]
 
         if not cmds:
-            opts.add_option(Option(
-                Text("  no commands found — press 'n' to create one, "
-                     "or drop .md prompts into .harness/commands/",
-                     style=f"italic {ui.FG_DIM}"),
-                disabled=True,
+            opts.add_option(empty_row(
+                "No custom commands yet — press n to create one, or drop .md prompts in .harness/commands/"
             ))
             opts.highlighted = 0
             opts.focus()
@@ -284,35 +281,22 @@ class CommandManagerScreen(TuiModalScreen[str | None]):
         glob = [c for c in cmds if c.get("scope") == "global"]
 
         if project:
-            opts.add_option(Option(
-                Text("  PROJECT  ·  .harness/commands/  .claude/commands/",
-                     style=f"bold {ui.FG_DIM}"),
-                disabled=True,
-            ))
+            opts.add_option(section_header("Project", ".harness/commands/ · .claude/commands/", first=True))
             for c in project:
                 opts.add_option(Option(_format_command_row(c), id=c["name"]))
 
         if glob:
-            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
-            opts.add_option(Option(
-                Text("  GLOBAL   ·  ~/.harness/commands/  ~/.claude/commands/",
-                     style=f"bold {ui.FG_DIM}"),
-                disabled=True,
-            ))
+            opts.add_option(section_header("Global", "~/.harness/commands/ · ~/.claude/commands/",
+                                           first=not project))
             for c in glob:
                 opts.add_option(Option(_format_command_row(c), id=c["name"]))
 
         if not state.global_commands:
             gc = cc.global_count()
             if gc:
-                opts.add_option(Option(Text(" ", style="dim"), disabled=True))
-                opts.add_option(Option(
-                    Text(f"  {gc} global command{'s' if gc != 1 else ''} hidden — press 'g' to show",
-                         style=f"italic {ui.FG_DIM}"),
-                    disabled=True,
-                ))
+                opts.add_option(section_header("Global", f"{gc} hidden — press g to show"))
 
-        opts.highlighted = 1 if opts.option_count > 1 else 0
+        opts.action_first()
         opts.focus()
         self._refresh_title()
 
@@ -530,15 +514,11 @@ class CommandManagerScreen(TuiModalScreen[str | None]):
             pass
 
 
-def _format_command_row(cmd: dict) -> Text:
+def _format_command_row(cmd: dict):
     name = "/" + cmd.get("name", "")
-    desc = cmd.get("description", "")
-    hint = cmd.get("argument_hint", "")
-    if hint:
-        desc = f"{hint}  ·  {desc}" if desc else hint
-    return Text.assemble(
-        ("  ", ""),
-        (f"{name:<{ROW_NAME_WIDTH}s}", primary_style(True)),
-        ("  ", ""),
-        (_ellipsis(desc), ui.FG_MUTE),
+    return picker_row(
+        name,
+        detail=cmd.get("description", ""),
+        right=cmd.get("argument_hint", ""),
+        title_width=ROW_NAME_WIDTH,
     )

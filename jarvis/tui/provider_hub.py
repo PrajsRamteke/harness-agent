@@ -13,9 +13,8 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, active_marker, primary_style
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, hint_line, picker_row, section_header
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -24,6 +23,17 @@ _MODE_OPTIONS = [
     ("oauth", "Auth (OAuth)",     "Anthropic / OpenAI Codex — subscription sign-in"),
     ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode, Kimchi, Codex — enter API key"),
 ]
+
+
+def _connection_summary() -> str:
+    """``Anthropic · OpenRouter`` — which sources are set up right now."""
+    try:
+        from ..constants.providers import MODEL_SOURCE_LABELS, connected_model_sources
+
+        labels = [MODEL_SOURCE_LABELS.get(s, s) for s in connected_model_sources()]
+        return " · ".join(labels)
+    except Exception:
+        return ""
 
 
 class ProviderHubScreen(TuiModalScreen[str | None]):
@@ -64,8 +74,7 @@ class ProviderHubScreen(TuiModalScreen[str | None]):
                 )
                 yield OptionList(id="mode_list")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] navigate   [{ui.ACCENT_3}]↵[/] select   "
-                    f"[{ui.ACCENT_3}]esc[/] close",
+                    hint_line(("↑↓", "navigate"), ("↵", "select"), ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -73,12 +82,10 @@ class ProviderHubScreen(TuiModalScreen[str | None]):
         enable_mouse()
         opts = self.query_one("#mode_list", OptionList)
         for mid, label, desc in _MODE_OPTIONS:
-            row = Text.assemble(
-                ("  ", ui.FG_DIM),
-                (f"{label:<20s}", ui.ACCENT),
-                (desc, ui.FG_MUTE),
-            )
-            opts.add_option(Option(row, id=mid))
+            opts.add_option(Option(picker_row(label, detail=desc, icon="›", icon_style=ui.ACCENT), id=mid))
+        status = _connection_summary()
+        if status:
+            opts.add_option(section_header("Connected", status))
         if opts.option_count:
             opts.highlighted = 0
         opts.focus()

@@ -21,11 +21,11 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from ..storage.settings import get_settings, SETTINGS_FILE, DEFAULTS
 from .. import state
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
+from .modal_chrome import picker_row, section_header
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -92,7 +92,7 @@ class _EditValueScreen(TuiModalScreen[str | None]):
                     yield Static(f"[{ui.FG_MUTE}]{hint}[/]", id="edit_hint")
                 yield Input(value=_fmt_value(self._current), id="value_input")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] save   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↵[/] save   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -139,10 +139,10 @@ class SettingsModalScreen(TuiModalScreen[None]):
                 yield Static("", id="modal_status")
                 yield OptionList(id="settings_list")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] nav   [{ui.ACCENT_3}]↵/e[/] edit   "
-                    f"[{ui.ACCENT_3}]r[/] reset   [{ui.ACCENT_3}]R[/] reload   "
-                    f"[{ui.ACCENT_3}]p[/] path   [{ui.ACCENT_3}]o[/] $EDITOR   "
-                    f"[{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]↑↓[/] nav   [bold {ui.FG_MUTE}]↵/e[/] edit   "
+                    f"[bold {ui.FG_MUTE}]r[/] reset   [bold {ui.FG_MUTE}]R[/] reload   "
+                    f"[bold {ui.FG_MUTE}]p[/] path   [bold {ui.FG_MUTE}]o[/] $EDITOR   "
+                    f"[bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -161,28 +161,34 @@ class SettingsModalScreen(TuiModalScreen[None]):
         overrides = dict(_flatten(settings.overrides()))
         defaults_flat = dict(_flatten(DEFAULTS))
         rows = _flatten(merged)
+        group = None
         for path, value in rows:
+            head, _, leaf = path.partition(".")
+            section = head if leaf else "general"
+            if section != group:
+                opts.add_option(section_header(section.replace("_", " "), first=group is None))
+                group = section
             is_override = path in overrides
             default_val = defaults_flat.get(path, "")
-            same_as_default = value == default_val
-            key_style = f"bold {ui.ACCENT}" if is_override else ui.ACCENT
-            value_style = (
-                f"bold {ui.OK}" if isinstance(value, bool) and value
-                else f"bold {ui.ERR}" if isinstance(value, bool)
-                else f"italic {ui.FG_DIM}" if (isinstance(value, str) and not value)
-                else ui.FG
-            )
-            tail = (
-                f"  [{ui.FG_DIM}](default)[/]" if same_as_default
-                else f"  [{ui.FG_DIM}]· default {_fmt_value(default_val)}[/]"
-            )
-            desc = _DESCRIPTIONS.get(path, "")
-            row = Text.from_markup(
-                f"  [{key_style}]{path:<22}[/]  "
-                f"[{value_style}]{_ellipsis(_fmt_value(value), 28):<28}[/]"
-                f"{_ellipsis(tail, 30)}  [{ui.FG_DIM}]{_ellipsis(desc, 45)}[/]"
-            )
-            opts.add_option(Option(row, id=f"k:{path}"))
+            if isinstance(value, bool):
+                shown, vstyle = ("on", f"bold {ui.OK}") if value else ("off", ui.FG_DIM)
+            elif isinstance(value, str) and not value:
+                shown, vstyle = "unset", f"italic {ui.FG_DIM}"
+            else:
+                shown, vstyle = _ellipsis(_fmt_value(value), 30), ui.FG_MUTE
+            if is_override and value != default_val and vstyle == ui.FG_MUTE:
+                vstyle = ui.FG  # changed from the default → brighter
+            opts.add_option(Option(
+                picker_row(
+                    leaf or head,
+                    detail=_DESCRIPTIONS.get(path, ""),
+                    right=shown,
+                    right_style=vstyle,
+                    title_width=16,
+                    title_style=f"bold {ui.FG}" if is_override else ui.FG,
+                ),
+                id=f"k:{path}",
+            ))
         try:
             n_over = len(overrides)
             n_keys = len(rows)

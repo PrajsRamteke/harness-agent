@@ -44,8 +44,8 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
                 yield Static("◉  Theme", id="modal_title")
                 yield OptionList(id="theme_list")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] preview   [{ui.ACCENT_3}]↵[/] save   "
-                    f"[{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↑↓[/] preview   [bold {ui.FG_MUTE}]↵[/] save   "
+                    f"[bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 

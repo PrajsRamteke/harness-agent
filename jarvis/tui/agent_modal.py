@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-from typing import Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -29,7 +28,6 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from ..storage import agents as ag
 from ..commands import agent as agent_cmd
@@ -38,10 +36,10 @@ from .modal_chrome import (
     TUI_MODAL_CHROME_CSS,
     TuiModalScreen,
     ROW_NAME_WIDTH,
-    _ellipsis,
-    active_marker,
-    modal_key,
-    primary_style,
+    empty_row,
+    hint_line,
+    picker_row,
+    section_header,
 )
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
@@ -97,7 +95,7 @@ class _NewAgentScreen(TuiModalScreen[tuple[str, str] | None]):
                 )
                 yield Input(placeholder="what this agent does", id="newagent_desc")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] on description to create   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↵[/] on description to create   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -167,10 +165,9 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
                 yield Static("", id="modal_status")
                 yield OptionList(id="agent_list")
                 yield Static(
-                    f"{modal_key('↑↓')} nav · {modal_key('↵')} activate · {modal_key('o')} default   "
-                    f"{modal_key('n')} new · {modal_key('e')} $EDITOR · {modal_key('p')} preview   "
-                    f"{modal_key('i')} import · {modal_key('x')} export · {modal_key('g')} global · {modal_key('s')} scope   "
-                    f"{modal_key('r')} refresh · {modal_key('esc')} close",
+                    hint_line(("↵", "activate"), ("o", "default"), ("n", "new"), ("e", "edit"),
+                              ("p", "preview"), ("g", "global"), ("s", "scope"),
+                              ("i/x", "import/export"), ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -199,26 +196,16 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         active = state.active_agent_name
 
         # "default" row (no agent → base system prompt)
-        marker, marker_style = active_marker(not active)
-        off_text = Text.assemble(
-            (marker, marker_style),
-            ("    ", ""),  # icon slot — keeps alignment with rows that have one
-            (f"{'default':<{ROW_NAME_WIDTH}s}", primary_style(not active)),
-            ("  ", ""),
-            ("base system prompt only", ui.FG_MUTE),
-        )
-        opts.add_option(Option(off_text, id=_OFF_ID))
+        opts.add_option(Option(
+            picker_row("default", detail="base system prompt only", active=not active,
+                       icon="·", title_width=ROW_NAME_WIDTH),
+            id=_OFF_ID,
+        ))
 
         agents = ag.discover_agents(force=True)
         if not agents:
-            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
-            opts.add_option(Option(
-                Text(
-                    "  no agents found — press 'n' to create one, "
-                    "or drop files in .harness/agents/",
-                    style=f"italic {ui.FG_DIM}",
-                ),
-                disabled=True,
+            opts.add_option(empty_row(
+                "No agents yet — press n to create one, or drop files in .harness/agents/"
             ))
             opts.highlighted = 0
             opts.focus()
@@ -229,34 +216,20 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         glob = [a for a in agents if a.get("scope") == "global"]
 
         if project:
-            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
-            opts.add_option(Option(
-                Text("  PROJECT  ·  .harness/agents/  .claude/agents/",
-                     style=f"bold {ui.FG_DIM}"),
-                disabled=True,
-            ))
+            opts.add_option(section_header("Project", ".harness/agents/ · .claude/agents/"))
             for a in project:
                 opts.add_option(Option(_format_agent_row(a, active), id=a["name"]))
 
         if glob:
-            opts.add_option(Option(Text(" ", style="dim"), disabled=True))
-            opts.add_option(Option(
-                Text("  GLOBAL   ·  ~/.harness/agents/  ~/.claude/agents/",
-                     style=f"bold {ui.FG_DIM}"),
-                disabled=True,
-            ))
+            opts.add_option(section_header("Global", "~/.harness/agents/ · ~/.claude/agents/"))
             for a in glob:
                 opts.add_option(Option(_format_agent_row(a, active), id=a["name"]))
 
         if not state.global_agents:
             gc = ag.global_count()
             if gc:
-                opts.add_option(Option(Text(" ", style="dim"), disabled=True))
-                opts.add_option(Option(
-                    Text(f"  {gc} global agent{'s' if gc != 1 else ''} hidden — press 'g' to show",
-                         style=f"italic {ui.FG_DIM}"),
-                    disabled=True,
-                ))
+                opts.add_option(section_header(
+                    "Global", f"{gc} hidden — press g to show"))
 
         self._highlight_active()
         opts.focus()
@@ -455,18 +428,17 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
             pass
 
 
-def _format_agent_row(agent: dict, active_name: str) -> Text:
+def _format_agent_row(agent: dict, active_name: str):
     is_active = agent["name"] == active_name
-    icon = (agent.get("icon") or "").strip()
+    icon = (agent.get("icon") or "").strip() or "·"
     color = (agent.get("color") or "").strip() or ui.ACCENT
-    marker, marker_style = active_marker(is_active)
-    icon_part = f"{icon}  " if icon else "    "
-    name_style = f"bold {color}" if is_active else color
-    desc = agent.get("description", "")
-    return Text.assemble(
-        (marker, marker_style),
-        (icon_part, color),
-        (f"{agent['name']:<{ROW_NAME_WIDTH}s}", name_style),
-        ("  ", ""),
-        (_ellipsis(desc), ui.FG_MUTE),
+    return picker_row(
+        agent["name"],
+        detail=agent.get("description", ""),
+        active=is_active,
+        icon=icon,
+        icon_style=color,
+        title_style=f"bold {color}" if is_active else color,
+        title_width=ROW_NAME_WIDTH,
+        right=agent.get("model") or "",
     )

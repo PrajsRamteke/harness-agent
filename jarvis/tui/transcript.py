@@ -905,6 +905,19 @@ def soften(renderable: Any) -> Any:
         )
     if isinstance(renderable, Rule):
         return Rule(renderable.title, style=ui.BORDER, characters="─")
+    try:
+        from rich.table import Table
+
+        if isinstance(renderable, Table):
+            # Command output tables (/history, /stats, …): quiet header + rules.
+            renderable.header_style = f"bold {ui.FG_MUTE}"
+            renderable.border_style = ui.BORDER
+            renderable.title_style = f"bold {ui.FG}"
+            if renderable.box is not None:
+                renderable.box = box.SIMPLE_HEAD
+            renderable.pad_edge = False
+    except Exception:
+        pass
     return renderable
 
 

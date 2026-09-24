@@ -105,8 +105,8 @@ class FileActivityPickerScreen(TuiModalScreen[None]):
                     auto_scroll=False,
                 )
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] pick file   [{ui.ACCENT_3}]tab[/] scroll output   "
-                    f"[{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]↑↓[/] pick file   [bold {ui.FG_MUTE}]tab[/] scroll output   "
+                    f"[bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 

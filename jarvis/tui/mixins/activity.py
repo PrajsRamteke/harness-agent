@@ -42,6 +42,9 @@ def clean_phase(label: str) -> str:
             return friendly
     raw = re.sub(r"^jarvis:\s*", "", raw, flags=re.I)
     raw = raw.rstrip(".… ")
+    from ...utils.display_paths import shorten_paths
+
+    raw = shorten_paths(raw)
     return raw[:1].upper() + raw[1:] if raw else ""
 
 

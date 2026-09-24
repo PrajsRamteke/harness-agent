@@ -10,9 +10,9 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, modal_key, primary_style
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH, modal_key
+from .modal_chrome import picker_row
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -128,13 +128,11 @@ class LocalCmdModalScreen(TuiModalScreen[str | None]):
         opts.clear_options()
         matches = filter_local_commands(query)
         for cmd_label, desc in matches:
-            label = Text.assemble(
-                ("  ", ""),
-                (f"{cmd_label:<{ROW_NAME_WIDTH}s}", primary_style(True)),
-                ("  ", ""),
-                (desc, ui.FG_MUTE),
-            )
-            opts.add_option(Option(label, id=cmd_label))
+            opts.add_option(Option(
+                picker_row(cmd_label, detail=desc, query=query.strip().lstrip("/"),
+                           icon="$", icon_style=ui.WARN, title_width=ROW_NAME_WIDTH),
+                id=cmd_label,
+            ))
         if opts.option_count:
             opts.highlighted = 0
 

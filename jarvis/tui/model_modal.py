@@ -8,8 +8,6 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
-
 from ..constants import (
     MODEL_SOURCE_LABELS, all_model_picker_rows,
     model_option_id, PROVIDER_HARNESS_AGENT,
@@ -22,10 +20,10 @@ from .. import state
 from .modal_chrome import (
     TUI_MODAL_CHROME_CSS,
     TuiModalScreen,
-    active_marker,
-    modal_key,
-    primary_style,
-    secondary_style,
+    empty_row,
+    hint_line,
+    picker_row,
+    section_header,
 )
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
@@ -70,20 +68,41 @@ def model_picker_rows(live: bool = False) -> list[tuple[str, str, str]]:
     return harness + extra
 
 
+def _recent_models() -> list[str]:
+    try:
+        from ..storage.settings import get_settings
+
+        val = get_settings().get("ui.recent_models") or []
+        return [str(v) for v in val if isinstance(v, str)]
+    except Exception:
+        return []
+
+
+def _remember_model(option_id: str) -> None:
+    """Keep the last 5 picked models (option ids) for the Recent group."""
+    try:
+        from ..storage.settings import get_settings
+
+        recent = [option_id] + [r for r in _recent_models() if r != option_id]
+        get_settings().set("ui.recent_models", recent[:5])
+    except Exception:
+        pass
+
+
 class ModelPickerScreen(TuiModalScreen[str | None]):
     """Lists configured models. Dismisses with the selected model id, or None."""
 
     DEFAULT_CSS = (
         TUI_MODAL_CHROME_CSS
         + """
-    ModelPickerScreen #modal {
+    ModelPickerScreen.tui-modal-screen #modal {
         width: 82%;
-        max-width: 130;
-        max-height: 80%;
+        max-width: 120;
+        height: 85%;
+        max-height: 44;
     }
     ModelPickerScreen OptionList {
-        height: 22;
-        margin-top: 1;
+        height: 1fr;
     }
     """
     )
@@ -101,21 +120,28 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("✦  Models", id="modal_title")
-                yield Static(self._SUBTITLE, id="model_subtitle")
-                yield Input(value="", placeholder="search models…", id="model_search")
+                yield Static("✦  Select model", id="modal_title")
+                yield Static(self._subtitle(), id="model_subtitle")
+                yield Input(value="", placeholder="Search models…", id="model_search")
                 yield OptionList(id="model_list")
                 yield Static(
-                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} select   "
-                    f"{modal_key('/')} search   {modal_key('esc')} cancel",
+                    hint_line(("↑↓", "navigate"), ("↵", "select"),
+                              ("type", "to search"), ("esc", "close")),
                     id="modal_hint",
                 )
 
-    _SUBTITLE = "[dim]Harness Agent models are free — no API key required[/]"
-    _SUBTITLE_BUSY = (
-        "[dim]Harness Agent models are free — no API key required   "
-        "· refreshing free model list…[/]"
-    )
+    @staticmethod
+    def _subtitle(busy: bool = False) -> str:
+        from ..constants.providers import PROVIDER_LABELS
+
+        prov = PROVIDER_LABELS.get(state.provider, state.provider or "")
+        line = (
+            f"[{ui.FG_DIM}]current[/] [bold {ui.FG}]{state.MODEL}[/]"
+            + (f" [{ui.FG_DIM}]· {prov}[/]" if prov else "")
+        )
+        if busy:
+            line += f"   [{ui.ACCENT}]⟳[/] [{ui.FG_DIM}]refreshing free models…[/]"
+        return line
 
     def on_mount(self) -> None:
         enable_mouse()
@@ -165,9 +191,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
 
     def _set_busy(self, busy: bool) -> None:
         try:
-            self.query_one("#model_subtitle", Static).update(
-                self._SUBTITLE_BUSY if busy else self._SUBTITLE
-            )
+            self.query_one("#model_subtitle", Static).update(self._subtitle(busy))
         except Exception:
             pass
 
@@ -226,39 +250,66 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             ]
             seen = {mid for _, mid, _ in rows}
             rows = [r for r in harness if r[1] not in seen] + rows
-        matched = 0
+
+        groups: dict[str, list[tuple[str, str]]] = {}
         for src, m, desc in rows:
-            label_name = MODEL_SOURCE_LABELS.get(src, src)
-            if src == PROVIDER_HARNESS_AGENT:
-                label_name = "Harness Agent"
-            if q and q not in m.lower() and q not in desc.lower() and q not in label_name.lower():
-                if q not in ("harness", "agent", "free"):
+            label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else MODEL_SOURCE_LABELS.get(src, src)
+            if q and not any(q in part.lower() for part in (m, desc, label)):
+                if q not in ("harness", "agent", "free") or src != PROVIDER_HARNESS_AGENT:
                     continue
-            is_active = self._is_active(src, m)
-            marker, marker_style = active_marker(is_active)
-            label = Text.assemble(
-                (marker, marker_style),
-                (f"{m:<40s}", primary_style(is_active)),
-                ("  ", ""),
-                (f"{label_name:<14s}", secondary_style()),
-                ("  ", ""),
-                (desc[:60], ui.FG_MUTE),
-            )
-            opts.add_option(Option(label, id=model_option_id(src, m)))
-            matched += 1
-        if opts.option_count:
-            opts.highlighted = 0
-            if keep:
-                try:
-                    opts.highlighted = opts.get_option_index(keep)
-                except Exception:
-                    opts.highlighted = 0
-            opts.disabled = False
-        elif matched == 0 and q:
-            opts.add_option(Option(f"(no models matching \"{q}\")", id="__none__"))
-            opts.disabled = True
-        else:
-            opts.disabled = False
+            groups.setdefault(src, []).append((m, desc))
+
+        options = []
+        active_id: str | None = None
+        recent_first: str | None = None
+        if not q:
+            # Recent: the current model + the last few picks (unique ids —
+            # "recent:" prefix, stripped again on select).
+            by_id = {model_option_id(src, m): (src, m, desc) for src, m, desc in rows}
+            recent: list[str] = []
+            for src, m, _d in rows:
+                if self._is_active(src, m):
+                    recent.append(model_option_id(src, m))
+            for oid in _recent_models():
+                if oid in by_id and oid not in recent:
+                    recent.append(oid)
+            recent = recent[:5]
+            if recent:
+                options.append(section_header("Recent", first=True))
+                for oid in recent:
+                    src, m, desc = by_id[oid]
+                    label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else MODEL_SOURCE_LABELS.get(src, src)
+                    options.append(Option(
+                        picker_row(m, right=label, active=self._is_active(src, m)),
+                        id=f"recent:{oid}",
+                    ))
+                recent_first = f"recent:{recent[0]}"
+        for i, (src, items) in enumerate(groups.items()):
+            label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else MODEL_SOURCE_LABELS.get(src, src)
+            note = "free · no key needed" if src == PROVIDER_HARNESS_AGENT else f"{len(items)} models"
+            options.append(section_header(label, note, first=i == 0 and not options))
+            for m, desc in items:
+                active = self._is_active(src, m)
+                oid = model_option_id(src, m)
+                if active:
+                    active_id = oid
+                desc_short = desc.split(" — ", 1)[-1] if " — " in desc else desc
+                options.append(Option(
+                    picker_row(m, right=desc_short[:48], active=active, query=q),
+                    id=oid,
+                ))
+        if not options:
+            opts.add_option(empty_row(f"No models match “{query.strip()}”"))
+            return
+        opts.add_options(options)
+        target = keep or (recent_first or active_id if not q else None)
+        try:
+            opts.highlighted = opts.get_option_index(target) if target else None
+        except Exception:
+            opts.highlighted = None
+        if opts.highlighted is None:
+            opts.action_first()
+        opts.scroll_to_highlight(top=False)
 
     # ─── events ────────────────────────────────────────────────────────
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -266,15 +317,19 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             self._populate(event.value or "")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "model_search":
-            return
-        self.query_one("#model_list", OptionList).focus()
+        if event.input.id == "model_search":
+            self._accept()  # Enter in the search box picks the highlighted model
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         oid = event.option.id
-        if oid == "__none__":
+        if not oid or oid == "__none__":
             return
-        self.dismiss(str(oid) if oid else None)
+        self._choose(str(oid))
+
+    def _choose(self, oid: str) -> None:
+        oid = oid.removeprefix("recent:")
+        _remember_model(oid)
+        self.dismiss(oid)
 
     # ─── actions ───────────────────────────────────────────────────────
     def action_dismiss_cancel(self) -> None:
@@ -320,4 +375,4 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         if not opt.id or opt.id == "__none__":
             self.dismiss(None)
             return
-        self.dismiss(str(opt.id) if opt.id else None)
+        self._choose(str(opt.id))

@@ -17,10 +17,10 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from ..storage import lessons as ls
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, _ellipsis
+from .modal_chrome import empty_row, picker_row
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -47,7 +47,7 @@ class _AddLessonScreen(TuiModalScreen[tuple[str, str, str] | None]):
                 yield Static(f"Tags  [{ui.FG_DIM}](comma-separated, optional)[/]", id="lab3")
                 yield Input(placeholder="redux,saga,typescript", id="add_tags")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] on tags to save   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↵[/] on tags to save   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -91,7 +91,7 @@ class _ConfirmClearLessonsScreen(TuiModalScreen[bool]):
                 )
                 yield Input(placeholder="yes", id="confirm_input")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] confirm   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↵[/] confirm   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -132,10 +132,10 @@ class LessonModalScreen(TuiModalScreen[None]):
                 yield Input(placeholder="search…  (esc clears, focuses list)", id="lesson_search")
                 yield OptionList(id="lesson_list")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] nav   [{ui.ACCENT_3}]/[/] search   "
-                    f"[{ui.ACCENT_3}]a[/] add   [{ui.ACCENT_3}]d[/] delete   "
-                    f"[{ui.ACCENT_3}]c[/] clear   [{ui.ACCENT_3}]r[/] refresh   "
-                    f"[{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]↑↓[/] nav   [bold {ui.FG_MUTE}]/[/] search   "
+                    f"[bold {ui.FG_MUTE}]a[/] add   [bold {ui.FG_MUTE}]d[/] delete   "
+                    f"[bold {ui.FG_MUTE}]c[/] clear   [bold {ui.FG_MUTE}]r[/] refresh   "
+                    f"[bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -152,27 +152,16 @@ class LessonModalScreen(TuiModalScreen[None]):
         if rows is None:
             rows = ls.list_lessons()
         if not rows:
-            opts.add_option(Option(
-                Text("  no lessons yet — press 'a' to add one",
-                     style=f"italic {ui.FG_DIM}"),
-                disabled=True,
-            ))
+            opts.add_option(empty_row("No lessons yet — press a to add one"))
         else:
             for r in rows:
-                tag_part = ""
-                if r.get("tags"):
-                    tag_part = f"   [{', '.join(r['tags'])}]"
-                row = Text.assemble(
-                    ("  ", ""),
-                    (f"#{r['id']:<5d}", ui.FG_DIM),
-                    (f"  ×{r.get('hits', 0):<3d}", ui.FG_MUTE),
-                    ("  ", ""),
-                    (_ellipsis(r["task"], 28), f"bold {ui.FG}"),
-                    ("  → ", ui.FG_DIM),
-                    (_ellipsis(r["lesson"], 50), ui.FG),
-                    (_ellipsis(tag_part, 25), ui.ACCENT_2),
-                )
-                opts.add_option(Option(row, id=f"lesson:{r['id']}"))
+                hits = r.get("hits", 0)
+                opts.add_option(Option(
+                    picker_row(_ellipsis(r["task"], 40), detail=f"→ {r['lesson']}",
+                               right=f"used ×{hits}" if hits else "",
+                               icon="◇", icon_style=ui.ACCENT_3),
+                    id=f"lesson:{r['id']}",
+                ))
         try:
             self.query_one("#modal_title", Static).update(
                 f"≡  Lessons   [{ui.FG_DIM}]{len(rows)} entr{'ies' if len(rows) != 1 else 'y'}[/]"

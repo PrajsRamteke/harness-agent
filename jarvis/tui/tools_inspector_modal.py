@@ -14,7 +14,7 @@ from rich.text import Text
 from .. import state
 from ..repl.tool_display import viewer_text
 from ..repl.tool_output_backfill import build_inspector_entries
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -36,34 +36,48 @@ def _basename(path: str) -> str:
     return p.rsplit("/", 1)[-1] or p
 
 
-def _label(entry: dict) -> Text:
-    section = entry.get("section") or "tool"
+def _entry_args(entry: dict) -> tuple[str, str]:
+    """(title, one-line args) via the same formatter as transcript tool rows."""
+    import json
+
+    from . import tool_format as tf
+
     name = entry.get("name") or "tool"
     subtitle = (entry.get("subtitle") or "").strip()
-    t = Text()
+    try:
+        data = json.loads(subtitle) if subtitle.startswith("{") else None
+    except Exception:
+        data = None
+    args = tf.tool_args(name, data) if isinstance(data, dict) else tf.clip(subtitle, 80)
+    return tf.tool_title(name), args
 
-    if section == "file":
-        status = entry.get("status")
-        t.append(f"{_status_glyph(status)} ", style="bold")
-        t.append("file ", style="dim")
-        t.append(f"{name:<{ROW_NAME_WIDTH}}", style="bold")
-        base = _basename(subtitle) if "/" in subtitle else subtitle[:36]
-        t.append(f"  {base}", style="")
-        if subtitle and subtitle != base:
-            t.append(f"  {subtitle}", style="dim")
-        chars = len(entry.get("content") or "")
-        if chars and status in ("done", "error", None):
-            t.append(f"  {chars:,} chars", style="dim")
-        return t
 
-    ts = time.strftime("%H:%M:%S", time.localtime(entry.get("ts") or 0))
-    chars = len(entry.get("content") or "")
-    t.append(f"{ts}  ", style="dim")
-    t.append(f"{name:<{ROW_NAME_WIDTH}}", style="bold")
-    if subtitle:
-        t.append(f"  {subtitle[:48]}  ", style="dim")
-    t.append(f"{chars:,} chars", style="dim")
-    return t
+def _label(entry: dict):
+    from . import tool_format as tf
+    from .modal_chrome import picker_row
+
+    name = entry.get("name") or "tool"
+    status = entry.get("status")
+    content = entry.get("content") or ""
+    title, args = _entry_args(entry)
+    color = {
+        "error": ui.ERR, "running": ui.ACCENT, "queued": ui.FG_DIM, "cancelled": ui.FG_DIM,
+    }.get(status or "", ui.OK)
+    if content.lstrip().startswith(("ERROR", "BLOCKED", "TIMEOUT")):
+        color = ui.ERR
+    bits = []
+    if content:
+        bits.append(f"{len(content):,} chars")
+    if entry.get("ts"):
+        bits.append(time.strftime("%H:%M", time.localtime(entry["ts"])))
+    return picker_row(
+        title,
+        detail=args,
+        right=" · ".join(bits),
+        icon=tf.tool_icon(name),
+        icon_style=f"bold {color}",
+        title_width=10,
+    )
 
 
 class ToolsInspectorScreen(TuiModalScreen[None]):
@@ -87,7 +101,8 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
         height: 1fr;
         min-height: 12;
         margin-top: 1;
-        border: round {ui.BORDER};
+        background: {ui.BG_2};
+        border: none;
         padding: 0 1;
         scrollbar-size-vertical: 1;
     }
@@ -108,7 +123,7 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
         trace = "on" if state.show_internal else "off"
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("🔧  Tools", id="modal_title")
+                yield Static("⚒  Tool output", id="modal_title")
                 yield Static("", id="modal_status")
                 yield OptionList(id="tools_inspector_list")
                 yield RichLog(
@@ -119,8 +134,8 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
                     auto_scroll=False,
                 )
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] pick   [{ui.ACCENT_3}]tab[/] scroll output   "
-                    f"[{ui.ACCENT_3}]v[/] trace:{trace}   [{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]↑↓[/] pick   [bold {ui.FG_MUTE}]tab[/] scroll output   "
+                    f"[bold {ui.FG_MUTE}]v[/] trace:{trace}   [bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -148,12 +163,10 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
             status.update(self._status_line())
             return
         n_files = sum(1 for e in self._entries if e.get("section") == "file")
-        n_tools = len(self._entries) - n_files
-        parts = [f"{len(self._entries)} item(s)"]
+        n = len(self._entries)
+        parts = [f"{n} tool call{'s' if n != 1 else ''}"]
         if n_files:
-            parts.append(f"{n_files} file")
-        if n_tools:
-            parts.append(f"{n_tools} other")
+            parts.append(f"{n_files} file read{'s' if n_files != 1 else ''}")
         self._status_summary = " · ".join(parts)
         status.update(self._status_line())
         for entry in self._entries:
@@ -165,16 +178,15 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
             return
         entry = self._entries[index]
         log.clear()
+        from . import tool_format as tf
+
+        title, args = _entry_args(entry)
         header = Text()
-        section = entry.get("section") or "tool"
-        name = entry.get("name") or "tool"
-        if section == "file":
-            header.append(f"📂 {name}\n", style="bold")
-        else:
-            header.append(f"⚙ {name}\n", style="bold")
-        sub = entry.get("subtitle") or ""
-        if sub:
-            header.append(f"{sub}\n\n", style="dim")
+        header.append(f"{tf.tool_icon(entry.get('name') or '')} ", style=f"bold {ui.ACCENT}")
+        header.append(title, style=f"bold {ui.FG}")
+        if args:
+            header.append(f"  {args}", style=ui.FG_MUTE)
+        header.append("\n")
         log.write(header)
         content = entry.get("content") or ""
         st = entry.get("status")
@@ -200,8 +212,8 @@ class ToolsInspectorScreen(TuiModalScreen[None]):
         mode = "on" if state.show_internal else "off"
         hint = self.query_one("#modal_hint", Static)
         hint.update(
-            f"[{ui.ACCENT_3}]↑↓[/] pick   [{ui.ACCENT_3}]tab[/] scroll output   "
-            f"[{ui.ACCENT_3}]v[/] trace:{mode}   [{ui.ACCENT_3}]esc[/] close"
+            f"[bold {ui.FG_MUTE}]↑↓[/] pick   [bold {ui.FG_MUTE}]tab[/] scroll output   "
+            f"[bold {ui.FG_MUTE}]v[/] trace:{mode}   [bold {ui.FG_MUTE}]esc[/] close"
         )
         status = self.query_one("#modal_status", Static)
         if self.app._busy:

@@ -7,11 +7,11 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from ..constants import PROVIDERS, PROVIDER_LABELS, provider_is_operational, provider_connection_status
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, active_marker, modal_key, primary_style
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, modal_key
+from .modal_chrome import picker_row
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
@@ -78,19 +78,21 @@ class ProviderPickerScreen(TuiModalScreen[str | None]):
             label = PROVIDER_LABELS.get(prov, prov)
             desc = _PROVIDER_DESCRIPTIONS.get(prov, "")
             is_active = prov == state.provider and provider_is_operational(prov)
-            marker, marker_style = active_marker(is_active)
             status, status_kind = provider_connection_status(prov)
-            status_style = ui.OK if status_kind == "ok" else ui.FG_DIM
-            row = Text.assemble(
-                (marker, marker_style),
-                (f"{label:<14s}", primary_style(is_active)),
-                ("  ", ""),
-                (desc, ui.FG_MUTE),
-                (status, status_style),
+            ok = status_kind == "ok"
+            row = picker_row(
+                label,
+                detail=desc.strip(" ·—-"),
+                right=status.strip(" ·—-") or ("connected" if ok else "not set up"),
+                right_style=ui.OK if ok else ui.FG_DIM,
+                active=is_active,
+                icon="●" if ok else "○",
+                icon_style=ui.OK if ok else ui.FG_DIM,
+                title_width=14,
             )
             opts.add_option(Option(row, id=prov))
         if opts.option_count:
-            opts.highlighted = 0
+            opts.highlighted = next((i for i, p in enumerate(PROVIDERS) if p == state.provider), 0)
         opts.focus()
 
     # ─── events ────────────────────────────────────────────────────────

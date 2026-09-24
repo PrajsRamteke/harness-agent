@@ -62,7 +62,7 @@ class TextInputScreen(TuiModalScreen[str | None]):
                     id="text_input",
                 )
                 yield Static(
-                    f"[{ui.ACCENT_3}]↵[/] submit   [{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]↵[/] submit   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 

@@ -37,9 +37,13 @@ def describe_tool_activity(name: str, raw_input) -> str:
             return f"Ask user: {c(first.get('prompt', ''))}"
         return "Waiting for your answer"
     if name == "run_bash":
-        return f"Shell: {c(d.get('cmd', ''))}"
+        from ..utils.display_paths import shorten_command
+
+        return f"Shell: {c(shorten_command(d.get('cmd', '')))}"
     if name == "read_file":
-        return f"Reading file: {c(d.get('path', ''))}"
+        from ..utils.display_paths import shorten_paths
+
+        return f"Reading file: {c(shorten_paths(str(d.get('path', ''))))}"
     if name == "read_bundle":
         paths = d.get("paths")
         if paths and isinstance(paths, list):

@@ -7,12 +7,30 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from .commands_catalog import filter_commands
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, ROW_NAME_WIDTH
+from .modal_chrome import (
+    TUI_MODAL_CHROME_CSS,
+    TuiModalScreen,
+    empty_row,
+    hint_line,
+    picker_row,
+    section_header,
+)
+
+# Browse view groups (search view is flat). Unlisted commands land in "Other".
+_GROUPS: list[tuple[str, list[str]]] = [
+    ("Session", ["/new", "/session", "/retry", "/history", "/search ", "/export ",
+                 "/save ", "/load ", "/copy", "/paste", "/clear", "/reset", "/exit"]),
+    ("Model & agent", ["/model", "/mode", "/provider", "/think", "/agent", "/agent init",
+                       "/plan", "/auto", "/verbose", "/multi"]),
+    ("Context & memory", ["/pin", "/unpin", "/memory", "/lesson", "/skill", "/scan",
+                          "/note ", "/notes", "/alias ", "/aliases"]),
+    ("Tools", ["/local", "/mcp", "/command"]),
+    ("App", ["/theme", "/sidebar", "/settings", "/tokens", "/cost", "/stats",
+             "/upgrade", "/version", "/help", "/keytest"]),
+]
 from .mouse_toggle import enable_mouse, disable_mouse
-from . import theme as ui
 
 
 class CommandPaletteScreen(TuiModalScreen[str | None]):
@@ -21,14 +39,14 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
     DEFAULT_CSS = (
         TUI_MODAL_CHROME_CSS
         + """
-    CommandPaletteScreen #modal {
+    CommandPaletteScreen.tui-modal-screen #modal {
         width: 80%;
         max-width: 110;
-        max-height: 75%;
+        height: 80%;
+        max-height: 40;
     }
     CommandPaletteScreen OptionList {
-        height: 18;
-        margin-top: 1;
+        height: 1fr;
     }
     """
     )
@@ -49,11 +67,10 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static("⌘  Commands", id="modal_title")
-                yield Input(value=self._initial, placeholder="type to filter…", id="palette_input")
+                yield Input(value=self._initial, placeholder="Search commands…", id="palette_input")
                 yield OptionList(id="palette_options")
                 yield Static(
-                    f"[{ui.ACCENT_3}]↑↓[/] navigate   [{ui.ACCENT_3}]↵[/] run   "
-                    f"[{ui.ACCENT_3}]esc[/] cancel",
+                    hint_line(("↑↓", "navigate"), ("↵", "run"), ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -76,17 +93,43 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
     def _refresh(self, query: str):
         opts = self.query_one("#palette_options", OptionList)
         opts.clear_options()
+        q = (query or "").strip()
+        bare = q.lstrip("/").lower()
         matches = filter_commands(query)
-        for cmd, desc in matches[:60]:
-            label = Text.assemble(
-                ("  ", ""),
-                (f"{cmd:<{ROW_NAME_WIDTH}s}", f"bold {ui.ACCENT}"),
-                ("  ", ""),
-                (desc, ui.FG_MUTE),
-            )
-            opts.add_option(Option(label, id=cmd))
-        if opts.option_count:
-            opts.highlighted = 0
+        if not matches:
+            opts.add_option(empty_row(f"No commands match “{q}”"))
+            return
+        if not bare:
+            # Browsing: grouped by category.
+            by_cmd = {c: d for c, d in matches}
+            placed: set[str] = set()
+            options = []
+            for gi, (group, cmds) in enumerate(_GROUPS):
+                rows = [c for c in cmds if c in by_cmd]
+                if not rows:
+                    continue
+                options.append(section_header(group, first=not options))
+                for c in rows:
+                    placed.add(c)
+                    options.append(Option(picker_row(c.strip(), detail=by_cmd[c], title_width=13), id=c))
+            rest = [(c, d) for c, d in matches if c not in placed]
+            custom = [(c, d) for c, d in rest if d.startswith("⌘ custom")]
+            other = [(c, d) for c, d in rest if not d.startswith("⌘ custom")]
+            for label, rows in (("Custom commands", custom), ("Other", other)):
+                if rows:
+                    options.append(section_header(label, first=not options))
+                    for c, d in rows:
+                        options.append(Option(
+                            picker_row(c.strip(), detail=d.replace("⌘ custom ", ""), title_width=13), id=c,
+                        ))
+            opts.add_options(options)
+        else:
+            # Searching: best matches first, flat, matches accented.
+            starts = [(c, d) for c, d in matches if c.strip().lower().lstrip("/").startswith(bare)]
+            rest = [(c, d) for c, d in matches if (c, d) not in starts]
+            for c, d in starts + rest:
+                opts.add_option(Option(picker_row(c.strip(), detail=d, query=bare, title_width=13), id=c))
+        opts.action_first()
 
     # ─── events ────────────────────────────────────────────────────────
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -120,6 +163,8 @@ class CommandPaletteScreen(TuiModalScreen[str | None]):
         opts = self.query_one("#palette_options", OptionList)
         if opts.option_count == 0 or opts.highlighted is None:
             self.dismiss(None)
+            return
+        if opts.get_option_at_index(opts.highlighted).disabled:
             return
         try:
             opt = opts.get_option_at_index(opts.highlighted)

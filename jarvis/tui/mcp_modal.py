@@ -30,7 +30,7 @@ from textual.widgets.option_list import Option
 
 from rich.text import Text
 
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, picker_row
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 from .. import state
@@ -61,47 +61,33 @@ def _row_label(
     connecting: bool = False,
     spinner: str = "⠋",
     health: dict | None = None,
-) -> Text:
+):
     health = health or mcp_registry.get_server_health(name, cfg, connecting=connecting)
     status = health.get("status", "idle")
     tool_count = health.get("tool_count", 0)
 
     if connecting or status == "connecting":
-        status_dot = (spinner, "bold yellow")
-        status_word = (" connecting", "yellow")
+        dot, color, word = spinner, ui.ACCENT, "connecting…"
     elif status == "live":
-        status_dot = ("●", "bold green")
-        status_word = (f" live {tool_count}t", "green")
+        dot, color, word = "●", ui.OK, f"live · {tool_count} tools"
     elif status == "failed":
-        status_dot = ("✗", "bold red")
-        status_word = (" failed", "red")
+        dot, color, word = "✗", ui.ERR, "failed"
     elif status == "warn":
-        status_dot = ("⚠", "bold yellow")
-        if health.get("connected"):
-            status_word = (f" warn {tool_count}t", "yellow")
-        else:
-            status_word = (" check", "yellow")
+        dot, color, word = "▲", ui.WARN, (f"check · {tool_count} tools" if health.get("connected") else "check")
     else:
-        status_dot = ("○", "dim")
-        status_word = (" idle", "dim")
-    scope_color = "magenta" if scope == "project" else "blue"
+        dot, color, word = "○", ui.FG_DIM, "idle"
     src_icon = _SOURCE_ICONS.get(source, "•")
-    auto_tag = (" auto", "cyan") if is_auto else ("     ", "")
     transport = cfg.get("type", "stdio")
-
-    return Text.assemble(
-        ("  ", ""),
-        status_dot,
-        status_word,
-        ("  ", ""),
-        (f"{name:<18}", "bold white"),
-        (f"  {src_icon} ", scope_color),
-        (f"{scope:<7}", scope_color),
-        auto_tag,
-        ("  ", ""),
-        (f"{transport:<6}", "dim"),
-        ("  ", ""),
-        (_endpoint_text(cfg), "dim"),
+    meta = f"{src_icon} {scope} · {transport}" + (" · auto" if is_auto else "")
+    return picker_row(
+        name,
+        detail=_endpoint_text(cfg),
+        right=f"{word}   {meta}",
+        icon=dot,
+        icon_style=f"bold {color}",
+        title_style=f"bold {ui.FG}",
+        title_width=18,
+        right_style=color if status in ("live", "failed", "warn", "connecting") or connecting else ui.FG_DIM,
     )
 
 
@@ -199,8 +185,8 @@ class ManualAddScreen(TuiModalScreen[dict | None]):
                 yield TextArea("", id="import_input", show_line_numbers=False)
                 yield Static("", id="import_status")
                 yield Static(
-                    f"[{ui.ACCENT_3}]ctrl+s[/] submit   [{ui.ACCENT_3}]p[/] paste clipboard   "
-                    f"[{ui.ACCENT_3}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]ctrl+s[/] submit   [bold {ui.FG_MUTE}]p[/] paste clipboard   "
+                    f"[bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
@@ -347,10 +333,10 @@ class MCPModalScreen(TuiModalScreen[None]):
                 yield Static("", id="mcp_health")
                 yield Static("", id="mcp_status")
                 yield Static(
-                    f"[{ui.ACCENT_3}]space[/] toggle   [{ui.ACCENT_3}]g[/] global   "
-                    f"[{ui.ACCENT_3}]i[/] import   [{ui.ACCENT_3}]e[/] export   "
-                    f"[{ui.ACCENT_3}]a[/] add   [{ui.ACCENT_3}]r[/] refresh   "
-                    f"[{ui.ACCENT_3}]d[/] delete   [{ui.ACCENT_3}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]space[/] toggle   [bold {ui.FG_MUTE}]g[/] global   "
+                    f"[bold {ui.FG_MUTE}]i[/] import   [bold {ui.FG_MUTE}]e[/] export   "
+                    f"[bold {ui.FG_MUTE}]a[/] add   [bold {ui.FG_MUTE}]r[/] refresh   "
+                    f"[bold {ui.FG_MUTE}]d[/] delete   [bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 

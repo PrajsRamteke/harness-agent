@@ -239,7 +239,9 @@ def tool_args(name: str, raw_input: Any, width: int = 96) -> str:
     if name == "fast_find":
         return c(d.get("query") or "")
     if name == "run_bash":
-        return c(d.get("cmd") or "")
+        from ..utils.display_paths import shorten_command
+
+        return c(shorten_command(d.get("cmd") or ""))
     if name == "git_status":
         return "status"
     if name == "git_diff":
@@ -333,6 +335,9 @@ def tool_summary(name: str, raw_input: Any, output: str, width: int = 100) -> tu
         first = re.sub(r"^ERROR:\s*", "", first)
         return ([clip(first, width)], True)
 
+    from ..utils.display_paths import shorten_paths
+
+    stripped = shorten_paths(stripped)
     lines = stripped.splitlines()
     d = _norm(raw_input)
 
@@ -408,12 +413,9 @@ def tool_summary(name: str, raw_input: Any, output: str, width: int = 100) -> tu
 def preview_lines(output: str, max_lines: int = 12, width: int = 160,
                   more_hint: str = "^F full output") -> list[str]:
     """Raw output preview — first lines, clipped, cwd-relative paths."""
-    text = (output or "").rstrip()
-    try:
-        cwd = str(pathlib.Path.cwd()) + os.sep
-        text = text.replace(cwd, "")
-    except Exception:
-        pass
+    from ..utils.display_paths import shorten_paths
+
+    text = shorten_paths((output or "").rstrip())
     lines = text.splitlines()
     out = [ln[:width] + ("…" if len(ln) > width else "") for ln in lines[:max_lines]]
     if len(lines) > max_lines:

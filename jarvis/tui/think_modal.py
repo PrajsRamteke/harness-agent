@@ -7,23 +7,28 @@ from textual.containers import CenterMiddle, Vertical
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
-from rich.text import Text
 
 from ..constants import THINK_EFFORTS
 from .. import state
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, active_marker, modal_key, primary_style
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, hint_line, picker_row
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
 
 _DESCRIPTIONS = {
-    "xhigh": "maximum reasoning",
+    "xhigh": "maximum reasoning · slowest",
     "high": "strong reasoning",
-    "medium": "balanced reasoning",
-    "low": "lighter reasoning",
+    "medium": "balanced — good default",
+    "low": "lighter reasoning · faster",
     "minimal": "minimal reasoning",
-    "none": "disable thinking",
+    "none": "thinking off · fastest",
 }
+_LEVEL = {"none": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5}
+
+
+def _meter(effort: str) -> str:
+    n = _LEVEL.get(effort, 0)
+    return "▰" * n + "▱" * (5 - n)
 
 
 class ThinkPickerScreen(TuiModalScreen[str | None]):
@@ -38,7 +43,8 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
         max-height: 70%;
     }
     ThinkPickerScreen OptionList {
-        height: 9;
+        height: auto;
+        max-height: 10;
     }
     """
     )
@@ -52,10 +58,14 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("⊕  Thinking Effort", id="modal_title")
+                yield Static("∴  Thinking effort", id="modal_title")
+                yield Static(
+                    f"[{ui.FG_DIM}]How hard the model reasons before answering (if it supports it).[/]",
+                    id="modal_status",
+                )
                 yield OptionList(id="think_list")
                 yield Static(
-                    f"{modal_key('↑↓')} navigate   {modal_key('↵')} select   {modal_key('esc')} cancel",
+                    hint_line(("↑↓", "navigate"), ("↵", "select"), ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -68,12 +78,12 @@ class ThinkPickerScreen(TuiModalScreen[str | None]):
             selected = (
                 state.think_mode and effort == state.think_effort
             ) or (not state.think_mode and effort == "none")
-            marker, marker_style = active_marker(selected)
-            label = Text.assemble(
-                (marker, marker_style),
-                (f"{effort:<9s}", primary_style(selected)),
-                ("  ", ""),
-                (_DESCRIPTIONS.get(effort, ""), ui.FG_MUTE),
+            label = picker_row(
+                effort,
+                detail=_DESCRIPTIONS.get(effort, ""),
+                right=_meter(effort),
+                active=selected,
+                right_style=ui.ACCENT_3 if selected else ui.FG_DIM,
             )
             opts.add_option(Option(label, id=effort))
         opts.highlighted = list(THINK_EFFORTS).index(
