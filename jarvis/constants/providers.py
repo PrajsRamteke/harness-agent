@@ -137,8 +137,8 @@ MODELS: list[ModelSpec] = [
     # NOTE: hy3-free / x-preview-f-free were retired by the gateway (401 "Model
     # not supported"). Kept in sync with the free ids the live /zen/v1/models
     # endpoint returns (run: opencode-free-api.sh models).
-    ModelSpec("nemotron-3-ultra-free",           "Nemotron 3 Ultra Free — default",  PROVIDER_HARNESS_AGENT, default=True),
-    ModelSpec("mimo-v2.5-free",                  "MiMo V2.5 Free",                   PROVIDER_HARNESS_AGENT),
+    ModelSpec("mimo-v2.5-free",                  "MiMo V2.5 Free — default",         PROVIDER_HARNESS_AGENT, default=True),
+    ModelSpec("nemotron-3-ultra-free",           "Nemotron 3 Ultra Free",            PROVIDER_HARNESS_AGENT),
     ModelSpec("big-pickle",                      "Big Pickle",                       PROVIDER_HARNESS_AGENT),
     ModelSpec("union-alpha",                     "Union Alpha Free",                 PROVIDER_HARNESS_AGENT),
     ModelSpec("nemotron-3.5-lightning-free",     "Nemotron 3.5 Lightning Free",      PROVIDER_HARNESS_AGENT),

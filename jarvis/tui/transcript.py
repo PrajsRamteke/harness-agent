@@ -654,6 +654,7 @@ class ToolBlock(LineBlock):
         self.t1: float | None = None
         self._frame = 0
         self._running_line = False
+        self._hover = False
         self.attached: list[Widget] = []  # diff blocks mounted under this row
 
     def plain_text(self) -> str:
@@ -780,14 +781,18 @@ class ToolBlock(LineBlock):
             "write_file", "edit_file", "multi_edit",
         ):
             n = len(self.output.strip().splitlines())
-            if n > 1 and self.is_mouse_over:
+            if n > 1 and self._hover:
                 sub("   ", "click to show output", ui.FG_DIM)
         return lines
 
+    # Hover is tracked from events: querying ``is_mouse_over`` inside
+    # render/layout hits the compositor mid-reflow (IndexError crash).
     def on_enter(self) -> None:
+        self._hover = True
         self.touch()
 
     def on_leave(self) -> None:
+        self._hover = False
         self.touch()
 
 
@@ -978,14 +983,17 @@ class TurnFooter(Block):
         self.interrupted = interrupted
         self.reply = reply or ""
         self._copied_at = 0.0
+        self._hover = False
 
     def plain_text(self) -> str:
         return self._line(hover=False).plain
 
     def on_enter(self) -> None:
+        self._hover = True
         self.refresh()
 
     def on_leave(self) -> None:
+        self._hover = False
         self.refresh()
 
     def on_click(self) -> None:
@@ -1007,7 +1015,7 @@ class TurnFooter(Block):
             pass
 
     def render(self) -> Text:
-        return self._line(hover=self.is_mouse_over)
+        return self._line(hover=self._hover)
 
     def _line(self, *, hover: bool) -> Text:
         out = Text()

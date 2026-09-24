@@ -24,7 +24,7 @@ def test_model_picker_rows_always_includes_harness_agent(monkeypatch):
     harness = [(src, mid) for src, mid, _ in rows if src == PROVIDER_HARNESS_AGENT]
     assert len(harness) >= len(_BUILTIN_HARNESS_ROWS)
     assert rows[0][0] == PROVIDER_HARNESS_AGENT
-    assert rows[0][1] == "nemotron-3-ultra-free"
+    assert rows[0][1] == "mimo-v2.5-free"
 
 
 def test_model_picker_rows_surfaces_live_free_models(monkeypatch):
@@ -44,11 +44,11 @@ def test_model_picker_rows_reads_cache_without_network(monkeypatch):
     assert "cached-free" in ids
     # The built-in set is still there — a thin cache never shrinks the picker.
     assert set(mid for mid, _ in _BUILTIN_HARNESS_ROWS) <= set(ids)
-    assert rows[0][1] == "nemotron-3-ultra-free"
+    assert rows[0][1] == "mimo-v2.5-free"
 
 
 def test_model_picker_rows_falls_back_offline(monkeypatch):
     monkeypatch.setattr(_FETCH, lambda *a, **k: None)
     rows = model_picker_rows()
     assert rows, "picker must never be empty"
-    assert rows[0][1] == "nemotron-3-ultra-free"
+    assert rows[0][1] == "mimo-v2.5-free"

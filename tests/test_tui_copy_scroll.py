@@ -630,3 +630,40 @@ def test_big_paste_collapses_and_queued_message_is_editable(hermetic_app):
                 state.prompt_queue.clear()
 
     asyncio.run(run())
+
+
+def test_hovered_rows_survive_relayout(hermetic_app):
+    """Regression: hover hints queried ``is_mouse_over`` during layout, which
+    hit the compositor mid-reflow (IndexError crash). Hover now comes from
+    enter/leave events only."""
+    import inspect
+
+    import jarvis.tui.transcript as transcript_mod
+    from jarvis.tui.transcript import ToolBlock, TurnFooter
+
+    code = inspect.getsource(transcript_mod)
+    assert "self.is_mouse_over" not in code
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.3)
+            con = app._tui_console
+            inp = {"cmd": "ls"}
+            await worker(con.emit_tool_event, "tool_start", {"id": "h1", "name": "run_bash", "input": inp})
+            await worker(con.emit_tool_event, "tool_done",
+                         {"id": "h1", "name": "run_bash", "input": inp, "output": "$ ls\nexit=0\na\nb\nc"})
+            t = app.query_one("#transcript")
+            t.add(TurnFooter("coding", "#56d364", "m", 1.0, reply="hello"))
+            await pilot.pause(0.2)
+            await pilot.hover(ToolBlock)
+            await pilot.pause(0.1)
+            await pilot.resize_terminal(70, 24)
+            await pilot.pause(0.2)
+            await pilot.hover(TurnFooter)
+            await pilot.resize_terminal(110, 32)
+            await pilot.pause(0.2)
+            row = app.query_one(ToolBlock)
+            assert row.status == "done"
+
+    asyncio.run(run())

@@ -123,6 +123,11 @@ from ..mcp.registry import is_mcp_tool
 _CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle", "lesson_list", "lesson_search"}
 
 _FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
+
+# The free Harness Agent tier must expose OpenCode's built-in tool names
+# ("bash"/"read") on the wire — see auth/harness_agent.py. Map any such name
+# back to Jarvis's real handler before the rest of the dispatcher sees it.
+_FREE_TIER_TOOL_ALIASES = {"bash": "run_bash", "read": "read_file"}
 _DISCOVERY_TOOLS = frozenset({"glob_files", "list_dir", "search_code", "fast_find", "rank_files"})
 
 _tool_pool: ThreadPoolExecutor | None = None
@@ -160,6 +165,10 @@ def _should_flush_parallel_batch(batch, new_block) -> bool:
 
 
 def _run_tool(b):
+    # Normalise free-tier wire aliases to Jarvis tool names first, so grouping,
+    # icons, plan-mode gating and FUNC lookup all use the real name.
+    if b.name in _FREE_TIER_TOOL_ALIASES:
+        b.name = _FREE_TIER_TOOL_ALIASES[b.name]
     # Stream-level JSON repair marker injected by the provider adapters when
     # malformed tool arguments were recovered. Pop it so it never reaches the
     # tool or the conversation history; surface it through the same

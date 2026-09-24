@@ -30,8 +30,8 @@ from . import theme as ui
 
 # Hard-coded so /model always lists Harness Agent even on stale installs (pre-pip-sync).
 _BUILTIN_HARNESS_ROWS: tuple[tuple[str, str], ...] = (
-    ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free — default"),
-    ("mimo-v2.5-free", "MiMo V2.5 Free"),
+    ("mimo-v2.5-free", "MiMo V2.5 Free — default"),
+    ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free"),
     ("big-pickle", "Big Pickle"),
     ("union-alpha", "Union Alpha Free"),
     ("nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning Free"),

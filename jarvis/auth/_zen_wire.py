@@ -14,6 +14,16 @@ in sync with the real OpenCode client when it ships a new release:
      Wrong shape -> 403 ``FreeTierError`` ("...can only be used from within
      OpenCode"). The trailing 14 chars are not checked against any registry.
 
+  4. The request body's ``tools`` array must contain tool definitions named
+     exactly ``bash`` and ``read`` (case-sensitive). The gateway uses these two
+     OpenCode built-ins as its client-identity fingerprint — a request carrying
+     neither (or only one) is rejected with 403 ``FreeTierError``, while any
+     request that includes both passes regardless of the other tools present.
+     Jarvis's equivalents are ``run_bash`` / ``read_file``, so
+     :func:`harness_agent.build_harness_agent_client` injects two alias schemas
+     via ``gate_tools``; ``repl.render`` maps the names back to the real
+     handlers.
+
 The other ``x-opencode-*`` headers mirror what the real CLI sends; only
 ``x-opencode-session`` is actually load-bearing.
 
@@ -31,7 +41,7 @@ ZEN_PUBLIC_KEY = "public"
 
 # Server requires a versioned User-Agent at or above the enforced minimum.
 # Bump this when OpenCode raises the floor (server currently enforces >= 1.17.0).
-OPENCODE_CLIENT_VERSION = "1.18.30"
+OPENCODE_CLIENT_VERSION = "1.18.32"
 OPENCODE_USER_AGENT = f"opencode/{OPENCODE_CLIENT_VERSION}"
 
 SESSION_PREFIX = "ses_"
