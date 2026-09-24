@@ -46,12 +46,9 @@ COMMANDS = [
     ("/command", "open the command manager modal (new · edit · delete · import/export · global)"),
     # Theme — modal handles the picker
     ("/theme", "open the theme picker (live preview)"),
-    # Pet — Jarvis the kitty
-    ("/pet", "Jarvis the pet — card with stats · pat · feed · play · nap · tricks"),
-    ("/pet feed", "give Jarvis a snack (fish · milk · cookie)"),
-    ("/pet play", "play with Jarvis (yarn!)"),
-    ("/pet name ", "rename your pet"),
-    ("/pet off", "hide the kitty from the input box (/pet on to bring it back)"),
+    # Pets — everyday play lives in the sidebar pen's buttons; the on/off
+    # toggle right after this entry is added by filter_commands (it flips).
+    ("/pet", "your pet's card — stats · badges · wardrobe · rename · fur"),
     # Scan
     ("/scan", "AI-powered deep scan: identity / docs / projects → memory"),
     # MCP — single modal for everything
@@ -103,9 +100,29 @@ def _custom_command_entries():
         return []
 
 
+def _pet_toggle_entry() -> tuple[str, str]:
+    """``/pet off`` while your pet is showing, ``/pet on`` once it's hidden."""
+    try:
+        from ..storage.settings import get_settings
+
+        shown = get_settings().get("pet.enabled") is not False
+    except Exception:
+        shown = True
+    return ("/pet off", "hide your pet") if shown else ("/pet on", "bring your pet back")
+
+
+def _with_toggles(catalog: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for entry in catalog:
+        out.append(entry)
+        if entry[0] == "/pet":
+            out.append(_pet_toggle_entry())
+    return out
+
+
 def filter_commands(query: str):
     """Return commands whose cmd or description matches the query substring."""
-    catalog = COMMANDS + _custom_command_entries()
+    catalog = _with_toggles(COMMANDS) + _custom_command_entries()
     q = query.strip().lower()
     if not q or q == "/":
         return catalog

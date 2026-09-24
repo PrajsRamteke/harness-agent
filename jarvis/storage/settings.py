@@ -62,7 +62,7 @@ DEFAULTS: dict[str, Any] = {
     "think":  {"mode": True, "effort": "medium"},
     "trace":  {"on": True},   # show thinking + tool panels in TUI transcript
     "pin":    {"enabled": True},  # inject pinned.txt into every system prompt
-    "pet":    {"enabled": True, "nudges": True},  # Jarvis the kitty in the TUI
+    "pet":    {"enabled": True, "nudges": True, "notify": True},  # the TUI pets
 }
 
 
@@ -153,7 +153,7 @@ def _coerce(path: str, value: Any) -> Any:
             raise ValueError(f"think.effort must be one of {_VALID_THINK_EFFORTS}")
         return value
     if path in ("skills.global", "mcp.global", "agent.global", "think.mode", "pin.enabled", "ui.mouse",
-                "pet.enabled", "pet.nudges"):
+                "pet.enabled", "pet.nudges", "pet.notify"):
         if isinstance(value, str):
             v = value.strip().lower()
             if v in ("true", "1", "yes", "on"):

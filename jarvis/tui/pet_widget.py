@@ -104,13 +104,14 @@ class PetBuddy(Widget):
         anim, t, look, _snack = self.current()
         pet = get_pet()
         mood = "sleepy" if pet.mood() == "sleepy" else "content"
-        return sprites.buddy_lines(anim, t, pet.fur, look=look, mood=mood)
+        species = "egg" if pet.is_egg else pet.species
+        return sprites.buddy_lines(anim, t, pet.fur, look=look, mood=mood, species=species)
 
     def _tick(self) -> None:
         if not self.display:
             return
         lines = self._lines()
-        key = (tuple(line.plain for line in lines), ui.active_theme(), get_pet().fur)
+        key = (tuple(line.plain for line in lines), ui.active_theme(), get_pet().fur, id(get_pet()))
         if key != self._key:
             self._key = key
             self._cached = lines

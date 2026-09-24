@@ -460,7 +460,8 @@ class TUIConsole:
         pet_hook = getattr(self._app, "_pet_tool_finished", None)
         if callable(pet_hook):
             try:
-                pet_hook(blk.tool_name, error=blk.status == "error")
+                pet_hook(blk.tool_name, error=blk.status == "error",
+                         tool_input=blk.tool_input, output=blk.output)
             except Exception:
                 pass
 
@@ -516,6 +517,12 @@ class TUIConsole:
             diff = DiffBlock(path, rows=rows, added=added, removed=removed, hidden=hidden, action=action)
             a0, r0 = self.changed_files.pop(key, (0, 0))
             self.changed_files[key] = (a0 + added, r0 + removed)
+            pet_diff = getattr(self._app, "_pet_diff", None)
+            if callable(pet_diff):
+                try:
+                    pet_diff(key, added, removed)
+                except Exception:
+                    pass
             t = self._transcript()
             if isinstance(host, ToolBlock) and host.parent is t:
                 anchor = host.attached[-1] if host.attached else host

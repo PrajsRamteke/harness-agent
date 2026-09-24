@@ -43,9 +43,11 @@ _SHORTCUTS = """
   ⌃B             toggle the session sidebar (auto on wide terminals)
   ?  F1          this help · ⌃D quit
 
-[bold]Jarvis the pet[/]
-  click kitty    pet Jarvis · double-click for the pet card (/pet)
-  /pet feed      snack time · /pet play · /pet nap · /pet off hides it
+[bold]Your pet (sidebar pen)[/]
+  hover floor    laser pointer — your pet chases it
+  click pet      pat · click the floor to call it over · name row = card
+  buttons        pat feed play nap trick · fish focus pets card
+  /pet           the card (adopt · switch · rename inside) · /pet off|on
 
 [bold]Tips[/]
   • Click a "Thought for…" block to expand long reasoning.

@@ -10,8 +10,12 @@ def _isolated_pet(tmp_path, monkeypatch):
     import jarvis.pet as pet_pkg
     import jarvis.pet.model as pet_model
 
+    import jarvis.pet.session as pet_session
+
     monkeypatch.setattr(pet_model, "PET_FILE", tmp_path / "pet.json")
     pet_model.reset_cache()
+    pet_session.reset()
     yield
     pet_model.reset_cache()
     pet_pkg.set_reaction_hook(None)
+    pet_pkg.set_action_hook(None)

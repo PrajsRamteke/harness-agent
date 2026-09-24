@@ -43,6 +43,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "pin.enabled":   "Inject pinned.txt into every system prompt (/pin off to pause)",
     "pet.enabled":   "Show Jarvis the kitty in the input box (/pet for the card)",
     "pet.nudges":    "Let Jarvis nudge you — stretch breaks, full context, late nights",
+    "pet.notify":    "Desktop notification when a long turn finishes while you're away",
 }
 
 

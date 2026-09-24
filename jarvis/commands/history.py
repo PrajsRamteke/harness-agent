@@ -7,9 +7,25 @@ from ..repl.banners import welcome_banner, header_panel
 from .. import state
 
 
+def _pet_recap(recap) -> None:
+    """The pet sums up the session that just ended (``/new``)."""
+    try:
+        from .. import pet as pet_pkg
+        from ..pet import Reaction, get_pet
+
+        line = recap.recap(get_pet().name)
+        console.print(f"[magenta]{line}[/]")
+        pet_pkg.notify(Reaction("proud", 3.0, line.split(" — ", 1)[-1] + " ✦"))
+    except Exception:
+        pass
+
+
 def handle_history(c: str, arg: str):
     """Return (handled, new_inp_or_None)."""
     if c in ("/reset", "/new"):
+        from ..pet import session as pet_session
+
+        recap = pet_session.current()
         state.messages = []
         state.tool_calls_count = 0
         state.total_in = 0
@@ -19,6 +35,9 @@ def handle_history(c: str, arg: str):
         if c == "/new":
             console.clear(); welcome_banner(); header_panel()
         console.print(f"[green]✨ fresh conversation (session #{state.current_session_id})[/]")
+        if not recap.empty:
+            _pet_recap(recap)
+        pet_session.reset()
         return True, None
     if c == "/clear":
         console.clear(); header_panel(); return True, None

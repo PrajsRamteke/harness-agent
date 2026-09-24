@@ -12,6 +12,12 @@ T0 = 1_700_000_000.0
 H = 3600.0
 
 
+def _saved() -> dict:
+    """The active pet as written to the (isolated) pet.json."""
+    data = json.loads(pm.PET_FILE.read_text())
+    return data["pets"][data["active"]]
+
+
 def _pet(**kw) -> pm.Pet:
     base = dict(born=T0, last_tick=T0)
     base.update(kw)
@@ -149,44 +155,183 @@ def test_get_pet_uses_the_isolated_file():
     pet = pm.get_pet()
     pet.xp = 5
     pm.save_pet()
-    assert json.loads(pm.PET_FILE.read_text())["xp"] == 5
+    assert _saved()["xp"] == 5
     assert "pytest" in str(pm.PET_FILE) or "tmp" in str(pm.PET_FILE)
 
 
 # ── sprites ──────────────────────────────────────────────────────────────
 
-ANIMS = ("idle", "work", "love", "eat", "play", "sleep", "proud", "ouch",
-         "surprised", "trick", "wave", "happy")
+ANIMS = ("idle", "work", "love", "eat", "play", "sleep", "proud", "ouch", "surprised",
+         "trick", "wave", "happy", "cheer", "party", "hide", "worried", "hatch", "wobble")
 
 
-@pytest.mark.parametrize("fur", sp.FUR_ORDER)
-def test_every_frame_keeps_a_fixed_size(fur):
-    for anim in ANIMS:
-        for i in range(24):
-            t = i * 0.17
-            for look in (-1, 0, 1):
-                small = sp.buddy_lines(anim, t, fur, look=look)
+@pytest.mark.parametrize("species", pm.SPECIES + ("egg",))
+def test_every_frame_keeps_a_fixed_size(species):
+    furs = sp.SPECIES_FURS.get(species, sp.SPECIES_FURS["dragon"])
+    for fur in furs:
+        for anim in ANIMS:
+            for i in range(0, 24, 5):
+                t = i * 0.17
+                small = sp.buddy_lines(anim, t, fur, look=(-1, 0, 1)[i % 3], species=species)
                 assert len(small) == 3
-                assert all(line.cell_len == sp.BUDDY_W for line in small), (anim, t, look)
-            big = sp.big_cat(anim, t, fur, snack="milk")
-            assert len(big) == sp.BIG_ROWS
-            assert all(line.cell_len == sp.BIG_W + sp.DECO_W for line in big), (anim, t)
+                assert all(line.cell_len == sp.BUDDY_W for line in small), (species, anim, t)
+                for stage in (0, 1, 2):
+                    rows = sp.pet_pixels(species, anim, t, stage=stage, walking=bool(i % 2),
+                                         facing=(-1, 1)[i % 2],
+                                         outfit={"glasses", "party", "scarf", "crown"})
+                    grow = 0 if species == "egg" else stage
+                    assert len(rows) == sp.SPRITE_H + grow
+                    assert {len(r) for r in rows} == {sp.SPRITE_W + grow}, (species, anim, stage)
+        stage = sp.pen_stage(34, 5, "love", 0.3, fur, species=species, stage=2, rows=10,
+                             props=[("box", 2, -1), ("cloud", -3, 1)], front=[("fish", 30, 4)],
+                             pixels=[(33, 19, sp.LASER)], deco=[(0, 0, "✦", sp.GOLD)], confetti=1)
+        assert len(stage) == 10 and all(line.cell_len == 34 for line in stage)
 
 
-def test_pixel_grid_is_rectangular_and_mirrors_eyes():
-    rows = sp.cat_pixels("ouch", 0.1)
-    assert len(rows) == 2 * sp.BIG_ROWS and {len(r) for r in rows} == {sp.BIG_W}
-    head = rows[2:]  # no lift at t=0.1 → 2 px headroom
-    left, right = [r[2:5] for r in head[6:9]], [r[14:17] for r in head[6:9]]
+def test_pixel_grid_mirrors_symmetric_eyes():
+    rows = sp.pet_pixels("cat", "ouch", 0.1)
+    left, right = [r[1:4] for r in rows[8:10]], [r[9:12] for r in rows[8:10]]
     assert left == [r[::-1] for r in right], "> < eyes mirror"
 
 
-def test_fur_cycle_visits_every_palette():
-    seen, fur = [], "ginger"
-    for _ in sp.FUR_ORDER:
-        seen.append(fur)
-        fur = sp.next_fur(fur)
-    assert sorted(seen) == sorted(sp.FUR_ORDER) and fur == "ginger"
+def test_accessories_and_growth_change_the_sprite():
+    plain = sp.pet_pixels("cat", "idle", 1.0)
+    crowned = sp.pet_pixels("cat", "idle", 1.0, outfit={"crown", "scarf"})
+    assert plain != crowned and any("G" in r for r in crowned) and any("C" in r for r in crowned)
+    assert len(sp.pet_pixels("cat", "idle", 1.0, stage=2)[0]) == sp.SPRITE_W + 2
+    assert sp.pet_pixels("cat", "idle", 1.0, facing=1)[8] == plain[8][::-1]
+
+
+def test_fur_cycle_visits_every_palette_per_species():
+    for species, order in sp.SPECIES_FURS.items():
+        seen, fur = [], order[0]
+        for _ in order:
+            seen.append(fur)
+            fur = sp.next_fur(fur, species)
+        assert sorted(seen) == sorted(order) and fur == order[0]
+        assert sp.default_fur(species) == order[0]
+
+
+def test_sky_follows_the_clock_and_seasons():
+    from datetime import datetime
+
+    day, _ = sp.sky(datetime(2026, 5, 3, 12), 34, 1.0)
+    night, stars = sp.sky(datetime(2026, 5, 3, 23), 34, 1.0)
+    assert [p[0] for p in day] == ["cloud"] and "moon" in [p[0] for p in night] and stars
+    assert "pumpkin" in [p[0] for p in sp.sky(datetime(2026, 10, 31, 12), 34, 1.0)[0]]
+    _, snow = sp.sky(datetime(2026, 12, 24, 12), 34, 1.0)
+    assert any(d[2] in "*·" for d in snow)
+
+
+# ── work events, badges, roster ──────────────────────────────────────────
+
+
+def test_classify_tests_and_git():
+    from jarvis.pet import events as ev
+
+    run = lambda cmd, code, out="": ev.classify("run_bash", {"cmd": cmd}, f"$ {cmd}\nexit={code}\n{out}")
+    assert run("python -m pytest tests/ -q", 0) == ["tests_pass"]
+    assert run("npm test", 1) == ["tests_fail"]
+    assert run("pytest -k nothing", 5) == []
+    assert run("git commit -m 'x'", 0, "[main abc] x") == ["commit"]
+    assert run("git commit -m 'x'", 1, "nothing to commit") == []
+    assert run("git push", 0, "Everything up-to-date") == []
+    assert run("cargo test && git push origin main", 0) == ["tests_pass", "push"]
+    assert run("git merge dev", 1, "CONFLICT (content): Merge conflict in a.py") == ["conflict"]
+    assert ev.classify("read_file", {"path": "pytest.ini"}, "pytest") == []
+    assert ev.classify("run_bash", {"cmd": "pytest"}, "USER DENIED") == []
+
+
+def test_red_then_green_counts_as_a_fix_and_earns_badges():
+    p = _pet()
+    assert p.on_work_event("tests_fail").anim == "hide" and p.tests == "fail"
+    r = p.on_work_event("tests_pass")
+    assert r.anim == "cheer" and p.count("tests_fixed") == 1 and p.xp == pm.XP_FIXED
+    for _ in range(4):
+        p.on_work_event("tests_fail")
+        last = p.on_work_event("tests_pass")
+    assert "bug_squasher" in last.badges and "bug_squasher" in p.badges
+    assert p.on_work_event("commit").anim == "party" and p.count("commits") == 1
+    assert p.on_work_event("conflict").anim == "worried"
+
+
+def test_big_diffs_and_lines_shipped_today():
+    p = _pet()
+    assert p.on_diff(3, 1, now=T0) is None
+    r = p.on_diff(90, 30, now=T0)
+    assert r.anim == "surprised" and "whoa" in r.say and "big_diff" in r.badges
+    assert p.today_stat("lines", T0) == 124 and p.count("lines") == 124
+    assert p.today_stat("lines", T0 + 86400) == 0, "a new day starts from zero"
+
+
+def test_streak_counts_consecutive_days():
+    p = _pet()
+    day = 24 * H
+    p.on_turn_done(5, now=T0)
+    p.on_turn_done(5, now=T0 + 60)
+    assert p.streak == 1
+    p.on_turn_done(5, now=T0 + day)
+    p.on_turn_done(5, now=T0 + 2 * day)
+    assert p.streak == 3 and p.best_streak == 3
+    p.on_turn_done(5, now=T0 + 5 * day)
+    assert p.streak == 1 and p.best_streak == 3
+
+
+def test_accessories_unlock_by_level_and_can_be_taken_off():
+    p = _pet()
+    assert p.outfit(working=True) == set()
+    p.xp = pm.xp_for_level(5)
+    assert p.outfit() == {"party"} and p.outfit(working=True) == {"party", "glasses"}
+    p.xp = pm.xp_for_level(10)
+    assert p.outfit() == {"crown", "scarf"}, "the crown replaces the party hat"
+    assert p.stage == 2
+    assert p.toggle_accessory("crown") is False and p.outfit() == {"party", "scarf"}
+    assert p.toggle_accessory("crown") is True
+
+
+def test_dragon_egg_hatches_after_ten_turns():
+    egg = pm.new_pet("dragon", "Ember")
+    assert egg.is_egg and egg.title == "Egg" and egg.hatch_left == pm.HATCH_TURNS
+    assert egg.feed().anim == "wobble" and egg.fullness == 70
+    for _ in range(pm.HATCH_TURNS - 1):
+        assert egg.on_turn_done(5).anim == "wobble"
+    r = egg.on_turn_done(5)
+    assert r.anim == "hatch" and not egg.is_egg and "hatched" in r.badges
+    assert egg.title == pm.level_title(egg.level, "dragon")
+
+
+def test_roster_adopts_switches_and_loads_old_single_pet_files(tmp_path):
+    path = tmp_path / "pet.json"
+    path.write_text(json.dumps({"name": "kuku", "xp": 23, "counters": {"pats": 3}}))
+    roster = pm.load_roster(path)
+    assert len(roster.pets) == 1 and roster.pet.name == "kuku" and roster.pet.count("pats") == 3
+    dog = roster.adopt("dog", "Biscuit")
+    assert roster.pet is dog and dog.fur == sp.default_fur("dog")
+    roster.adopt("bunny")
+    assert roster.pet.name == "Mochi"
+    assert roster.switch().name == "kuku"
+    pm.save_roster(roster, path)
+    back = pm.load_roster(path)
+    assert [p.name for p in back.pets] == ["kuku", "Biscuit", "Mochi"] and back.active == 0
+    for _ in range(pm.MAX_PETS - 3):
+        back.adopt("cat")
+    with pytest.raises(ValueError):
+        back.adopt("cat")
+
+
+def test_session_recap():
+    from jarvis.pet.session import SessionStats
+
+    s = SessionStats(t0=T0)
+    assert s.empty
+    s.note_diff("a.py", 10, 2)
+    s.note_diff("b.py", 5, 0)
+    s.note_event("tests_pass", fixed=True)
+    s.note_event("commit")
+    s.turns = 4
+    line = s.recap("kuku", now=T0 + 38 * 60)
+    assert line == ("✦ kuku's recap — 2 files edited · +15 −2 lines · 1 test fix · "
+                    "1 commit · 4 turns · 38 min")
 
 
 # ── /pet command ─────────────────────────────────────────────────────────
@@ -222,7 +367,7 @@ def test_pet_command_actions(pet_cmd):
     assert "unknown snack" in out and "Mochi" in out and "Lv 1" in out
     assert pet.name == "Mochi" and pet.fur == "midnight"
     assert settings.get("pet.enabled") is False and settings.get("pet.nudges") is False
-    assert json.loads(pm.PET_FILE.read_text())["name"] == "Mochi"
+    assert _saved()["name"] == "Mochi"
 
 
 def test_pet_card_command_routes_to_the_dialog():
@@ -235,7 +380,7 @@ def test_pet_card_command_routes_to_the_dialog():
 def test_pet_settings_are_booleans():
     from jarvis.storage.settings import DEFAULTS, _coerce
 
-    assert DEFAULTS["pet"] == {"enabled": True, "nudges": True}
+    assert DEFAULTS["pet"] == {"enabled": True, "nudges": True, "notify": True}
     assert _coerce("pet.enabled", "off") is False
     with pytest.raises(ValueError):
         _coerce("pet.nudges", "maybe")
@@ -305,7 +450,8 @@ def test_turns_and_tools_feed_xp_and_animate(hermetic_app):
             pet = pm.get_pet()
             app._pet_turn_finished(20.0, interrupted=False, llm=True)
             await pilot.pause()
-            assert pet.xp == pm.XP_TURN and app.query_one("#pet").current()[0] == "proud"
+            assert pet.xp == pm.XP_TURN and app.query_one("#pet").current()[0] in ("proud", "cheer")
+            assert "first_turn" in pet.badges
             app._pet_turn_finished(2.0, interrupted=False, llm=False)  # a slash command
             assert pet.xp == pm.XP_TURN
 
@@ -348,7 +494,7 @@ def test_pet_card_actions_and_hide_toggle(hermetic_app):
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, PetCardScreen)
-            assert json.loads(pm.PET_FILE.read_text())["fur"] == "midnight"
+            assert _saved()["fur"] == "midnight"
 
     asyncio.run(run())
 
@@ -390,7 +536,7 @@ def test_pen_lives_in_the_sidebar_and_everything_is_one_click(hermetic_app):
 
             pet = pm.get_pet()
             pet.fullness = 30
-            start, _end, label = next(b for b in pen._buttons if b[2] == "feed")
+            start, _end, label = next(b for b in pen._buttons[0] if b[2] == "feed")
             await pilot.click("#pet_pen", offset=(start + 1, pp.BUTTONS))
             await pilot.pause()
             assert pet.count("snacks") == 1 and pen.anim[0] == "eat"
@@ -409,7 +555,7 @@ def test_pen_lives_in_the_sidebar_and_everything_is_one_click(hermetic_app):
             await pilot.pause(0.5)
             assert pen.x > 1.0 and pen.facing == 1, "the cat runs toward your click"
 
-            start, _end, _ = next(b for b in pen._buttons if b[2] == "play")
+            start, _end, _ = next(b for b in pen._buttons[0] if b[2] == "play")
             await pilot.click("#pet_pen", offset=(start, pp.BUTTONS))
             await pilot.pause(0.3)
             assert pen.ball is not None and pet.count("plays") == 1
@@ -461,3 +607,161 @@ def test_speech_wraps_to_two_rows():
     assert len(rows) == 2 and all(r.cell_len <= 20 for r in rows)
     assert rows[0].plain.startswith("we've been at it")
     assert [r.plain for r in _wrap2("hi", 20, "")] == ["hi", ""]
+
+
+# ── new pen features ─────────────────────────────────────────────────────
+
+
+def _run_bash(app, cmd: str, code: int, out: str = "") -> None:
+    app._pet_tool_finished("run_bash", error=False, tool_input={"cmd": cmd},
+                           output=f"$ {cmd}\nexit={code}\n{out}")
+
+
+def test_tests_and_git_reactions_through_the_tool_hook(hermetic_app):
+    from jarvis.pet import session as pet_session
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(170, 46)) as pilot:
+            await pilot.pause(0.3)
+            pen, pet = app.query_one("#pet_pen"), pm.get_pet()
+            con = app._tui_console
+            con.emit_tool_event("tool_start", {"id": "b1", "name": "run_bash", "input": {"cmd": "pytest -q"}})
+            con.emit_tool_event("tool_done", {"id": "b1", "output": "$ pytest -q\nexit=1\n1 failed"})
+            await pilot.pause()
+            assert pen.anim[0] == "hide" and pet.tests == "fail"
+            _run_bash(app, "pytest -q", 0, "3 passed")
+            await pilot.pause()
+            assert pen.anim[0] in ("cheer", "party") and pet.count("tests_fixed") == 1
+            assert pet_session.current().tests_fixed == 1
+            _run_bash(app, "git commit -m wip", 0, "[main 1a] wip")
+            await pilot.pause()
+            assert pet.count("commits") == 1 and pen.anim[0] == "party"
+            app._pet_diff("big.py", 120, 5)
+            await pilot.pause()
+            assert pet.today_stat("lines") == 125 and "big_diff" in pet.badges
+            assert "+125" in pen._status(pet, None, 40).plain
+
+    asyncio.run(run())
+
+
+def test_laser_fish_game_and_toys(hermetic_app):
+    from jarvis.tui import pet_pen as pp
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(170, 46)) as pilot:
+            await pilot.pause(0.3)
+            pen, pet = app.query_one("#pet_pen"), pm.get_pet()
+            pen.anim = None
+            pen.x = 0.0
+            await pilot.hover("#pet_pen", offset=(pen.stage_w - 1, pp.STAGE0 + 2))
+            await pilot.pause(0.6)
+            assert pen.laser is not None and pen.x > 1.0, "the pet chases the laser dot"
+            pen.laser = None
+
+            start, _e, _ = next(b for b in pen._buttons[1] if b[2] == "fish")
+            await pilot.click("#pet_pen", offset=(start, pp.BUTTONS2))
+            await pilot.pause()
+            assert pen.game is not None
+            pen.game["fish"].append({"x": 2, "y": 8.0, "vy": 0.0, "kind": "fish"})
+            assert pen._catch_at(3, pp.STAGE0 + 4) and pen.game["you"] == 1
+            pen.game["until"] = 0.0
+            await pilot.pause(0.3)
+            assert pen.game is None and pet.count("fish") >= 1
+
+            for kind in ("box", "butterfly", "cup"):
+                pen.anim, pen.target = None, None
+                pen.start_toy(kind)
+                await pilot.pause(0.3)
+                assert pen.toy is not None and pen.toy["kind"] == kind
+                assert len(pen.render().plain.split("\n")) == pp.ROWS
+            pen.toy = None
+
+    asyncio.run(run())
+
+
+def test_focus_timer_and_notifications(hermetic_app, monkeypatch):
+    import jarvis.utils.notify as notify
+
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(notify, "desktop_notify", lambda title, msg: sent.append((title, msg)) or True)
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(170, 46)) as pilot:
+            await pilot.pause(0.3)
+            pen, pet = app.query_one("#pet_pen"), pm.get_pet()
+            app._pet_action("focus")
+            state = app._pet_focus_state()
+            assert state[0] == "focus" and state[1] > 24 * 60
+            assert "focus" in pen._status(pet, state, 40).plain
+            app._pet_focus_until = 1.0  # time's up
+            app._pet_focus_tick()
+            assert app._pet_focus_state()[0] == "break" and pet.count("focus") == 1
+            assert sent and "focus session done" in sent[-1][1]
+
+            app._app_focused = False
+            app._pet_turn_finished(95.0, interrupted=False, llm=True)
+            assert "took 1m 35s" in sent[-1][1]
+            app._app_focused = True
+            n = len(sent)
+            app._pet_turn_finished(95.0, interrupted=False, llm=True)
+            assert len(sent) == n, "no notification while you're looking"
+
+    asyncio.run(run())
+
+
+def test_pets_button_adopts_then_switches(hermetic_app):
+    from jarvis.tui.pet_modal import PetAdoptScreen
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(170, 46)) as pilot:
+            await pilot.pause(0.3)
+            app._pet_action("pets")
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, PetAdoptScreen)
+            await pilot.press("down", "enter")  # puppy
+            await pilot.pause(0.3)
+            await pilot.press("enter")  # default name
+            await pilot.pause(0.3)
+            roster = pm.get_roster()
+            assert [p.species for p in roster.pets] == ["cat", "dog"] and roster.pet.name == "Biscuit"
+            app._pet_action("pets")
+            await pilot.pause()
+            assert roster.pet.species == "cat"
+            assert "1/2" in app.query_one("#pet_pen").render().plain.split("\n")[0]
+
+    asyncio.run(run())
+
+
+def test_new_prints_a_session_recap(pet_cmd, monkeypatch):
+    import jarvis.commands.history as history
+    from jarvis.commands.dispatch import handle_slash
+    from jarvis.pet import session as pet_session
+
+    _cmd, rec, _settings = pet_cmd
+    monkeypatch.setattr(history, "console", rec)
+    monkeypatch.setattr(history, "db_create_session", lambda model: 7)  # no real sessions.db row
+    monkeypatch.setattr(history, "welcome_banner", lambda: None)
+    monkeypatch.setattr(history, "header_panel", lambda: None)
+    stats = pet_session.current()
+    stats.note_diff("a.py", 7, 1)
+    stats.turns = 2
+    handle_slash("/new")
+    out = rec.export_text()
+    assert "recap" in out and "1 file edited" in out and "2 turns" in out
+    assert pet_session.current().empty
+
+
+def test_palette_lists_only_the_card_and_a_live_on_off_toggle(monkeypatch, tmp_path):
+    import jarvis.storage.settings as settings_mod
+    from jarvis.tui.commands_catalog import filter_commands
+
+    fresh = settings_mod.Settings(path=tmp_path / "settings.json")
+    monkeypatch.setattr(settings_mod, "get_settings", lambda: fresh)
+    pets = [c for c, _d in filter_commands("/pet")]
+    assert pets == ["/pet", "/pet off"]
+    fresh.set("pet.enabled", False)
+    assert [c for c, _d in filter_commands("/pet")] == ["/pet", "/pet on"]

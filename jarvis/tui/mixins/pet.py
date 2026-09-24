@@ -4,11 +4,14 @@ Jarvis lives in a pen at the bottom of the sidebar (``pet_pen.PetPen``);
 when the sidebar is hidden it moves into the input box instead
 (``pet_widget.PetBuddy`` + its speech bubble).
 
-The kitty reacts to what the agent does — it works while a turn runs, winces
-at failed tools, cheers when a turn lands, levels up as you ship — and it
-occasionally nudges you about something useful (a stretch break after a long
-stretch of work, a nearly-full context window, a very late night, or that
-it's hungry). Nudges are rate-limited and can be muted (``pet.nudges``).
+The pet reacts to what the agent does — it works while a turn runs, winces
+at failed tools, cheers when tests go green (and hides behind its paws when
+they fail), throws a party for commits and pushes, says "whoa!" at big diffs,
+levels up and earns badges as you ship. It keeps a focus timer, runs the fish
+mini-game, sends a desktop notification when a long turn finishes while
+you're away (``pet.notify``), and occasionally nudges you about something
+useful (a stretch break, a nearly-full context window, a very late night, a
+hungry tummy). Nudges are rate-limited and can be muted (``pet.nudges``).
 """
 from __future__ import annotations
 
@@ -17,12 +20,17 @@ import time
 from datetime import datetime
 
 from ... import pet as pet_pkg
-from ...pet import Reaction, get_pet, greeting, save_pet
+from ...pet import BADGE_INFO, Reaction, get_pet, get_roster, greeting, save_pet
+from ...pet import events as pet_events
+from ...pet import session as pet_session
 
 BREAK_AFTER = 90 * 60        # continuous work before a stretch nudge
 STREAK_GAP = 15 * 60         # a pause this long resets the work streak
 NUDGE_SPACING = 10 * 60      # at most one nudge per 10 minutes
 MIN_WIDTH = 64               # hide the kitty on very narrow terminals
+FOCUS_SECS = 25 * 60         # one focus session (pomodoro)
+BREAK_SECS = 5 * 60
+NOTIFY_AFTER = 30.0          # desktop-notify turns at least this long (when away)
 
 
 class PetMixin:
@@ -34,7 +42,10 @@ class PetMixin:
         self._pet_last_nudge = 0.0
         self._pet_nudged: dict[str, float] = {}
         self._pet_last_save = 0.0
+        self._pet_focus_until = 0.0
+        self._pet_break_until = 0.0
         pet_pkg.set_reaction_hook(self._pet_react_any_thread)
+        pet_pkg.set_action_hook(self._pet_action_any_thread)
 
     def _pet_mount(self) -> None:
         self._pet_apply_visibility()
@@ -158,15 +169,29 @@ class PetMixin:
         self._pet_apply_visibility()  # /pet on|off from a worker lands here
         pet = get_pet()
         self._pet_play(r)
+        for bid in r.badges:
+            _id, icon, name, how, _c, _n = BADGE_INFO[bid]
+            try:
+                self.notify(f"{icon} {pet.name} earned a badge — {name} ({how})", timeout=5)
+            except Exception:
+                pass
         if r.level_up:
-            self._pet_play(Reaction("proud", 3.0))
+            self._pet_play(Reaction("party" if r.level_up in (5, 10) else "proud", 3.0))
             line = f"level up! ★ Lv {r.level_up} · {pet.title}"
+            unlocked = [a for a, lvl in pet_pkg.ACCESSORIES if lvl == r.level_up]
+            if unlocked:
+                line += f" — new: {pet_pkg.ACCESSORY_LABELS[unlocked[0]]}!"
+            if pet.stage and r.level_up in (5, 10):
+                line += " (look how big I got!)"
             if bubble:
-                self._pet_say(line, 5.0)
+                self._pet_say(line, 6.0)
             try:
                 self.notify(f"{pet.name} reached level {r.level_up} — {pet.title}", timeout=4)
             except Exception:
                 pass
+        elif r.badges and bubble:
+            self._pet_play(Reaction("cheer", 2.6))
+            self._pet_say(f"new badge! {BADGE_INFO[r.badges[0]][1]} {BADGE_INFO[r.badges[0]][2]}", 5.0)
         elif bubble and r.say:
             self._pet_say(r.say, 3.2)
         self._pet_save()
@@ -177,6 +202,15 @@ class PetMixin:
         else:
             try:
                 self.call_from_thread(self._pet_react, r)
+            except Exception:
+                pass
+
+    def _pet_action_any_thread(self, action: str) -> None:
+        if threading.current_thread() is threading.main_thread():
+            self._pet_action(action)
+        else:
+            try:
+                self.call_from_thread(self._pet_action, action)
             except Exception:
                 pass
 
@@ -213,9 +247,133 @@ class PetMixin:
                 r = pet.nap()
         elif action == "trick":
             r = pet.trick()
+        elif action == "fish":
+            self._pet_fish_toggle()
+            return
+        elif action == "focus":
+            self._pet_focus_toggle()
+            return
+        elif action == "pets":
+            if len(get_roster().pets) > 1:
+                self._pet_switch()
+            else:
+                self._pet_adopt_dialog()
+            return
+        elif action == "card":
+            self._open_pet_card()
+            return
         else:
             return
         self._pet_react(r)
+
+    # ── roster ───────────────────────────────────────────────────────
+    def _pet_switch(self, step: int = 1) -> None:
+        pet = get_roster().switch(step)
+        pen = self._pet_pen()
+        if pen is not None:
+            pen.x = max(0.0, min(pen.max_x, pen.x))
+        save_pet()
+        self._pet_react(Reaction("hatch" if pet.is_egg else "wave", 1.8,
+                                 f"hi, it's {pet.name}! ♥" if not pet.is_egg else greeting(pet)))
+
+    def _pet_adopt_dialog(self) -> None:
+        from ..pet_modal import PetAdoptScreen
+        from ..text_input_modal import TextInputScreen
+        from ...pet.model import MAX_PETS
+
+        if len(get_roster().pets) >= MAX_PETS:
+            self._pet_say(f"the pen is full ({MAX_PETS} pets) ♥", 4.0)
+            return
+
+        def named(species: str, name: str | None) -> None:
+            if name is None:
+                return
+            try:
+                pet = get_roster().adopt(species, name.strip())
+            except ValueError as e:
+                self._pet_say(str(e), 4.0)
+                return
+            save_pet()
+            if pet.is_egg:
+                line = f"an egg! it hatches after {pet.hatch_left} turns together ✦"
+            else:
+                line = f"welcome home, {pet.name}! ♥"
+            self._pet_react(Reaction("hatch" if not pet.is_egg else "wobble", 2.6, line))
+
+        def picked(species: str | None) -> None:
+            if not species:
+                return
+            from ...pet.model import new_pet
+
+            default = new_pet(species).name
+            self.push_screen(
+                TextInputScreen(f"Name your new {pet_pkg.SPECIES_LABELS[species]}",
+                                body=f"Leave empty for {default}.", placeholder=default),
+                lambda name: named(species, name if name is not None else None),
+            )
+
+        self.push_screen(PetAdoptScreen(), picked)
+
+    # ── fish game & focus timer ──────────────────────────────────────
+    def _pet_fish_toggle(self) -> None:
+        pen = self._pet_pen()
+        if pen is None or not self._pet_pen_visible():
+            self._pet_say("the fish game lives in the sidebar pen (⌃B) ✦", 4.0)
+            return
+        if get_pet().is_egg:
+            self._pet_say("*wobble* …eggs can't fish yet!", 3.0)
+            return
+        if pen.game is not None:
+            pen.stop_game()
+        else:
+            pen.start_game()
+
+    def _pet_fish_done(self, caught: int) -> None:
+        self._pet_react(get_pet().on_fish_round(caught))
+
+    def _pet_focus_state(self) -> tuple[str, float] | None:
+        now = time.time()
+        if now < self._pet_focus_until:
+            return ("focus", self._pet_focus_until - now)
+        if now < self._pet_break_until:
+            return ("break", self._pet_break_until - now)
+        return None
+
+    def _pet_focus_toggle(self) -> None:
+        state = self._pet_focus_state()
+        if state and state[0] == "focus":
+            self._pet_focus_until = 0.0
+            self._pet_react(Reaction("wave", 1.6, "focus stopped — no worries ♥"))
+            return
+        self._pet_focus_until = time.time() + FOCUS_SECS
+        self._pet_break_until = 0.0
+        self._pet_react(Reaction("happy", 1.6, "focus mode ✦ 25 min — I'll keep your keys warm"))
+
+    def _pet_focus_tick(self) -> None:
+        now = time.time()
+        if self._pet_focus_until and now >= self._pet_focus_until:
+            self._pet_focus_until = 0.0
+            self._pet_break_until = now + BREAK_SECS
+            self._pet_react(get_pet().on_focus_done())
+            self._pet_notify("focus session done ✦ time for a 5-minute break")
+            try:
+                self.bell()
+            except Exception:
+                pass
+        elif self._pet_break_until and now >= self._pet_break_until:
+            self._pet_break_until = 0.0
+            self._pet_react(Reaction("wave", 2.0, "break's over — ready when you are ♥"))
+            self._pet_notify("break's over — ready when you are ♥")
+
+    def _pet_notify(self, message: str) -> None:
+        if not self._pet_setting("notify"):
+            return
+        try:
+            from ...utils.notify import desktop_notify
+
+            desktop_notify(f"{get_pet().name} ♥", message)
+        except Exception:
+            pass
 
     def _open_pet_card(self) -> None:
         from textual.screen import ModalScreen
@@ -263,15 +421,31 @@ class PetMixin:
         if interrupted:
             self._pet_play(r)
             return
-        if seconds >= 45 and not getattr(self, "_app_focused", True):
+        pet_session.current().turns += 1
+        away = not getattr(self, "_app_focused", True)
+        if seconds >= 45 and away:
             r.say = r.say or "all done ✦ come see!"
+        if seconds >= NOTIFY_AFTER and away:
+            mins, secs = divmod(int(seconds), 60)
+            took = f"{mins}m {secs:02d}s" if mins else f"{secs}s"
+            self._pet_notify(f"all done ✦ (took {took})")
         self._pet_react(r)
 
-    def _pet_tool_finished(self, name: str, *, error: bool) -> None:
-        r = get_pet().on_tool_done(name, error=error)
+    def _pet_tool_finished(self, name: str, *, error: bool, tool_input=None, output: str = "") -> None:
+        pet = get_pet()
+        r = pet.on_tool_done(name, error=error)
         if r is not None:
-            self._pet_react(r, bubble=bool(r.level_up))
-            return
+            self._pet_react(r, bubble=bool(r.level_up or r.badges))
+        for event in pet_events.classify(name, tool_input, output, error=error):
+            fixed = event == "tests_pass" and pet.tests == "fail"
+            pet_session.current().note_event(event, fixed=fixed)
+            self._pet_react(pet.on_work_event(event))
+
+    def _pet_diff(self, path: str, added: int, removed: int) -> None:
+        pet_session.current().note_diff(path, added, removed)
+        r = get_pet().on_diff(added, removed)
+        if r is not None:
+            self._pet_react(r)
 
     def _pet_mark_work(self) -> None:
         now = time.time()
@@ -284,7 +458,8 @@ class PetMixin:
         pet = get_pet()
         pet.tick(busy=bool(getattr(self, "_busy", False)))
         self._pet_save(force=False)
-        if not self._pet_visible() or getattr(self, "_busy", False):
+        self._pet_focus_tick()
+        if not self._pet_visible() or getattr(self, "_busy", False) or self._pet_focus_state():
             return
         if not self._pet_setting("nudges"):
             return
