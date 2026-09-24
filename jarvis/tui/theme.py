@@ -555,6 +555,7 @@ def textual_theme(name: str | None = None):
         "jv-user-bg": blend(p["bg_0"], p["bg_3"], 0.8),
         "jv-code-bg": blend(p["bg_0"], p["bg_2"], 0.9),
         "jv-select": blend(p["bg_0"], p["accent"], 0.28),
+        "jv-modal-select": blend(p["bg_1"], p["accent"], 0.22),
         "block-cursor-background": p["accent"],
         "block-cursor-foreground": p["bg_0"],
         "block-cursor-text-style": "bold",
@@ -639,10 +640,11 @@ Screen {{
     min-width: 0;
 }}
 
-/* ── Bottom dock: queue · ask · activity · popups · composer · footer ── */
+/* ── Bottom dock: queue · ask · activity · popups · composer · footer ──
+   Gutters match the transcript: 3 cols left; right = its 3 + scrollbar. */
 #dock {{
     height: auto;
-    padding: 0 2;
+    padding: 0 4 0 3;
     background: {BG_0};
 }}
 
@@ -670,13 +672,18 @@ Screen {{
     overflow-y: auto;
 }}
 
+/* One blank row above (transcript padding) and below; the whole row
+   collapses when there's nothing to show (ActivityLine.wanted). */
 #activity {{
     height: 1;
-    padding: 0 1;
-    margin: 0;
+    padding: 0;
+    margin: 0 0 1 0;
     background: {BG_0};
     color: {FG_MUTE};
     overflow: hidden;
+}}
+#activity.-idle {{
+    display: none;
 }}
 
 #popup {{
@@ -716,7 +723,7 @@ Screen {{
     height: auto;
     background: {BG_2};
     border-left: outer {ACCENT};
-    padding: 1 2 1 1;
+    padding: 1 2;
     margin: 0;
 }}
 #composer.-busy {{
@@ -752,10 +759,12 @@ Screen {{
     color: {FG_DIM};
 }}
 
+/* Text lines up with the composer's content (bar + 2 cols padding);
+   one blank row separates it from the composer. */
 #footer {{
     height: 1;
-    padding: 0 1;
-    margin: 0 0 0 0;
+    padding: 0 2 0 3;
+    margin: 1 0 0 0;
     background: {BG_0};
     color: {FG_DIM};
 }}
@@ -847,134 +856,140 @@ Scrollbar {{
 
 
 def _build_modal_css() -> str:
-    """Return the shared modal chrome CSS using the current module-level tokens.
+    """Return the shared modal chrome CSS (``TuiModalScreen.DEFAULT_CSS``).
 
     Dialogs are flat panels on a dimmed backdrop: no heavy frame, a bold
-    title, and an accent-filled selection row.
+    title, and an accent-filled selection row. Colors are ``$jv-*`` theme
+    variables, so the string is the same for every palette and Textual
+    re-resolves it on each ``App.theme`` switch — open dialogs included.
     """
-    return f"""
-.tui-modal-screen {{
-    background: {BG_0} 60%;
+    return """
+.tui-modal-screen {
+    background: $jv-bg-0 60%;
     align: center middle;
-}}
+}
 
-.tui-modal-screen #modal {{
+.tui-modal-screen #modal {
     height: auto;
-    background: {BG_1};
+    background: $jv-bg-1;
     border: none;
-    border-left: outer {ACCENT};
-    padding: 1 2;
-}}
+    border-left: outer $jv-accent;
+    padding: 1 3;
+}
 
-.tui-modal-screen #modal_title {{
-    color: {FG};
+.tui-modal-screen #modal_title {
+    color: $jv-fg;
     text-style: bold;
     padding: 0 1;
     margin-bottom: 1;
     width: 100%;
-}}
+}
 
-.tui-modal-screen #modal_status {{
-    color: {FG_MUTE};
+.tui-modal-screen #modal_status {
+    color: $jv-fg-mute;
     padding: 0 1;
     margin-bottom: 1;
     width: 100%;
     height: auto;
-}}
+}
 
-.tui-modal-screen #modal_hint {{
-    color: {FG_DIM};
+.tui-modal-screen #modal_hint {
+    color: $jv-fg-dim;
     padding: 0 1;
     margin-top: 1;
     width: 100%;
-}}
+}
 
-.tui-modal-screen Input {{
-    background: {BG_2};
-    color: {FG};
+.tui-modal-screen Input {
+    background: $jv-bg-2;
+    color: $jv-fg;
     border: none;
     padding: 0 1;
     height: 1;
     margin: 0 0 1 0;
-}}
-.tui-modal-screen Input:focus {{
+}
+/* TuiModalScreen makes inputs compact; outrank Textual's `padding: 0`. */
+.tui-modal-screen Input.-textual-compact {
+    padding: 0 1;
+}
+.tui-modal-screen Input:focus {
     border: none;
-    background: {BG_3};
-}}
-.tui-modal-screen Input > .input--placeholder {{
-    color: {FG_DIM};
-}}
+    background: $jv-bg-3;
+}
+.tui-modal-screen Input > .input--placeholder {
+    color: $jv-fg-dim;
+}
 
-.tui-modal-screen OptionList {{
-    background: {BG_1};
-    color: {FG};
+.tui-modal-screen OptionList {
+    background: $jv-bg-1;
+    color: $jv-fg;
     border: none;
     padding: 0;
     text-wrap: nowrap;
     text-overflow: ellipsis;
     overflow-y: auto;
-    scrollbar-background: {BG_1};
-    scrollbar-color: {BG_4};
-    scrollbar-color-hover: {BORDER};
-    scrollbar-color-active: {ACCENT};
+    scrollbar-background: $jv-bg-1;
+    scrollbar-color: $jv-bg-4;
+    scrollbar-color-hover: $jv-border;
+    scrollbar-color-active: $jv-accent;
     scrollbar-size-vertical: 1;
-}}
-.tui-modal-screen OptionList:focus {{
+}
+.tui-modal-screen OptionList:focus {
     border: none;
     background-tint: transparent;
-}}
-.tui-modal-screen OptionList > .option-list--option {{
+}
+.tui-modal-screen OptionList > .option-list--option {
     padding: 0 1;
-}}
+}
 .tui-modal-screen OptionList > .option-list--option-highlighted,
-.tui-modal-screen OptionList:focus > .option-list--option-highlighted {{
-    background: {blend(BG_1, ACCENT, 0.22)};
-    color: {FG};
+.tui-modal-screen OptionList:focus > .option-list--option-highlighted {
+    background: $jv-modal-select;
+    color: $jv-fg;
     text-style: bold;
-}}
-.tui-modal-screen OptionList > .option-list--option-hover {{
-    background: {BG_3};
-}}
-.tui-modal-screen OptionList > .option-list--option-disabled {{
-    color: {FG_DIM};
+}
+.tui-modal-screen OptionList > .option-list--option-hover {
+    background: $jv-bg-3;
+}
+.tui-modal-screen OptionList > .option-list--option-disabled {
+    color: $jv-fg-dim;
     text-style: none;
-}}
+}
 .tui-modal-screen #modal_status, .tui-modal-screen #model_subtitle,
-.tui-modal-screen #modal_subtitle {{
-    color: {FG_DIM};
+.tui-modal-screen #modal_subtitle {
+    color: $jv-fg-dim;
     padding: 0 1;
     margin-bottom: 1;
-}}
-.tui-modal-screen OptionList > .option-list--separator {{
-    color: {BG_4};
-}}
+}
+.tui-modal-screen OptionList > .option-list--separator {
+    color: $jv-bg-4;
+}
 
-.tui-modal-screen TextArea {{
-    background: {BG_2};
-    color: {FG};
-    border: tall {BG_2};
+.tui-modal-screen TextArea {
+    background: $jv-bg-2;
+    color: $jv-fg;
+    border: tall $jv-bg-2;
     padding: 0 1;
-}}
-.tui-modal-screen TextArea:focus {{
-    border: tall {BG_3};
-}}
+}
+.tui-modal-screen TextArea:focus {
+    border: tall $jv-bg-3;
+}
 
-.tui-modal-screen Static {{
+.tui-modal-screen Static {
     background: transparent;
-}}
-.tui-modal-screen Button {{
-    background: {BG_3};
-    color: {FG};
+}
+.tui-modal-screen Button {
+    background: $jv-bg-3;
+    color: $jv-fg;
     border: none;
     min-width: 8;
     height: 1;
     margin: 0 1;
-}}
-.tui-modal-screen Button:focus, .tui-modal-screen Button:hover {{
-    background: {ACCENT};
-    color: {BG_0};
+}
+.tui-modal-screen Button:focus, .tui-modal-screen Button:hover {
+    background: $jv-accent;
+    color: $jv-bg-0;
     text-style: bold;
-}}
+}
 """
 
 

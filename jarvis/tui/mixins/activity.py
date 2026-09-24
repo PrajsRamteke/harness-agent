@@ -109,17 +109,34 @@ class ActivityLine(Widget):
             meta.append("esc" if narrow else "esc to interrupt")
             out.append(f"  ({' · '.join(meta)})", style=ui.FG_DIM)
             return out
-        msg = getattr(app, "_status_msg", "")
-        if msg and msg.strip().lower() not in ("ready", "thinking…", "processing…"):
+        msg = self._idle_status()
+        if msg:
             out.append("  ")
             out.append(msg, style=ui.FG_DIM)
         return out
 
-    def _right(self) -> Text:
+    def _idle_status(self) -> str:
+        msg = getattr(self.app, "_status_msg", "") or ""
+        return "" if msg.strip().lower() in ("", "ready", "thinking…", "processing…") else msg
+
+    def _lines_below(self) -> int:
         try:
-            below = self.app.query_one("#transcript").more_below
+            return self.app.query_one("#transcript").more_below
         except Exception:
-            below = 0
+            return 0
+
+    @property
+    def wanted(self) -> bool:
+        """Anything to show? When not, the row and its gap collapse."""
+        app = self.app
+        return bool(
+            (getattr(app, "_busy", False) and getattr(app, "_activity_label", ""))
+            or self._idle_status()
+            or self._lines_below() > 2
+        )
+
+    def _right(self) -> Text:
+        below = self._lines_below()
         if below <= 2:
             return Text("")
         out = Text()
@@ -164,9 +181,11 @@ class ActivityMixin:
 
     def _refresh_activity_widgets(self) -> None:
         try:
-            self.query_one("#activity", ActivityLine).refresh()
+            line = self.query_one("#activity", ActivityLine)
         except Exception:
-            pass
+            return
+        line.set_class(not line.wanted, "-idle")
+        line.refresh()
 
     async def _tick_activity(self) -> None:
         self._frame += 1

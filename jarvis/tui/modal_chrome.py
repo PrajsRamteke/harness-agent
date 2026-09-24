@@ -4,8 +4,8 @@ The actual CSS now lives in :mod:`jarvis.tui.theme` so every widget,
 modal, and chat panel pulls colors from a single source. This module
 re-exports the modal CSS plus a few row-formatting helpers.
 
-To pick up the current theme's modal CSS at runtime, call ``get_modal_chrome_css()``
-instead of caching the ``TUI_MODAL_CHROME_CSS`` string at import time.
+The chrome uses ``$jv-*`` theme variables, so it is one constant string for
+every palette; :class:`TuiModalScreen` applies it to every dialog.
 """
 from __future__ import annotations
 
@@ -30,18 +30,13 @@ def _ellipsis(s: str, max_len: int = ROW_DESC_MAX_WIDTH) -> str:
     return s[: max_len - 1] + "…"
 
 
-# Backwards-compatible alias — every modal imports this name.
-# Evaluated at import time; refreshes when the app calls reload_chrome_css()
-# after a theme switch.
+# Backwards-compatible alias — every modal imports this name and prefixes it
+# to its DEFAULT_CSS; TuiModalScreen strips that prefix again.
 TUI_MODAL_CHROME_CSS: str = _theme.MODAL_CSS
 
 
 def get_modal_chrome_css() -> str:
-    """Return the current theme's modal chrome CSS string.
-
-    Use this in ``DEFAULT_CSS`` concatenations to ensure fresh theme colors
-    are picked up even after a runtime theme switch.
-    """
+    """Return the modal chrome CSS string (same for every theme)."""
     return _theme.MODAL_CSS
 
 
@@ -57,32 +52,40 @@ def _render_theme_placeholders(css: str) -> str:
 
 
 def reload_chrome_css() -> None:
-    """Re-read modal CSS from the current theme (call after ``set_theme``)."""
+    """Back-compat no-op in practice: the chrome no longer varies by theme."""
     global TUI_MODAL_CHROME_CSS
     TUI_MODAL_CHROME_CSS = _theme.MODAL_CSS
 
 
 class TuiModalScreen(ModalScreen[TDismiss]):
-    """Adds ``tui-modal-screen`` and refreshes shared chrome per instance.
+    """Adds ``tui-modal-screen`` and owns the shared dialog chrome.
 
-    Most modal classes build ``DEFAULT_CSS`` at import time by prefixing
-    ``TUI_MODAL_CHROME_CSS``. Theme changes happen later at runtime, so keep
-    only each subclass's modal-specific suffix and prepend the active theme's
-    chrome when a modal is opened.
+    The chrome is this class's own ``DEFAULT_CSS`` and is *unscoped*:
+    Textual scopes a class's default CSS by prefixing its type name as an
+    ancestor, so ``.tui-modal-screen #modal`` in a subclass would become
+    ``XScreen .tui-modal-screen #modal`` and never match the screen itself.
+    Subclasses still prefix ``TUI_MODAL_CHROME_CSS`` (legacy); it is stripped
+    here, leaving only their scoped, dialog-specific rules.
     """
 
+    DEFAULT_CSS = _theme.MODAL_CSS
+    SCOPED_CSS = False
     __modal_css_suffix__: str | None = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        default_css = getattr(cls, "DEFAULT_CSS", "")
+        default_css = cls.__dict__.get("DEFAULT_CSS", "")
         if isinstance(default_css, str) and default_css.startswith(TUI_MODAL_CHROME_CSS):
-            cls.__modal_css_suffix__ = default_css[len(TUI_MODAL_CHROME_CSS):]
+            default_css = default_css[len(TUI_MODAL_CHROME_CSS):]
+            cls.DEFAULT_CSS = default_css
+        cls.__modal_css_suffix__ = default_css if isinstance(default_css, str) else None
 
     def __init__(self, *args: object, **kwargs: object) -> None:
-        suffix = getattr(type(self), "__modal_css_suffix__", None)
-        if suffix is not None:
-            type(self).DEFAULT_CSS = get_modal_chrome_css() + _render_theme_placeholders(suffix)
+        # Dialog-specific rules may carry ``{ui.TOKEN}`` placeholders; fill
+        # them from the active palette each time a dialog opens.
+        suffix = type(self).__dict__.get("__modal_css_suffix__")
+        if suffix and "{ui." in suffix:
+            type(self).DEFAULT_CSS = _render_theme_placeholders(suffix)
         super().__init__(*args, **kwargs)
         self.add_class("tui-modal-screen")
 

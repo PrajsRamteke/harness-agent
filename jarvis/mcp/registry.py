@@ -860,27 +860,20 @@ def as_prompt_block() -> str:
 
 
 def auto_connect_servers(console_print: Callable | None = None) -> None:
-    """Auto-connect MCP servers listed in the config's auto_connect field."""
+    """Auto-connect MCP servers listed in the config's auto_connect field.
+
+    Quiet on success — connection status lives in the sidebar and ``/mcp``;
+    only problems are printed.
+    """
     from .config import get_config
 
     config = get_config()
-    names = config.get_auto_connect()
-    if not names:
-        if console_print:
-            console_print("[dim]mcp: no servers configured for auto-connect[/]")
-        return
-
-    for name in names:
+    for name in config.get_auto_connect():
         server_cfg = config.get_server(name)
         if server_cfg is None:
             if console_print:
                 console_print(f"[yellow]mcp: server '{name}' not found in config, skipping[/]")
             continue
-        if console_print:
-            console_print(f"[dim]mcp: auto-connecting '{name}'…[/]")
         error = mcp_registry.connect(name, server_cfg)
         if error and console_print:
             console_print(f"[red]mcp: failed to connect '{name}': {error}[/]")
-        elif console_print:
-            cnt = len(mcp_registry.get_server_tools(name))
-            console_print(f"[green]mcp: '{name}' connected ({cnt} tools)[/]")

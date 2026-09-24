@@ -330,7 +330,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         with Vertical(id="dock"):
             yield Static("", id="queuebar", markup=True, shrink=False, classes="hidden")
             yield Static("", id="askbar", markup=True, shrink=False, classes="hidden")
-            yield ActivityLine(id="activity")
+            yield ActivityLine(id="activity", classes="-idle")
             with Vertical(id="popup", classes="hidden"):
                 yield Static("", id="popup_hint")
                 yield OptionList(id="popup_list")
@@ -1064,8 +1064,11 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, FileRefPickerMixin, App):
         except (TypeError, OSError):
             pass
         read_from = (app_path, f"{self.__class__.__name__}.CSS")
+        # Only the app chrome: dialog chrome is TuiModalScreen's default CSS
+        # ($jv-* variables). Re-adding it here as app CSS would outrank each
+        # dialog's own sizing rules.
         self.stylesheet.add_source(
-            _tui_theme.GLOBAL_CSS + _tui_theme.MODAL_CSS,
+            _tui_theme.GLOBAL_CSS,
             read_from=read_from,
             is_default_css=False,
         )

@@ -30,9 +30,9 @@ def hermetic_app(monkeypatch):
     monkeypatch.setattr(updater, "maybe_update_and_reexec", lambda: None)
 
     def fake_auto_connect(console_print=None, **kw):
-        # Mirror the real worker's first print so ordering is exercised.
+        # Mirror the real worker's failure print so ordering is exercised.
         if console_print:
-            console_print("[dim]mcp: auto-connecting 'context7'…[/]")
+            console_print("[red]mcp: failed to connect 'context7': boom[/]")
 
     monkeypatch.setattr(
         mcp_registry, "auto_connect_servers", fake_auto_connect, raising=False
@@ -93,7 +93,7 @@ def test_welcome_renders_first_on_launch(hermetic_app):
             rendered = t.plain_text()
             assert "█" in rendered, "wordmark missing"
             assert "commands" in rendered
-            mcp_pos = rendered.find("auto-connecting")
+            mcp_pos = rendered.find("failed to connect")
             if mcp_pos != -1:
                 assert rendered.find("█") < mcp_pos, "mcp line rendered above welcome"
 

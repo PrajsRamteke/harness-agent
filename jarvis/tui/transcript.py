@@ -220,7 +220,7 @@ class UserBlock(Block):
     UserBlock {
         background: $jv-user-bg;
         border-left: heavy $jv-accent;
-        padding: 0 2 0 1;
+        padding: 1 2;
         margin: 1 0 0 0;
         color: $jv-fg;
     }
@@ -525,7 +525,7 @@ class PlanBlock(AssistantBlock):
     DEFAULT_CSS = """
     PlanBlock {
         border: round $jv-accent;
-        padding: 0 1;
+        padding: 1 2;
     }
     """
 
@@ -1056,7 +1056,8 @@ class Transcript(VerticalScroll):
         height: 1fr;
         min-height: 0;
         background: $jv-bg-0;
-        padding: 0 3 0 2;
+        padding: 0 3 1 3;
+        scrollbar-gutter: stable;
         scrollbar-size-vertical: 1;
         scrollbar-background: $jv-bg-0;
         scrollbar-background-hover: $jv-bg-0;
