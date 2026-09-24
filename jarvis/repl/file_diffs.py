@@ -97,6 +97,13 @@ def emit_file_diff(path: str, before: str, after: str, *, action: str = "write")
         if before == after:
             return  # no-op write — nothing to show
 
+        # The TUI draws the diff under the tool's own row (line numbers,
+        # tinted +/- lines); the Rich REPL keeps the bordered panel below.
+        tui_diff = getattr(console, "file_diff", None)
+        if callable(tui_diff):
+            tui_diff(path, before, after, action)
+            return
+
         body, added, removed = _build_diff_body(before, after)
         if body is None:
             return

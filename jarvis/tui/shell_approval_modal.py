@@ -37,10 +37,11 @@ class ShellApprovalScreen(TuiModalScreen[str]):
         width: 80;
         max-width: 95%;
         height: auto;
-        border: round {ui.WARN};
+        border: none;
+        border-left: outer {ui.WARN};
     }
     ShellApprovalScreen #cmd_panel {
-        background: {ui.BG_1};
+        background: {ui.BG_2};
         border-left: thick {ui.WARN};
         padding: 0 2;
         width: 100%;

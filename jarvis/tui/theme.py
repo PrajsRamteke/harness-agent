@@ -1,24 +1,21 @@
 """Single source of truth for the Jarvis TUI's visual language.
 
-Every widget, modal, and rendered panel pulls colors and spacing from the
-constants here. Changing a token in one place changes the entire UI — keep
-this file disciplined.
+Every widget, modal, and rendered block pulls colors from the palette
+tokens here. Changing a token in one place changes the entire UI.
 
 Themes
 ------
-Four built-in themes (red, blue, purple, green) differ in accent and status
-colors. Backgrounds remain the same GitHub Dark palette.
+PALETTES holds every built-in color scheme. set_theme(name)
+reassigns the module-level tokens (BG_0 … ACCENT_3) and rebuilds
+the two CSS strings; textual_theme(name) builds the matching Textual
+Theme whose $jv-* variables drive the transcript widgets, so a
+theme switch restyles the live conversation without re-rendering it.
 
-  - ``set_theme(name)``  — switch all tokens + CSS at runtime
-  - ``_build_global_css()`` / ``_build_modal_css()``  — rebuild CSS strings
-
-Other modules that need theme-aware colors at runtime should either:
-  * ``from . import theme as ui``  → ``ui.OK``, ``ui.ACCENT_2``, etc.
-  * Cache selectively with a reference to the module object, not individual constants.
+Other modules that need theme-aware colors at runtime should use
+from . import theme as ui → ui.OK, ui.ACCENT_2, … (never
+cache the individual constants — they change on every switch).
 """
 from __future__ import annotations
-
-import typing as t
 
 
 # ── Full palette definitions ─────────────────────────────────────────────
@@ -337,6 +334,155 @@ PALETTES: dict[str, Palette] = {
     },
 }
 
+# Newer palettes — tuned for the minimal (borderless) transcript. The first
+# three are the most-requested editor schemes; "opencode" and "claude" follow
+# the look of those two agent TUIs.
+PALETTES.update({
+    "opencode": {
+        "bg_0": "#0a0a0a",
+        "bg_1": "#121212",
+        "bg_2": "#1a1a1a",
+        "bg_3": "#222222",
+        "bg_4": "#2c2c2c",
+        "border": "#303030",
+        "border_fc": "#fab283",
+        "fg": "#eeeeee",
+        "fg_mute": "#a3a3a3",
+        "fg_dim": "#6e6e6e",
+        "sep": "#1c1c1c",
+        "ok": "#7fd88f",
+        "warn": "#f5a742",
+        "err": "#e06c75",
+        "accent": "#fab283",
+        "accent_2": "#5c9cf5",
+        "accent_3": "#9d7cd8",
+    },
+    "claude": {
+        "bg_0": "#141413",
+        "bg_1": "#1b1a19",
+        "bg_2": "#232220",
+        "bg_3": "#2b2a27",
+        "bg_4": "#363431",
+        "border": "#3a3835",
+        "border_fc": "#d97757",
+        "fg": "#ece9e4",
+        "fg_mute": "#a8a29e",
+        "fg_dim": "#77716b",
+        "sep": "#211f1d",
+        "ok": "#4eba65",
+        "warn": "#e5b43e",
+        "err": "#ff6b80",
+        "accent": "#d97757",
+        "accent_2": "#b1b9f9",
+        "accent_3": "#eba585",
+    },
+    "tokyonight": {
+        "bg_0": "#16161e",
+        "bg_1": "#1a1b26",
+        "bg_2": "#1f2335",
+        "bg_3": "#24283b",
+        "bg_4": "#2f344d",
+        "border": "#3b4261",
+        "border_fc": "#7aa2f7",
+        "fg": "#c0caf5",
+        "fg_mute": "#a9b1d6",
+        "fg_dim": "#565f89",
+        "sep": "#1f2335",
+        "ok": "#9ece6a",
+        "warn": "#e0af68",
+        "err": "#f7768e",
+        "accent": "#7aa2f7",
+        "accent_2": "#bb9af7",
+        "accent_3": "#7dcfff",
+    },
+    "catppuccin": {
+        "bg_0": "#181825",
+        "bg_1": "#1e1e2e",
+        "bg_2": "#252536",
+        "bg_3": "#313244",
+        "bg_4": "#3b3d52",
+        "border": "#45475a",
+        "border_fc": "#cba6f7",
+        "fg": "#cdd6f4",
+        "fg_mute": "#a6adc8",
+        "fg_dim": "#6c7086",
+        "sep": "#232334",
+        "ok": "#a6e3a1",
+        "warn": "#f9e2af",
+        "err": "#f38ba8",
+        "accent": "#cba6f7",
+        "accent_2": "#89b4fa",
+        "accent_3": "#f5c2e7",
+    },
+    "gruvbox": {
+        "bg_0": "#1d2021",
+        "bg_1": "#232526",
+        "bg_2": "#282828",
+        "bg_3": "#32302f",
+        "bg_4": "#3c3836",
+        "border": "#504945",
+        "border_fc": "#fe8019",
+        "fg": "#ebdbb2",
+        "fg_mute": "#bdae93",
+        "fg_dim": "#7c6f64",
+        "sep": "#282828",
+        "ok": "#b8bb26",
+        "warn": "#fabd2f",
+        "err": "#fb4934",
+        "accent": "#fe8019",
+        "accent_2": "#83a598",
+        "accent_3": "#fabd2f",
+    },
+    "nord": {
+        "bg_0": "#242933",
+        "bg_1": "#2a303c",
+        "bg_2": "#2e3440",
+        "bg_3": "#3b4252",
+        "bg_4": "#434c5e",
+        "border": "#4c566a",
+        "border_fc": "#88c0d0",
+        "fg": "#eceff4",
+        "fg_mute": "#d8dee9",
+        "fg_dim": "#7b88a1",
+        "sep": "#2e3440",
+        "ok": "#a3be8c",
+        "warn": "#ebcb8b",
+        "err": "#bf616a",
+        "accent": "#88c0d0",
+        "accent_2": "#81a1c1",
+        "accent_3": "#b48ead",
+    },
+})
+
+
+# One-line descriptions for the /theme picker (order = picker order).
+THEME_DESCRIPTIONS: dict[str, str] = {
+    "opencode": "near-black, peach accent, blue + violet highlights",
+    "claude": "warm charcoal, terracotta accent, lavender highlights",
+    "tokyonight": "night-city navy, soft blue + purple",
+    "catppuccin": "mocha pastels, mauve accent",
+    "gruvbox": "retro warm, orange + aqua on dark brown",
+    "nord": "arctic slate, frost blue accents",
+    "kimchi": "teal accents, dark terminal vibe",
+    "red": "warm coral tones, soft pink highlights",
+    "blue": "cool blue tones, teal secondary, sky highlights",
+    "purple": "soft violet accents, warm amber warnings",
+    "green": "nature green primary, teal secondary, mint highlights",
+    "orange": "fiery orange accents, golden highlights",
+    "yellow": "gold and amber tones, bright highlights",
+    "rose": "hot pink accents, magenta borders",
+    "slate": "neutral grays, no color bias",
+    "ocean": "deep navy backgrounds, ice-blue accents",
+    "cyberpunk": "neon cyan + magenta on dark purple",
+    "monochrome": "pure black, white/gray only",
+    "forest": "deep earthy greens, amber highlights",
+    "dracula": "classic dark: purple/pink accents",
+    "sunset": "warm brick bg, orange coral accents",
+    "dark": "pure black bg, clean blue/teal accents",
+}
+
+DEFAULT_THEME = "opencode"
+
 
 # ── Tokens (module-level constants — reassigned by set_theme()) ──────────
 
@@ -360,239 +506,271 @@ ACCENT_3 = "#f0b3ff"
 
 
 # ── Visible glyphs — keep ASCII-fallback-safe where used in tight strips ──
-SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠏"
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+# Busy indicator beside the activity label: a star that breathes.
+PULSE_FRAMES = ("·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢")
 DOT = "·"
 ARROW = "❯"
 CHECK = "✓"
 CROSS = "✗"
 BULLET = "●"
+GUTTER = "⏺"
+ELBOW = "⎿"
+
+
+def blend(a: str, b: str, t: float) -> str:
+    """Mix two ``#rrggbb`` colors; ``t`` = 0 → a, 1 → b."""
+    t = max(0.0, min(1.0, t))
+    try:
+        ra, ga, ba = int(a[1:3], 16), int(a[3:5], 16), int(a[5:7], 16)
+        rb, gb, bb = int(b[1:3], 16), int(b[3:5], 16), int(b[5:7], 16)
+    except (ValueError, IndexError):
+        return a
+    r = round(ra + (rb - ra) * t)
+    g = round(ga + (gb - ga) * t)
+    bl = round(ba + (bb - ba) * t)
+    return f"#{r:02x}{g:02x}{bl:02x}"
+
+
+# ── Textual theme (drives built-in widgets + ``$jv-*`` CSS variables) ────
+
+def textual_theme_name(name: str | None = None) -> str:
+    return f"jarvis-{name or _ACTIVE_THEME}"
+
+
+def textual_theme(name: str | None = None):
+    """Build a :class:`textual.theme.Theme` for a palette.
+
+    Built-in widgets (Markdown, OptionList, TextArea, toasts, scrollbars)
+    read ``$primary`` / ``$surface`` / … so they follow the palette, and our
+    own widgets use the ``$jv-*`` variables, which Textual re-resolves on
+    every ``App.theme`` change — no stylesheet rebuild needed.
+    """
+    from textual.theme import Theme
+
+    key = name or _ACTIVE_THEME
+    p = PALETTES.get(key) or PALETTES[DEFAULT_THEME]
+    variables = {f"jv-{k.replace('_', '-')}": v for k, v in p.items()}
+    variables.update({
+        "jv-user-bg": blend(p["bg_0"], p["bg_3"], 0.8),
+        "jv-code-bg": blend(p["bg_0"], p["bg_2"], 0.9),
+        "jv-select": blend(p["bg_0"], p["accent"], 0.28),
+        "block-cursor-background": p["accent"],
+        "block-cursor-foreground": p["bg_0"],
+        "block-cursor-text-style": "bold",
+        "block-cursor-blurred-background": blend(p["bg_0"], p["accent"], 0.3),
+        "block-cursor-blurred-foreground": p["fg"],
+        "block-hover-background": blend(p["bg_0"], p["bg_4"], 0.6),
+        "input-selection-background": blend(p["bg_0"], p["accent"], 0.35),
+        "input-cursor-background": p["accent"],
+        "input-cursor-foreground": p["bg_0"],
+        "footer-background": p["bg_0"],
+        "scrollbar": p["bg_3"],
+        "scrollbar-hover": p["border"],
+        "scrollbar-active": p["accent"],
+        "scrollbar-background": p["bg_0"],
+        "scrollbar-background-hover": p["bg_0"],
+        "scrollbar-background-active": p["bg_0"],
+        "scrollbar-corner-color": p["bg_0"],
+        "markdown-h1-color": p["accent"],
+        "markdown-h1-background": "transparent",
+        "markdown-h1-text-style": "bold",
+        "markdown-h2-color": p["accent"],
+        "markdown-h2-background": "transparent",
+        "markdown-h2-text-style": "bold",
+        "markdown-h3-color": p["fg"],
+        "markdown-h3-background": "transparent",
+        "markdown-h3-text-style": "bold",
+        "markdown-h4-color": p["fg"],
+        "markdown-h4-background": "transparent",
+        "markdown-h4-text-style": "bold italic",
+        "markdown-h5-color": p["fg_mute"],
+        "markdown-h5-background": "transparent",
+        "markdown-h5-text-style": "bold",
+        "markdown-h6-color": p["fg_mute"],
+        "markdown-h6-background": "transparent",
+        "markdown-h6-text-style": "italic",
+        "link-color": p["accent_2"],
+        "link-color-hover": p["accent"],
+        "link-background-hover": "transparent",
+    })
+    return Theme(
+        name=textual_theme_name(key),
+        primary=p["accent"],
+        secondary=p["accent_2"],
+        accent=p["accent_3"],
+        warning=p["warn"],
+        error=p["err"],
+        success=p["ok"],
+        foreground=p["fg"],
+        background=p["bg_0"],
+        surface=p["bg_1"],
+        panel=p["bg_2"],
+        boost=blend(p["bg_0"], p["fg"], 0.04),
+        dark=True,
+        variables=variables,
+    )
 
 
 # ── CSS builders (called once at module load and again on every theme switch) ──
 
 def _build_global_css() -> str:
-    """Return the full app CSS string using the current module-level tokens."""
-    return f"""
-/* ──────────────────────────────────────────────────────────────────
-   Jarvis TUI — global stylesheet
-   Tokens kept in sync with theme.py constants.
-   ───────────────────────────────────────────────────────────────── */
+    """Return the app CSS string using the current module-level tokens.
 
+    Only layout chrome lives here; transcript blocks carry their own
+    ``DEFAULT_CSS`` built on the ``$jv-*`` theme variables.
+    """
+    return f"""
 Screen {{
     background: {BG_0};
     color: {FG};
     layers: base overlay;
 }}
 
-/* ── App root ───────────────────────────────────────────────────── */
 #main {{
-    height: 100%;
+    height: 1fr;
     width: 100%;
     min-width: 0;
     background: {BG_0};
 }}
-
-/* ── Transcript ─────────────────────────────────────────────────── */
-#transcript_wrap {{
-    height: 1fr;
-    min-height: 0;
-    background: {BG_0};
-    padding: 0;
-}}
-#transcript {{
-    background: {BG_0};
-    color: {FG};
-    padding: 0 1;
-    border: none;
-    height: 1fr;
-    min-height: 0;
+#body {{
+    width: 1fr;
+    height: 100%;
     min-width: 0;
-    overflow-y: auto;
-    overflow-x: auto;
-    scrollbar-background: {BG_0};
-    scrollbar-background-hover: {BG_0};
-    scrollbar-background-active: {BG_0};
-    scrollbar-color: {BORDER};
-    scrollbar-color-hover: {FG_DIM};
-    scrollbar-color-active: {BORDER_FC};
-    scrollbar-size-vertical: 0;
-    scrollbar-corner-color: {BG_0};
 }}
 
-/* ── Message queue bar (above status strip, not in transcript) ───── */
+/* ── Bottom dock: queue · ask · activity · popups · composer · footer ── */
+#dock {{
+    height: auto;
+    padding: 0 2;
+    background: {BG_0};
+}}
+
 #queuebar {{
     height: auto;
-    min-height: 1;
-    max-height: 10;
-    background: {BG_2};
-    color: {FG};
-    padding: 0 3;
-    margin: 0;
-    min-width: 0;
-    border-top: hkey {WARN};
+    max-height: 8;
+    color: {FG_MUTE};
+    background: {BG_0};
+    padding: 0 1;
+    margin: 0 0 0 0;
     overflow-y: auto;
-    overflow-x: hidden;
 }}
-#queuebar.hidden {{
+#queuebar.hidden, #askbar.hidden, #popup.hidden {{
     display: none;
-    height: 0;
-    min-height: 0;
-    max-height: 0;
-    padding: 0;
-    border: none;
 }}
 
-/* ── Ask-user bar (above status strip, LLM multiple-choice) ───── */
 #askbar {{
     height: auto;
-    min-height: 1;
-    max-height: 12;
-    background: {BG_2};
+    max-height: 16;
+    background: {BG_0};
     color: {FG};
-    padding: 0 3;
-    margin: 0;
-    min-width: 0;
-    border-top: hkey {ACCENT};
+    border: round {ACCENT};
+    padding: 0 1;
+    margin: 1 0 0 0;
     overflow-y: auto;
-    overflow-x: hidden;
-}}
-#askbar.hidden {{
-    display: none;
-    height: 0;
-    min-height: 0;
-    max-height: 0;
-    padding: 0;
-    border: none;
 }}
 
-/* ── Status strip (single line above composer) ──────────────────── */
-#statusbar {{
-    height: 2;
-    max-height: 2;
+#activity {{
+    height: 1;
+    padding: 0 1;
+    margin: 0;
     background: {BG_0};
     color: {FG_MUTE};
-    padding: 0 3;
-    margin: 0;
-    min-width: 0;
-    border-top: solid {SEP};
     overflow: hidden;
 }}
 
-/* ── Composer ───────────────────────────────────────────────────── */
-#composer_block {{
+#popup {{
     height: auto;
-    margin: 0;
-    min-width: 0;
-}}
-#file_ref_panel {{
-    height: auto;
-    max-height: 12;
-    margin: 0 2 0 2;
-    background: {BG_3};
-    border: tall {BORDER};
-    padding: 0 1;
-    min-width: 0;
-}}
-#file_ref_panel.hidden {{
-    display: none;
-}}
-#file_ref_hint {{
-    height: 1;
-    max-height: 1;
-    color: {FG_MUTE};
+    max-height: 14;
+    background: {BG_1};
     padding: 0 0;
     margin: 0;
-    overflow: hidden;
 }}
-#file_ref_picker {{
+#popup_hint {{
+    height: 1;
+    padding: 0 2;
+    color: {FG_DIM};
+    background: {BG_1};
+}}
+#popup_list {{
     height: auto;
-    max-height: 8;
-    min-height: 3;
-    background: {BG_3};
+    max-height: 10;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    background: {BG_1};
     border: none;
     padding: 0;
-    margin: 0;
-    overflow-y: auto;
     scrollbar-size-vertical: 1;
 }}
-#file_ref_picker > .option-list--option {{
+#popup_list > .option-list--option {{
     padding: 0 1;
 }}
-#file_ref_picker > .option-list--option-highlighted {{
-    background: {BG_4};
-    color: #ffffff;
+#popup_list > .option-list--option-highlighted,
+#popup_list:focus > .option-list--option-highlighted {{
+    background: {blend(BG_1, ACCENT, 0.2)};
+    color: {FG};
     text-style: none;
 }}
+
 #composer {{
     height: auto;
-    margin: 0 2 0 2;
     background: {BG_2};
-    border: tall {BORDER};
-    min-width: 0;
-    padding: 0 1;
+    border-left: outer {ACCENT};
+    padding: 1 2 1 1;
+    margin: 0;
 }}
-#composer:focus-within {{
-    border: tall {BORDER_FC};
+#composer.-busy {{
+    border-left: outer {FG_DIM};
+}}
+#composer.-shell {{
+    border-left: outer {WARN};
 }}
 #prompt_prefix {{
-    width: 3;
-    padding: 0;
-    content-align: center middle;
+    width: 2;
+    height: 1;
     color: {ACCENT};
     text-style: bold;
-    dock: left;
     background: {BG_2};
+}}
+#composer.-shell #prompt_prefix {{
+    color: {WARN};
 }}
 #prompt {{
     height: auto;
     min-height: 1;
-    max-height: 20;
+    max-height: 14;
+    width: 1fr;
     background: {BG_2};
     border: none;
-    padding: 0 1;
-    min-width: 0;
-    scrollbar-size-vertical: 0;
+    padding: 0;
+    scrollbar-size-vertical: 1;
 }}
 #prompt:focus {{
     border: none;
 }}
-
-/* ── Footer hint bar ────────────────────────────────────────────── */
-#hintbar {{
-    height: 1;
-    max-height: 1;
-    background: {BG_0};
-    color: {FG_MUTE};
-    padding: 0 2;
-    margin: 0 2;
-    overflow: hidden;
+#prompt > .text-area--placeholder {{
+    color: {FG_DIM};
 }}
 
-#webar {{
+#footer {{
     height: 1;
-    max-height: 1;
-    background: {BG_0};
-    border-top: hkey {ACCENT};
-    color: {FG};
-    text-align: left;
     padding: 0 1;
-    min-width: 0;
-    overflow: hidden;
+    margin: 0 0 0 0;
+    background: {BG_0};
+    color: {FG_DIM};
 }}
-#webar.hidden {{ display: none; }}
-#webar > #web_open {{
+#footer_left {{
+    width: 1fr;
     height: 1;
-    max-height: 1;
-    color: {FG_MUTE};
     overflow: hidden;
-    min-width: 0;
+}}
+#footer_right {{
+    width: auto;
+    height: 1;
+    overflow: hidden;
 }}
 
-#web_qr_overlay.hidden {{ display: none; }}
-
-/* WebRemoteQR styling lives on the widget (web_bar.py DEFAULT_CSS). */
-
-/* ── Web remote bar (bottom — open / copy URL) ──────────────────── */
+/* ── Web remote strip ──────────────────────────────────────────── */
 #webar {{
     height: auto;
     min-height: 1;
@@ -607,11 +785,6 @@ Screen {{
 }}
 #webar.hidden {{
     display: none;
-    height: 0;
-    min-height: 0;
-    max-height: 0;
-    padding: 0;
-    border: none;
 }}
 #webar #web_open {{
     width: 1fr;
@@ -619,7 +792,9 @@ Screen {{
     height: auto;
     padding: 0;
     overflow: hidden;
+    color: {FG_MUTE};
 }}
+#web_qr_overlay.hidden {{ display: none; }}
 
 /* ── Shared widget defaults ─────────────────────────────────────── */
 Input, TextArea {{
@@ -627,58 +802,78 @@ Input, TextArea {{
     color: {FG};
 }}
 TextArea > .text-area--cursor-line {{
-    background: {BG_2};
+    background: transparent;
 }}
 TextArea > .text-area--cursor {{
-    background: {BORDER_FC};
+    background: {ACCENT};
     color: {BG_0};
 }}
-
-/* ── Selection styling ────────────────────────────────────────── */
 *:focus TextArea > .text-area--selection,
 TextArea > .text-area--selection {{
-    background: {BORDER_FC}33;
+    background: {blend(BG_0, ACCENT, 0.3)};
     color: {FG};
 }}
 
-/* ── Vertical scrollbar (generic) ─────────────────────────────── */
+Toast {{
+    background: {BG_2};
+    color: {FG};
+    border-left: outer {ACCENT};
+    padding: 0 1;
+}}
+Toast.-information {{
+    border-left: outer {ACCENT};
+}}
+Toast.-warning {{
+    border-left: outer {WARN};
+}}
+Toast.-error {{
+    border-left: outer {ERR};
+}}
+Toast .toast--title {{
+    text-style: bold;
+}}
+ToastRack {{
+    align: right top;
+    padding: 1 2 0 0;
+}}
+
 Scrollbar {{
     scrollbar-background: {BG_0};
-    scrollbar-color: {BORDER};
-    scrollbar-color-hover: {FG_DIM};
-    scrollbar-color-active: {BORDER_FC};
+    scrollbar-color: {BG_3};
+    scrollbar-color-hover: {BORDER};
+    scrollbar-color-active: {ACCENT};
 }}
 """
 
 
 def _build_modal_css() -> str:
-    """Return the shared modal chrome CSS using the current module-level tokens."""
+    """Return the shared modal chrome CSS using the current module-level tokens.
+
+    Dialogs are flat panels on a dimmed backdrop: no heavy frame, a bold
+    title, and an accent-filled selection row.
+    """
     return f"""
-/* ── Backdrop ──────────────────────────────────────────────────── */
 .tui-modal-screen {{
-    background: rgba(0, 0, 0, 0.66);
+    background: {BG_0} 60%;
     align: center middle;
 }}
 
-/* ── Frame ─────────────────────────────────────────────────────── */
 .tui-modal-screen #modal {{
     height: auto;
-    background: {BG_2};
-    border: tall {BORDER};
+    background: {BG_1};
+    border: none;
+    border-left: outer {ACCENT};
     padding: 1 2;
 }}
 
-/* ── Title row ─────────────────────────────────────────────────── */
 .tui-modal-screen #modal_title {{
-    color: {ACCENT_2};
+    color: {FG};
     text-style: bold;
-    padding: 0 1 1 1;
-    border-bottom: hkey {SEP};
+    padding: 0 1;
     margin-bottom: 1;
     width: 100%;
 }}
 
-/* ── Status / sub-title strip ──────────────────────────────────── */
 .tui-modal-screen #modal_status {{
     color: {FG_MUTE};
     padding: 0 1;
@@ -687,70 +882,91 @@ def _build_modal_css() -> str:
     height: auto;
 }}
 
-/* ── Footer hint row ───────────────────────────────────────────── */
 .tui-modal-screen #modal_hint {{
     color: {FG_DIM};
-    padding: 1 1 0 1;
-    border-top: hkey {SEP};
+    padding: 0 1;
     margin-top: 1;
     width: 100%;
 }}
 
-/* ── Inputs ────────────────────────────────────────────────────── */
 .tui-modal-screen Input {{
-    background: {BG_1};
-    color: {FG};
-    border: tall {BORDER};
-    padding: 0 1;
-    height: 3;
-}}
-.tui-modal-screen Input:focus {{
-    border: tall {BORDER_FC};
-}}
-
-/* ── Option lists ──────────────────────────────────────────────── */
-.tui-modal-screen OptionList {{
     background: {BG_2};
     color: {FG};
     border: none;
+    padding: 0 1;
+    height: 1;
+    margin: 0 0 1 0;
+}}
+.tui-modal-screen Input:focus {{
+    border: none;
+    background: {BG_3};
+}}
+.tui-modal-screen Input > .input--placeholder {{
+    color: {FG_DIM};
+}}
+
+.tui-modal-screen OptionList {{
+    background: {BG_1};
+    color: {FG};
+    border: none;
     padding: 0;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
     overflow-y: auto;
-    scrollbar-background: {BG_2};
-    scrollbar-color: {BORDER};
-    scrollbar-color-hover: {FG_DIM};
-    scrollbar-color-active: {BORDER_FC};
+    scrollbar-background: {BG_1};
+    scrollbar-color: {BG_4};
+    scrollbar-color-hover: {BORDER};
+    scrollbar-color-active: {ACCENT};
     scrollbar-size-vertical: 1;
+}}
+.tui-modal-screen OptionList:focus {{
+    border: none;
+    background-tint: transparent;
 }}
 .tui-modal-screen OptionList > .option-list--option {{
     padding: 0 1;
-    margin: 0 0;
 }}
 .tui-modal-screen OptionList > .option-list--option-highlighted,
 .tui-modal-screen OptionList:focus > .option-list--option-highlighted {{
-    background: {BG_4};
-    color: #ffffff;
-    text-style: none;
-    /* subtle left accent border */
-    border-left: solid {ACCENT};
+    background: {blend(BG_1, ACCENT, 0.22)};
+    color: {FG};
+    text-style: bold;
+}}
+.tui-modal-screen OptionList > .option-list--option-hover {{
+    background: {BG_3};
 }}
 .tui-modal-screen OptionList > .option-list--option-disabled {{
     color: {FG_DIM};
 }}
+.tui-modal-screen OptionList > .option-list--separator {{
+    color: {BG_4};
+}}
 
-/* ── TextArea inside modals ────────────────────────────────────── */
 .tui-modal-screen TextArea {{
-    background: {BG_1};
+    background: {BG_2};
     color: {FG};
-    border: tall {BORDER};
+    border: tall {BG_2};
     padding: 0 1;
 }}
 .tui-modal-screen TextArea:focus {{
-    border: tall {BORDER_FC};
+    border: tall {BG_3};
 }}
 
-/* ── Static labels inside modals ───────────────────────────────── */
 .tui-modal-screen Static {{
     background: transparent;
+}}
+.tui-modal-screen Button {{
+    background: {BG_3};
+    color: {FG};
+    border: none;
+    min-width: 8;
+    height: 1;
+    margin: 0 1;
+}}
+.tui-modal-screen Button:focus, .tui-modal-screen Button:hover {{
+    background: {ACCENT};
+    color: {BG_0};
+    text-style: bold;
 }}
 """
 
@@ -763,17 +979,14 @@ MODAL_CSS: str = ""
 
 # ── Theme switcher ────────────────────────────────────────────────────────
 
-_ACTIVE_THEME: str = "kimchi"
+_ACTIVE_THEME: str = DEFAULT_THEME
 
 
 def set_theme(name: str) -> None:
     """Switch all theme tokens + CSS strings to the named palette.
 
-    Callers should also rebuild the Textual stylesheet after this:
-        from textual.css.stylesheet import Stylesheet
-        self.stylesheet.add_source(ui.GLOBAL_CSS, …)
-        self.stylesheet.reparse()
-        self.stylesheet.update(self)
+    The app applies the change live via ``JarvisTUI._apply_theme_runtime``
+    (stylesheet rebuild + ``App.theme`` swap).
     """
     global _ACTIVE_THEME
     global BG_0, BG_1, BG_2, BG_3, BG_4
@@ -785,7 +998,8 @@ def set_theme(name: str) -> None:
 
     p = PALETTES.get(name)
     if p is None:
-        p = PALETTES["red"]
+        name = DEFAULT_THEME
+        p = PALETTES[name]
 
     _ACTIVE_THEME = name
 
@@ -816,5 +1030,11 @@ def active_theme() -> str:
     return _ACTIVE_THEME
 
 
+def theme_names() -> list[str]:
+    """Palette names in picker order (described ones first)."""
+    ordered = [n for n in THEME_DESCRIPTIONS if n in PALETTES]
+    return ordered + [n for n in PALETTES if n not in THEME_DESCRIPTIONS]
+
+
 # ── Init at module load time ─────────────────────────────────────────────
-set_theme("kimchi")
+set_theme(DEFAULT_THEME)

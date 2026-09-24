@@ -16,6 +16,7 @@ HighlightMap = dict[int, List[Highlight]]
 
 PROMPT_THEME_NAME = "jarvis_prompt"
 _FILE_REF_LINE_RE = re.compile(r'@(?:"([^"]+)"|([^\s@]+))')
+_PASTE_CHIP_RE = re.compile(r"\[Pasted text #\d+ \+\d+ lines?\]")
 
 
 def build_prompt_text_area_theme() -> TextAreaTheme:
@@ -52,6 +53,8 @@ def build_attachment_highlights(text: str) -> HighlightMap:
             kind = (match.group(1) or "file").lower()
             style = f"attachment_{kind}"
             highlights[row].append((match.start(), match.end(), style))
+        for match in _PASTE_CHIP_RE.finditer(line):
+            highlights[row].append((match.start(), match.end(), "attachment_document"))
     return dict(highlights)
 
 

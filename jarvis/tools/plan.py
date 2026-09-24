@@ -84,12 +84,16 @@ def exit_plan_mode(plan: str = "", **kwargs) -> str:
     if not plan:
         return "ERROR: 'plan' is required — pass the full implementation plan as markdown."
 
-    try:
-        from ..console import Markdown
-        body = Markdown(plan)
-    except Exception:
-        body = plan
-    console.print(Panel(body, title="◆ proposed plan", border_style="cyan", padding=(0, 1)))
+    show_plan = getattr(console, "show_plan", None)
+    if callable(show_plan):
+        show_plan(plan)  # TUI: framed plan card
+    else:
+        try:
+            from ..console import Markdown
+            body = Markdown(plan)
+        except Exception:
+            body = plan
+        console.print(Panel(body, title="◆ proposed plan", border_style="cyan", padding=(0, 1)))
 
     from .ask_user import ask_user_question
     raw = ask_user_question(questions=_APPROVAL_QUESTION)

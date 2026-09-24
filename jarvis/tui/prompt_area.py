@@ -13,9 +13,11 @@ from textual.widgets import TextArea
 class PromptArea(TextArea):
     """Multi-line prompt input.
 
-    - Enter submits.
-    - Ctrl+J / Alt+Enter / Ctrl+Enter / Shift+Enter / Ctrl+N insert a newline.
+    - Enter submits (or accepts the highlighted /command · @file completion).
+    - Shift+Enter / Ctrl+J / Alt+Enter / Ctrl+Enter / Ctrl+N insert a newline.
     - Trailing backslash before Enter inserts a newline (bash-style).
+    - ↑ on the first line / ↓ on the last line walk prompt history.
+    - Home / End on an empty prompt jump the transcript to top / bottom.
     - Ctrl+D / Ctrl+C bubble up to the App.
     - @file mentions render with theme-colored background chips.
     - Dropped media/docs render as numbered chips like [image 1], [document 2].
@@ -68,6 +70,11 @@ class PromptArea(TextArea):
         paste = event.text or ""
         tokenized, _, _ = tokenize_dropped_paths(paste)
         insert_text = tokenized if tokenized != paste else paste
+        if insert_text == paste:
+            from .paste_chips import make_chip, should_collapse
+
+            if should_collapse(paste):
+                insert_text = make_chip(paste)
         if result := self._replace_via_keyboard(insert_text, *self.selection):
             self.move_cursor(result.end_location)
             self.focus()
@@ -76,6 +83,44 @@ class PromptArea(TextArea):
             self.refresh_file_ref_highlights()
         except Exception:
             pass
+
+    def _history_key(self, key: str) -> bool:
+        """↑/↓ at the edge lines walk prompt history (or scroll without mouse)."""
+        app = self.app
+        row, _col = self.cursor_location
+        last_row = self.document.line_count - 1
+        if key == "up" and row != 0:
+            return False
+        if key == "down" and row != last_row:
+            return False
+        if not getattr(app, "_mouse_enabled", True) and not (self.text or "").strip():
+            # Terminals translate the wheel into ↑/↓ when mouse reporting is
+            # off — keep that scrolling the transcript.
+            try:
+                app.action_scroll_transcript(key)
+            except Exception:
+                pass
+            return True
+        if (
+            key == "up"
+            and getattr(app, "_busy", False)
+            and not (self.text or "").strip()
+            and getattr(app, "_pop_queued_for_edit", None)
+        ):
+            # ↑ while Jarvis works: pull the last queued message back to edit.
+            if app._pop_queued_for_edit():
+                return True
+        hist = getattr(app, "_history", None)
+        if hist is None:
+            return False
+        value = hist.prev(self.text or "") if key == "up" else hist.next()
+        if value is None:
+            return False
+        app._popup_suppressed_for = value
+        self.text = value
+        lines = value.split("\n")
+        self.move_cursor((len(lines) - 1, len(lines[-1])))
+        return True
 
     async def _on_key(self, event):  # type: ignore[override]
         key = event.key
@@ -90,7 +135,7 @@ class PromptArea(TextArea):
             except Exception:
                 pass
             return
-        if key in ("up", "down", "enter", "space", "escape"):
+        if key in ("up", "down", "enter", "space", "escape") or (len(key) == 1 and key.isdigit()):
             try:
                 if self.app._ask_user.handle_key(key):
                     event.stop()
@@ -106,6 +151,18 @@ class PromptArea(TextArea):
                     return
             except Exception:
                 pass
+        if key in ("up", "down") and self._history_key(key):
+            event.stop()
+            event.prevent_default()
+            return
+        if key in ("home", "end") and not (self.text or "").strip():
+            event.stop()
+            event.prevent_default()
+            try:
+                self.app.action_scroll_transcript(key)
+            except Exception:
+                pass
+            return
         if key in ("shift+enter", "alt+enter", "ctrl+j", "ctrl+enter", "ctrl+n"):
             event.stop()
             event.prevent_default()

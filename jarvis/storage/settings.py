@@ -130,17 +130,28 @@ _VALID_THEMES = ("red", "blue", "purple", "green", "orange", "yellow", "rose", "
 _VALID_THINK_EFFORTS = THINK_EFFORTS
 
 
+def _valid_themes() -> tuple[str, ...]:
+    """Every TUI palette (falls back to the classic list if the TUI can't load)."""
+    try:
+        from ..tui.theme import PALETTES
+
+        return tuple(PALETTES)
+    except Exception:
+        return _VALID_THEMES
+
+
 def _coerce(path: str, value: Any) -> Any:
     """Light validation/coercion for known paths."""
     if path == "theme":
-        if value not in _VALID_THEMES:
-            raise ValueError(f"theme must be one of {_VALID_THEMES}")
+        valid = _valid_themes()
+        if value not in valid:
+            raise ValueError(f"theme must be one of {valid}")
         return value
     if path == "think.effort":
         if value not in _VALID_THINK_EFFORTS:
             raise ValueError(f"think.effort must be one of {_VALID_THINK_EFFORTS}")
         return value
-    if path in ("skills.global", "mcp.global", "agent.global", "think.mode", "pin.enabled"):
+    if path in ("skills.global", "mcp.global", "agent.global", "think.mode", "pin.enabled", "ui.mouse"):
         if isinstance(value, str):
             v = value.strip().lower()
             if v in ("true", "1", "yes", "on"):
@@ -353,7 +364,7 @@ def _migrate_legacy() -> dict[str, Any]:
         out["model"] = m.strip()
 
     t = _read_json(LAST_THEME_FILE).get("theme")
-    if isinstance(t, str) and t in _VALID_THEMES:
+    if isinstance(t, str) and t in _valid_themes():
         out["theme"] = t
 
     s = _read_json(SKILLS_CONFIG_FILE).get("global_skills")

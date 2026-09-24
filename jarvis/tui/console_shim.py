@@ -1,28 +1,33 @@
-"""Rich-Console-compatible shim that routes output to a Textual RichLog.
+"""Rich-Console-compatible shim that routes output into the TUI transcript.
 
-Implemented: ``print``, ``rule``, ``status`` (no-op context manager),
-``prompt_shell_approval`` (blocking Y/n/a modal), ``prompt_ask_user_question``
-(status-bar multiple choice), and ``input`` (blocking
-text-input modal for worker threads). Renderables are forwarded to the app's
-RichLog from any thread via ``App.call_from_thread``.
+Everything the agent loop and slash commands print lands here:
+
+* ``print`` / ``rule`` / ``clear`` — generic output → ``NoticeBlock``
+* ``assistant_stream_*`` — live reply → ``AssistantBlock`` (streaming markdown)
+* ``thinking_stream_*`` — reasoning deltas → ``ThinkingBlock``
+* ``emit_tool_event`` — tool start/done → ``ToolBlock`` rows
+* ``file_diff`` — edit/write diffs → ``DiffBlock`` under the tool row
+* ``prompt_*`` / ``input`` — blocking prompts for worker threads
+
+Streaming is decoupled from rendering: worker threads only append deltas
+to a lock-protected buffer; the app's UI pump (``pump()``, ~24×/s while
+busy) drains them into the widgets. The network thread never waits on a
+repaint, and a burst of tokens costs one markdown update, not hundreds.
 """
+from __future__ import annotations
+
+import asyncio
+import logging
 import queue
-import re
 import threading
 import time
 from contextlib import contextmanager
 from typing import Any
 
 from rich.console import Console as _RichConsole
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.rule import Rule
-from rich.measure import measure_renderables
-from rich.segment import Segment
 from rich.text import Text
-from textual.geometry import Size
-from textual.strip import Strip
-from textual.widgets import RichLog, Static
+
+_log = logging.getLogger("jarvis.tui")
 
 
 def _safe_from_markup(text: str) -> Text:
@@ -31,6 +36,17 @@ def _safe_from_markup(text: str) -> Text:
         return Text.from_markup(text)
     except Exception:
         return Text(text)
+
+
+def _at_bottom(log) -> bool:
+    """True when the user hasn't scrolled up (kept for callers/tests)."""
+    try:
+        return bool(log.following)
+    except Exception:
+        try:
+            return bool(log.is_vertical_scroll_end)
+        except Exception:
+            return True
 
 
 class _PromptWaiter:
@@ -55,7 +71,7 @@ class _PromptWaiter:
 
         deadline = time.monotonic() + timeout
         while True:
-            if state.cancel_requested.is_set():
+            if state.turn_cancelled():
                 return None
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -76,511 +92,474 @@ class _PromptWaiter:
                 pass
             self.deliver(value)
 
-        self._app.call_from_thread(_go)
-
-
-def _at_bottom(log: RichLog) -> bool:
-    """True when the user hasn't scrolled up — safe to auto-follow new output.
-
-    Forcing ``scroll_end=True`` on every streaming flush makes it impossible
-    to scroll back (or select text) while a reply streams; callers should pass
-    ``scroll_end=_at_bottom(log)`` instead.
-    """
-    try:
-        return bool(log.is_vertical_scroll_end)
-    except Exception:
-        return True
-
-
-def _truncate_rich_log_lines(log: RichLog, line_count: int) -> None:
-    """Drop lines from ``line_count`` onward (used to replace in-progress stream block).
-
-    Deliberately does NOT touch ``virtual_size`` or the scroll offset — this
-    runs on every streaming flush, and resizing/clamping here makes the view
-    jitter (shrink-clamp-up, write-scroll-down, dozens of times per second).
-    Callers that remove content permanently (cancel/abort) must follow up
-    with ``_fixup_rich_log_viewport``.
-    """
-    log.lines = log.lines[:line_count]
-    log._line_cache.clear()
-    if hasattr(log, '_render_cache'):
-        log._render_cache = {}
-    log.refresh(layout=True)
-
-
-def _fixup_rich_log_viewport(log: RichLog) -> None:
-    """Sync ``virtual_size`` to the real line count and pull the viewport
-    back inside the content after a permanent removal (esc-cancel). Without
-    this the scroll offset can point past the end — an all-black transcript
-    until the user scrolls."""
-    try:
-        log.virtual_size = Size(log._widest_line_width, len(log.lines))
-        if log.scroll_offset.y > log.max_scroll_y:
-            log.scroll_end(animate=False)
-        log.refresh(layout=True)
-    except Exception:
-        pass
-
-
-def _render_to_strips(
-    log: RichLog,
-    content,
-    *,
-    expand: bool = True,
-    shrink: bool = True,
-) -> tuple[list[Strip], int]:
-    """Render *content* the same way ``RichLog.write`` would, without mutating the log."""
-    renderable = log._make_renderable(content)
-    console = log.app.console
-    render_options = console.options
-
-    if isinstance(renderable, Text) and not log.wrap:
-        render_options = render_options.update(overflow="ignore", no_wrap=True)
-
-    renderable_width = measure_renderables(
-        console, render_options, [renderable]
-    ).maximum
-    scrollable_content_width = log.scrollable_content_region.width
-    render_width = renderable_width
-    if expand and renderable_width < scrollable_content_width:
-        render_width = max(renderable_width, scrollable_content_width)
-    if shrink and renderable_width > scrollable_content_width:
-        render_width = min(renderable_width, scrollable_content_width)
-    render_width = max(render_width, log.min_width)
-
-    render_options = render_options.update_width(render_width)
-    segments = console.render(renderable, render_options)
-    lines = list(Segment.split_lines(segments))
-    if not lines:
-        strips = [Strip.blank(render_width)]
-    else:
-        strips = Strip.from_lines(lines)
-        for strip in strips:
-            strip.adjust_cell_length(render_width)
-    return strips, render_width
-
-
-def _refresh_rich_log_layout(log: RichLog) -> None:
-    log._line_cache.clear()
-    if hasattr(log, "_render_cache"):
-        log._render_cache = {}
-    log.virtual_size = Size(log._widest_line_width, len(log.lines))
-    log.refresh()
-
-
-def _replace_rich_log_block(
-    log: RichLog,
-    anchor: int,
-    old_line_count: int,
-    content,
-) -> int:
-    """Swap ``old_line_count`` lines at *anchor* for newly rendered *content*."""
-    new_strips, render_width = _render_to_strips(log, content)
-    anchor = max(0, min(anchor, len(log.lines)))
-    log.lines = log.lines[:anchor] + new_strips + log.lines[anchor + old_line_count:]
-    log._widest_line_width = max(log._widest_line_width, render_width)
-    for strip in new_strips:
-        log._widest_line_width = max(log._widest_line_width, strip.cell_length)
-    _refresh_rich_log_layout(log)
-    return len(new_strips)
-
-
-def _append_rich_log_block(
-    log: RichLog,
-    content,
-    *,
-    scroll_end: bool | None = None,
-) -> int:
-    """Append *content* and return how many lines were added."""
-    before = len(log.lines)
-    log.write(content, scroll_end=scroll_end, expand=True)
-    return len(log.lines) - before
+        if threading.current_thread() is threading.main_thread():
+            _go()  # call_from_thread raises on the UI thread
+        else:
+            self._app.call_from_thread(_go)
 
 
 class TUIConsole:
+    # Tells shared code (render.py, stream.py, banners.py) that this console
+    # draws tool rows / welcome itself, so the legacy verbose prints are skipped.
+    renders_tool_rows = True
+
     def __init__(self, app, log_widget, status_widget=None):
         self._app = app
-        self._log = log_widget
+        self._log = log_widget  # the Transcript
         self._status = status_widget
         self._renderer = _RichConsole(file=None, record=False, width=120)
-        # In-log streaming: line index in RichLog.lines where the current reply started
-        self._stream_line_anchor = 0
+        self._lock = threading.Lock()
+        # assistant stream (a long reply spans a chain of continuation blocks)
+        self._as_owner: int | None = None
+        self._th_owner: int | None = None
+        self._as_block = None
+        self._as_chain: list = []
+        self._as_pending: list[str] = []
         self._as_title = ""
         self._as_buffer = ""
-        self._as_dirty = 0
-        self._as_flush_every = 28
-        # How many lines the live reply panel currently occupies — lets the
-        # abort path replace exactly its own block instead of truncating to
-        # the end of the log (which would eat lines printed after it).
-        self._as_line_count = 0
-        # In-log thinking stream (extended thinking / reasoning deltas)
-        self._think_line_anchor = 0
-        self._think_buffer = ""
-        self._think_dirty = 0
-        self._think_flush_every = 48
-        self._think_finalized = False
-        self._think_rendered = False
+        # thinking stream
+        self._th_block = None
+        self._th_pending: list[str] = []
+        self._th_buffer = ""
+        self._th_streamed = False
+        # rough output-token estimate for the activity line (chars / 4)
+        self.stream_chars = 0
+        # tool rows by tool_use id
+        self._tools: dict[str, Any] = {}
+        # files edited this session → (lines added, lines removed) for the sidebar
+        self.changed_files: dict[str, tuple[int, int]] = {}
+        # live slash-command block (/upgrade …)
+        self._cmd_block = None
         self._active_shell_waiter: _PromptWaiter | None = None
         self._active_ask_waiter: _PromptWaiter | None = None
         self._active_input_waiter: _PromptWaiter | None = None
-        # Live spinner beside a slash command (e.g. /upgrade) in the transcript.
-        self._cmd_progress_anchor: int | None = None
-        self._cmd_progress_line_count: int = 0
-        self._cmd_progress_command: str = ""
-        self._cmd_progress_phase: str = ""
-        self._cmd_progress_spinner_i: int = 0
 
-    # ─── thinking streaming (reasoning deltas before reply text) ───────
+    # ─── thread helpers ────────────────────────────────────────────────
+    def _on_ui(self, fn, *args):
+        """Run ``fn`` on the UI thread and wait for it (direct if already there).
+
+        Coroutine functions invoked from the UI thread are scheduled as a task.
+        """
+        if threading.current_thread() is threading.main_thread() or not self._app.is_running:
+            try:
+                result = fn(*args)
+            except Exception:
+                _log.exception("TUI update failed: %r", fn)
+                return None
+            if asyncio.iscoroutine(result):
+                try:
+                    return asyncio.ensure_future(result)
+                except RuntimeError:
+                    result.close()
+                    return None
+            return result
+        try:
+            return self._app.call_from_thread(fn, *args)
+        except Exception:
+            _log.exception("TUI update failed (from worker): %r", fn)
+            return None
+
+    def _transcript(self):
+        return self._log
+
+    # ─── stream ownership ─────────────────────────────────────────────
+    # The worker that starts a stream owns it. After Esc the UI may start the
+    # next turn while the cancelled worker is still unwinding; deltas, commits
+    # and aborts from that stale thread must not touch the new turn's blocks.
+    def _owns(self, owner: int | None) -> bool:
+        me = threading.get_ident()
+        return me == owner or threading.current_thread() is threading.main_thread()
+
+    # ─── UI pump (called on the UI thread by the app timer) ────────────
+    async def pump(self) -> None:
+        from .transcript import ThinkingBlock
+
+        with self._lock:
+            th = "".join(self._th_pending)
+            self._th_pending.clear()
+            asst = "".join(self._as_pending)
+            self._as_pending.clear()
+        if th:
+            if self._th_block is None:
+                # Reasoning that resumes after reply text in the same stream.
+                self._th_block = self._transcript().add(ThinkingBlock(live=True))
+            self._th_block.append(th)
+        if asst and self._as_block is not None:
+            try:
+                blk = self._as_block
+                blk.append(asst)
+                if blk.should_split():
+                    nxt = blk.split_off()
+                    self._transcript().add(nxt, after=blk)
+                    self._as_chain.append(nxt)
+                    self._as_block = nxt
+            except Exception:
+                _log.exception("stream pump failed")
+        if self._as_block is not None:
+            self._as_block.tick_pulse()
+        if self._th_block is not None:
+            self._th_block.tick_pulse()
+
+    # ─── thinking streaming ────────────────────────────────────────────
     def thinking_stream_start(self) -> None:
         from .. import state as _state
+        from .transcript import ThinkingBlock
 
-        self._think_buffer = ""
-        self._think_dirty = 0
-        self._think_finalized = False
-        self._think_rendered = False
+        self._th_owner = threading.get_ident()
+        with self._lock:
+            self._th_pending.clear()
+        self._th_buffer = ""
+        self._th_streamed = True
         _state._thinking_stream_ui_active = True
 
-        def _anchor() -> int:
-            return len(self._log.lines)
+        def _start() -> None:
+            self._finish_thinking_ui()
+            self._th_block = self._transcript().add(ThinkingBlock(live=True))
 
-        self._think_line_anchor = self._app.call_from_thread(_anchor)
+        self._on_ui(_start)
 
     def thinking_stream_push(self, chunk: str) -> None:
-        from .. import state as _state
-
-        if not chunk or self._think_finalized:
+        if not chunk or threading.get_ident() != self._th_owner:
             return
-        first = not self._think_buffer
-        self._think_buffer += chunk
-        self._think_dirty += len(chunk)
-        if first or self._think_dirty >= self._think_flush_every:
-            self._think_dirty = 0
-            self._flush_thinking_panel()
+        self._th_buffer += chunk
+        self.stream_chars += len(chunk)
+        with self._lock:
+            self._th_pending.append(chunk)
 
     def thinking_stream_flush(self) -> None:
-        self._think_dirty = 0
-        if not self._think_buffer or self._think_finalized:
-            return
-        self._flush_thinking_panel()
+        """Deltas are drained by the UI pump; nothing to force here."""
+
+    def _finish_thinking_ui(self) -> None:
+        with self._lock:
+            rest = "".join(self._th_pending)
+            self._th_pending.clear()
+        blk, self._th_block = self._th_block, None
+        if blk is not None:
+            if rest:
+                blk.append(rest)
+            if not blk.text.strip():
+                blk.remove()
+            else:
+                blk.finish()
 
     def thinking_stream_finalize(self) -> None:
-        """Stop updating the live thinking panel; leave the last preview visible."""
         from .. import state as _state
 
-        self._think_finalized = True
-        self._think_dirty = 0
-        if self._think_buffer.strip():
-            _state._thinking_stream_ui_active = True
-        else:
-            _state._thinking_stream_ui_active = False
-
-    def _flush_thinking_panel(self) -> None:
-        from .. import state as _state
-
-        if not _state.show_internal or self._think_finalized:
+        if not self._owns(self._th_owner):
             return
-        buf = self._think_buffer
-        anchor = self._think_line_anchor
+        self._on_ui(self._finish_thinking_ui)
+        # Stays True while this iteration's reasoning is on screen, so
+        # render_assistant doesn't draw the same thinking a second time.
+        _state._thinking_stream_ui_active = bool(self._th_buffer.strip())
 
-        def _upd():
-            from .. import state as _state
+    def show_thinking(self, text: str) -> None:
+        """Render a complete (non-streamed) reasoning block."""
+        from .transcript import ThinkingBlock
 
-            if self._think_finalized or not _state._thinking_stream_ui_active:
-                return
-            self._think_rendered = True
-            follow = _at_bottom(self._log)
-            _truncate_rich_log_lines(self._log, anchor)
-            preview = buf if buf.strip() else " "
-            if len(preview) > 4000:
-                preview = "…" + preview[-3999:]
-            self._log.write(
-                Panel(
-                    Text(preview, style="dim"),
-                    title="thinking",
-                    title_align="left",
-                    border_style=self._think_border(),
-                    padding=(0, 1),
-                ),
-                scroll_end=follow,
-                expand=True,
-            )
+        if text and text.strip():
+            self._on_ui(lambda: self._transcript().add(ThinkingBlock(text.strip())))
 
-        try:
-            self._app.call_from_thread(_upd)
-        except Exception:
-            pass
+    def show_reply(self, text: str, flagged: bool = False) -> None:
+        """Render a complete (non-streamed) reply as a normal reply block."""
+        from .transcript import AssistantBlock
+
+        def _go() -> None:
+            blk = self._transcript().add(AssistantBlock(text))
+            if flagged:
+                blk.add_class("-flagged")
+
+        if text and text.strip():
+            self._on_ui(_go)
+
+    def show_plan(self, plan: str) -> None:
+        """Render a plan-mode proposal as a framed plan card."""
+        from .transcript import PlanBlock
+
+        if plan and plan.strip():
+            self._on_ui(lambda: self._transcript().add(PlanBlock(plan.strip())))
 
     def thinking_stream_reset(self) -> None:
-        """Forget thinking state at the start of a stream iteration.
-
-        Without this, an iteration that streams thinking and then issues only
-        tool calls (no text) leaves the active flag + an old anchor behind;
-        the next commit or cancel would truncate at that stale anchor and
-        wipe the tool panels written since. Called from the stream layer
-        before each API response is consumed. Worker-thread safe.
-        """
+        """Forget thinking state at the start of a stream iteration."""
         from .. import state as _state
 
-        def _reset() -> None:
-            self._think_buffer = ""
-            self._think_dirty = 0
-            self._think_finalized = False
-            self._think_rendered = False
-            self._think_line_anchor = len(self._log.lines)
-            _state._thinking_stream_ui_active = False
+        self._th_owner = threading.get_ident()
+        self._th_buffer = ""
+        self._th_streamed = False
+        _state._thinking_stream_ui_active = False
+        self._on_ui(self._finish_thinking_ui)
 
-        try:
-            if threading.current_thread() is threading.main_thread():
-                _reset()
-            else:
-                self._app.call_from_thread(_reset)
-        except Exception:
-            pass
-
-    # ─── assistant streaming (worker thread → main via call_from_thread) ─
+    # ─── assistant streaming ───────────────────────────────────────────
     def assistant_stream_start(self, title: str) -> None:
+        from .transcript import AssistantBlock
+
+        self._as_owner = threading.get_ident()
         self._as_title = title
         self._as_buffer = ""
-        self._as_dirty = 0
-        self._as_line_count = 0
+        with self._lock:
+            self._as_pending.clear()
 
-        def _anchor() -> int:
-            return len(self._log.lines)
+        def _start() -> None:
+            self._as_block = self._transcript().add(AssistantBlock(streaming=True))
+            self._as_chain = [self._as_block]
 
-        self._stream_line_anchor = self._app.call_from_thread(_anchor)
+        self._on_ui(_start)
 
     def assistant_stream_push(self, chunk: str) -> None:
-        if not chunk:
+        if not chunk or threading.get_ident() != self._as_owner:
             return
         self._as_buffer += chunk
-        self._as_dirty += len(chunk)
-        if self._as_dirty >= self._as_flush_every:
-            self._as_dirty = 0
-            self._flush_streaming_panel()
+        self.stream_chars += len(chunk)
+        with self._lock:
+            self._as_pending.append(chunk)
 
     def assistant_stream_flush(self) -> None:
-        self._as_dirty = 0
-        if not self._as_buffer:
-            return
-        self._flush_streaming_panel()
-
-    # ─── theme helpers ───────────────────────────────────────────────
-    @staticmethod
-    def _asst_border() -> str:
-        from . import theme as _t
-        return _t.ACCENT_2
-
-    @staticmethod
-    def _think_border() -> str:
-        from . import theme as _t
-        return _t.SEP
-
-    def _flush_streaming_panel(self) -> None:
-        buf = self._as_buffer
-        title = self._as_title
-        anchor = self._stream_line_anchor
-
-        def _upd():
-            from .. import state as _state
-
-            # A cancel may land between scheduling and execution — repainting
-            # then would resurrect a ghost partial panel.
-            if not _state._assistant_stream_ui_active:
-                return
-            follow = _at_bottom(self._log)
-            _truncate_rich_log_lines(self._log, anchor)
-            body = buf if buf.strip() else " "
-            self._log.write(
-                Panel(
-                    Markdown(body),
-                    title=title,
-                    title_align="left",
-                    border_style=self._asst_border(),
-                    padding=(0, 1),
-                ),
-                scroll_end=follow,
-                expand=True,
-            )
-            self._as_line_count = len(self._log.lines) - anchor
-
-        try:
-            self._app.call_from_thread(_upd)
-        except Exception:
-            pass
+        """Deltas are drained by the UI pump; nothing to force here."""
 
     def assistant_stream_commit(self, text: str, title: str, was_flagged: bool,
                                 thinking_blocks: list[str] | None = None) -> None:
-        """Replace the in-log stream preview with the final scrubbed panel.
+        """Finalize the live reply; render non-streamed thinking above it."""
+        from .. import state as _state
+        from .transcript import AssistantBlock, ThinkingBlock
 
-        If *thinking_blocks* are provided, render them first (above the text
-        panel) so thinking content appears before the assistant's reply.
+        if not self._owns(self._as_owner):
+            return
+        streamed_thinking = self._th_streamed
+
+        def _commit() -> None:
+            self._finish_thinking_ui()
+            with self._lock:
+                rest = "".join(self._as_pending)
+                self._as_pending.clear()
+            blk, self._as_block = self._as_block, None
+            chain, self._as_chain = self._as_chain, []
+            if blk is not None and rest:
+                blk.append(rest)
+            head = chain[0] if chain else blk
+            if thinking_blocks and not streamed_thinking:
+                for tb in thinking_blocks:
+                    if tb.strip():
+                        self._transcript().add(ThinkingBlock(tb), before=head)
+            if not text.strip():
+                for b in chain or ([blk] if blk is not None else []):
+                    b.remove()
+                return
+            if head is None:
+                head = self._transcript().add(AssistantBlock(text))
+            elif len(chain) > 1:
+                streamed = "\n\n".join(b.text.strip("\n") for b in chain)
+                if streamed.strip() != text.strip():
+                    # Final text differs from what streamed (scrubbed) —
+                    # collapse the chain back into one block.
+                    for b in chain[1:]:
+                        b.remove()
+                    head.finalize(text)
+                else:
+                    blk.finalize()
+            else:
+                head.finalize(text)
+            if was_flagged:
+                head.add_class("-flagged")
+
+        self._on_ui(_commit)
+        self._as_buffer = ""
+        self._th_buffer = ""
+        self._th_streamed = False
+        _state._assistant_stream_ui_active = False
+        _state._thinking_stream_ui_active = False
+
+    def assistant_stream_abort(self) -> None:
+        """Stop a live stream IN PLACE (cancel / error) — nothing is deleted.
+
+        The partial reply keeps everything streamed so far (including the
+        not-yet-drained tail) and gains an "interrupted" marker; an empty
+        placeholder is dropped. Runs synchronously on the UI thread, so the
+        next turn can never grab (or lose) this turn's block.
         """
-        del was_flagged
         from .. import state as _state
 
-        anchor = self._stream_line_anchor
-
-        def _commit():
-            follow = _at_bottom(self._log)
-            _truncate_rich_log_lines(self._log, anchor)
-            self._as_buffer = ""
-            self._as_dirty = 0
-            self._as_line_count = 0
-            _state._assistant_stream_ui_active = False
-            streamed_thinking = (
-                _state._thinking_stream_ui_active
-                and self._think_rendered
-                and self._think_buffer.strip()
-            )
-            if thinking_blocks and _state.show_internal:
-                if streamed_thinking:
-                    _truncate_rich_log_lines(self._log, self._think_line_anchor)
-                for tb in thinking_blocks:
-                    self._log.write(
-                        Panel(
-                            Text(tb, style="dim"),
-                            title="thinking",
-                            title_align="left",
-                            border_style=self._think_border(),
-                            padding=(0, 1),
-                        ),
-                        scroll_end=follow,
-                        expand=True,
-                    )
-            self._think_buffer = ""
-            self._think_dirty = 0
-            self._think_finalized = False
-            self._think_rendered = False
-            _state._thinking_stream_ui_active = False
-            if re.search(r"\S", text):
-                self._log.write(
-                    Panel(
-                        Markdown(text),
-                        title=title,
-                        title_align="left",
-                        border_style=self._asst_border(),
-                        padding=(0, 1),
-                    ),
-                    scroll_end=follow,
-                    expand=True,
-                )
-
-        try:
-            self._app.call_from_thread(_commit)
-        except Exception:
-            pass
-
-    def _command_progress_panel(self) -> Panel:
-        from . import theme as _t
-
-        frames = _t.SPINNER_FRAMES
-        sp = frames[self._cmd_progress_spinner_i % len(frames)]
-        phase = self._cmd_progress_phase or "working…"
-        body = (
-            f"{self._cmd_progress_command}  "
-            f"[{_t.ACCENT}]{sp}[/] [{_t.FG_DIM}]{phase}[/]"
-        )
-        return Panel(
-            _safe_from_markup(body),
-            title="you",
-            title_align="left",
-            border_style=_t.OK,
-            padding=(0, 1),
-        )
-
-    def _render_command_progress_panel(self) -> None:
-        if self._cmd_progress_anchor is None:
+        if not self._owns(self._as_owner):
             return
-        panel = self._command_progress_panel()
-        anchor = self._cmd_progress_anchor
-        old_count = self._cmd_progress_line_count
 
-        def _upd() -> None:
-            follow = _at_bottom(self._log)
-            self._cmd_progress_line_count = _replace_rich_log_block(
-                self._log, anchor, old_count, panel
-            )
-            if follow:
-                self._log.scroll_end(animate=False)
-
-        try:
-            if threading.current_thread() is threading.main_thread():
-                _upd()
+        def _abort() -> None:
+            self._finish_thinking_ui()
+            with self._lock:
+                rest = "".join(self._as_pending)
+                self._as_pending.clear()
+            blk, self._as_block = self._as_block, None
+            chain, self._as_chain = self._as_chain, []
+            if blk is None:
+                return
+            if rest:
+                blk.append(rest)
+            if blk.text.strip():
+                blk.finalize(interrupted=True)
+            elif len(chain) > 1:
+                blk.remove()
+                chain[-2].finalize(interrupted=True)
             else:
-                self._app.call_from_thread(_upd)
-        except Exception:
-            pass
+                blk.remove()
 
+        self._on_ui(_abort)
+        self._as_buffer = ""
+        _state._assistant_stream_ui_active = False
+        _state._thinking_stream_ui_active = False
+
+    def reset_stream_ui(self) -> None:
+        """Drop all stream bookkeeping at the start of a turn (worker thread)."""
+        from .. import state as _state
+
+        me = threading.get_ident()
+        self._as_owner = me
+        self._th_owner = me
+        with self._lock:
+            self._as_pending.clear()
+            self._th_pending.clear()
+        self._as_buffer = ""
+        self._th_buffer = ""
+        self._th_streamed = False
+        self.stream_chars = 0
+        self._as_block = None
+        self._as_chain = []
+        self._th_block = None
+        _state._assistant_stream_ui_active = False
+        _state._thinking_stream_ui_active = False
+
+    # ─── tool rows ─────────────────────────────────────────────────────
+    def emit_tool_event(self, event_type: str, data: dict[str, Any]) -> None:
+        data = data or {}
+        if event_type == "tool_start":
+            self._on_ui(self._tool_start, data)
+        elif event_type == "tool_done":
+            self._on_ui(self._tool_done, data)
+
+    def _tool_start(self, data: dict) -> None:
+        from .transcript import ToolBlock
+
+        tid = str(data.get("id") or "")
+        if not tid:
+            return
+        old = self._tools.get(tid)
+        if old is not None and old.status == "running":
+            return
+        # (a finished row with the same id = provider reusing ids → new row)
+        blk = ToolBlock(tid, str(data.get("name") or "tool"), data.get("input"))
+        self._tools[tid] = blk
+        self._transcript().add(blk)
+
+    def _tool_done(self, data: dict) -> None:
+        tid = str(data.get("id") or "")
+        blk = self._tools.get(tid)
+        if blk is None or blk.status != "running":
+            # Late result from a cancelled / forgotten turn — no stray rows.
+            return
+        blk.finish(
+            str(data.get("output") or ""),
+            error=bool(data.get("error")) or None,
+            repaired=bool(data.get("repaired")),
+        )
+
+    def cancel_running_tools(self) -> None:
+        def _go() -> None:
+            for blk in self._tools.values():
+                blk.cancel()
+
+        self._on_ui(_go)
+
+    def running_tool_blocks(self) -> list:
+        """Rows that still animate (spinner or finish flash)."""
+        return [b for b in self._tools.values() if b.animating]
+
+    def forget_tools(self) -> None:
+        self._tools.clear()
+
+    def file_diff(self, path: str, before: str, after: str, action: str = "edit") -> None:
+        """Show a diff under the matching running edit/write row.
+
+        The diff itself (difflib + path resolution) is computed here, on the
+        calling worker thread; only the finished rows cross to the UI.
+        """
+        from ..path_resolve import robust_resolve
+        from .transcript import DiffBlock, ToolBlock, diff_rows
+        from .tool_format import short_path
+
+        rows, added, removed, hidden = diff_rows(before, after, 60)
+        if not rows:
+            return
+
+        def _res(p: str):
+            try:
+                return robust_resolve(p)
+            except Exception:
+                return None
+
+        target = _res(path)
+        key = short_path(path)
+
+        def _go() -> None:
+            host = None
+            for blk in reversed(list(self._tools.values())):
+                if blk.tool_name not in ("write_file", "edit_file", "multi_edit") or blk.status != "running":
+                    continue
+                inp = blk.tool_input if isinstance(blk.tool_input, dict) else {}
+                paths = [str(inp["path"])] if inp.get("path") else []
+                paths += [str(e["path"]) for e in inp.get("edits") or []
+                          if isinstance(e, dict) and e.get("path")]
+                if any(p == path or (target is not None and _res(p) == target) for p in paths):
+                    host = blk
+                    break
+            diff = DiffBlock(path, rows=rows, added=added, removed=removed, hidden=hidden, action=action)
+            a0, r0 = self.changed_files.pop(key, (0, 0))
+            self.changed_files[key] = (a0 + added, r0 + removed)
+            t = self._transcript()
+            if isinstance(host, ToolBlock) and host.parent is t:
+                anchor = host.attached[-1] if host.attached else host
+                t.add(diff, after=anchor)
+                host.attached.append(diff)
+                host.add_diff_stats(added, removed)
+            else:
+                diff.add_class("-tight")
+                t.add(diff)
+
+        self._on_ui(_go)
+
+    # Legacy parallel-files dock hooks — tool rows replace the dock panel.
+    def refresh_tool_activity(self) -> None:
+        return None
+
+    refresh_tool_dock = refresh_tool_activity
+
+    def reset_tool_activity_panel(self) -> None:
+        return None
+
+    # ─── slash-command progress (/upgrade) ─────────────────────────────
     def start_command_progress(self, command: str, *, phase: str = "upgrading…") -> None:
-        """Show the user's slash command with a live spinner beside it."""
-        self._cmd_progress_command = (command or "").strip()
-        self._cmd_progress_phase = phase
-        self._cmd_progress_spinner_i = 0
+        from .transcript import UserBlock
 
-        def _start() -> None:
-            self._cmd_progress_anchor = len(self._log.lines)
-            self._cmd_progress_line_count = _append_rich_log_block(
-                self._log, self._command_progress_panel(), scroll_end=True
-            )
+        def _go() -> None:
+            blk = UserBlock((command or "").strip())
+            blk.phase = phase
+            self._cmd_block = self._transcript().add(blk)
 
-        try:
-            if threading.current_thread() is threading.main_thread():
-                _start()
-            else:
-                self._app.call_from_thread(_start)
-        except Exception:
-            self._cmd_progress_anchor = None
-            self._cmd_progress_line_count = 0
+        self._on_ui(_go)
 
     def update_command_progress(self, phase: str) -> None:
         phase = (phase or "").strip()
-        if not phase or self._cmd_progress_anchor is None:
+        blk = self._cmd_block
+        if not phase or blk is None or phase == blk.phase:
             return
-        if phase == self._cmd_progress_phase:
-            return
-        self._cmd_progress_phase = phase
-        self._render_command_progress_panel()
+        self._on_ui(blk.set_phase, phase)
 
     def tick_command_progress_spinner(self) -> None:
-        if self._cmd_progress_anchor is None:
-            return
-        self._cmd_progress_spinner_i += 1
-        self._render_command_progress_panel()
+        return None  # UserBlock.tick is driven by the app's spinner timer
 
     def finish_command_progress(self) -> None:
-        """Replace the live panel with a plain user panel (no spinner)."""
-        if self._cmd_progress_anchor is None:
-            return
-        command = self._cmd_progress_command
-        anchor = self._cmd_progress_anchor
-        old_count = self._cmd_progress_line_count
-        from . import theme as _t
+        blk, self._cmd_block = self._cmd_block, None
+        if blk is not None:
+            self._on_ui(blk.set_phase, "")
 
-        panel = Panel(
-            Markdown(command),
-            title="you",
-            title_align="left",
-            border_style=_t.OK,
-            padding=(0, 1),
-        )
-        self._cmd_progress_anchor = None
-        self._cmd_progress_line_count = 0
-        self._cmd_progress_command = ""
-        self._cmd_progress_phase = ""
-
-        def _finish() -> None:
-            _replace_rich_log_block(self._log, anchor, old_count, panel)
-
-        try:
-            if threading.current_thread() is threading.main_thread():
-                _finish()
-            else:
-                self._app.call_from_thread(_finish)
-        except Exception:
-            pass
-
+    # ─── activity line ────────────────────────────────────────────────
     def report_turn_phase(self, label: str) -> None:
-        """Update the TUI activity line (spinner + phase + clock). Safe from any thread."""
+        """Update the activity line (spinner + phase + clock). Any thread."""
         app = self._app
         if not hasattr(app, "_sync_activity_phase"):
             return
@@ -588,178 +567,25 @@ class TUIConsole:
         def _go() -> None:
             app._sync_activity_phase(label)
             self.update_command_progress(label)
-            # Avoid leaving the footer stuck on the initial "thinking…" for whole turns.
-            if hasattr(app, "_set_status") and label:
-                short = label if len(label) <= 56 else label[:53] + "…"
-                try:
-                    app._set_status(short)
-                except Exception:
-                    pass
 
-        try:
-            if threading.current_thread() is threading.main_thread():
-                _go()
-            else:
-                app.call_from_thread(_go)
-        except Exception:
-            pass
+        self._on_ui(_go)
 
-    def refresh_tool_activity(self) -> None:
-        """Refresh the parallel-files panel in the transcript (worker-thread safe)."""
-        app = self._app
-        if not hasattr(app, "_refresh_tool_dock"):
-            return
+    # ─── welcome ──────────────────────────────────────────────────────
+    def show_welcome(self) -> None:
+        fn = getattr(self._app, "_mount_welcome", None)
+        if callable(fn):
+            self._on_ui(fn)
 
-        def _go() -> None:
-            app._refresh_tool_dock()
-
-        try:
-            if threading.current_thread() is threading.main_thread():
-                _go()
-            else:
-                app.call_from_thread(_go)
-        except Exception:
-            pass
-
-    refresh_tool_dock = refresh_tool_activity  # backwards compat
-
-    def reset_tool_activity_panel(self) -> None:
-        app = self._app
-        if not hasattr(app, "reset_tool_activity_panel"):
-            return
-
-        def _go() -> None:
-            app.reset_tool_activity_panel()
-
-        try:
-            if threading.current_thread() is threading.main_thread():
-                _go()
-            else:
-                app.call_from_thread(_go)
-        except Exception:
-            pass
-
-    def assistant_stream_abort(self) -> None:
-        """Stop a live stream IN PLACE (cancel / error).
-
-        Everything already streamed stays in the transcript — the partial
-        reply panel is re-rendered once with the full buffer (the last
-        ~flush-interval of characters may not have been painted yet) and an
-        "interrupted" marker. Nothing is deleted: an earlier version removed
-        the partial panel here, which read as the whole chat being wiped.
-        """
-        from .. import state as _state
-
-        def _abort():
-            was_streaming = _state._assistant_stream_ui_active
-            buf = self._as_buffer
-            self._as_buffer = ""
-            self._as_dirty = 0
-            if was_streaming:
-                from . import theme as _t
-
-                follow = _at_bottom(self._log)
-                anchor = self._stream_line_anchor
-                if buf.strip():
-                    # Replace ONLY the live panel's block — lines printed
-                    # after it (e.g. "⏹ cancelled by user") must survive.
-                    self._as_line_count = _replace_rich_log_block(
-                        self._log,
-                        anchor,
-                        self._as_line_count,
-                        Panel(
-                            Markdown(buf),
-                            title=f"{self._as_title} · ⏹ interrupted",
-                            title_align="left",
-                            border_style=_t.WARN,
-                            padding=(0, 1),
-                        ),
-                    )
-                elif self._as_line_count:
-                    # Nothing streamed — drop the empty placeholder block.
-                    self._log.lines = (
-                        self._log.lines[:anchor]
-                        + self._log.lines[anchor + self._as_line_count:]
-                    )
-                    self._as_line_count = 0
-                    _refresh_rich_log_layout(self._log)
-                if follow:
-                    self._log.scroll_end(animate=False)
-            _state._assistant_stream_ui_active = False
-            # Keep any thinking panel (live or finalized) as-is — just stop
-            # updating it and forget the bookkeeping.
-            self._think_buffer = ""
-            self._think_dirty = 0
-            self._think_finalized = False
-            self._think_rendered = False
-            _state._thinking_stream_ui_active = False
-            if was_streaming:
-                _fixup_rich_log_viewport(self._log)
-
-        try:
-            self._app.call_from_thread(_abort)
-        except Exception:
-            _state._assistant_stream_ui_active = False
-            _state._thinking_stream_ui_active = False
-
-    def reset_stream_ui(self) -> None:
-        """Drop all stream bookkeeping at the start of a turn.
-
-        A previous turn can leave ``_thinking_stream_ui_active`` set with an
-        old anchor (e.g. it streamed thinking but was cancelled before the
-        text committed). If that stale anchor survives into this turn, the
-        next cancel truncates at it — wiping every line written since.
-        Re-anchoring to the current end of the log makes that impossible.
-        """
-        from .. import state as _state
-
-        def _reset() -> None:
-            self._as_buffer = ""
-            self._as_dirty = 0
-            self._as_line_count = 0
-            self._think_buffer = ""
-            self._think_dirty = 0
-            self._think_finalized = False
-            self._think_rendered = False
-            self._stream_line_anchor = len(self._log.lines)
-            self._think_line_anchor = len(self._log.lines)
-            _state._assistant_stream_ui_active = False
-            _state._thinking_stream_ui_active = False
-
-        try:
-            if threading.current_thread() is threading.main_thread():
-                _reset()
-            else:
-                self._app.call_from_thread(_reset)
-        except Exception:
-            pass
-
-    # ─── internal ───────────────────────────────────────────────────────
-    def _write(self, renderable):
-        # Bordered panels should always fill the transcript width so they read
-        # consistently; plain text / rules keep their natural sizing.
-        expand = isinstance(renderable, Panel)
-
-        def _go() -> None:
-            self._log.write(
-                renderable, scroll_end=_at_bottom(self._log), expand=expand
-            )
-
-        try:
-            self._app.call_from_thread(_go)
-        except Exception:
-            try:
-                _go()
-            except Exception:
-                pass
+    # ─── Rich.Console surface ──────────────────────────────────────────
+    def _write(self, renderable) -> None:
+        self._on_ui(self._transcript().write, renderable)
 
     def _terminal_width(self) -> int:
         try:
-            return max(24, int(self._log.size.width))
+            return max(24, int(self._log.scrollable_content_region.width or self._log.size.width))
         except Exception:
             return 80
 
-    # ─── Rich.Console surface ──────────────────────────────────────────
     def print(self, *objects: Any, sep: str = " ", end: str = "\n", **kwargs):
         if not objects:
             self._write(Text(""))
@@ -778,35 +604,30 @@ class TUIConsole:
                 self._write(obj)
 
     def rule(self, title: str = "", *, style: str = "rule.line", **kwargs):
+        from rich.rule import Rule
+
         self._write(Rule(title=title, style=style))
 
     @contextmanager
     def status(self, message: str = "", **kwargs):
-        prev = None
-        if self._status is not None:
-            try:
-                prev = getattr(self._status, "renderable", None)
-                self._app.call_from_thread(self._status.update, message)
-            except Exception:
-                pass
+        app = self._app
+        prev = getattr(app, "_activity_label", "")
+        if message and hasattr(app, "_sync_activity_phase"):
+            self._on_ui(app._sync_activity_phase, _safe_from_markup(message).plain)
         try:
             yield self
         finally:
-            if self._status is not None:
-                try:
-                    self._app.call_from_thread(self._status.update, prev or "")
-                except Exception:
-                    pass
+            if hasattr(app, "_sync_activity_phase"):
+                self._on_ui(app._sync_activity_phase, prev)
 
     def clear(self, *args, **kwargs):
-        try:
-            self._app.call_from_thread(self._log.clear)
-        except Exception:
-            try:
-                self._log.clear()
-            except Exception:
-                pass
+        def _go() -> None:
+            self._tools.clear()
+            self._log.clear()
 
+        self._on_ui(_go)
+
+    # ─── prompts ──────────────────────────────────────────────────────
     def cancel_pending_prompts(self) -> None:
         """Unblock worker-thread prompts (shell approval, ask-user, text input)."""
         if self._active_shell_waiter is not None:
@@ -867,8 +688,7 @@ class TUIConsole:
     def prompt_shell_approval(self, cmd: str) -> str:
         """Block (from worker thread) until the user approves a shell command.
 
-        Returns one of: ``y`` (run), ``n`` (deny), ``a`` (always approve for session)
-        — same contract as the Rich REPL ``approve? [Y/n/a]`` prompt.
+        Returns one of: ``y`` (run), ``n`` (deny), ``a`` (always approve for session).
         """
         from .shell_approval_modal import ShellApprovalScreen
 
@@ -889,17 +709,14 @@ class TUIConsole:
         try:
             out = waiter.wait()
             from .. import state as _state
-            if _state.cancel_requested.is_set():
+            if _state.turn_cancelled():
                 raise KeyboardInterrupt()
             return out if isinstance(out, str) and out else "n"
         finally:
             self._active_shell_waiter = None
 
     def prompt_ask_user_question(self, questions) -> str:
-        """Block until the user answers structured multiple-choice questions.
-
-        Returns JSON from ``ask_user_question`` (answers + optional cancelled).
-        """
+        """Block until the user answers structured multiple-choice questions."""
         import json
 
         waiter = _PromptWaiter(self._app)
@@ -921,12 +738,9 @@ class TUIConsole:
             self._active_ask_waiter = None
 
     def input(self, prompt: str = "", *, password: bool = False, **kwargs) -> str:  # noqa: D401
-        """Show a text input modal and return the entered text.
+        """Show a text input modal and return the entered text (worker threads only).
 
-        Can only be called from a worker thread (not the main Textual thread)
-        because it blocks with a Queue. Raises ``EOFError`` if the user cancels.
-
-        The prompt text is printed to the transcript before the modal opens.
+        Raises ``EOFError`` if the user cancels.
         """
         if threading.current_thread() is threading.main_thread():
             raise RuntimeError(
@@ -934,7 +748,6 @@ class TUIConsole:
                 "use the Input widget or route through _run_turn instead."
             )
 
-        # Print the prompt to the transcript first
         if prompt:
             self.print(prompt, end="")
 
@@ -946,9 +759,7 @@ class TUIConsole:
         def on_done(result: str | None) -> None:
             waiter.deliver(result)
 
-        placeholder = "(paste here)"
-        if password:
-            placeholder = "(password, hidden)"
+        placeholder = "(password, hidden)" if password else "(paste here)"
 
         def push() -> None:
             self._app.push_screen(

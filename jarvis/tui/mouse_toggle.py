@@ -38,6 +38,17 @@ _lock = threading.Lock()
 _count = 0
 _atexit_registered = False
 
+# True when the app itself runs with full mouse support (the default). Textual
+# then owns mouse tracking, and the manual enable/disable toggles below must
+# stay out of the way — writing ?1000l on modal close would switch the app's
+# own tracking off.
+APP_MOUSE = False
+
+
+def set_app_mouse(enabled: bool) -> None:
+    global APP_MOUSE
+    APP_MOUSE = bool(enabled)
+
 
 def _write(seq: str) -> None:
     try:
@@ -57,6 +68,8 @@ def _ensure_atexit() -> None:
 def enable_mouse() -> None:
     """Enable mouse tracking; safe to nest."""
     global _count
+    if APP_MOUSE:
+        return
     _ensure_atexit()
     with _lock:
         _count += 1
@@ -67,6 +80,8 @@ def enable_mouse() -> None:
 def disable_mouse() -> None:
     """Decrement the enable-count; only disables once outermost enable returns."""
     global _count
+    if APP_MOUSE:
+        return
     with _lock:
         if _count > 0:
             _count -= 1

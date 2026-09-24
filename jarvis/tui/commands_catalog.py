@@ -45,7 +45,7 @@ COMMANDS = [
     # Custom commands — user-defined prompt templates triggered as /<name>
     ("/command", "open the command manager modal (new · edit · delete · import/export · global)"),
     # Theme — modal handles the picker
-    ("/theme", "open the theme picker (15 themes — live preview)"),
+    ("/theme", "open the theme picker (live preview)"),
     # Scan
     ("/scan", "AI-powered deep scan: identity / docs / projects → memory"),
     # MCP — single modal for everything
@@ -58,7 +58,8 @@ COMMANDS = [
     ("/version", "show Jarvis version"),
     # Control
     ("/think", "toggle extended thinking (bare /think) — or open effort picker"),
-    ("/verbose", "toggle internal tool trace (thinking UI needs /think)"),
+    ("/verbose", "toggle trace — thinking + tool output previews (⌃T)"),
+    ("/sidebar", "toggle the session sidebar (⌃B)"),
     ("/auto", "toggle auto-approve bash"),
     ("/plan", "toggle plan mode — read-only research until you approve a plan"),
     ("/multi", "enter a multiline message"),

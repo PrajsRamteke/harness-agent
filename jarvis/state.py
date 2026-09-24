@@ -55,6 +55,32 @@ total_tokens: int = 0
 # Persists across all phases so Escape works even when no stream is active.
 cancel_requested = threading.Event()
 
+# Per-worker cancellation. The TUI returns to idle the moment Esc is hit and
+# may start the next (queued) turn right away, clearing the global flag — a
+# cancelled worker that is still unwinding (inside a long tool, say) must
+# stay cancelled, or it would keep calling the model / running tools.
+_cancelled_threads: set[int] = set()
+_cancelled_lock = threading.Lock()
+
+
+def cancel_thread(ident: int | None) -> None:
+    if ident:
+        with _cancelled_lock:
+            _cancelled_threads.add(ident)
+
+
+def release_thread(ident: int | None) -> None:
+    if ident:
+        with _cancelled_lock:
+            _cancelled_threads.discard(ident)
+
+
+def turn_cancelled() -> bool:
+    """True when the current turn (global flag) or this worker was cancelled."""
+    if cancel_requested.is_set():
+        return True
+    return threading.get_ident() in _cancelled_threads
+
 # prompt stash (FIFO) — prompts received while busy; released one-by-one when each turn finishes
 # Each entry is ``str`` or ``(text, attachment_snapshot)`` for dropped-file chips.
 prompt_queue: list = []
@@ -261,30 +287,50 @@ THEMES = {
         "project_border": "#569cd6",
     },
 }
-theme: str = "red"
-theme_colors: dict = THEMES["red"]
+
+def _derive_theme_colors() -> None:
+    """Add a ``THEMES`` entry for every TUI palette not listed above, so
+    newer palettes are selectable everywhere (/theme, settings, restart)."""
+    try:
+        from .tui.theme import PALETTES
+    except Exception:
+        return
+    for name, p in PALETTES.items():
+        THEMES.setdefault(name, {
+            "user_border": p["ok"],
+            "asst_border": p["accent"],
+            "think_border": p["fg_dim"],
+            "tool_border": p["warn"],
+            "project_border": p["accent_2"],
+        })
+
+
+_derive_theme_colors()
+
+_DEFAULT_THEME = "opencode" if "opencode" in THEMES else "red"
+theme: str = _DEFAULT_THEME
+theme_colors: dict = THEMES[_DEFAULT_THEME]
 
 
 def _reload_saved_theme() -> None:
     """Restore theme from the unified settings file and sync the TUI theme module."""
     global theme, theme_colors
+    t = None
     try:
         from .storage.settings import get_settings
         t = get_settings().get("theme")
-        if t in THEMES:
-            theme = t
-            theme_colors = dict(THEMES[t])
-            # Sync the TUI theme module so Python constants update.
-            try:
-                from .tui.theme import set_theme as _set_tui_theme
-                _set_tui_theme(t)
-            except Exception:
-                pass
-            return
     except Exception:
         pass
-    theme = "red"
-    theme_colors = dict(THEMES["red"])
+    if t not in THEMES:
+        t = _DEFAULT_THEME
+    theme = t
+    theme_colors = dict(THEMES[t])
+    # Sync the TUI theme module so Python constants update.
+    try:
+        from .tui.theme import set_theme as _set_tui_theme
+        _set_tui_theme(t)
+    except Exception:
+        pass
 
 
 # ── unified persistence — all writes go through settings.json ─────────────

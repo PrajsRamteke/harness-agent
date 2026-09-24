@@ -86,6 +86,34 @@ class TuiModalScreen(ModalScreen[TDismiss]):
         super().__init__(*args, **kwargs)
         self.add_class("tui-modal-screen")
 
+    def on_mount(self) -> None:
+        """Shared polish for every dialog: ``esc`` hint on the title row and
+        a quick fade + rise on open. (Textual runs this in addition to each
+        subclass's own ``on_mount``.)"""
+        try:
+            from rich.table import Table
+            from rich.text import Text
+            from textual.widgets import Static
+
+            title = self.query_one("#modal_title", Static)
+            content = title.content
+            left = Text.from_markup(content) if isinstance(content, str) else content
+            grid = Table.grid(expand=True)
+            grid.add_column(ratio=1)
+            grid.add_column(justify="right")
+            grid.add_row(left, Text("esc", style=_theme.FG_DIM))
+            title.update(grid)
+        except Exception:
+            pass
+        try:
+            # Rise into place. (No opacity fade: Textual's opacity blending
+            # leaves children composited against the backdrop.)
+            frame = self.query_one("#modal")
+            frame.styles.offset = (0, 2)
+            frame.styles.animate("offset", (0, 0), duration=0.18, easing="out_cubic")
+        except Exception:
+            pass
+
 
 # ── Shared row formatters ─────────────────────────────────────────────────
 

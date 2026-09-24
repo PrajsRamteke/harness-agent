@@ -44,6 +44,7 @@ python -m pytest tests/ -q
 - `HARNESS_HTTP_READ_TIMEOUT` — streaming response timeout in seconds (default: 240 OpenRouter, 600 direct)
 - `HARNESS_HTTP_CONNECT_TIMEOUT` — connection timeout (default: 30)
 - `HARNESS_STREAM_REPLY` — set to `0` to disable live streaming of assistant text
+- `HARNESS_MOUSE` — set to `0` to run the TUI without mouse capture (native terminal selection)
 
 ## Architecture
 
@@ -60,7 +61,7 @@ python -m pytest tests/ -q
 | `tools/mac/` | macOS control: app launch/focus/quit, AppleScript, JXA scripts, UI reading, clicks, keystrokes, clipboard |
 | `tools/web/` | Web fetch + DuckDuckGo search with verified-source claim checking (`_claims.py`) |
 | `repl/` | Stream handling (`stream.py`), response rendering (`render.py`), hallucination guard (`hallucination.py`), context trimming (`trim.py`) |
-| `tui/` | Textual app (`app.py`), command palette, session/model/agent/skill pickers, MCP modal |
+| `tui/` | Textual app (`app.py`), widget transcript (`transcript.py`), console shim (`console_shim.py`), markdown renderer (`md_render.py`), tool rows/icons (`tool_format.py`), clickable footer (`footer.py`), sidebar, prompt history + paste chips, pickers/modals (shared chrome in `modal_chrome.py`) |
 | `commands/` | Slash command handlers dispatched from `dispatch.py` (`agent.py` activates agents, `skill.py` lists/loads skills) |
 | `storage/` | SQLite sessions (`sessions.py`), user memory (`memory.py`), **agents (`agents.py`)**, **skills (`skills.py`)**, **custom commands (`commands.py`)**, unified settings (`settings.py`), prefs (`prefs.py`) |
 | `mcp/` | MCP server management: config (`config.py`), registry (`registry.py`), manager (`manager.py`) |
@@ -104,6 +105,7 @@ default from the live catalog so a retired id never becomes a dead fallback.
 - **Tool routing**: Each API call goes through `tools/router.py:select_tools()`, which regex-scans the last 4 messages and keeps any tool groups already active in the tool-call loop.
 - **Conversation state**: All messages live in `state.messages` (plain dicts). The tool-call loop in `main.py:_send_and_loop()` / `tui/app.py` continues until `stop_reason == "end_turn"`.
 - **Tool execution**: Tools in `repl/render.py` run concurrently via `ThreadPoolExecutor` except for tools in `_SERIAL_TOOLS` (shell, file edits, macOS UI control, MCP tools) which run single-threaded.
+- **TUI rendering**: every `console.*` call lands in `tui/console_shim.py:TUIConsole`, which mounts one widget per entry in the bottom-anchored `Transcript` (`tui/transcript.py`): `UserBlock`, `AssistantBlock` (streaming markdown), `ThinkingBlock`, `ToolBlock` (one row per tool call from `emit_tool_event` — `repl/tool_events.py` passes `input`/`output`), `DiffBlock` (from `file_diff`, placed under its edit row), `NoticeBlock` (plain prints, coalesced), `TurnFooter`. Blocks render themselves from their own data at paint time as pre-wrapped `Text` (cached per width/theme), so theme switches, ⌃T trace toggles and resizes restyle in place — **never replay history to restyle**. Markdown goes through Rich (`md_render.py`), not Textual's `Markdown` widget (too many widgets per message). Streaming: worker threads only append deltas to a locked buffer; the app's ~24fps pump (`mixins/activity.py:_tick_activity` → `TUIConsole.pump`) drains them, freezing text before the last safe paragraph break and splitting long replies into continuation blocks. Shared code checks `getattr(console, "renders_tool_rows", False)` to skip legacy REPL panels, and optional hooks (`file_diff`, `show_thinking`, `show_reply`, `show_plan`, `show_welcome`) to render natively; `WebMuxConsole` mirrors those hooks to web clients. Cancellation: Esc finalizes the UI immediately and marks the worker thread cancelled (`state.cancel_thread` / `state.turn_cancelled()`); stream deltas are owned by the thread that started the stream, so a stale worker can't touch the next turn.
 - **Persistence**: Sessions stored in SQLite at `~/.config/harness-agent/sessions.db`. Pinned context from `~/.config/harness-agent/pinned.txt`. Aliases from `~/.config/harness-agent/aliases.json`. Unified preferences in `~/.config/harness-agent/settings.json` (global) merged with `<cwd>/.harness/settings.json` (per-project override).
 - **Auth**: `auth/client.py:make_client()` checks for `ANTHROPIC_API_KEY`, then stored key/OAuth tokens, then prompts interactively. Sets `state.provider` and `state.auth_mode`.
 - **Project context**: On startup, detects `AGENTS.md`, `AGENT.md`, `CLAUDE.md`, or `JARVIS.md` in CWD and stores only the path in `state.project_context_*`; file content is loaded on demand via `read_file()`.
@@ -118,12 +120,14 @@ default from the live catalog so a retired id never becomes a dead fallback.
 3. Register the group in `jarvis/tools/__init__.py` (`TOOL_GROUPS`, `TOOL_NAME_TO_GROUP`, `FUNC`).
 4. If specialized, add a regex trigger in `tools/router.py:select_tools()`.
 5. Wire the tool name → handler by adding it to the `FUNC` dict in `tools/__init__.py` — this is what `repl/render.py` uses to dispatch `tool_use` blocks.
+6. Optional: give it a readable transcript row in `tui/tool_format.py` (`_TITLES`, `tool_args`, `tool_summary`).
 
-**`ask_user_question`**: Structured multiple-choice prompts for the LLM. TUI shows options in `#askbar` above the status strip (↑/↓, Enter; space toggles when `allow_multiple`). Blocks in `_SERIAL_TOOLS`; uses `TUIConsole.prompt_ask_user_question` from worker threads.
+**`ask_user_question`**: Structured multiple-choice prompts for the LLM. TUI shows options in `#askbar` above the composer (↑/↓ + Enter or 1–9; space toggles when `allow_multiple`). Blocks in `_SERIAL_TOOLS`; uses `TUIConsole.prompt_ask_user_question` from worker threads.
 
 ### Themes and agents
 
-- **Themes**: 15 built-in palettes defined in `jarvis/tui/theme.py:PALETTES` (red, blue, purple, green, orange, yellow, rose, slate, ocean, cyberpunk, monochrome, forest, dracula, sunset, dark); persisted to `~/.config/harness-agent/settings.json` under `theme`. `/theme` switches live at runtime.
+- **Themes**: built-in palettes in `jarvis/tui/theme.py:PALETTES` (opencode — the default —, claude, tokyonight, catppuccin, gruvbox, nord, kimchi, red, blue, purple, green, orange, yellow, rose, slate, ocean, cyberpunk, monochrome, forest, dracula, sunset, dark). Each is also registered as a Textual theme (`textual_theme()`), exposing `$jv-*` CSS variables used by transcript widgets; `state.THEMES` derives entries for every palette. Persisted under `theme` in settings.json; `/theme` previews live.
+- **Mouse**: on by default (wheel scroll, select-to-copy). `HARNESS_MOUSE=0` or settings `ui.mouse: false` restores native terminal selection; `tui/mouse_toggle.py` toggles are no-ops while the app owns the mouse.
 - **Agents** (replaced the legacy mode system): User-creatable markdown files. The active agent's body is appended to the system prompt as an addon. Status bar shows the active agent (icon + name + scope hint). Tab key cycles through discovered agents. `/agent` opens the picker; `/agent init` scaffolds `.harness/`. Active agent persisted by name as `agent.active`.
 
 ### Adding a new agent

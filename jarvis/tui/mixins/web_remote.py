@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 
-from textual.widgets import RichLog
-
 from ..console_shim import TUIConsole
 from ..console_swap import _swap_console_everywhere
 from ..web_bar import WebRemoteBar, WebRemoteQR
@@ -172,20 +170,12 @@ class WebRemoteMixin:
             or _is_theme_modal_command(s)
 
             or s.lower() == "/local"
+            or s.lower() == "/sidebar"
             or s.lower() == "/agent init"
         )
 
     def _handle_web_cancel(self) -> None:
-        if not self._busy:
-            return
-        from ...repl.stream import cancel_current_stream
-
-        cancel_current_stream()
-        if hasattr(self._tui_console, "cancel_pending_prompts"):
-            self._tui_console.cancel_pending_prompts()
-        self._sync_activity_phase("Cancelling…")
-        self._tui_console.print(f"[{ui.WARN}]⏹ cancelled by user (web)[/]")
-        self._turn_done()
+        self._cancel_turn()
 
     def _complete_web_settings(self, data: dict, done) -> None:
         try:
@@ -237,10 +227,12 @@ class WebRemoteMixin:
 
             if action in ("session_resume", "session_new"):
                 try:
-                    log = self.query_one("#transcript", RichLog)
-                    log.clear()
+                    self.query_one("#transcript").clear()
+                    self._tui_console.forget_tools()
                 except Exception:
                     pass
+                if action == "session_new":
+                    self._mount_welcome()
                 if action == "session_resume":
                     try:
                         self._render_loaded_session()

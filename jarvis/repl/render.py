@@ -174,7 +174,7 @@ def _run_tool(b):
     args_preview = json.dumps(b.input, ensure_ascii=False)[:120]
     activity_label = describe_tool_activity(b.name, b.input)
     report_turn_phase(activity_label)
-    emit_tool_start(tool_id=b.id, name=b.name, label=activity_label)
+    emit_tool_start(tool_id=b.id, name=b.name, label=activity_label, input=b.input)
 
     def _finish(out_str: str):
         if dock:
@@ -185,6 +185,8 @@ def _run_tool(b):
             label=activity_label,
             error=str(out_str).startswith("ERROR"),
             repaired=has_repair_note(out_str),
+            input=b.input,
+            output=str(out_str),
         )
         return b, icon, args_preview, out_str
 
@@ -287,16 +289,16 @@ def _run_parallel_batch(batch, outputs):
     if not batch:
         return
     # Honour cancel flag before starting the batch
-    if state.cancel_requested.is_set():
+    if state.turn_cancelled():
         return
     if len(batch) > 1:
         workers = min(MAX_PARALLEL_TOOLS, len(batch))
-        if state.show_internal:
+        if state.show_internal and not getattr(console, "renders_tool_rows", False):
             console.print(f"[cyan]⚡ running {len(batch)} tools in parallel (max {workers} workers)[/]")
         ex = _tool_executor()
         for b, icon, ap, out_str in ex.map(_run_tool, batch):
             # Check cancel after each parallel tool completes
-            if state.cancel_requested.is_set():
+            if state.turn_cancelled():
                 # Don't bother storing results — we're aborting
                 break
             outputs[b.id] = (icon, ap, out_str)
@@ -355,13 +357,17 @@ def render_assistant(resp) -> bool:
                 if was_flagged:
                     console.print(f"[{_ui.ERR}]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠)[/]")
                 continue
-            console.print(Panel(
-                Markdown(text),
-                title=panel_title,
-                title_align="left",
-                border_style=_ui.ACCENT_2,
-                padding=(0, 1),
-            ))
+            show_reply = getattr(console, "show_reply", None)
+            if callable(show_reply):
+                show_reply(text, was_flagged)  # TUI: a normal reply block
+            else:
+                console.print(Panel(
+                    Markdown(text),
+                    title=panel_title,
+                    title_align="left",
+                    border_style=_ui.ACCENT_2,
+                    padding=(0, 1),
+                ))
             if was_flagged:
                 console.print(f"[{_ui.ERR}]⚠ hallucination guard: pattern-matched sentences above may be unverified (shown with ⚠)[/]")
 
@@ -380,8 +386,14 @@ def render_assistant(resp) -> bool:
 
     # Render thinking blocks (non-streaming / REPL path only — the TUI
     # streaming path renders them live and inside assistant_stream_commit).
-    if state.show_internal and not state._thinking_stream_ui_active:
+    # The TUI keeps reasoning blocks even with trace off (hidden by CSS, so
+    # toggling ⌃T reveals them); the Rich REPL prints only when trace is on.
+    show_thinking = getattr(console, "show_thinking", None)
+    if (state.show_internal or callable(show_thinking)) and not state._thinking_stream_ui_active:
         for thinking in thinking_blocks:
+            if callable(show_thinking):
+                show_thinking(thinking)
+                continue
             console.print(Panel(
                 thinking,
                 title="thinking",
@@ -406,7 +418,7 @@ def render_assistant(resp) -> bool:
             for b in tool_uses:
                 # Check cancel flag before each tool — allows Escape to abort
                 # even during a multi-tool batch.
-                if state.cancel_requested.is_set():
+                if state.turn_cancelled():
                     # Skip remaining tools: the turn is being cancelled.
                     break
 
@@ -438,7 +450,11 @@ def render_assistant(resp) -> bool:
             if b.id in outputs:
                 icon, ap, out_str = outputs[b.id]
                 state.record_tool_output(b.name, ap, out_str)
-                if state.show_internal and not compact_file_tool_ui():
+                if (
+                    state.show_internal
+                    and not getattr(console, "renders_tool_rows", False)
+                    and not compact_file_tool_ui()
+                ):
                     repaired_tag = (
                         f" [{_ui.WARN}]⚒ repaired[/]" if has_repair_note(out_str) else ""
                     )
@@ -479,7 +495,7 @@ def render_assistant(resp) -> bool:
         if isinstance(last, dict) and last.get("role") == "assistant":
             state.messages.append({"role": "user", "content": tool_results})
 
-    if state.cancel_requested.is_set():
+    if state.turn_cancelled():
         return False
 
     return bool(tool_results)

@@ -149,6 +149,12 @@ def welcome_banner(compact: bool = False, skip_art: bool = False):
     only the card — used by the TUI after the animated art sweep has
     already drawn the banner art itself.
     """
+    # The TUI draws its own compact welcome block (wordmark + context).
+    show_welcome = getattr(console, "show_welcome", None)
+    if callable(show_welcome):
+        show_welcome()
+        return
+
     c = _theme_colors()
     from ..constants import VERSION
     import pathlib
@@ -238,6 +244,8 @@ def _agent_flag(c: dict | None = None) -> str:
 
 def header_panel(compact: bool = False):
     """Rich-REPL only header strip. The TUI shows status bar instead."""
+    if getattr(console, "renders_tool_rows", False):
+        return
     c = _theme_colors()
     import pathlib
     from ..constants import VERSION

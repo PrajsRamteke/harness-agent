@@ -12,42 +12,41 @@ from . import theme as ui
 
 _SHORTCUTS = """
 [bold]Chat[/]
-  ↵              send message
-  ⇧↵  ⌃J         new line in prompt
-  esc            cancel turn (when busy)
-  ⌃C             cancel turn · press twice to quit
+  ↵              send message (queued if Jarvis is busy)
+  ⇧↵  ⌃J  ⌃N     new line in prompt
+  ↑ ↓            prompt history (first / last line of the prompt)
+  esc            interrupt the running turn · close a popup
+  ⌃C             interrupt · clear the prompt · press twice to quit
+  !cmd           run a shell command directly (no model)
 
-[bold]Copy & paste[/]
-  ⌃Y             copy last reply (clean text, no borders)
-  /copy          same as ⌃Y
-  /copy code     copy last code block from the reply
-  /copy all      copy whole conversation as markdown
-  mouse drag     native terminal selection (may include panel
-                 borders/padding — prefer ⌃Y · /copy for clean text)
+[bold]Commands & files[/]
+  /              command list — type to filter, ⇥ complete, ↵ run
+  ⌃P             command palette (searchable dialog)
+  @              attach a file — type to search, ⇥/↵ insert
+  drag-drop      drop media/docs into the prompt → [image 1], …
 
-[bold]Navigation[/]
-  /              command palette
-  @              attach file (type @path in prompt)
-  drag-drop      drop whitelisted media/docs into composer → [image 1], …
-  ⇥              cycle agent
-  ↑↓             scroll transcript (or @file picker)
-  pgup pgdn      scroll transcript by page
-  home end       jump to top / bottom (end re-enables follow while streaming)
+[bold]Agents & modes[/]
+  ⇥              cycle agent (empty prompt)
+  ⇧⇥             toggle plan mode (read-only research)
+  /model         switch model · /think effort · /theme colors
 
-[bold]Tools & trace[/]
-  ⌃F             tools inspector — files + shell/git output
-  ⌃T             trace on/off — thinking + tool panels in chat
-  /verbose       same as ⌃T
+[bold]Transcript[/]
+  mouse wheel    scroll · select text to copy it
+  pgup pgdn      scroll by page · ⇧↑ ⇧↓ by lines
+  home end       top / bottom when the prompt is empty
+  ⌃Home ⌃End     top / bottom (always) — end re-follows new output
+  ⌃Y             copy last reply (clean text) · /copy code · /copy all
 
-[bold]Session[/]
-  ⌃D             quit
-  ?  F1          this help
-  F2             trace on/off (alternate)
+[bold]Panels[/]
+  ⌃T  F2         trace — show thinking + tool output previews
+  ⌃F  F3         tools inspector — full file reads and command output
+  ⌃B             toggle the session sidebar (auto on wide terminals)
+  ?  F1          this help · ⌃D quit
 
 [bold]Tips[/]
-  • 2+ parallel file reads show one ⚡ summary in chat; use ⌃F for full text.
-  • Trace changes apply to the transcript when the agent is idle.
-  • trace.on is saved in ~/.config/harness-agent/settings.json
+  • Click a "Thought for…" block to expand long reasoning.
+  • HARNESS_MOUSE=0 (or settings ui.mouse=false) restores native
+    terminal selection instead of in-app select-to-copy.
 """
 
 
@@ -63,8 +62,8 @@ class ShortcutsHelpScreen(TuiModalScreen[None]):
     ShortcutsHelpScreen ScrollableContainer {
         height: 1fr;
         min-height: 14;
-        margin-top: 1;
-        border: round {ui.BORDER};
+        margin-top: 0;
+        border: none;
         padding: 0 1;
     }
     ShortcutsHelpScreen #shortcuts_body {

@@ -1,4 +1,4 @@
-"""Repaired tool inputs surface a ⚒ indicator on dock rows."""
+"""Repaired tool inputs surface a ⚒ indicator on tool rows."""
 
 from jarvis.repl.tool_runs import begin_wave, list_runs, register_queued, set_done, set_running
 from jarvis.utils.tool_repair import REPAIR_NOTE_MARKER, has_repair_note
@@ -55,30 +55,15 @@ def test_multi_edit_children_inherit_repaired_flag():
     assert runs["y.py"]["repaired"] is True
 
 
-def test_dock_row_shows_repair_glyph():
-    from jarvis.tui.mixins.activity import ActivityMixin
+def test_tool_row_shows_repair_glyph():
+    """Transcript tool rows flag repaired inputs with ⚒ (and only then)."""
+    from jarvis.tui.transcript import ToolBlock
 
-    class _Host(ActivityMixin):
-        pass
+    row = ToolBlock("t-9", "edit_file", {"path": "a.py"})
+    row.finish(f"EDITED a.py (1 replacement)\n{REPAIR_NOTE_MARKER} renamed 'x' → 'y']", repaired=True)
+    assert "⚒" in row.as_text().plain
+    assert row.status == "done"
 
-    host = _Host()
-    row = host._format_tool_dock_row(
-        {
-            "status": "done",
-            "name": "edit_file",
-            "label": "a.py",
-            "chars": 42,
-            "repaired": True,
-        }
-    )
-    assert "⚒" in row
-    row_clean = host._format_tool_dock_row(
-        {
-            "status": "done",
-            "name": "edit_file",
-            "label": "a.py",
-            "chars": 42,
-            "repaired": False,
-        }
-    )
-    assert "⚒" not in row_clean
+    clean = ToolBlock("t-10", "edit_file", {"path": "a.py"})
+    clean.finish("EDITED a.py (1 replacement)", repaired=False)
+    assert "⚒" not in clean.as_text().plain

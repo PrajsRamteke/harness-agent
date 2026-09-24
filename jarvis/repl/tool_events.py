@@ -19,14 +19,31 @@ def emit_tool_wave_reset() -> None:
     _emit("tool_wave_reset", {})
 
 
-def emit_tool_start(*, tool_id: str, name: str, label: str) -> None:
-    _emit("tool_start", {"id": tool_id, "name": name, "label": label})
+def emit_tool_start(*, tool_id: str, name: str, label: str, input: Any = None) -> None:
+    _emit("tool_start", {"id": tool_id, "name": name, "label": label, "input": input})
 
 
 def emit_tool_done(
-    *, tool_id: str, name: str, label: str, error: bool = False, repaired: bool = False
+    *,
+    tool_id: str,
+    name: str,
+    label: str,
+    error: bool = False,
+    repaired: bool = False,
+    input: Any = None,
+    output: str = "",
 ) -> None:
+    # ``input`` / ``output`` feed the TUI tool rows; the web mux strips them
+    # before broadcasting so SSE payloads stay small.
     _emit(
         "tool_done",
-        {"id": tool_id, "name": name, "label": label, "error": error, "repaired": repaired},
+        {
+            "id": tool_id,
+            "name": name,
+            "label": label,
+            "error": error,
+            "repaired": repaired,
+            "input": input,
+            "output": output,
+        },
     )

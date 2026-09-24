@@ -149,6 +149,10 @@ def _iter_live_deltas(stream):
             yield "text", chunk
 
 
+# Models already told "thinking on but no separate reasoning" — say it once.
+_THINK_NOTICE_SHOWN: dict[str, bool] = {}
+
+
 def _consume_live_text_stream(stream, panel_title: str) -> None:
     """Drain live thinking + text deltas for real-time UX; then call ``get_final_message()``.
 
@@ -259,7 +263,8 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
         # deltas, the backend may not support separate thinking for this
         # model.  Post a gentle notice so the user isn't misled into
         # thinking their think setting is broken — it's a provider limit.
-        if state.think_mode and not thinking_started:
+        if state.think_mode and not thinking_started and not _THINK_NOTICE_SHOWN.get(state.MODEL):
+            _THINK_NOTICE_SHOWN[state.MODEL] = True
             from ..console import console as _console
             _console.print(
                 "[dim]— thinking mode on but model/provider doesn't return "
@@ -534,7 +539,7 @@ def _heal_orphan_tool_uses() -> None:
 def call_claude_stream():
     # Check cancel flag before starting a new stream — allows Escape to
     # prevent the next stream from even starting after tool results.
-    if state.cancel_requested.is_set():
+    if state.turn_cancelled():
         raise KeyboardInterrupt()
 
     # Repair broken tool_use/tool_result pairings before sending — strict
@@ -543,7 +548,7 @@ def call_claude_stream():
 
     report_turn_phase("Jarvis: building request…")
     tools = select_tools(state.messages)
-    if state.show_internal:
+    if state.show_internal and not getattr(console, "renders_tool_rows", False):
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
     kwargs: Dict[str, Any] = dict(
         model=state.MODEL, max_tokens=API_MAX_TOKENS, system=build_system(),
@@ -600,7 +605,7 @@ def call_claude_stream():
         except _STREAM_TIMEOUT_ERRORS:
             _current_stream = None
             # User pressed Esc — don't retry, just bail.
-            if state.cancel_requested.is_set():
+            if state.turn_cancelled():
                 raise
             # A stall AFTER text/thinking started can't be retried safely — a
             # fresh request would re-stream content the user already saw. Only

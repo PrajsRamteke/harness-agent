@@ -156,8 +156,54 @@ class WebMuxConsole:
         self._primary.report_turn_phase(label)
         self._bridge.emit("activity", {"label": label})
 
+    # Hooks the TUI renders natively — mirror them to web clients too (the
+    # web UI used to get these as printed panels).
+    def file_diff(self, path: str, before: str, after: str, action: str = "edit") -> None:
+        fn = getattr(self._primary, "file_diff", None)
+        if callable(fn):
+            fn(path, before, after, action)
+        if not self._should_broadcast():
+            return
+        import difflib
+
+        body = [
+            ln for ln in difflib.unified_diff(
+                before.splitlines(), after.splitlines(), lineterm="", n=2
+            )
+            if not ln.startswith(("---", "+++"))
+        ][:120]
+        if body:
+            verb = {"create": "new file", "write": "rewrote", "edit": "edited"}.get(action, action)
+            self._bridge.emit("log", {"text": f"✎ {verb} · {path}\n" + "\n".join(body)})
+
+    def show_thinking(self, text: str) -> None:
+        fn = getattr(self._primary, "show_thinking", None)
+        if callable(fn):
+            fn(text)
+        if _show_thinking_to_web() and (text or "").strip():
+            self._bridge.emit("message", {"role": "thinking", "text": text.strip()})
+
+    def show_plan(self, plan: str) -> None:
+        fn = getattr(self._primary, "show_plan", None)
+        if callable(fn):
+            fn(plan)
+        if (plan or "").strip():
+            self._bridge.emit("message", {"role": "assistant", "title": "proposed plan", "text": plan.strip()})
+
+    def show_reply(self, text: str, flagged: bool = False) -> None:
+        fn = getattr(self._primary, "show_reply", None)
+        if callable(fn):
+            fn(text, flagged)
+        if (text or "").strip():
+            self._bridge.emit("message", {"role": "assistant", "title": "jarvis", "text": text.strip()})
+
     def emit_tool_event(self, event_type: str, data: dict[str, Any]) -> None:
-        self._bridge.emit(event_type, data or {})
+        data = data or {}
+        fn = getattr(self._primary, "emit_tool_event", None)
+        if callable(fn):
+            fn(event_type, data)
+        slim = {k: v for k, v in data.items() if k not in ("input", "output")}
+        self._bridge.emit(event_type, slim)
 
     def refresh_tool_activity(self) -> None:
         self._primary.refresh_tool_activity()

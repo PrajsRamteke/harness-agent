@@ -47,7 +47,7 @@ def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
                 state.auto_approve = True
             elif ok == "n" or ok == "":
                 return "USER DENIED"
-            if state.cancel_requested.is_set():
+            if state.turn_cancelled():
                 raise KeyboardInterrupt()
         try:
             env = os.environ.copy()

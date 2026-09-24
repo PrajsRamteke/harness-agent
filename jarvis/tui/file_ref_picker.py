@@ -18,10 +18,10 @@ def file_ref_option_label(path: str) -> Text:
     is_dir = path.endswith("/")
     display = path.rstrip("/")
     name = display.rsplit("/", 1)[-1] + ("/" if is_dir else "")
-    label = Text()
-    label.append(f"{name:<{ROW_NAME_WIDTH}}", style="bold")
-    if is_dir:
-        label.append("folder", style="dim")
-    else:
-        label.append(path, style="dim")
+    from . import theme as ui
+
+    label = Text(no_wrap=True, overflow="ellipsis")
+    label.append("▸ " if is_dir else "· ", style=ui.ACCENT_2 if is_dir else ui.FG_DIM)
+    label.append(f"{name:<{ROW_NAME_WIDTH}} ", style=f"bold {ui.FG}")
+    label.append("folder" if is_dir else path, style=ui.FG_DIM)
     return label

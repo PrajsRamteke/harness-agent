@@ -1,4 +1,4 @@
-"""Centered theme picker — switch between red / blue / purple / green."""
+"""Centered theme picker — live preview while moving, Enter saves."""
 from __future__ import annotations
 
 from textual.app import ComposeResult
@@ -16,30 +16,15 @@ from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
 
-_THEMES = [
-    ("red",       "warm coral tones, soft pink highlights"),
-    ("blue",      "cool blue tones, teal secondary, sky highlights"),
-    ("purple",    "soft violet accents, warm amber warnings"),
-    ("green",     "nature green primary, teal secondary, mint highlights"),
-    ("orange",    "fiery orange accents, golden highlights"),
-    ("yellow",    "gold and amber tones, bright highlights"),
-    ("rose",      "hot pink accents, magenta borders, romantic"),
-    ("slate",     "neutral grays, no color bias, professional"),
-    ("ocean",     "deep navy backgrounds, ice-blue accents"),
-    ("cyberpunk", "neon cyan + magenta on dark purple, high contrast"),
-    ("monochrome","pure black, zero color — white/gray only"),
-    ("forest",    "deep earthy greens, brown borders, amber highlights"),
-    ("dracula",   "classic dark: purple/pink accents, green highlights"),
-    ("sunset",    "warm brick bg, orange coral accents, amber glow"),
-    ("dark",      "pure black bg, clean blue/teal accents, classic dark"),
-    ("kimchi",    "teal accents, dark terminal vibe — inspired by Kimchi"),
-]
+def _theme_rows() -> list[tuple[str, str]]:
+    """(name, description) for every palette, in picker order."""
+    return [(n, ui.THEME_DESCRIPTIONS.get(n, "")) for n in ui.theme_names()]
 
 
 class ThemePickerScreen(TuiModalScreen[str | None]):
     DEFAULT_CSS = get_modal_chrome_css() + """
-    ThemePickerScreen #modal { width: 56%; max-width: 80; max-height: 80%; }
-    ThemePickerScreen OptionList { height: 14; }
+    ThemePickerScreen #modal { width: 70%; max-width: 84; max-height: 85%; }
+    ThemePickerScreen OptionList { height: 16; }
     """
 
     def __init__(self) -> None:
@@ -68,7 +53,7 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
         enable_mouse()
         opts = self.query_one("#theme_list", OptionList)
         active_idx = 0
-        for i, (name, desc) in enumerate(_THEMES):
+        for i, (name, desc) in enumerate(_theme_rows()):
             is_active = name == state.theme
             marker = "● " if is_active else "  "
             row = self._format_row(name, desc, is_active=is_active)
@@ -84,19 +69,23 @@ class ThemePickerScreen(TuiModalScreen[str | None]):
 
     def _format_row(self, name: str, desc: str, *, is_active: bool) -> Text:
         marker, marker_style = active_marker(is_active)
-        return Text.assemble(
-            (marker, marker_style),
-            (f"{name:<10s}", f"bold {ui.ACCENT_2}" if is_active else ui.ACCENT_2),
-            ("  ", ""),
-            (desc, ui.FG_MUTE),
-        )
+        row = Text(no_wrap=True, overflow="ellipsis")
+        row.append(marker, style=marker_style)
+        row.append(f"{name:<12s}", style=f"bold {ui.FG}" if is_active else ui.FG)
+        swatch = ui.PALETTES.get(name, {})
+        for key in ("accent", "accent_2", "accent_3"):
+            if swatch.get(key):
+                row.append("●", style=swatch[key])
+        row.append("  ")
+        row.append(desc, style=ui.FG_DIM)
+        return row
 
     def _refresh_rows(self) -> None:
         opts = self.query_one("#theme_list", OptionList)
         highlighted = opts.highlighted
         scroll_y = opts.scroll_y
         opts.clear_options()
-        for name, desc in _THEMES:
+        for name, desc in _theme_rows():
             opts.add_option(
                 Option(self._format_row(name, desc, is_active=name == self._selected_theme), id=name)
             )

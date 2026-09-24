@@ -5,7 +5,6 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from rich.markup import escape as _rich_escape
 from rich.text import Text
 
 from . import theme as ui
@@ -140,6 +139,10 @@ class AskUserController:
         self._questions = []
         self._on_done = None
         self._hide_bar()
+        try:
+            self._app.query_one("#prompt").focus()
+        except Exception:
+            pass
         if cb:
             cb(payload)
 
@@ -167,34 +170,33 @@ class AskUserController:
             return
         bar.remove_class("hidden")
         total = len(self._questions)
-        pos = f"{self._q_index + 1}/{total}" if total > 1 else ""
         header = q.header or "Question"
-        title = (
-            f"[{ui.ACCENT}]❓ {_rich_escape(header)}[/]"
-            f" [{ui.FG_DIM}]{_rich_escape(pos)}[/]"
-            f"  [{ui.FG_DIM}]↑↓ select · ↵ confirm"
-        )
+        head = Text()
+        head.append("? ", style=f"bold {ui.ACCENT}")
+        head.append(header, style=f"bold {ui.FG}")
+        if total > 1:
+            head.append(f"  {self._q_index + 1}/{total}", style=ui.FG_DIM)
+        keys = "↑↓ move · 1-9 pick · ↵ confirm · esc skip"
         if q.allow_multiple:
-            title += f" · space toggle · ↵ done"
-        prompt_line = f"[{ui.FG}]{_rich_escape(q.prompt)}[/]"
-        rows: list[str] = []
+            keys = "↑↓ move · space toggle · ↵ done · esc skip"
+        head.append(f"   {keys}", style=ui.FG_DIM)
+        out = Text()
+        out.append_text(head)
+        out.append("\n")
+        out.append(q.prompt, style=ui.FG)
         for i, opt in enumerate(q.options):
-            marker = f"{ui.ARROW}" if i == self._option_index else " "  # noqa
-            if q.allow_multiple and i in self._selected:
-                check = f"[{ui.OK}]{ui.CHECK}[/]"
-            elif q.allow_multiple:
-                check = f"[{ui.FG_DIM}]{ui.DOT}[/]"
+            cur = i == self._option_index
+            out.append("\n")
+            out.append(f" {ui.ARROW} " if cur else "   ", style=f"bold {ui.ACCENT}")
+            if q.allow_multiple:
+                on = i in self._selected
+                out.append("◉ " if on else "○ ", style=ui.OK if on else ui.FG_DIM)
             else:
-                check = ""
-            label = _rich_escape(opt.label)
-            if i == self._option_index:
-                row = f" [{ui.ACCENT}]{marker}[/] {check} [bold {ui.FG}]{label}[/]"
-            else:
-                row = f" [{ui.FG_DIM}]{marker}[/] {check} [{ui.FG}]{label}[/]"
+                out.append(f"{i + 1}. ", style=ui.ACCENT if cur else ui.FG_DIM)
+            out.append(opt.label, style=f"bold {ui.FG}" if cur else ui.FG_MUTE)
             if opt.description:
-                row += f" [{ui.FG_DIM}]— {_rich_escape(opt.description)}[/]"
-            rows.append(row)
-        bar.update(Text.from_markup(title + "\n" + prompt_line + "\n" + "\n".join(rows)))
+                out.append(f"  {opt.description}", style=ui.FG_DIM)
+        bar.update(out)
 
     def handle_key(self, key: str) -> bool:
         if not self.active:
@@ -223,6 +225,12 @@ class AskUserController:
             return True
         if key in ("enter", "return"):
             self._confirm_current()
+            return True
+        if len(key) == 1 and key.isdigit() and key != "0" and not q.allow_multiple:
+            idx = int(key) - 1
+            if idx < n:
+                self._option_index = idx
+                self._confirm_current()
             return True
         return False
 
