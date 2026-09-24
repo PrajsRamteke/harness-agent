@@ -180,6 +180,9 @@ class ActivityMixin:
         self._refresh_activity_widgets()
 
     def _refresh_activity_widgets(self) -> None:
+        sticky = getattr(self, "_sync_sticky_prompt", None)
+        if callable(sticky):
+            sticky()
         try:
             line = self.query_one("#activity", ActivityLine)
         except Exception:

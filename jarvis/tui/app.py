@@ -145,9 +145,11 @@ from .mixins.web_remote import WebRemoteMixin  # noqa: E402
 from .mixins.activity import ActivityLine, ActivityMixin  # noqa: E402
 from .mixins.file_ref import FileRefPickerMixin  # noqa: E402
 from .mixins.pet import PetMixin  # noqa: E402
+from .mixins.prompt_nav import PromptNavMixin  # noqa: E402
 from .pet_widget import PetBubble, PetBuddy  # noqa: E402
 from .prompt_history import PromptHistory  # noqa: E402
 from .sidebar import Sidebar  # noqa: E402
+from .sticky_prompt import StickyPrompt  # noqa: E402
 from .footer import FooterBar  # noqa: E402
 from .transcript import (  # noqa: E402
     AssistantBlock,
@@ -178,7 +180,7 @@ _TIPS = (
 # ─── App ─────────────────────────────────────────────────────────────────
 
 
-class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, FileRefPickerMixin, App):
+class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
 
@@ -201,6 +203,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, FileRefPickerMixin, App
         Binding("shift+down", "scroll_transcript('down')", show=False, priority=True),
         Binding("ctrl+home", "scroll_transcript('home')", show=False, priority=True),
         Binding("ctrl+end", "scroll_transcript('end')", show=False, priority=True),
+        Binding("alt+up", "step_prompt(-1)", show=False, priority=True),
+        Binding("alt+down", "step_prompt(1)", show=False, priority=True),
         Binding("ctrl+shift+u", "copy_web_url", "Copy URL", show=False),
         Binding("ctrl+y", "copy_last_reply", "Copy reply", show=False),
     ]
@@ -327,6 +331,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, FileRefPickerMixin, App
         with Horizontal(id="main"):
             with Vertical(id="body"):
                 yield Transcript(id="transcript")
+                yield StickyPrompt(id="sticky_prompt")
                 yield from self._compose_dock()
             yield Sidebar(id="sidebar", classes="hidden")
         yield WebRemoteBar(id="webar")
@@ -394,6 +399,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, FileRefPickerMixin, App
         self._sync_agent_color()
         self._apply_sidebar_visibility()
         self._pet_apply_visibility()
+        self._load_sticky_pref()
 
         self.query_one("#prompt", PromptArea).focus()
         self.call_after_refresh(self._render_welcome_intro)
@@ -406,6 +412,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, FileRefPickerMixin, App
         self._apply_sidebar_visibility()
         self._pet_apply_visibility()
         self._pet_hide_bubble()
+        self.call_after_refresh(self._sync_sticky_prompt)
 
     def _sync_trace(self) -> None:
         """Follow trace changes made outside ⌃T (/verbose, web settings)."""
@@ -417,6 +424,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, FileRefPickerMixin, App
         self._sync_trace()
         self._render_footer()
         self._pet_slow_tick()
+        self._load_sticky_pref()
+        self._sync_sticky_prompt()
         try:
             sb = self.query_one("#sidebar", Sidebar)
             if not sb.has_class("hidden"):

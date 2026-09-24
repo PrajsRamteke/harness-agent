@@ -243,9 +243,12 @@ class UserBlock(Block):
             self.add_class("-shell")
 
     def on_mount(self) -> None:
-        if not self._flash:
-            return
-        # Brief accent glow when a message is sent, easing into the box color.
+        if self._flash:
+            self.flash()
+
+    def flash(self) -> None:
+        """Brief accent glow easing into the box color (on send, and when
+        the sticky prompt jumps back here)."""
         try:
             from textual.color import Color
 
@@ -1086,6 +1089,15 @@ class Transcript(VerticalScroll):
             if callable(fn):
                 fn()
 
+    def watch_virtual_size(self, old_value, new_value) -> None:
+        # Output grew while following: the anchor moves scroll_y without
+        # firing watch_scroll_y, so re-check the sticky prompt once the
+        # compositor is done (never query layout mid-reflow).
+        if old_value.height != new_value.height:
+            fn = getattr(self.app, "_sync_sticky_prompt", None)
+            if callable(fn):
+                self.call_after_refresh(fn)
+
     @property
     def more_below(self) -> int:
         """Lines below the viewport once the user has scrolled away (0 while
@@ -1171,6 +1183,73 @@ class Transcript(VerticalScroll):
         """Jump to the end and re-attach auto-follow."""
         self.anchor()
         self.scroll_end(animate=False)
+
+    # ── prompts (sticky header · alt+↑/↓ navigation) ─────────────────
+    def prompt_spans(self) -> list[tuple[UserBlock, int, int]]:
+        """``(block, top, bottom)`` of every user prompt, in content rows
+        (the same coordinates as ``scroll_y``).
+
+        Reads the arrangement the compositor already cached for this size,
+        so it's cheap enough to call on every scroll step.
+        """
+        if not self.region:
+            return []
+        try:
+            size = self._get_scrollable_region(self.region.shrink(self.styles.gutter)).size
+            placements = self.arrange(size).placements
+        except Exception:
+            return []
+        return [
+            (p.widget, p.region.y, p.region.bottom)
+            for p in placements
+            if isinstance(p.widget, UserBlock) and p.widget.text.strip()
+        ]
+
+    def sticky_prompt(self) -> tuple[UserBlock, int, int] | None:
+        """The prompt that owns the top of the viewport once its text has
+        scrolled out of view, as ``(block, index, total)``; else ``None``."""
+        spans = self.prompt_spans()
+        top = round(self.scroll_y)
+        owner = None
+        for i, (blk, y, bottom) in enumerate(spans):
+            if y > top:
+                break
+            owner = (i, blk, bottom)
+        if owner is None:
+            return None
+        i, blk, bottom = owner
+        # bottom-1 is the box's padding row; bottom-2 its last line of text.
+        if bottom - 2 > top:
+            return None
+        return blk, i, len(spans)
+
+    def jump_to_prompt(self, block: UserBlock, *, animate: bool = True) -> bool:
+        """Scroll so ``block`` sits at the top (releases auto-follow)."""
+        for blk, y, _bottom in self.prompt_spans():
+            if blk is block:
+                self.scroll_to(y=y, animate=animate, duration=0.22, easing="out_cubic")
+                block.flash()
+                return True
+        return False
+
+    def step_prompt(self, delta: int) -> bool:
+        """Previous (``-1``) / next (``+1``) prompt relative to the top of
+        the viewport. The first ↑ inside a long reply lands on its own
+        prompt; ↓ past the last prompt re-follows the live end."""
+        spans = self.prompt_spans()
+        # scroll_target_y, not scroll_y: repeated presses during the scroll
+        # animation step onwards instead of re-picking the same prompt.
+        top = round(self.scroll_target_y)
+        if delta < 0:
+            above = [blk for blk, y, _b in spans if y < top]
+            return self.jump_to_prompt(above[-1]) if above else False
+        below = [(blk, y) for blk, y, _b in spans if y > top]
+        if below and below[0][1] <= self.max_scroll_y:
+            return self.jump_to_prompt(below[0][0])
+        if self.is_vertical_scroll_end and not self._anchor_released:
+            return False
+        self.follow()
+        return True
 
     def restyle(self, *, layout: bool = True) -> None:
         """Repaint every block. Theme changes keep line counts, so they pass

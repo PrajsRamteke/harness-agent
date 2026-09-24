@@ -44,6 +44,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "pet.enabled":   "Show Jarvis the kitty in the input box (/pet for the card)",
     "pet.nudges":    "Let Jarvis nudge you — stretch breaks, full context, late nights",
     "pet.notify":    "Desktop notification when a long turn finishes while you're away",
+    "ui.sticky_prompt": "Pin your prompt at the top while you read its reply",
 }
 
 

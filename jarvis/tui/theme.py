@@ -638,6 +638,7 @@ Screen {{
     width: 1fr;
     height: 100%;
     min-width: 0;
+    layers: base overlay;  /* StickyPrompt floats over the transcript */
 }}
 
 /* ── Bottom dock: queue · ask · activity · popups · composer · footer ──

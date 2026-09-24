@@ -35,6 +35,9 @@ _SHORTCUTS = """
   pgup pgdn      scroll by page · ⇧↑ ⇧↓ by lines
   home end       top / bottom when the prompt is empty
   ⌃Home ⌃End     top / bottom (always) — end re-follows new output
+  ⌥↑ ⌥↓          jump to the previous / next prompt
+  sticky prompt  your prompt stays pinned on top while you read the
+                 reply — click it to jump back · ↑ ↓ step · ⎘ copy
   ⌃Y             copy last reply (clean text) · /copy code · /copy all
 
 [bold]Panels[/]
