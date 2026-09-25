@@ -49,12 +49,24 @@ def wait(seconds: float = 0.8) -> str:
 
 
 def check_permissions() -> str:
-    """Verify Accessibility permission. Returns a diagnostic string."""
+    """Verify Accessibility + Screen Recording permission. Returns a diagnostic string."""
+    from ..screenshot import screen_recording_allowed, terminal_app_name
+
     probe = 'tell application "System Events" to get name of first process whose frontmost is true'
     r = subprocess.run(["osascript", "-e", probe], capture_output=True, text=True, timeout=5)
     if r.returncode == 0:
-        return f"Accessibility OK. Frontmost app: {r.stdout.strip()}"
-    return ("ACCESSIBILITY DENIED.\n"
-            "Open System Settings → Privacy & Security → Accessibility, add & enable your "
-            "Terminal app (Terminal.app / iTerm / the one you launched this agent from), then "
-            "also enable it under 'Automation' if prompted. Error: " + r.stderr.strip())
+        out = f"Accessibility OK. Frontmost app: {r.stdout.strip()}"
+    else:
+        out = ("ACCESSIBILITY DENIED.\n"
+               "Open System Settings → Privacy & Security → Accessibility, add & enable your "
+               "Terminal app (Terminal.app / iTerm / the one you launched this agent from), then "
+               "also enable it under 'Automation' if prompted. Error: " + r.stderr.strip())
+    screen = screen_recording_allowed()
+    app = terminal_app_name()
+    if screen is True:
+        out += f"\nScreen Recording OK ({app}) — screenshot of the screen / app windows works."
+    elif screen is False:
+        out += (f"\nSCREEN RECORDING OFF for {app} — screenshot() / screenshot(app=…) are blocked "
+                "(url= and path= still work). Calling screenshot once opens the Settings pane; "
+                f"switch on {app} there, then quit and reopen {app}.")
+    return out

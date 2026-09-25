@@ -206,6 +206,31 @@ class SidebarBody(Widget):
                 if removed:
                     out.append(f" -{removed}", style=ui.ERR)
 
+        # background jobs (run_bg)
+        try:
+            from ..tools.background import fmt_secs, jobs as bg_jobs
+
+            bg = bg_jobs()[-6:]
+        except Exception:
+            bg = []
+        if bg:
+            section("Background", "&")
+            for job in bg:
+                if job.running:
+                    mark, color, status = "●", ui.ACCENT, fmt_secs(job.elapsed)
+                elif job.killed:
+                    mark, color, status = "✕", ui.FG_DIM, "stopped"
+                elif job.code == 0:
+                    mark, color, status = "✓", ui.OK, "done"
+                else:
+                    mark, color, status = "✗", ui.ERR, f"exit {job.code}"
+                cmd = " ".join(job.cmd.split())
+                cmd = cmd if len(cmd) <= 20 else cmd[:19] + "…"
+                out.append("\n")
+                out.append(f"{mark} ", style=color)
+                out.append(f"#{job.id} {cmd}", style=ui.FG_MUTE)
+                out.append(f" {status}", style=ui.FG_DIM)
+
         tools = int(getattr(state, "tool_calls_count", 0) or 0)
         if tools:
             section("Tools", "$")

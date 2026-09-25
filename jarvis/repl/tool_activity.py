@@ -40,6 +40,20 @@ def describe_tool_activity(name: str, raw_input) -> str:
         from ..utils.display_paths import shorten_command
 
         return f"Shell: {c(shorten_command(d.get('cmd', '')))}"
+    if name == "run_bg":
+        from ..utils.display_paths import shorten_command
+
+        return f"Starting in background: {c(shorten_command(d.get('cmd', '')))}"
+    if name == "bg_output":
+        if not d.get("job_id"):
+            return "Checking background jobs"
+        return (f"Waiting for background job #{d.get('job_id')}" if d.get("wait")
+                else f"Checking background job #{d.get('job_id')}")
+    if name == "bg_kill":
+        return f"Stopping background job #{d.get('job_id', '')}"
+    if name == "screenshot":
+        target = d.get("url") or d.get("app") or d.get("path") or ("region" if d.get("region") else "screen")
+        return f"Screenshot: {c(str(target))}"
     if name == "read_file":
         from ..utils.display_paths import shorten_paths
 

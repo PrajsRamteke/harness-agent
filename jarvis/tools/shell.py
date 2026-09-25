@@ -25,30 +25,49 @@ def _is_safe_readonly_command(cmd: str) -> bool:
     return bool(_SAFE_READONLY.match((cmd or "").strip()))
 
 
+_DANGEROUS = ["rm -rf /", "mkfs", ":(){:|:&};:", "dd if=/dev/zero"]
+
+
+def is_dangerous(cmd: str) -> bool:
+    return any(d in cmd for d in _DANGEROUS)
+
+
+def ask_approval(cmd: str) -> str | None:
+    """Ask the user before running ``cmd`` (unless auto-approved / read-only).
+
+    Returns ``"USER DENIED"`` when refused, else None. Call with
+    ``_bash_lock`` held so approval prompts never overlap.
+    """
+    if state.auto_approve or _is_safe_readonly_command(cmd):
+        return None
+    console.print(f"[yellow]→ run:[/] [cyan]{cmd}[/]")
+    try:
+        approve = getattr(console, "prompt_shell_approval", None)
+        if approve is not None:
+            ok = approve(cmd).strip().lower()
+        else:
+            ok = console.input(
+                "[dim]approve? [Y/n/a=always] [/]"
+            ).strip().lower()
+    except (RuntimeError, EOFError):
+        ok = ""
+    if ok == "a":
+        state.auto_approve = True
+    elif ok == "n" or ok == "":
+        return "USER DENIED"
+    if state.turn_cancelled():
+        raise KeyboardInterrupt()
+    return None
+
+
 def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
-    DANGEROUS = ["rm -rf /", "mkfs", ":(){:|:&};:", "dd if=/dev/zero"]
-    if any(d in cmd for d in DANGEROUS):
+    if is_dangerous(cmd):
         return "BLOCKED: dangerous command"
 
     with _bash_lock:
-        if not state.auto_approve and not _is_safe_readonly_command(cmd):
-            console.print(f"[yellow]→ run:[/] [cyan]{cmd}[/]")
-            try:
-                approve = getattr(console, "prompt_shell_approval", None)
-                if approve is not None:
-                    ok = approve(cmd).strip().lower()
-                else:
-                    ok = console.input(
-                        "[dim]approve? [Y/n/a=always] [/]"
-                    ).strip().lower()
-            except (RuntimeError, EOFError):
-                ok = ""
-            if ok == "a":
-                state.auto_approve = True
-            elif ok == "n" or ok == "":
-                return "USER DENIED"
-            if state.turn_cancelled():
-                raise KeyboardInterrupt()
+        denied = ask_approval(cmd)
+        if denied:
+            return denied
         try:
             env = os.environ.copy()
             env.setdefault("GIT_PAGER", "cat")

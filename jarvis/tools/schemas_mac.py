@@ -27,7 +27,7 @@ MAC_TOOLS = [
         "required":["app","query"]}},
     {"name":"wait","description":"Sleep N seconds to let the UI settle after a click/keystroke before reading it again.",
      "input_schema":{"type":"object","properties":{"seconds":{"type":"number"}}}},
-    {"name":"check_permissions","description":"Verify macOS Accessibility permission is granted to the terminal. Call this first if UI tools are failing.",
+    {"name":"check_permissions","description":"Verify macOS Accessibility and Screen Recording permissions for the terminal. Call this first if UI tools or screenshots are failing.",
      "input_schema":{"type":"object","properties":{}}},
     {"name":"type_text","description":"Type a string into the frontmost app via keystroke.",
      "input_schema":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}},

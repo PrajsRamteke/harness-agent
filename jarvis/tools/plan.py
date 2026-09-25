@@ -28,8 +28,10 @@ PLAN_MODE_ALLOWED = frozenset({
     "resolve_context", "read_bundle",
     # internet (read)
     "web_search", "fetch_url", "verified_search",
-    # ocr (read)
-    "read_image_text", "read_images_text",
+    # ocr / vision (read)
+    "read_image_text", "read_images_text", "screenshot",
+    # background jobs (read their output; starting/killing is blocked)
+    "bg_output",
     # storage (read)
     "memory_list", "lesson_search", "lesson_list",
     # skills (read/load — instructions only)

@@ -262,3 +262,53 @@ INTERNET_TOOLS = [
         "min_sources":{"type":"integer","description":"Minimum sources to fetch (default 5)"},
         "max_sources":{"type":"integer","description":"Maximum sources to fetch (default 10)"}},"required":["query"]}},
 ]
+
+VISION_TOOLS = [
+    {"name":"screenshot","description":(
+        "Take a screenshot and LOOK at it — the image comes back to you, so you can see "
+        "UIs, check layout/rendering, verify a visual change, or debug a visual bug. "
+        "Targets (first given wins): path = view an existing image file; url = render a "
+        "web page in headless Chrome (http://localhost:3000, localhost:5173, or an .html "
+        "file) at width×height; app = that app's front window (even if covered); region = "
+        "a screen rectangle in points; nothing = the whole main display. Screen/app/region "
+        "results say how image pixels map to click_at coordinates. After changing UI code, "
+        "take a new screenshot to confirm the result instead of assuming."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "url":{"type":"string","description":"Page to render: http(s) URL, host:port, or local .html path"},
+        "app":{"type":"string","description":"App whose front window to capture, e.g. 'Safari', 'Simulator'"},
+        "path":{"type":"string","description":"Existing image file to view (png/jpg/gif/webp/heic/tiff)"},
+        "region":{"type":"object","description":"Screen rectangle in points","properties":{
+            "x":{"type":"integer"},"y":{"type":"integer"},
+            "width":{"type":"integer"},"height":{"type":"integer"}}},
+        "width":{"type":"integer","description":"url only: viewport width (default 1280)"},
+        "height":{"type":"integer","description":"url only: viewport height (default 800)"},
+        "wait":{"type":"number","description":"Seconds to let things settle first (url: page load budget, default 3)"}}}},
+]
+
+BACKGROUND_TOOLS = [
+    {"name":"run_bg","description":(
+        "Run a shell command in the BACKGROUND and return immediately with a job id. "
+        "Use it for anything slow — test suites, builds, installs, type-checks, dev "
+        "servers, watchers, benchmarks — so you keep working (read/edit files, run other "
+        "tools) while it runs, then collect the result with bg_output. Same approval as "
+        "run_bash. Jobs survive across turns and are listed under BACKGROUND JOBS in the "
+        "system prompt; finished ones say so. Use run_bash for quick commands."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "cmd":{"type":"string","description":"Shell command, run in the project directory"}},"required":["cmd"]}},
+    {"name":"bg_output","description":(
+        "Check a background job: status, exit code and its latest output. No job_id = "
+        "list all jobs. wait=N blocks up to N seconds (max 600) until the job finishes — "
+        "use it when you have nothing else to do. new_only=true returns only output since "
+        "your last check (cheap polling)."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "job_id":{"type":"integer"},
+        "wait":{"type":"number","description":"Seconds to wait for the job to finish (default 0)"},
+        "tail":{"type":"integer","description":"Lines of output to return (default 60)"},
+        "new_only":{"type":"boolean","description":"Only output produced since the last bg_output call"}}}},
+    {"name":"bg_kill","description":"Stop a background job and all of its child processes (e.g. a dev server you no longer need).",
+     "input_schema":{"type":"object","properties":{
+        "job_id":{"type":"integer"}},"required":["job_id"]}},
+]

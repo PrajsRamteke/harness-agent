@@ -133,6 +133,16 @@ def _plan_mode_block() -> str:
     return _PLAN_MODE_BLOCK if state.plan_mode else ""
 
 
+def _background_jobs_block() -> str:
+    """Live run_bg jobs (running, or finished with unread output)."""
+    try:
+        from ..tools.background import prompt_block
+
+        return prompt_block()
+    except Exception:
+        return ""
+
+
 def _build_static_body() -> str:
     """Everything except the date/time line and agent addon. Cached between turns."""
     global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key
@@ -251,6 +261,7 @@ def build_system() -> Union[str, List[Dict]]:
     body = _selected_model_block() + _build_static_body()
     body += _agent_addon_block()
     body += _plan_mode_block()
+    body += _background_jobs_block()
     body += date_line
 
     if state.auth_mode == AUTH_OAUTH:

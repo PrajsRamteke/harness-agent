@@ -65,7 +65,9 @@ def _content_chars(content: Any) -> int:
             if isinstance(b, dict):
                 kind = b.get("type")
                 if kind == "tool_result":
-                    total += len(str(b.get("content", "")))
+                    inner = b.get("content", "")
+                    # screenshot results: text + image blocks (never count base64)
+                    total += _content_chars(inner) if isinstance(inner, list) else len(str(inner))
                 elif kind == "text":
                     total += len(b.get("text", ""))
                 elif kind == "thinking":
@@ -168,3 +170,53 @@ def trim_messages(messages: List[Dict]) -> List[Dict]:
             trimmed.append(_stub_tool_results(msg))
 
     return trimmed
+
+# Tool screenshots kept as real images; older ones become a one-line note.
+KEEP_TOOL_IMAGES = 3
+_IMAGE_GONE = "[earlier screenshot removed to save context — take a new one if needed]"
+_IMAGE_NO_VISION = "[screenshot omitted — the current model can't view images]"
+
+
+def prune_tool_images(messages: List[Dict], *, vision: bool,
+                      keep: int = KEEP_TOOL_IMAGES) -> List[Dict]:
+    """Keep only the newest ``keep`` images inside tool results (none when
+    the model has no vision). Returns a copy when anything changed — never
+    mutates ``state.messages``, so switching back to a vision model later
+    still has the recent ones."""
+    budget = keep if vision else 0
+    seen = 0
+    out = list(messages)
+    for mi in range(len(messages) - 1, -1, -1):
+        content = messages[mi].get("content")
+        if not isinstance(content, list):
+            continue
+        new_content = None
+        for bi in range(len(content) - 1, -1, -1):
+            block = content[bi]
+            if not _is_tool_result_block(block) or not isinstance(block.get("content"), list):
+                continue
+            inner = block["content"]
+            n_images = sum(1 for x in inner if isinstance(x, dict) and x.get("type") == "image")
+            if not n_images:
+                continue
+            allowed = max(0, budget - seen)
+            seen += n_images
+            if allowed >= n_images:
+                continue
+            kept = 0
+            rebuilt = []
+            for x in reversed(inner):
+                if isinstance(x, dict) and x.get("type") == "image":
+                    if kept < allowed:
+                        kept += 1
+                        rebuilt.append(x)
+                    else:
+                        rebuilt.append({"type": "text", "text": _IMAGE_NO_VISION if not vision else _IMAGE_GONE})
+                else:
+                    rebuilt.append(x)
+            if new_content is None:
+                new_content = list(content)
+            new_content[bi] = {**block, "content": list(reversed(rebuilt))}
+        if new_content is not None:
+            out[mi] = {**messages[mi], "content": new_content}
+    return out

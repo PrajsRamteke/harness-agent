@@ -6,6 +6,7 @@ from rich.text import Text
 
 from ..console import console, Panel, Markdown
 from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT, MAX_PARALLEL_TOOLS, CONTEXT_BUNDLE_MAX_CHARS
+from ..utils.tool_images import tool_result_content
 from ..tools import FUNC
 from ..utils.tool_repair import REPAIR_NOTE_MARKER, has_repair_note, repair_tool_input
 from .. import state
@@ -101,7 +102,7 @@ def assistant_model_label() -> str:
 # File writes use per-path locks in tools/files.py so different paths can run
 # in parallel; only truly global tools stay here.
 _SERIAL_TOOLS = {
-    "run_bash",
+    "run_bash", "run_bg", "bg_kill",
     "git_status", "git_log", "git_diff",
     "search_code",
     "click_at", "click_element", "click_menu", "key_press", "type_text",
@@ -484,12 +485,14 @@ def render_assistant(resp) -> bool:
                 # result so the assistant tool_use has a matching tool_result —
                 # required by strict providers (OpenAI / DeepSeek / OpenRouter).
                 out_str = "ERROR: tool execution cancelled before completion"
+            # Context tools (resolve_context, read_bundle) return the FULL
+            # output — no truncation. Everything else gets the standard cap.
+            capped = out_str if b.name in _CONTEXT_TOOL_NAMES else out_str[:MAX_TOOL_OUTPUT]
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": b.id,
-                # Context tools (resolve_context, read_bundle) return the FULL
-                # output — no truncation. Everything else gets the standard cap.
-                "content": out_str if b.name in _CONTEXT_TOOL_NAMES else out_str[:MAX_TOOL_OUTPUT],
+                # screenshot → text + native image blocks (tools/tool_images.py)
+                "content": tool_result_content(capped),
             })
 
     # Always append tool_results when tool_uses existed — even on cancel —

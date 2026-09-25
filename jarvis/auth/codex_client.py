@@ -11,6 +11,7 @@ from openai import OpenAI
 from ..constants.providers import CODEX_BASE_URL
 from ..utils.json_repair import repair_json_arguments
 from .http_timeout import harness_http_timeout
+from ..utils.tool_images import data_url, split_tool_result
 
 
 def _block_as_dict(block) -> dict:
@@ -59,25 +60,33 @@ def _anthropic_messages_to_responses_input(messages: list[dict]) -> list[dict]:
             continue
         if role == "user":
             text_parts: list[str] = []
+            images: list[dict] = []
             for raw in content:
                 block = _block_as_dict(raw)
                 btype = block.get("type", "")
                 if btype == "text":
                     text_parts.append(block.get("text", ""))
+                elif btype == "image":
+                    url = data_url(block)
+                    if url:
+                        images.append({"type": "input_image", "image_url": url})
                 elif btype == "tool_result":
-                    result_content = block.get("content", "")
-                    if isinstance(result_content, list):
-                        result_content = "\n".join(
-                            b.get("text", "") if isinstance(b, dict) else str(b)
-                            for b in result_content
-                        )
+                    result_text, result_images = split_tool_result(block.get("content", ""))
                     items.append({
                         "type": "function_call_output",
                         "call_id": block.get("tool_use_id", ""),
-                        "output": str(result_content),
+                        "output": result_text or ("(image below)" if result_images else ""),
                     })
+                    for img in result_images:
+                        url = data_url(img)
+                        if url:
+                            images.append({"type": "input_image", "image_url": url})
             joined = "\n".join(p for p in text_parts if p)
-            if joined:
+            if images:
+                # Screenshots (and pasted images) ride in a user message.
+                parts = [{"type": "input_text", "text": joined or "Image(s) returned by the tool call above:"}]
+                items.append({"role": "user", "content": parts + images})
+            elif joined:
                 items.append({"role": "user", "content": joined})
         elif role == "assistant":
             text_parts = []

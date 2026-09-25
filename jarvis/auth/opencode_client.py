@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generator, Optional
 
 from .http_timeout import harness_http_timeout, http_read_timeout_seconds
+from ..utils.tool_images import data_url, split_tool_result
 
 
 def _get_usage_value(usage_obj, attr_name: str, default: int = 0) -> int:
@@ -190,6 +191,7 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
             text_parts = []
             image_parts = []
             tool_results = []
+            tool_images: list[dict] = []
             has_image = False
             for raw_block in content:
                 block = _block_as_dict(raw_block)
@@ -210,21 +212,29 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
                             },
                         })
                 elif btype == "tool_result":
-                    result_content = block.get("content", "")
-                    if isinstance(result_content, list):
-                        result_content = "\n".join(
-                            b.get("text", "") if isinstance(b, dict) else str(b)
-                            for b in result_content
-                        )
+                    result_text, result_images = split_tool_result(block.get("content", ""))
                     tool_results.append({
                         "role": "tool",
                         "tool_call_id": block.get("tool_use_id", ""),
-                        "content": str(result_content),
+                        "content": result_text or ("(image below)" if result_images else ""),
                     })
+                    for img in result_images:
+                        url = data_url(img)
+                        if url:
+                            tool_images.append({"type": "image_url", "image_url": {"url": url}})
                 else:
                     # plain string block
                     if isinstance(raw_block, str):
                         text_parts.append(raw_block)
+            # Tool messages must directly follow the assistant's tool_calls;
+            # they can't carry images, so a screenshot rides in the next
+            # user message.
+            out.extend(tool_results)
+            if tool_images:
+                out.append({"role": "user", "content": [
+                    {"type": "text", "text": "Image(s) returned by the tool call above:"},
+                    *tool_images,
+                ]})
             if has_image:
                 # Build an array of content parts (text + image_url)
                 content_parts: list[dict] = []
@@ -234,7 +244,6 @@ def _anthropic_messages_to_openai(messages: list[dict]) -> list[dict]:
                 out.append({"role": "user", "content": content_parts})
             elif text_parts:
                 out.append({"role": "user", "content": "\n".join(text_parts)})
-            out.extend(tool_results)
 
         elif role == "assistant":
             text_parts = []

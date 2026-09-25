@@ -400,6 +400,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRef
         self._apply_sidebar_visibility()
         self._pet_apply_visibility()
         self._load_sticky_pref()
+        from ..tools import background as _bg
+
+        _bg.add_finish_hook(self._on_bg_job_finished)
 
         self.query_one("#prompt", PromptArea).focus()
         self.call_after_refresh(self._render_welcome_intro)
@@ -407,6 +410,33 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRef
 
         if state.startup_prompt:
             self.set_timer(0.05, self._submit_startup_prompt)
+
+    def on_unmount(self) -> None:
+        from ..tools import background as _bg
+
+        _bg.remove_finish_hook(self._on_bg_job_finished)
+
+    def _on_bg_job_finished(self, job) -> None:
+        """Watcher thread: a run_bg job exited — say so in the transcript."""
+        if not self.is_running:
+            return
+        from ..tools.background import fmt_secs
+
+        if job.killed:
+            mark, color, what = "✕", ui.FG_DIM, "stopped"
+        elif job.code == 0:
+            mark, color, what = "✓", ui.OK, "finished"
+        else:
+            mark, color, what = "✗", ui.ERR, f"failed · exit {job.code}"
+        cmd = " ".join(job.cmd.split())
+        cmd = cmd if len(cmd) <= 70 else cmd[:69] + "…"
+        try:
+            self._tui_console.print(
+                f"[{color}]{mark}[/] [{ui.FG_MUTE}]background job #{job.id} {what}[/] "
+                f"[{ui.FG_DIM}]· {fmt_secs(job.elapsed)} · {_rich_escape(cmd)}[/]"
+            )
+        except Exception:
+            pass
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_sidebar_visibility()

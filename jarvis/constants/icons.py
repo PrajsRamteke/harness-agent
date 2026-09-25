@@ -18,4 +18,6 @@ TOOL_ICONS = {
     "memory_save": "◆", "memory_list": "◆", "memory_delete": "✕",
     "read_image_text": "▣", "read_images_text": "▣",
     "ask_user_question": "?",
+    "run_bg": "&", "bg_output": "&", "bg_kill": "✕",
+    "screenshot": "◩",
 }

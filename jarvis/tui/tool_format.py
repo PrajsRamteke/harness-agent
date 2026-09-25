@@ -31,6 +31,10 @@ _TITLES = {
     "rank_files": "Rank",
     "fast_find": "Find",
     "run_bash": "Bash",
+    "run_bg": "Background",
+    "bg_output": "Job",
+    "bg_kill": "Stop job",
+    "screenshot": "Screenshot",
     "git_status": "Git",
     "git_diff": "Git",
     "git_log": "Git",
@@ -82,6 +86,8 @@ _ICONS = {
     "list_dir": "▤", "glob_files": "◉", "fast_find": "◉", "rank_files": "◉",
     "search_code": "✱",
     "run_bash": "$",
+    "run_bg": "&", "bg_output": "&", "bg_kill": "&",
+    "screenshot": "◩",
     "git_status": "⎇", "git_diff": "⎇", "git_log": "⎇",
     "web_search": "◍", "verified_search": "◍",
     "fetch_url": "%", "open_url": "%",
@@ -242,6 +248,26 @@ def tool_args(name: str, raw_input: Any, width: int = 96) -> str:
         from ..utils.display_paths import shorten_command
 
         return c(shorten_command(d.get("cmd") or ""))
+    if name == "run_bg":
+        from ..utils.display_paths import shorten_command
+
+        return c(shorten_command(d.get("cmd") or ""))
+    if name in ("bg_output", "bg_kill"):
+        if not d.get("job_id"):
+            return "all jobs"
+        extra = f"  wait {d['wait']}s" if name == "bg_output" and d.get("wait") else ""
+        return f"#{d.get('job_id')}{extra}"
+    if name == "screenshot":
+        if d.get("path"):
+            return c(short_path(d["path"]))
+        if d.get("url"):
+            return c(str(d["url"]))
+        if d.get("app"):
+            return c(f"{d['app']} window")
+        if isinstance(d.get("region"), dict):
+            r = d["region"]
+            return f"region {r.get('width', '?')}×{r.get('height', '?')} at {r.get('x', 0)},{r.get('y', 0)}"
+        return "screen"
     if name == "git_status":
         return "status"
     if name == "git_diff":
@@ -358,6 +384,30 @@ def tool_summary(name: str, raw_input: Any, output: str, width: int = 100) -> tu
         if code:
             tail.append(f"exit {code}")
         return (tail, code != 0)
+    if name == "screenshot":
+        m = re.search(r"— (\d+×\d+) px", lines[0]) if lines else None
+        dims = m.group(1) if m else ""
+        if "can't view images" in stripped:
+            return ([f"Captured {dims} · model has no vision — sent OCR text".replace("  ", " ")], False)
+        return ([f"Captured {dims} · attached for the model" if dims else "Captured"], False)
+    if name == "run_bg":
+        m = re.match(r"started background job #(\d+) \(pid (\d+)\)", stripped)
+        if m:
+            return ([f"started job #{m.group(1)} · pid {m.group(2)}"], False)
+        m = re.search(r"^exit=(-?\d+)", stripped, flags=re.M)
+        code = int(m.group(1)) if m else 0
+        return ([f"finished at once · exit {code}"], code != 0)
+    if name == "bg_output":
+        head = lines[0] if lines else ""
+        m = re.search(r"#(\d+) (running for [^:]+|finished · exit (-?\d+) after [^:]+|killed after [^:]+)", head)
+        if m:
+            code = m.group(3)
+            body = [ln for ln in lines[3:] if ln.strip() and not ln.startswith("---")]
+            tail = _tail(body, 2, width) if code not in (None, "0") else []
+            return ([f"#{m.group(1)} {m.group(2)}"] + tail, code not in (None, "0"))
+        return (_head(lines, 3, width), False)
+    if name == "bg_kill":
+        return ([clip(lines[0], width)] if lines else ["stopped"], False)
     if name == "read_file":
         return ([f"Read {_plural(len(lines), 'line')}"], False)
     if name == "write_file":
@@ -416,6 +466,7 @@ def preview_lines(output: str, max_lines: int = 12, width: int = 160,
     from ..utils.display_paths import shorten_paths
 
     text = shorten_paths((output or "").rstrip())
+    text = re.sub(r"^\[\[jarvis:image .+?\]\]$", "◩ image attached for the model", text, flags=re.M)
     lines = text.splitlines()
     out = [ln[:width] + ("…" if len(ln) > width else "") for ln in lines[:max_lines]]
     if len(lines) > max_lines:

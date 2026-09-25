@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover
 from ..console import console, APIStatusError, RateLimitError, HarnessAPIError
 from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
+from ..constants.providers import model_supports_images
 from ..constants import (
     PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
@@ -36,7 +37,7 @@ from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refre
 from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
-from .trim import trim_messages
+from .trim import prune_tool_images, trim_messages
 from .render import assistant_model_label
 from .stream_display import RichAssistantStreamDisplay
 from .turn_progress import report_turn_phase
@@ -552,7 +553,9 @@ def call_claude_stream():
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
     kwargs: Dict[str, Any] = dict(
         model=state.MODEL, max_tokens=API_MAX_TOKENS, system=build_system(),
-        messages=trim_messages(state.messages), tools=tools,
+        messages=prune_tool_images(trim_messages(state.messages),
+                                   vision=model_supports_images(state.MODEL)),
+        tools=tools,
     )
     if state.think_mode:
         kwargs["thinking"] = {

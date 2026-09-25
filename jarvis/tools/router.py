@@ -23,6 +23,19 @@ OCR_RE = re.compile(
     r"\b(ocr|screenshot|image|photo|picture|png|jpe?g|heic|tiff?|resume|cv|voter|license|licence|passport|id card|personal id)\b",
     re.I,
 )
+VISION_RE = re.compile(
+    r"\b(screenshot|screen ?shot|screen|look(?:s|ing)? (?:at|like)|see (?:it|the|what|how)|visual(?:ly)?|"
+    r"ui|ux|layout|design|render(?:s|ed|ing)?|css|style[sd]?|styling|pixel|responsive|frontend|front-end|"
+    r"web ?page|website|localhost|browser|component|button|modal|dialog|navbar|sidebar|theme|colou?rs?|"
+    r"font|spacing|padding|margin|align(?:ed|ment)?|overflow|broken|glitch|mockup|figma|simulator|window)\b",
+    re.I,
+)
+BG_RE = re.compile(
+    r"\b(background|in parallel|meanwhile|while (?:it|that|you)|long[- ]running|slow|pytest|tests?|"
+    r"test suite|jest|vitest|build|compile|install|npm|pnpm|yarn|bun|cargo|gradle|mvn|make|docker|"
+    r"dev server|server|watch|benchmark|lint|typecheck|tsc|deploy|migrat\w*|job)\b",
+    re.I,
+)
 MEMORY_RE = re.compile(r"\b(remember|memory|forget|my name|preference|about me)\b", re.I)
 LESSON_RE = re.compile(r"\b(lesson|learned|remember how|same task)\b", re.I)
 SKILL_RE = re.compile(r"\b(skill|skills|sk\.md|skill\.md|reusable instr|my skills|available skills)\b", re.I)
@@ -134,8 +147,18 @@ def select_tools(messages: list[dict]) -> list[dict]:
 
     if WEB_RE.search(text) or "internet" in active:
         groups.append("internet")
-    if MAC_RE.search(text) or "mac" in active:
+    mac = bool(MAC_RE.search(text) or "mac" in active)
+    if mac:
         groups.append("mac")
+    # Eyes: whenever the task is visual, or the agent is driving the Mac GUI.
+    if mac or VISION_RE.search(text) or "vision" in active:
+        groups.append("vision")
+    # Background jobs: coding work (tests/builds) or while any job exists.
+    from .background import jobs as _bg_jobs
+
+    if (_coding_agent_active() or BG_RE.search(text) or "background" in active
+            or _bg_jobs()):
+        groups.append("background")
     if OCR_RE.search(text) or "ocr" in active:
         groups.append("ocr")
     if MEMORY_RE.search(text) or "memory" in active:
