@@ -16,6 +16,7 @@ from .model import (  # noqa: F401
     BADGE_INFO,
     BADGES,
     DEFAULT_NAME,
+    badge_progress,
     LEVEL_TITLES,
     SNACKS,
     SPECIES,

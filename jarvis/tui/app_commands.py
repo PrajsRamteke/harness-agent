@@ -83,6 +83,12 @@ def _is_pet_card_command(text: str) -> bool:
     return s in ("/pet", "/pets", "/jarvis", "/pet card")
 
 
+def _is_pet_badges_command(text: str) -> bool:
+    """``/pet badges`` (and ``/badges``) opens the badge list dialog."""
+    s = (text or "").strip().lower()
+    return s in ("/pet badges", "/pet badge", "/badges")
+
+
 def _is_provider_hub_command(text: str) -> bool:
     """Provider setup is reached only through the unified ``/provider`` command.
 

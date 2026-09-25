@@ -60,6 +60,7 @@ from .app_commands import (  # noqa: F401
     _is_provider_hub_command,
     _is_local_command,
     _is_pet_card_command,
+    _is_pet_badges_command,
 )
 
 
@@ -928,6 +929,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             self._open_local_cmd_modal(initial=rest)
         elif stripped == "/sidebar":
             self.action_toggle_sidebar()
+        elif _is_pet_badges_command(stripped):
+            self._open_pet_badges()
         elif _is_pet_card_command(stripped):
             self._open_pet_card()
         else:

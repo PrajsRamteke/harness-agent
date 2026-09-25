@@ -11,12 +11,12 @@ import time
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import CenterMiddle, Horizontal, Vertical
+from textual.containers import CenterMiddle, Horizontal, Vertical, VerticalScroll
 from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
 from ..pet import (ACCESSORIES, ACCESSORY_LABELS, BADGES, SPECIES, SPECIES_LABELS, Reaction,
-                   get_pet, get_roster, save_pet)
+                   badge_progress, get_pet, get_roster, save_pet)
 from ..pet import sprites
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, hint_line, picker_row
 from .mouse_toggle import disable_mouse, enable_mouse
@@ -103,6 +103,35 @@ def badges_text(pet) -> Text:
     return out
 
 
+def badges_table(pet):
+    """Every badge: icon, name, how to earn it, and progress / earned mark.
+
+    Used by :class:`PetBadgesScreen` (and tests). Read-only rich grid.
+    """
+    from rich.table import Table
+
+    t = Table.grid(padding=(0, 2))
+    t.add_column(no_wrap=True)                              # icon
+    t.add_column(no_wrap=True)                              # name
+    t.add_column(no_wrap=True, overflow="ellipsis")         # how to earn it
+    t.add_column(justify="right", no_wrap=True)             # progress
+    for badge in BADGES:
+        bid, icon, name, how, _c, _n = badge
+        got = bid in pet.badges
+        if got:
+            mark = Text("✓ earned", style=f"bold {sprites.GOLD}")
+        else:
+            cur, target = badge_progress(pet, badge)
+            mark = Text(f"{cur:,}/{target:,}", style=ui.FG_DIM)
+        t.add_row(
+            Text(icon, style=f"bold {sprites.GOLD}" if got else ui.blend(ui.BG_1, ui.FG_DIM, 0.35)),
+            Text(name, style=f"bold {ui.FG}" if got else ui.FG_DIM),
+            Text(how, style=ui.FG_MUTE if got else ui.FG_DIM),
+            mark,
+        )
+    return t
+
+
 def wardrobe_text(pet) -> Text:
     out = Text(no_wrap=True, overflow="ellipsis")
     out.append("wardrobe ", style=f"bold {ui.FG_MUTE}")
@@ -186,6 +215,7 @@ class PetCardScreen(TuiModalScreen[None]):
         Binding("a", "adopt", "Adopt", show=False),
         Binding("s", "switch", "Switch", show=False),
         Binding("h", "toggle_buddy", "Hide", show=False),
+        Binding("b", "badges", "Badges", show=False),
     ]
 
     def __init__(self) -> None:
@@ -212,7 +242,7 @@ class PetCardScreen(TuiModalScreen[None]):
                               ("t", "trick"), ("?", "tip"))
                     + "\n"
                     + hint_line(("r", "rename"), ("c", "fur"), ("w", "wear"), ("a", "adopt"),
-                                ("s", "switch"), ("h", "hide")),
+                                ("s", "switch"), ("b", "badges"), ("h", "hide")),
                     id="modal_hint",
                 )
 
@@ -378,6 +408,9 @@ class PetCardScreen(TuiModalScreen[None]):
             self.dismiss(None)
             adopt()
 
+    def action_badges(self) -> None:
+        self.app.push_screen(PetBadgesScreen(), lambda _: self._refresh_all())
+
     def action_toggle_buddy(self) -> None:
         toggle = getattr(self.app, "_pet_set_enabled", None)
         enabled = getattr(self.app, "_pet_enabled", None)
@@ -407,6 +440,47 @@ class PetCardScreen(TuiModalScreen[None]):
                             placeholder="a cute name…"),
             after,
         )
+
+
+class PetBadgesScreen(TuiModalScreen[None]):
+    """Every badge — what it means, how to earn it, and how far along you are.
+
+    Opened by ``/pet badges`` or the ``b`` key on the pet card.
+    """
+
+    DEFAULT_CSS = (
+        TUI_MODAL_CHROME_CSS
+        + """
+    PetBadgesScreen #modal {
+        width: 78%;
+        max-width: 86;
+    }
+    PetBadgesScreen #badge_scroll {
+        height: auto;
+        max-height: 20;
+        margin: 1 0 0 1;
+    }
+    """
+    )
+
+    BINDINGS = [Binding("escape", "close", "Close", show=True)]
+
+    def compose(self) -> ComposeResult:
+        pet = get_pet()
+        with CenterMiddle():
+            with Vertical(id="modal"):
+                yield Static(f"✧  {pet.name}'s badges", id="modal_title")
+                yield Static(
+                    f"{len(pet.badges)}/{len(BADGES)} earned · "
+                    "locked rows show your progress toward them",
+                    id="modal_subtitle",
+                )
+                with VerticalScroll(id="badge_scroll", can_focus=False):
+                    yield Static(badges_table(pet))
+                yield Static(hint_line(("↑↓", "scroll"), ("esc", "close")), id="modal_hint")
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 _ADOPT_BLURBS = {

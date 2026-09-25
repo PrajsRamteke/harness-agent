@@ -144,6 +144,15 @@ BADGES = (
 BADGE_INFO = {b[0]: b for b in BADGES}
 
 
+def badge_progress(pet, badge) -> tuple[int, int]:
+    """(current, target) progress toward ``badge``'s counter threshold.
+
+    ``badge`` is a row from :data:`BADGES` — ``(id, icon, name, how, counter, threshold)``.
+    """
+    _bid, _icon, _name, _how, counter, threshold = badge
+    return min(pet.count(counter), threshold), threshold
+
+
 @dataclass
 class Reaction:
     """What the UI should show after an action or event."""

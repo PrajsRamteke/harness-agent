@@ -21,7 +21,7 @@ from rich.text import Text
 
 from ..console import console
 from .. import pet as pet_pkg
-from ..pet import BADGES, Reaction, get_pet, get_roster, save_pet
+from ..pet import BADGES, Reaction, badge_progress, get_pet, get_roster, save_pet
 from ..pet import session as pet_session
 from ..pet import sprites
 
@@ -80,13 +80,25 @@ def _set_setting(key: str, on: bool) -> None:
 def _badges() -> None:
     pet = get_pet()
     t = Table.grid(padding=(0, 2))
-    for bid, icon, name, how, _c, _n in BADGES:
+    t.add_column()                                   # icon
+    t.add_column()                                   # name
+    t.add_column()                                   # how to earn it
+    t.add_column(justify="right")                    # progress / earned
+    for badge in BADGES:
+        bid, icon, name, how, _c, _n = badge
         got = bid in pet.badges
+        if got:
+            mark = Text("✓ earned", style="bold yellow")
+        else:
+            cur, target = badge_progress(pet, badge)
+            mark = Text(f"{cur:,}/{target:,}", style="dim")
         t.add_row(Text(icon, style="bold yellow" if got else "dim"),
                   Text(name, style="bold" if got else "dim"),
-                  Text(how, style="dim"))
+                  Text(how, style="dim"),
+                  mark)
     console.print(Text(f"{pet.name}'s badges — {len(pet.badges)}/{len(BADGES)}", style="bold magenta"))
     console.print(t)
+    console.print(Text("the right column is your progress toward each locked badge", style="dim"))
 
 
 def handle_pet(c: str, arg: str):

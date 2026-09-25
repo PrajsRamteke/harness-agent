@@ -377,6 +377,26 @@ def test_pet_card_command_routes_to_the_dialog():
     assert not _is_pet_card_command("/pet feed")
 
 
+def test_pet_badges_command_routes_to_the_dialog():
+    from jarvis.tui.app_commands import _is_pet_badges_command, _is_pet_card_command
+
+    assert _is_pet_badges_command("/pet badges") and _is_pet_badges_command(" /PET BADGE ")
+    assert _is_pet_badges_command("/badges")
+    assert not _is_pet_badges_command("/pet")
+    assert not _is_pet_card_command("/pet badges")
+
+
+def test_badge_progress_counts_toward_locked_badges():
+    from jarvis.pet import BADGE_INFO, badge_progress
+
+    pet = _pet(counters={"pats": 42, "fish": 3, "hatched": 0})
+    assert badge_progress(pet, BADGE_INFO["best_friends"]) == (42, 100)
+    assert badge_progress(pet, BADGE_INFO["fisher"]) == (3, 100)
+    assert badge_progress(pet, BADGE_INFO["hatched"]) == (0, 1)
+    pet.counters["pats"] = 250  # never report more than the target
+    assert badge_progress(pet, BADGE_INFO["best_friends"]) == (100, 100)
+
+
 def test_pet_settings_are_booleans():
     from jarvis.storage.settings import DEFAULTS, _coerce
 
@@ -495,6 +515,43 @@ def test_pet_card_actions_and_hide_toggle(hermetic_app):
             await pilot.pause()
             assert not isinstance(app.screen, PetCardScreen)
             assert _saved()["fur"] == "midnight"
+
+    asyncio.run(run())
+
+
+def test_badges_table_shows_meaning_and_progress():
+    from jarvis.tui.pet_modal import badges_table
+
+    pet = _pet(counters={"pats": 7}, badges={"first_turn": 0.0})
+    rec = Console(record=True, width=100, file=open("/dev/null", "w"))
+    rec.print(badges_table(pet))
+    out = rec.export_text()
+    assert "Best Friends" in out and "100 pats" in out
+    assert "7/100" in out, "locked badges show progress toward the target"
+    assert "✓ earned" in out, "earned badges are marked"
+
+
+def test_pet_badges_screen_opens_from_command_and_card(hermetic_app):
+    from jarvis.tui.pet_modal import PetBadgesScreen, PetCardScreen
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(110, 40)) as pilot:
+            await pilot.pause(0.3)
+            app._route_command("/pet badges")
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, PetBadgesScreen)
+            assert app.screen.query_one("#badge_scroll")
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, PetBadgesScreen)
+
+            app._route_command("/pet")
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, PetCardScreen)
+            await pilot.press("b")
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, PetBadgesScreen)
 
     asyncio.run(run())
 

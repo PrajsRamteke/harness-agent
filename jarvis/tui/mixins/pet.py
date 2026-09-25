@@ -385,6 +385,16 @@ class PetMixin:
         self._pet_hide_bubble()
         self.push_screen(PetCardScreen())
 
+    def _open_pet_badges(self) -> None:
+        from textual.screen import ModalScreen
+
+        if isinstance(self.screen, ModalScreen):
+            return
+        from ..pet_modal import PetBadgesScreen
+
+        self._pet_hide_bubble()
+        self.push_screen(PetBadgesScreen())
+
     # ── events from the app ──────────────────────────────────────────
     def _pet_typing(self) -> None:
         pen = self._pet_pen()
