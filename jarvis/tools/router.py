@@ -153,6 +153,11 @@ def select_tools(messages: list[dict]) -> list[dict]:
     # Eyes: whenever the task is visual, or the agent is driving the Mac GUI.
     if mac or VISION_RE.search(text) or "vision" in active:
         groups.append("vision")
+    # /loop pacing — only while a loop exists.
+    from ..loop import active as _loop_active
+
+    if _loop_active() is not None:
+        groups.append("loop")
     # Background jobs: coding work (tests/builds) or while any job exists.
     from .background import jobs as _bg_jobs
 

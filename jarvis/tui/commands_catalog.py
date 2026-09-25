@@ -19,6 +19,7 @@ COMMANDS = [
     ("/load ", "load session JSON"),
     ("/session", "open the session modal (resume / delete handled inside)"),
     ("/clear", "clear the terminal screen"),
+    ("/loop", "repeat a task — /loop <task> (self-paced) · /loop 5m <task> · /loop stop"),
     ("/keytest", "show what key your terminal sends (Shift+Enter debug)"),
     ("/exit", "quit"),
     # Context

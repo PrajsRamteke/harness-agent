@@ -133,6 +133,16 @@ def _plan_mode_block() -> str:
     return _PLAN_MODE_BLOCK if state.plan_mode else ""
 
 
+def _loop_block() -> str:
+    """/loop instructions while a loop is active (see jarvis/loop.py)."""
+    try:
+        from ..loop import prompt_block
+
+        return prompt_block()
+    except Exception:
+        return ""
+
+
 def _background_jobs_block() -> str:
     """Live run_bg jobs (running, or finished with unread output)."""
     try:
@@ -262,6 +272,7 @@ def build_system() -> Union[str, List[Dict]]:
     body += _agent_addon_block()
     body += _plan_mode_block()
     body += _background_jobs_block()
+    body += _loop_block()
     body += date_line
 
     if state.auth_mode == AUTH_OAUTH:

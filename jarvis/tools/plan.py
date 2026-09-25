@@ -32,6 +32,8 @@ PLAN_MODE_ALLOWED = frozenset({
     "read_image_text", "read_images_text", "screenshot",
     # background jobs (read their output; starting/killing is blocked)
     "bg_output",
+    # /loop pacing (timing only — changes nothing on disk)
+    "schedule_wakeup",
     # storage (read)
     "memory_list", "lesson_search", "lesson_list",
     # skills (read/load — instructions only)

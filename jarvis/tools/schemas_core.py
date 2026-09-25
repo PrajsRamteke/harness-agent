@@ -312,3 +312,18 @@ BACKGROUND_TOOLS = [
      "input_schema":{"type":"object","properties":{
         "job_id":{"type":"integer"}},"required":["job_id"]}},
 ]
+
+LOOP_TOOLS = [
+    {"name":"schedule_wakeup","description":(
+        "Pace a /loop the user started: after doing the loop task, set when it runs next "
+        "(delay_seconds 60–3600), or end it with stop=true once the job is done. Only works "
+        "while a /loop is active — see LOOP MODE in the system prompt. In a self-paced loop, "
+        "not calling it ends the loop after this run."
+    ),
+     "input_schema":{"type":"object","properties":{
+        "delay_seconds":{"type":"number","description":"Seconds until the next run (clamped to 60–3600). Match it to how fast the watched thing changes."},
+        "prompt":{"type":"string","description":"Task for the next runs; omit to keep the current /loop task"},
+        "reason":{"type":"string","description":"One short sentence: what you're waiting for (shown to the user)"},
+        "noop":{"type":"boolean","description":"true = nothing changed this run (quiet runs are folded together in the UI)"},
+        "stop":{"type":"boolean","description":"true ends the loop (other fields ignored)"}}}},
+]

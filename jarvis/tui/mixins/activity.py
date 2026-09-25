@@ -109,11 +109,24 @@ class ActivityLine(Widget):
             meta.append("esc" if narrow else "esc to interrupt")
             out.append(f"  ({' · '.join(meta)})", style=ui.FG_DIM)
             return out
+        loop_txt = self._loop_status()
+        if loop_txt:
+            out.append("  ")
+            out.append("⟳ ", style=ui.ACCENT_3)
+            out.append(loop_txt, style=ui.FG_DIM)
+            return out
         msg = self._idle_status()
         if msg:
             out.append("  ")
             out.append(msg, style=ui.FG_DIM)
         return out
+
+    def _loop_status(self) -> str:
+        fn = getattr(self.app, "_loop_status_text", None)
+        try:
+            return fn() if callable(fn) and not getattr(self.app, "_busy", False) else ""
+        except Exception:
+            return ""
 
     def _idle_status(self) -> str:
         msg = getattr(self.app, "_status_msg", "") or ""
@@ -132,6 +145,7 @@ class ActivityLine(Widget):
         return bool(
             (getattr(app, "_busy", False) and getattr(app, "_activity_label", ""))
             or self._idle_status()
+            or self._loop_status()
             or self._lines_below() > 2
         )
 

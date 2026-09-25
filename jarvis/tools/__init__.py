@@ -17,6 +17,7 @@ from .web import web_search, fetch_url, verified_search
 from .ocr import read_image_text, read_images_text
 from .screenshot import screenshot
 from .background import run_bg, bg_output, bg_kill
+from ..loop import schedule_wakeup
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .lessons import lesson_save, lesson_search, lesson_list, lesson_delete, LESSON_TOOLS
 from .skills import skill_list, skill_load, SKILL_TOOLS
@@ -24,6 +25,7 @@ from .ask_user import ask_user_question
 from .plan import exit_plan_mode, PLAN_TOOLS, PLAN_MODE_ALLOWED
 from .schemas_core import (
     CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS, VISION_TOOLS, BACKGROUND_TOOLS,
+    LOOP_TOOLS,
 )
 from .schemas_mac import MAC_TOOLS
 
@@ -31,11 +33,12 @@ from .schemas_mac import MAC_TOOLS
 # when servers connect. Import is deferred to avoid circular imports.
 MCP_TOOLS: list[dict] = []
 TOOLS = (CORE_TOOLS + BACKGROUND_TOOLS + VISION_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS
-         + LESSON_TOOLS + SKILL_TOOLS + OCR_TOOLS + MCP_TOOLS)
+         + LESSON_TOOLS + SKILL_TOOLS + OCR_TOOLS + LOOP_TOOLS + MCP_TOOLS)
 TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
     "background": BACKGROUND_TOOLS,
     "vision": VISION_TOOLS,
+    "loop": LOOP_TOOLS,
     "context": CONTEXT_TOOLS,
     "mac": MAC_TOOLS,
     "internet": INTERNET_TOOLS,
@@ -89,6 +92,8 @@ FUNC = {
     "run_bg": run_bg, "bg_output": bg_output, "bg_kill": bg_kill,
     # vision
     "screenshot": screenshot,
+    # /loop pacing
+    "schedule_wakeup": schedule_wakeup,
     # ocr
     "read_image_text": read_image_text,
     "read_images_text": read_images_text,

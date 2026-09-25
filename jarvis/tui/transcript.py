@@ -231,11 +231,18 @@ class UserBlock(Block):
         border-left: heavy $jv-fg-dim;
         color: $jv-fg-mute;
     }
+    UserBlock.-loop {
+        border-left: heavy $jv-accent-3;
+    }
     """
 
-    def __init__(self, text: str, *, shell: bool = False, flash: bool = False) -> None:
+    def __init__(self, text: str, *, shell: bool = False, flash: bool = False,
+                 badge: str = "") -> None:
         super().__init__()
         self.text = text or ""
+        self.badge = badge  # e.g. "⟳ loop #3" for /loop runs
+        if badge:
+            self.add_class("-loop")
         self.phase = ""  # live spinner label (slash commands like /upgrade)
         self._frame = 0
         self._flash = flash
@@ -281,6 +288,8 @@ class UserBlock(Block):
             hidden = len(lines) - (_USER_MAX_LINES - 4)
             lines = lines[: _USER_MAX_LINES - 4]
         out = Text()
+        if self.badge:
+            out.append(f"{self.badge}  ", style=f"bold {ui.ACCENT_3}")
         for n, line in enumerate(lines):
             if n:
                 out.append("\n")
@@ -1041,6 +1050,77 @@ class TurnFooter(Block):
         return out
 
 
+class LoopQuietBlock(Block):
+    """A streak of quiet /loop runs folded into one line (click to unfold).
+
+    ``⟳ 3 quiet checks · last 10:42 · CI still running · next 10:52  ▸ show``
+    """
+
+    DEFAULT_CSS = """
+    LoopQuietBlock {
+        padding: 0 0 0 2;
+        color: $jv-fg-dim;
+        width: auto;
+    }
+    LoopQuietBlock:hover {
+        background: $jv-bg-1;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.hidden_blocks: list[Widget] = []
+        self.count = 0
+        self.last_at = 0.0
+        self.reason = ""
+        self.next_at: float | None = None
+        self.ended = ""
+        self.expanded = False
+
+    def add_run(self, blocks: list[Widget], reason: str, next_at: float | None) -> None:
+        for blk in blocks:
+            blk.display = self.expanded
+        self.hidden_blocks.extend(blocks)
+        self.count += 1
+        self.last_at = time.time()
+        self.reason = reason or self.reason
+        self.next_at = next_at
+        self.refresh(layout=True)
+
+    def set_next(self, next_at: float | None, ended: str = "") -> None:
+        self.next_at = next_at
+        self.ended = ended
+        self.refresh(layout=True)
+
+    def on_click(self) -> None:
+        self.expanded = not self.expanded
+        for blk in self.hidden_blocks:
+            if blk.parent is not None:
+                blk.display = self.expanded
+        self.refresh(layout=True)
+
+    def plain_text(self) -> str:
+        return self.render().plain
+
+    def render(self) -> Text:
+        out = Text()
+        out.append("⟳ ", style=ui.ACCENT_3)
+        noun = "quiet check" if self.count == 1 else "quiet checks"
+        out.append(f"{self.count} {noun}", style=ui.FG_MUTE)
+        if self.last_at:
+            out.append(f" · last {time.strftime('%H:%M', time.localtime(self.last_at))}",
+                       style=ui.FG_DIM)
+        if self.reason:
+            out.append(f" · {tf.clip(self.reason, 60)}", style=ui.FG_DIM)
+        if self.ended:
+            out.append(f" · {self.ended}", style=ui.FG_DIM)
+        elif self.next_at:
+            out.append(f" · next {time.strftime('%H:%M', time.localtime(self.next_at))}",
+                       style=ui.FG_DIM)
+        out.append("  ▾ hide" if self.expanded else "  ▸ show", style=ui.ACCENT)
+        return out
+
+
 def _fmt_secs(s: float) -> str:
     if s < 60:
         return f"{s:.1f}s"
@@ -1153,6 +1233,7 @@ class Transcript(VerticalScroll):
         if (
             isinstance(content, Text)
             and isinstance(last, NoticeBlock)
+            and last.display  # never into a block folded away (quiet /loop runs)
             and last.text_only
             and len(last.items) < 200
         ):

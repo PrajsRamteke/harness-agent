@@ -20,4 +20,5 @@ TOOL_ICONS = {
     "ask_user_question": "?",
     "run_bg": "&", "bg_output": "&", "bg_kill": "✕",
     "screenshot": "◩",
+    "schedule_wakeup": "⟳",
 }

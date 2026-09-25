@@ -35,6 +35,7 @@ _TITLES = {
     "bg_output": "Job",
     "bg_kill": "Stop job",
     "screenshot": "Screenshot",
+    "schedule_wakeup": "Loop",
     "git_status": "Git",
     "git_diff": "Git",
     "git_log": "Git",
@@ -88,6 +89,7 @@ _ICONS = {
     "run_bash": "$",
     "run_bg": "&", "bg_output": "&", "bg_kill": "&",
     "screenshot": "◩",
+    "schedule_wakeup": "⟳",
     "git_status": "⎇", "git_diff": "⎇", "git_log": "⎇",
     "web_search": "◍", "verified_search": "◍",
     "fetch_url": "%", "open_url": "%",
@@ -257,6 +259,17 @@ def tool_args(name: str, raw_input: Any, width: int = 96) -> str:
             return "all jobs"
         extra = f"  wait {d['wait']}s" if name == "bg_output" and d.get("wait") else ""
         return f"#{d.get('job_id')}{extra}"
+    if name == "schedule_wakeup":
+        if d.get("stop"):
+            return "stop"
+        from ..loop import fmt_delay
+
+        try:
+            when = f"next in {fmt_delay(float(d.get('delay_seconds')))}" if d.get("delay_seconds") else ""
+        except (TypeError, ValueError):
+            when = ""
+        bits = [b for b in (when, "quiet" if d.get("noop") else "", d.get("reason") or "") if b]
+        return c(" · ".join(bits))
     if name == "screenshot":
         if d.get("path"):
             return c(short_path(d["path"]))

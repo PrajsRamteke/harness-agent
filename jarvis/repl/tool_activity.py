@@ -51,6 +51,8 @@ def describe_tool_activity(name: str, raw_input) -> str:
                 else f"Checking background job #{d.get('job_id')}")
     if name == "bg_kill":
         return f"Stopping background job #{d.get('job_id', '')}"
+    if name == "schedule_wakeup":
+        return "Ending the loop" if d.get("stop") else "Scheduling the next loop run"
     if name == "screenshot":
         target = d.get("url") or d.get("app") or d.get("path") or ("region" if d.get("region") else "screen")
         return f"Screenshot: {c(str(target))}"

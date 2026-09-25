@@ -26,7 +26,7 @@ _GROUPS: list[tuple[str, list[str]]] = [
                        "/plan", "/auto", "/verbose", "/multi"]),
     ("Context & memory", ["/pin", "/unpin", "/memory", "/lesson", "/skill", "/scan",
                           "/note ", "/notes", "/alias ", "/aliases"]),
-    ("Tools", ["/local", "/mcp", "/command"]),
+    ("Tools", ["/local", "/mcp", "/command", "/loop"]),
     ("App", ["/theme", "/sidebar", "/settings", "/tokens", "/cost", "/stats",
              "/upgrade", "/version", "/help", "/keytest"]),
 ]

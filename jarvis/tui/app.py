@@ -147,6 +147,7 @@ from .mixins.activity import ActivityLine, ActivityMixin  # noqa: E402
 from .mixins.file_ref import FileRefPickerMixin  # noqa: E402
 from .mixins.pet import PetMixin  # noqa: E402
 from .mixins.prompt_nav import PromptNavMixin  # noqa: E402
+from .mixins.loop import LoopMixin  # noqa: E402
 from .pet_widget import PetBubble, PetBuddy  # noqa: E402
 from .prompt_history import PromptHistory  # noqa: E402
 from .sidebar import Sidebar  # noqa: E402
@@ -181,7 +182,8 @@ _TIPS = (
 # ─── App ─────────────────────────────────────────────────────────────────
 
 
-class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRefPickerMixin, App):
+class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMixin,
+                FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
 
@@ -243,6 +245,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRef
         self._tool_activity_lock = threading.Lock()
         self._ask_user = AskUserController(self)
         self._pet_init()
+        self._loop_init()
         self._history = PromptHistory()
         self._turn_is_llm = False
         self._turn_cancelled = False
@@ -1397,6 +1400,10 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRef
             self.exit()
             return
 
+        if stripped == "/loop" or stripped.startswith("/loop "):
+            self._loop_command(stripped[len("/loop"):])
+            return
+
         if stripped == "/keytest":
             self._key_debug = True
             self._tui_console.print(
@@ -1428,7 +1435,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRef
         self._set_status("editing a queued message — ↵ queues it again")
         return True
 
-    def _begin_turn(self, inp: str, *, echo: bool = True, display: str | None = None) -> None:
+    def _begin_turn(self, inp: str, *, echo: bool = True, display: str | None = None,
+                    badge: str = "") -> None:
         state.cancel_requested.clear()
         self._turn_cancelled = False
         self._turn_is_llm = False
@@ -1445,7 +1453,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRef
                 inp.strip(), phase="checking…" if checking else "upgrading…"
             )
         elif echo:
-            transcript.add(UserBlock(display or inp, shell=inp.startswith("!"), flash=True))
+            transcript.add(UserBlock(display or inp, shell=inp.startswith("!"), flash=True,
+                                     badge=badge))
         transcript.follow()
         if self._web_bridge is not None:
             self._web_bridge.emit(
@@ -1787,6 +1796,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRef
         self._sync_web_busy()
         self._tui_console.forget_tools()
         self._slow_refresh()
+        self._loop_after_turn(cancelled=self._turn_cancelled)
 
         if state.prompt_queue:
             item = state.prompt_queue.pop(0)
