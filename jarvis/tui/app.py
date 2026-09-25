@@ -1772,17 +1772,24 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         seconds = max(0.0, time.monotonic() - self._turn_t0) if self._turn_t0 else 0.0
         if self._turn_cancelled:
             self._tui_console.cancel_running_tools()
-            self._tui_console.print(f"[{ui.WARN}]⏹ interrupted[/] [{ui.FG_DIM}]· what should Jarvis do instead?[/]")
+            if not self._turn_is_llm:  # LLM turns say it in their TurnFooter
+                self._tui_console.print(f"[{ui.WARN}]⏹ interrupted[/] [{ui.FG_DIM}]· what should Jarvis do instead?[/]")
         if self._turn_is_llm:
             rec = _active_agent_record()
+            agent = rec["name"] if rec else "jarvis"
+            # Agent/model are in the status bar; repeat them only on a change.
+            prev = getattr(self, "_last_footer_source", None)
+            self._last_footer_source = (agent, state.MODEL)
             self._transcript().add(TurnFooter(
-                agent=rec["name"] if rec else "jarvis",
+                agent=agent,
                 color=_agent_color(),
                 model=state.MODEL,
                 seconds=seconds,
                 interrupted=self._turn_cancelled,
                 reply=(state.last_assistant_text or "")
                 if state.last_assistant_text != getattr(self, "_reply_before_turn", None) else "",
+                show_agent=prev is not None and prev[0] != agent,
+                show_model=prev is not None and prev[1] != state.MODEL,
             ))
         if self._turn_is_llm:
             self._turns_done += 1

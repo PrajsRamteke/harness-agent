@@ -11,7 +11,7 @@ Layout of a turn (Claude Code–style timeline, opencode-style user box)::
     ⏺ Bash pytest -q
       ⎿  4 passed in 0.31s
 
-    ▣ coding · sonnet-4-6 · 12.4s               ← TurnFooter
+    ▣ 12.4s                                     ← TurnFooter (agent/model only on change)
 
 Every block renders from its own data at paint time using the live theme
 tokens, so theme switches, trace toggles and terminal resizes restyle the
@@ -974,7 +974,12 @@ class NoticeBlock(Block):
 
 
 class TurnFooter(Block):
-    """``▣ agent · model · 12.4s`` after a completed turn."""
+    """``▣ 12.4s`` after a completed turn.
+
+    The status bar already shows the current agent and model, so the app
+    passes ``show_agent`` / ``show_model`` only when they changed since the
+    previous turn (``▣ opus-4-7 · 12.4s`` marks a mid-session switch).
+    """
 
     DEFAULT_CSS = """
     TurnFooter {
@@ -985,11 +990,14 @@ class TurnFooter(Block):
     """
 
     def __init__(self, agent: str, color: str, model: str, seconds: float,
-                 extra: str = "", interrupted: bool = False, reply: str = "") -> None:
+                 extra: str = "", interrupted: bool = False, reply: str = "",
+                 *, show_agent: bool = True, show_model: bool = True) -> None:
         super().__init__()
         self.agent = agent
         self.color = color
         self.model = model
+        self.show_agent = show_agent
+        self.show_model = show_model
         self.seconds = seconds
         self.extra = extra
         self.interrupted = interrupted
@@ -1032,16 +1040,20 @@ class TurnFooter(Block):
     def _line(self, *, hover: bool) -> Text:
         out = Text()
         out.append("▣ ", style=ui.WARN if self.interrupted else (self.color or ui.ACCENT))
-        out.append(self.agent, style=ui.FG_MUTE)
-        out.append(" · ", style=ui.FG_DIM)
-        out.append(self.model, style=ui.FG_DIM)
-        out.append(" · ", style=ui.FG_DIM)
+        if self.show_agent:
+            out.append(self.agent, style=ui.FG_MUTE)
+            out.append(" · ", style=ui.FG_DIM)
+        if self.show_model:
+            # Same short form as the status bar (drop the ``vendor/`` prefix).
+            out.append(self.model.rsplit("/", 1)[-1], style=ui.FG_DIM)
+            out.append(" · ", style=ui.FG_DIM)
         out.append(_fmt_secs(self.seconds), style=ui.FG_DIM)
         if self.extra:
             out.append(" · ", style=ui.FG_DIM)
             out.append(self.extra, style=ui.FG_DIM)
         if self.interrupted:
             out.append(" · interrupted", style=ui.WARN)
+            out.append(" · what should Jarvis do instead?", style=ui.FG_DIM)
         if self.reply.strip():
             if time.monotonic() - self._copied_at < 1.5:
                 out.append("  ✓ copied", style=ui.OK)

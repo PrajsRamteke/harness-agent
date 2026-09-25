@@ -667,3 +667,40 @@ def test_hovered_rows_survive_relayout(hermetic_app):
             assert row.status == "done"
 
     asyncio.run(run())
+
+
+def test_turn_footer_names_agent_and_model_only_on_change(hermetic_app, monkeypatch):
+    """The status bar shows the current agent/model, so turn footers don't
+    repeat them — only a mid-session switch is marked. An interrupted LLM
+    turn says so once, in its footer (no separate notice line)."""
+    import time
+
+    from jarvis import state
+    from jarvis.tui.transcript import TurnFooter
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause(0.3)
+
+            def finish(model: str, *, cancelled: bool = False) -> str:
+                monkeypatch.setattr(state, "MODEL", model)
+                app._busy, app._turn_t0, app._turn_is_llm = True, time.monotonic(), True
+                app._turn_cancelled = cancelled
+                app._turn_done()
+                return list(app.query(TurnFooter))[-1].plain_text()
+
+            first = finish("deepseek/deepseek-v4.1-flash")
+            again = finish("deepseek/deepseek-v4.1-flash")
+            switched = finish("anthropic/claude-opus-5-5")
+            cancelled = finish("anthropic/claude-opus-5-5", cancelled=True)
+            await pilot.pause(0.1)
+
+            for line in (first, again, cancelled):
+                assert "deepseek" not in line and "opus" not in line, line
+            assert "claude-opus-5-5" in switched and "anthropic/" not in switched
+            assert "interrupted · what should Jarvis do instead?" in cancelled
+            rendered = app.query_one("#transcript").plain_text()
+            assert rendered.count("what should Jarvis do instead?") == 1
+
+    asyncio.run(run())
