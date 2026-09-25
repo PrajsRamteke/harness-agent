@@ -49,7 +49,7 @@ function syncEffortDropdown(s) {
   const trigger = $('effort-trigger');
   const valueEl = $('effort-value');
   const menu = $('effort-menu');
-  const effort = s.session.think_effort || 'medium';
+  const effort = s.session.think_effort || 'high';
   const enabled = s.session.think_mode && s.pendingToggle !== 'effort';
 
   if (valueEl) valueEl.textContent = effort;

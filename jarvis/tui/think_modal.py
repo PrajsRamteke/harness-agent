@@ -17,8 +17,8 @@ from . import theme as ui
 
 _DESCRIPTIONS = {
     "xhigh": "maximum reasoning · slowest",
-    "high": "strong reasoning",
-    "medium": "balanced — good default",
+    "high": "strong reasoning · default",
+    "medium": "balanced reasoning",
     "low": "lighter reasoning · faster",
     "minimal": "minimal reasoning",
     "none": "thinking off · fastest",

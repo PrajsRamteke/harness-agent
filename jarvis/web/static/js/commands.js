@@ -316,7 +316,7 @@ function renderEffortRow() {
   }
   row.classList.remove('hidden');
 
-  const effort = store.session.think_effort || 'medium';
+  const effort = store.session.think_effort || 'high';
   const hint = effortHint(effort);
 
   row.innerHTML = `

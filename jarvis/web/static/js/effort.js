@@ -3,8 +3,8 @@ export const EFFORTS = ['xhigh', 'high', 'medium', 'low', 'minimal', 'none'];
 
 export const EFFORT_HINTS = {
   xhigh: 'Maximum reasoning depth',
-  high: 'Deep analysis',
-  medium: 'Balanced default',
+  high: 'Deep analysis — default',
+  medium: 'Balanced reasoning',
   low: 'Light thinking',
   minimal: 'Brief passes only',
   none: 'Thinking off',

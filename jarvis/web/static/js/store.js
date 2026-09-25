@@ -10,7 +10,7 @@ export const store = {
     session_id: '',
     provider: '',
     think_mode: true,
-    think_effort: 'medium',
+    think_effort: 'high',
     show_internal: true,
     auto_approve: false,
     tokens_in: 0,
@@ -53,7 +53,7 @@ export function loadSnapshot(data) {
     session_id: data.session_id || '',
     provider: data.provider || '',
     think_mode: data.think_mode !== false,
-    think_effort: data.think_effort || 'medium',
+    think_effort: data.think_effort || 'high',
     show_internal: data.show_internal !== false,
     auto_approve: !!data.auto_approve,
     tokens_in: data.tokens_in || 0,
@@ -75,7 +75,7 @@ export function applySettingsResponse(settings) {
   if (!settings) return;
   patchSession({
     think_mode: settings.think_mode !== false,
-    think_effort: settings.think_effort || 'medium',
+    think_effort: settings.think_effort || 'high',
     show_internal: settings.show_internal !== false,
     auto_approve: !!settings.auto_approve,
     model: settings.model || store.session.model,

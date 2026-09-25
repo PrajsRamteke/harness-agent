@@ -13,7 +13,7 @@ run ``/settings reload`` (or restart) to pick up changes::
       "theme": "red",
       "skills": { "global": false },
       "mcp":    { "global": false },
-      "think":  { "mode": true, "effort": "medium" },
+      "think":  { "mode": true, "effort": "high" },
       "trace":  { "on": true }
     }
 
@@ -59,7 +59,7 @@ DEFAULTS: dict[str, Any] = {
     "agent":  {"active": "", "global": True},   # global agents visible by default
     "skills": {"global": False},
     "mcp":    {"global": False},
-    "think":  {"mode": True, "effort": "medium"},
+    "think":  {"mode": True, "effort": "high"},
     "trace":  {"on": True},   # show thinking + tool panels in TUI transcript
     "pin":    {"enabled": True},  # inject pinned.txt into every system prompt
     "pet":    {"enabled": True, "nudges": True, "notify": True},  # the TUI pets

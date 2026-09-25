@@ -288,7 +288,7 @@ class _CodexMessages:
         if resp_tools:
             payload["tools"] = resp_tools
         if thinking and thinking.get("type") == "enabled":
-            effort = str(thinking.get("effort") or "medium")
+            effort = str(thinking.get("effort") or "high")
             payload["reasoning"] = {"effort": effort}
 
         response = self._client.responses.create(**payload)
