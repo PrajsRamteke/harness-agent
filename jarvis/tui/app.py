@@ -140,6 +140,7 @@ def _mouse_preference() -> bool:
 # PromptArea lives in prompt_area.py; re-exported so callers/tests that import
 # it from jarvis.tui.app keep working.
 from .prompt_area import PromptArea  # noqa: F401, E402
+from .terminal_keys import install as _install_terminal_keys  # noqa: E402
 from .console_swap import _swap_console_everywhere  # noqa: F401, E402
 from .mixins.web_remote import WebRemoteMixin  # noqa: E402
 from .mixins.activity import ActivityLine, ActivityMixin  # noqa: E402
@@ -211,6 +212,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, FileRef
 
     def __init__(self):
         super().__init__()
+        _install_terminal_keys()  # Shift+Enter via ESC+CR (VS Code / Cursor) → newline
         self._busy = False
         self._last_input_value = ""
         self._activity_timer = None

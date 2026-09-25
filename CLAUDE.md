@@ -62,7 +62,7 @@ python -m pytest tests/ -q
 | `tools/mac/` | macOS control: app launch/focus/quit, AppleScript, JXA scripts, UI reading, clicks, keystrokes, clipboard |
 | `tools/web/` | Web fetch + DuckDuckGo search with verified-source claim checking (`_claims.py`) |
 | `repl/` | Stream handling (`stream.py`), response rendering (`render.py`), hallucination guard (`hallucination.py`), context trimming (`trim.py`) |
-| `tui/` | Textual app (`app.py`), widget transcript (`transcript.py`), console shim (`console_shim.py`), markdown renderer (`md_render.py`), tool rows/icons (`tool_format.py`), clickable footer (`footer.py`), sticky prompt (`sticky_prompt.py`), sidebar, prompt history + paste chips, pickers/modals (shared chrome in `modal_chrome.py`) |
+| `tui/` | Textual app (`app.py`), widget transcript (`transcript.py`), console shim (`console_shim.py`), markdown renderer (`md_render.py`), tool rows/icons (`tool_format.py`), clickable footer (`footer.py`), sticky prompt (`sticky_prompt.py`), extra key sequences (`terminal_keys.py`: ESC+CR → `alt+enter`, i.e. Shift+Enter from VS Code/Cursor keybindings → newline), sidebar, prompt history + paste chips, pickers/modals (shared chrome in `modal_chrome.py`) |
 | `commands/` | Slash command handlers dispatched from `dispatch.py` (`agent.py` activates agents, `skill.py` lists/loads skills) |
 | `storage/` | SQLite sessions (`sessions.py`), user memory (`memory.py`), **agents (`agents.py`)**, **skills (`skills.py`)**, **custom commands (`commands.py`)**, unified settings (`settings.py`), prefs (`prefs.py`) |
 | `mcp/` | MCP server management: config (`config.py`), registry (`registry.py`), manager (`manager.py`) |
