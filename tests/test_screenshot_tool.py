@@ -32,7 +32,7 @@ def _png(path: pathlib.Path, w: int, h: int) -> pathlib.Path:
 @pytest.fixture(autouse=True)
 def _shot_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(shot, "SHOT_DIR", tmp_path / "shots")
-    monkeypatch.setattr(state, "MODEL", "claude-sonnet-4-6")  # has vision
+    monkeypatch.setattr(state, "MODEL", "claude-opus-5-5")  # has vision
     monkeypatch.setattr(shot, "screen_recording_allowed", lambda: True)
 
 

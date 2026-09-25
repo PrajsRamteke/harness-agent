@@ -31,27 +31,27 @@ class SystemIdentityTests(unittest.TestCase):
         self.assertIn("Never call yourself Claude Code", prompt)
 
     def test_selected_model_block_includes_id_and_name(self):
-        state.MODEL = "claude-sonnet-4-6"
+        state.MODEL = "claude-sonnet-5"
         state.provider = "anthropic"
         state.harness_agent_free = False
         state.auth_mode = AUTH_API_KEY
         with mock.patch.object(system, "_build_static_body", return_value="BASE"):
             prompt = system.build_system()
-        self.assertTrue(prompt.startswith("SELECTED MODEL: claude-sonnet-4-6"))
-        self.assertIn("MODEL NAME: Sonnet 4.6 — balanced", prompt)
+        self.assertTrue(prompt.startswith("SELECTED MODEL: claude-sonnet-5"))
+        self.assertIn("MODEL NAME: Sonnet 5 — balanced", prompt)
         self.assertIn("PROVIDER: Anthropic", prompt)
 
     def test_oauth_prepends_wire_block_and_identity_override(self):
         state.auth_mode = AUTH_OAUTH
-        state.MODEL = "claude-sonnet-4-6"
+        state.MODEL = "claude-sonnet-5"
         with mock.patch.object(system, "_build_static_body", return_value="BASE"):
             blocks = system.build_system()
         self.assertIsInstance(blocks, list)
         self.assertEqual(blocks[0]["text"], OAUTH_IDENTITY)
         self.assertIn("OAUTH WIRE BLOCK", blocks[1]["text"])
         self.assertIn("Jarvis (Harness Agent)", blocks[1]["text"])
-        self.assertIn("SELECTED MODEL: claude-sonnet-4-6", blocks[1]["text"])
-        self.assertIn("MODEL NAME: Sonnet 4.6 — balanced", blocks[1]["text"])
+        self.assertIn("SELECTED MODEL: claude-sonnet-5", blocks[1]["text"])
+        self.assertIn("MODEL NAME: Sonnet 5 — balanced", blocks[1]["text"])
 
     def test_harness_agent_free_provider_label(self):
         state.harness_agent_free = True

@@ -93,12 +93,13 @@ class ModelSpec:
 
 
 MODELS: list[ModelSpec] = [
-    # ── Anthropic (direct API) ────────────────────────────────────────────────
-    ModelSpec("claude-haiku-4-5",  "Haiku 4.5 — fastest, cheapest",  PROVIDER_ANTHROPIC, 1.0,  5.0, supports_images=True),
-    ModelSpec("claude-sonnet-4-6", "Sonnet 4.6 — balanced",          PROVIDER_ANTHROPIC, 3.0, 15.0, default=True, supports_images=True),
-    ModelSpec("claude-opus-4-6",   "Opus 4.6 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0, supports_images=True),
-    ModelSpec("claude-opus-4-7",   "Opus 4.7 — high capability",     PROVIDER_ANTHROPIC, 5.0, 25.0, supports_images=True),
-    ModelSpec("claude-opus-4-8",   "Opus 4.8 — most capable",        PROVIDER_ANTHROPIC, 5.0, 25.0, supports_images=True),
+    # ── Anthropic (direct API) — Claude 5 family ──────────────────────────────
+    # Newest first. Pricing: platform.claude.com/docs/en/about-claude/pricing
+    ModelSpec("claude-opus-5-5",   "Opus 5.5 — latest, agentic coding & knowledge work", PROVIDER_ANTHROPIC,  4.0, 20.0, supports_images=True),
+    ModelSpec("claude-fable-5-1",  "Fable 5.1 — top reasoning, long-horizon",            PROVIDER_ANTHROPIC, 10.0, 50.0, supports_images=True),
+    ModelSpec("claude-mythos-5-1", "Mythos 5.1 — Fable 5.1 tier (invite-only)",          PROVIDER_ANTHROPIC, 10.0, 50.0, supports_images=True),
+    ModelSpec("claude-opus-5",     "Opus 5 — high capability",                           PROVIDER_ANTHROPIC,  5.0, 25.0, supports_images=True),
+    ModelSpec("claude-sonnet-5",   "Sonnet 5 — balanced",                                PROVIDER_ANTHROPIC,  2.0, 10.0, default=True, supports_images=True),
 
     # ── OpenRouter ────────────────────────────────────────────────────────────
     # The free tier is discovered LIVE from https://openrouter.ai/api/v1/models
@@ -217,11 +218,11 @@ ANTHROPIC_MODELS = [
 # OAuth / Pro-Max subscription catalog (newest first). Live API ids are merged in
 # at runtime when OAuth connects successfully.
 ANTHROPIC_AUTH_MODEL_IDS = (
-    "claude-opus-4-8",
-    "claude-opus-4-7",
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+    "claude-mythos-5-1",
+    "claude-opus-5",
+    "claude-sonnet-5",
 )
 OPENROUTER_FREE_MODELS = [
     (mid, info[0])
