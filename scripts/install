@@ -130,7 +130,7 @@ verify_install() {
 import importlib
 import sys
 
-required = ("anthropic", "openai", "rich", "textual", "mcp")
+required = ("anthropic", "openai", "httpx", "rich", "textual", "mcp")
 missing = []
 for name in required:
     try:
@@ -141,6 +141,15 @@ for name in required:
 if missing:
     print("missing packages: " + ", ".join(missing), file=sys.stderr)
     raise SystemExit(1)
+
+# Import the app itself so a dependency it imports directly but pip didn't
+# install fails here, not on the user's first `jarvis`.
+for name in ("jarvis.tui.app", "jarvis.main"):
+    try:
+        importlib.import_module(name)
+    except Exception as e:
+        print(f"jarvis failed to import ({name}): {type(e).__name__}: {e}", file=sys.stderr)
+        raise SystemExit(1)
 PY
 }
 
