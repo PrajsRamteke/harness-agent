@@ -5,7 +5,7 @@ import { store, subscribe } from './store.js';
 import { CATALOG, matchItem, rankItems } from './catalog.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
 import { newChat, toggleSetting } from './actions.js';
-import { toggleTheme, resolvedTheme, openAppearance } from './theme.js';
+import { toggleTheme, resolvedTheme, openAppearance, THEME_LABEL } from './theme.js';
 import { submitPrompt, fillPrompt } from './composer.js';
 import { openShortcuts } from './shortcuts.js';
 
@@ -23,7 +23,7 @@ function itemMeta(item) {
     const on = toggleOn(item);
     return `<span class="lr-state${on ? (item.warn ? ' is-warn' : ' is-on') : ''}">${on ? 'On' : 'Off'}</span>`;
   }
-  if (item.action === 'theme') return `<span class="lr-state">${resolvedTheme() === 'light' ? 'Light' : 'Dark'}</span>`;
+  if (item.action === 'theme') return `<span class="lr-state">${THEME_LABEL[resolvedTheme()]}</span>`;
   if (item.laptop) return '<span class="lr-meta">on computer</span>';
   if (item.cmd) return `<span class="lr-code">${escapeHtml(item.cmd.trim())}</span>`;
   return '';

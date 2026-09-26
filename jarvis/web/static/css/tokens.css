@@ -120,6 +120,34 @@
   --shadow-lg: 0 30px 70px -28px rgba(0, 0, 0, 0.35);
 }
 
+/* Soft dark: charcoal instead of pure black — lifted panels, gentler
+   contrast, same accents as Dark. Only the surfaces and text change. */
+:root[data-theme="dim"] {
+  --bg: #1c1d21;
+
+  --text: #ebebee;
+  --text-2: #b1b2b9;
+  --text-3: #868790;
+
+  --glass: rgba(40, 41, 47, 0.62);
+  --glass-strong: rgba(44, 45, 52, 0.9);
+  --card: rgba(255, 255, 255, 0.045);
+  --card-hover: rgba(255, 255, 255, 0.075);
+  --card-sunk: rgba(0, 0, 0, 0.16);
+  --tile: linear-gradient(180deg, #313238, #27282d);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(255, 255, 255, 0.16);
+  --highlight: rgba(255, 255, 255, 0.06);
+
+  --you-fill: rgba(255, 255, 255, 0.085);
+  --you-line: rgba(255, 255, 255, 0.14);
+  --code-bg: #15161a;
+  --code-line: rgba(255, 255, 255, 0.08);
+
+  --shadow: 0 16px 40px -22px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 30px 70px -26px rgba(0, 0, 0, 0.7);
+}
+
 /* Accents — dark values first, then light-mode shades (darker for contrast). */
 :root[data-accent="blue"] { --accent-rgb: 96, 165, 250; --accent-deep: #3b82f6; }
 :root[data-accent="orange"] { --accent-rgb: 251, 146, 60; --accent-deep: #ea580c; }
@@ -222,6 +250,7 @@ kbd {
 
 :root[data-theme="light"] .glow { background: radial-gradient(closest-side, rgba(var(--accent-rgb), 0.1), transparent); }
 :root[data-theme="light"] .grid { background-image: radial-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 1px); }
+:root[data-theme="dim"] .grid { background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px); }
 
 body.is-busy .glow { opacity: 1; animation: glowpulse 3.6s ease-in-out infinite; }
 body.is-offline .glow { opacity: 0.15; }
@@ -251,6 +280,8 @@ body.is-offline .glow { opacity: 0.15; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass { background: rgba(10, 10, 10, 0.94); }
   .glass-strong { background: rgba(14, 14, 14, 0.98); }
+  :root[data-theme="dim"] .glass { background: rgba(38, 39, 45, 0.96); }
+  :root[data-theme="dim"] .glass-strong { background: rgba(44, 45, 52, 0.98); }
   :root[data-theme="light"] .glass,
   :root[data-theme="light"] .glass-strong { background: rgba(250, 250, 255, 0.96); }
 }

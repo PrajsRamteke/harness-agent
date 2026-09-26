@@ -26,8 +26,8 @@ export const CATALOG = [
   { group: 'Settings', action: 'toggle-trace', label: 'Tool trace', desc: 'Show thinking and tool details', icon: 'list-tree', toggle: 'show_internal' },
   { group: 'Settings', action: 'toggle-thoughts', label: 'Show thoughts here', desc: 'Thinking in this browser only', icon: 'eye', toggle: 'showThoughts' },
   { group: 'Settings', action: 'toggle-auto', label: 'Auto-approve commands', desc: 'Run shell commands without asking', icon: 'shield', toggle: 'auto_approve', warn: true },
-  { group: 'Settings', action: 'theme', label: 'Light or dark', desc: 'Flip the colour mode', icon: 'sun-moon', keys: 'dark light mode theme' },
-  { group: 'Settings', action: 'appearance', label: 'Appearance', desc: 'Mode, accent colour, compact view, alerts', icon: 'palette', keys: 'theme accent color colour compact notification' },
+  { group: 'Settings', action: 'theme', label: 'Light or dark', desc: 'Flip the colour mode', icon: 'sun-moon', keys: 'dark light mode theme soft dim' },
+  { group: 'Settings', action: 'appearance', label: 'Appearance', desc: 'Light, soft dark or dark, accent colour, compact view', icon: 'palette', keys: 'theme accent color colour compact notification soft dim dark light' },
 
   { group: 'Memory', cmd: '/memory', label: 'Memory', desc: 'Personal facts Jarvis remembers', icon: 'database', laptop: true },
   { group: 'Memory', cmd: '/lesson', label: 'Lessons', desc: 'Lessons the agent has saved', icon: 'graduation-cap', laptop: true },

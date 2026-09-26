@@ -11,7 +11,7 @@ import {
   setEffort,
   toggleSetting,
 } from './actions.js';
-import { toggleTheme, resolvedTheme, openAppearance } from './theme.js';
+import { toggleTheme, isLightTheme, openAppearance } from './theme.js';
 
 const PROVIDER_LABELS = {
   anthropic: 'Anthropic',
@@ -104,7 +104,7 @@ function renderUsage(s) {
 function renderThemeButton() {
   const btn = $('theme-btn');
   if (!btn) return;
-  const light = resolvedTheme() === 'light';
+  const light = isLightTheme();
   if (btn.dataset.theme === String(light)) return;
   btn.dataset.theme = String(light);
   btn.innerHTML = icon(light ? 'moon' : 'sun');

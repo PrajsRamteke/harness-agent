@@ -11,6 +11,7 @@
   animation: fade 0.2s ease;
 }
 :root[data-theme="light"] .modal { background: rgba(0, 0, 0, 0.18); }
+:root[data-theme="dim"] .modal { background: rgba(10, 10, 12, 0.45); }
 .modal-prompt { z-index: 70; align-items: center; padding-top: 24px; }
 
 .modal-card:focus { outline: none; }
@@ -253,7 +254,7 @@
 .setting-label { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; color: var(--text-3); }
 .setting-block .switch-row { padding: 9px 8px; margin: 0 -8px; }
 
-.mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.mode-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .mode-card {
   display: flex;
   flex-direction: column;
@@ -285,6 +286,9 @@
 .mode-dark { background: #000; }
 .mode-dark i { background: #1c1c1c; }
 .mode-dark i:nth-child(3) { background: #141414; box-shadow: inset 0 0 0 1px #2a2a2a; }
+.mode-dim { background: #1c1d21; }
+.mode-dim i { background: #313238; }
+.mode-dim i:nth-child(3) { background: #27282d; box-shadow: inset 0 0 0 1px #3a3b42; }
 .mode-light { background: #f6f6f5; }
 .mode-light i { background: #e5e5e5; }
 .mode-light i:nth-child(3) { background: #fff; box-shadow: inset 0 0 0 1px #e0e0e0; }
@@ -446,6 +450,7 @@
 
 /* ─── Phones: dialogs become bottom sheets ────────────────────────────── */
 @media (max-width: 560px) {
+  .mode-grid { grid-template-columns: repeat(2, 1fr); }
   .modal { align-items: flex-end; padding: 40px 0 0; }
   .modal-card {
     max-width: none;

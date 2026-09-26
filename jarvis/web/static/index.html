@@ -21,7 +21,7 @@
         accent = localStorage.getItem('jarvis-accent') || 'green';
       } catch (e) {}
       if (mode === 'system') mode = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-      document.documentElement.dataset.theme = mode === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = (mode === 'light' || mode === 'dim') ? mode : 'dark';
       document.documentElement.dataset.accent = accent;
     })();
   </script>

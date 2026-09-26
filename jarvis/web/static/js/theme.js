@@ -7,8 +7,12 @@ import { openModal } from './modal.js';
 export const MODES = [
   { id: 'system', label: 'System', icon: 'monitor' },
   { id: 'light', label: 'Light', icon: 'sun' },
+  { id: 'dim', label: 'Soft dark', icon: 'cloud-moon' },
   { id: 'dark', label: 'Dark', icon: 'moon' },
 ];
+
+const THEME_COLOR = { light: '#f6f6f5', dim: '#1c1d21', dark: '#000000' };
+export const THEME_LABEL = { light: 'Light', dim: 'Soft dark', dark: 'Dark' };
 
 export const ACCENTS = [
   { id: 'green', label: 'Green', dark: '#4ade80', light: '#16a34a' },
@@ -26,11 +30,19 @@ export const prefs = {
   accent: storageGet('jarvis-accent', 'green'),
   alert: storageGet('jarvis-alert', '1') !== '0',
   compact: storageGet('jarvis-compact', '0') === '1',
+  // Which dark the light/dark flip returns to: 'dark' or 'dim'.
+  darkVariant: storageGet('jarvis-dark-variant', 'dark') === 'dim' ? 'dim' : 'dark',
 };
 
+/** 'light' | 'dim' | 'dark' — what is actually on screen. */
 export function resolvedTheme() {
   if (prefs.mode === 'system') return systemLight.matches ? 'light' : 'dark';
-  return prefs.mode === 'light' ? 'light' : 'dark';
+  if (prefs.mode === 'light' || prefs.mode === 'dim') return prefs.mode;
+  return 'dark';
+}
+
+export function isLightTheme() {
+  return resolvedTheme() === 'light';
 }
 
 function apply() {
@@ -39,13 +51,17 @@ function apply() {
   root.dataset.theme = theme;
   root.dataset.accent = ACCENTS.some((a) => a.id === prefs.accent) ? prefs.accent : 'green';
   document.body.classList.toggle('is-compact', prefs.compact);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f6f6f5' : '#000000');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[theme]);
   patchStore({ theme, themeMode: prefs.mode, accent: prefs.accent });
 }
 
 export function setMode(mode) {
   prefs.mode = MODES.some((m) => m.id === mode) ? mode : 'dark';
   storageSet('jarvis-theme', prefs.mode);
+  if (prefs.mode === 'dark' || prefs.mode === 'dim') {
+    prefs.darkVariant = prefs.mode;
+    storageSet('jarvis-dark-variant', prefs.mode);
+  }
   apply();
   paintAppearance();
 }
@@ -59,7 +75,7 @@ export function setAccent(accent) {
 
 /** Quick flip between light and dark (sidebar button, palette). */
 export function toggleTheme() {
-  setMode(resolvedTheme() === 'light' ? 'dark' : 'light');
+  setMode(isLightTheme() ? prefs.darkVariant : 'light');
 }
 
 function notificationsUsable() {
@@ -132,7 +148,7 @@ function paintAppearance() {
     btn.addEventListener('click', () => setMode(btn.dataset.mode));
   });
 
-  const light = resolvedTheme() === 'light';
+  const light = isLightTheme();
   const accents = $('accent-grid');
   accents.innerHTML = ACCENTS.map((a) => `
     <button type="button" class="accent-chip" role="radio" data-accent="${a.id}" aria-checked="${prefs.accent === a.id}" style="--swatch:${light ? a.light : a.dark}">

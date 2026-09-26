@@ -157,6 +157,7 @@
   animation: pop 0.18s var(--ease);
 }
 :root[data-theme="light"] .effort-menu { background: rgba(255, 255, 255, 0.98); }
+:root[data-theme="dim"] .effort-menu { background: rgba(44, 45, 52, 0.98); }
 .effort-item {
   display: flex;
   align-items: center;
@@ -240,6 +241,7 @@
   animation: pop 0.2s var(--ease);
 }
 :root[data-theme="light"] .slash-menu { background: rgba(255, 255, 255, 0.98); }
+:root[data-theme="dim"] .slash-menu { background: rgba(44, 45, 52, 0.98); }
 
 .slash-item {
   display: flex;
