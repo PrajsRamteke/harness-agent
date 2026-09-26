@@ -246,13 +246,5 @@ class WebRemoteMixin:
             if action in ("session_resume", "session_new", "model_select", "agent_select"):
                 self._set_status("ready")
 
-        if self._web_bridge is not None and result.get("ok"):
-            try:
-                from ...web.state_api import snapshot_from_state
-
-                snap = snapshot_from_state(busy=self._busy)
-                self._web_bridge.emit("snapshot", snap)
-            except Exception:
-                pass
-
+        # The HTTP handler broadcasts the fresh snapshot once this returns.
         return result

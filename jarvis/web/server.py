@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from .bridge import WebBridge
 from .handler import WebHandler
+from .sync import StateWatcher
 
 if TYPE_CHECKING:
     from ..tui.app import JarvisTUI
@@ -17,6 +18,11 @@ if TYPE_CHECKING:
 
 class _JarvisHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
+    daemon_threads = True
+    # socketserver's default listen backlog is 5. The page loads ~20 ES
+    # modules at once (plus the SSE stream), and on macOS connections past
+    # the backlog are reset (net::ERR_CONNECTION_RESET) — the app never boots.
+    request_queue_size = 128
 
 
 def resolve_web_port(host: str, preferred: int, *, max_tries: int = 20) -> int:
@@ -80,6 +86,9 @@ def start_web_server(
     server = _JarvisHTTPServer((host, bound_port), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="jarvis-web")
     thread.start()
+    watcher = StateWatcher(bridge, busy=lambda: bool(getattr(app, "_busy", False)))
+    watcher.start()
+    server.state_watcher = watcher  # type: ignore[attr-defined]
     urls = _local_urls(bound_port, bridge.token)
     return server, urls, bound_port
 

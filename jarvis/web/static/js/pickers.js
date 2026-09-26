@@ -1,8 +1,14 @@
-/** Interactive web pickers — sessions, models, agents, skills, MCP */
-import { $, escapeHtml, icons, showToast } from './utils.js';
-import { loadSnapshot, store } from './store.js';
-import { applySessionData } from './stream.js';
-import { renderMetaBar } from './drawer.js';
+/** Pickers: sessions, models, agents, skills, MCP servers.
+ *
+ * One dialog, one keyboard model (↑ ↓ Enter, Esc) — each kind only supplies
+ * its rows and what picking a row does.
+ */
+import { $, escapeHtml, showToast, debounce } from './utils.js';
+import { icon } from './icons.js';
+import { store } from './store.js';
+import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
+import { runAction } from './actions.js';
+import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 import {
   pickerAction,
   fetchSessions,
@@ -13,503 +19,429 @@ import {
   fetchMcpServers,
 } from './api.js';
 
-let ctx = null;
-let searchTimer = null;
+let current = null; // { kind, spec, rows }
+let nav = null;
+let loadSeq = 0;
 
-function applyActionState(res) {
-  if (!res?.state) return;
-  loadSnapshot(res.state);
-  applySessionData(res.state);
-  renderMetaBar(store);
+// ─── Shell ────────────────────────────────────────────────────────────────
+
+function rowHtml(row, idx) {
+  if (row.section) return `<div class="list-section" role="presentation">${escapeHtml(row.section)}</div>`;
+  return `
+    <div class="list-row${row.current ? ' is-current' : ''}" role="option" data-idx="${idx}" aria-selected="false"${row.disabled ? ' aria-disabled="true"' : ''}>
+      <span class="lr-icon">${row.emoji ? escapeHtml(row.emoji) : icon(row.icon || 'circle')}</span>
+      <span class="lr-body">
+        <span class="lr-title">${escapeHtml(row.title)}</span>
+        ${row.sub ? `<span class="lr-sub${row.wrap ? ' lr-sub-wrap' : ''}">${escapeHtml(row.sub)}</span>` : ''}
+      </span>
+      ${row.meta || ''}
+    </div>`;
 }
 
-export { applyActionState };
-
-function closePicker() {
-  $('picker-overlay')?.classList.remove('open');
-  $('picker-detail')?.classList.add('hidden');
-  $('picker-list')?.classList.remove('hidden');
-  ctx = null;
+function paintRows(rows, emptyHtml) {
+  const list = $('picker-list');
+  current.rows = rows;
+  if (!rows.some((r) => !r.section)) {
+    list.innerHTML = `<div class="list-empty">${emptyHtml}</div>`;
+    return;
+  }
+  list.innerHTML = rows.map(rowHtml).join('');
+  const cur = rows.filter((r) => !r.section && !r.disabled).findIndex((r) => r.current);
+  nav.reset(0);
+  if (cur > 0) nav.setCursor(cur);
+  current.spec.bindRows?.(list);
 }
 
 function setLoading() {
-  const list = $('picker-list');
-  if (list) list.innerHTML = '<div class="picker-loading">Loading…</div>';
+  $('picker-list').innerHTML = `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(4)}</div>`;
 }
 
-function setTitle(title, sub, iconName) {
-  $('picker-title') && ($('picker-title').textContent = title);
-  $('picker-sub') && ($('picker-sub').textContent = sub || '');
-  const icon = $('picker-icon');
-  if (icon) icon.innerHTML = `<i data-lucide="${iconName || 'list'}"></i>`;
+async function reload() {
+  if (!current) return;
+  const seq = ++loadSeq;
+  const q = ($('picker-search')?.value || '').trim();
+  if (!current.rows) setLoading();
+  try {
+    const { rows, empty } = await current.spec.load(q);
+    if (seq !== loadSeq || !current) return;
+    paintRows(rows, empty || '<strong>Nothing here yet</strong>');
+  } catch {
+    if (seq !== loadSeq || !current) return;
+    current.rows = [];
+    $('picker-list').innerHTML = '<div class="list-empty"><strong>Could not load this list</strong>Check that Jarvis is still running, then try again.</div>';
+  }
 }
 
-function renderFoot(buttons) {
+const reloadSoon = debounce(reload, 160);
+
+function renderChips() {
+  const box = $('picker-chips');
+  box.innerHTML = current.spec.chips ? current.spec.chips() : '';
+  current.spec.bindChips?.(box);
+}
+
+function renderFoot() {
   const foot = $('picker-foot');
-  if (!foot) return;
-  foot.innerHTML = (buttons || [])
-    .map(
-      (b) =>
-        `<button type="button" class="btn ${b.className || 'btn-ghost'}" data-foot="${b.id}">${escapeHtml(b.label)}</button>`,
-    )
-    .join('');
-  buttons?.forEach((b) => {
-    foot.querySelector(`[data-foot="${b.id}"]`)?.addEventListener('click', b.onClick);
-  });
+  foot.innerHTML = current.spec.foot ? current.spec.foot() : '';
+  current.spec.bindFoot?.(foot);
 }
 
-function renderToolbar(chips) {
-  const bar = $('picker-toolbar');
-  if (!bar) return;
-  bar.innerHTML = (chips || [])
-    .map(
-      (c) =>
-        `<button type="button" class="picker-chip${c.active ? ' active' : ''}" data-chip="${c.id}">${escapeHtml(c.label)}</button>`,
-    )
-    .join('');
-  chips?.forEach((c) => {
-    bar.querySelector(`[data-chip="${c.id}"]`)?.addEventListener('click', c.onClick);
-  });
+function showDetail(html) {
+  const detail = $('picker-detail');
+  $('picker-list').hidden = true;
+  document.querySelector('#picker .search-row').hidden = true;
+  detail.hidden = false;
+  detail.innerHTML = html;
+  detail.scrollTop = 0;
+  detail.querySelector('.detail-back')?.addEventListener('click', hideDetail);
+  applyMarkdownLinks(detail);
+  detail.querySelector('.detail-back')?.focus();
 }
 
-function bindSearch(onSearch) {
-  const input = $('picker-search');
-  if (!input) return;
-  input.value = '';
-  input.oninput = () => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => onSearch(input.value.trim()), 180);
-  };
+function hideDetail() {
+  $('picker-detail').hidden = true;
+  $('picker-list').hidden = false;
+  document.querySelector('#picker .search-row').hidden = false;
+  $('picker-search')?.focus();
 }
 
-async function runAction(action, data, successMsg) {
-  const res = await pickerAction(action, data);
-  if (res.ok) {
-    applyActionState(res);
-    if (successMsg) showToast(successMsg);
-    closePicker();
-    return res;
-  }
-  if (res.state) applyActionState(res);
-  showToast(res.error || 'Action failed', true);
-  if (res.state) closePicker();
-  return null;
-}
-
-function openPickerShell({ title, sub, icon, foot, toolbar, onSearch, load }) {
-  ctx = { load, onSearch };
-  $('picker-overlay')?.classList.add('open');
-  $('picker-detail')?.classList.add('hidden');
-  $('picker-list')?.classList.remove('hidden');
-  setTitle(title, sub, icon);
-  renderFoot(foot);
-  renderToolbar(toolbar);
-  bindSearch(onSearch || (() => load()));
+function open(kind) {
+  const spec = SPECS[kind];
+  if (!spec) return;
+  current = { kind, spec, rows: null };
+  spec.init?.();
+  $('picker-title').textContent = spec.title;
+  $('picker-sub').textContent = spec.sub;
+  $('picker-icon').innerHTML = icon(spec.icon);
+  const search = $('picker-search');
+  search.value = '';
+  search.placeholder = spec.placeholder || 'Search';
+  hideDetail();
+  renderChips();
+  renderFoot();
   setLoading();
-  load();
-  icons();
-  setTimeout(() => $('picker-search')?.focus(), 80);
+  openModal('picker', { focus: search, onClose: () => { current = null; } });
+  reload();
 }
 
-// ─── Sessions ───────────────────────────────────────────────────────────
-
-export function openSessionPicker() {
-  openPickerShell({
-    title: 'Sessions',
-    sub: 'Select a session to resume',
-    icon: 'history',
-    foot: [
-      {
-        id: 'new',
-        label: 'New session',
-        className: 'btn-ok',
-        onClick: () => runAction('session_new', {}, 'New session started'),
-      },
-    ],
-    onSearch: () => loadSessions(),
-    load: loadSessions,
-  });
+export function closePicker() {
+  closeModal('picker');
 }
 
-async function loadSessions() {
-  setLoading();
-  try {
-    const q = ($('picker-search')?.value || '').trim().toLowerCase();
-    const data = await fetchSessions();
-    let sessions = data.sessions || [];
-    if (q) {
-      sessions = sessions.filter(
-        (s) =>
-          String(s.id).includes(q) ||
-          (s.title || '').toLowerCase().includes(q) ||
-          (s.model || '').toLowerCase().includes(q),
-      );
-    }
-    const list = $('picker-list');
-    if (!sessions.length) {
-      list.innerHTML = `<p class="picker-empty">${q ? 'No matching sessions' : 'No saved sessions yet'}</p>`;
-      icons();
-      return;
-    }
-    list.innerHTML = sessions
-      .map(
-        (s) => `
-      <button type="button" class="picker-row${s.active ? ' active' : ''}" data-sid="${s.id}">
-        <div class="picker-row-body">
-          <strong>${escapeHtml(s.title)}</strong>
-          <span>${escapeHtml(s.model || '—')} · ${s.msg_count} msgs · ${escapeHtml(s.updated_label || '')}</span>
-        </div>
-        <span class="picker-row-meta">#${s.id}</span>
-        ${s.active ? '<span class="picker-badge live">active</span>' : `<button type="button" class="picker-del" data-del="${s.id}" aria-label="Delete">×</button>`}
-      </button>`,
-      )
-      .join('');
+async function pickAndClose(action, data, msg) {
+  const res = await runAction(action, data, msg);
+  if (res.ok && isModalOpen('picker')) closePicker();
+  return res;
+}
 
-    list.querySelectorAll('[data-sid]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        if (e.target.closest('.picker-del')) return;
-        runAction('session_resume', { session_id: Number(btn.dataset.sid) }, `Resumed #${btn.dataset.sid}`);
-      });
+function seg(options, value) {
+  return `<div class="seg" role="group">${options.map((o) => `
+    <button type="button" data-val="${o.value}" aria-pressed="${o.value === value}">${escapeHtml(o.label)}</button>`).join('')}</div>`;
+}
+
+function bindSeg(box, onChange) {
+  box.querySelectorAll('.seg button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.getAttribute('aria-pressed') === 'true') return;
+      onChange(btn.dataset.val === 'true');
     });
+  });
+}
+
+const SCOPES = [
+  { value: 'false', label: 'This project' },
+  { value: 'true', label: 'Project + global' },
+];
+
+// ─── Kinds ────────────────────────────────────────────────────────────────
+
+let sessionsCache = [];
+let confirmDelete = null;
+
+const sessionSpec = {
+  title: 'Sessions',
+  sub: 'Resume a saved conversation',
+  icon: 'history',
+  placeholder: 'Search by title, model or number',
+  init() { sessionsCache = []; confirmDelete = null; },
+  async load(q) {
+    if (!sessionsCache.length) sessionsCache = (await fetchSessions(100)).sessions || [];
+    const ql = q.toLowerCase();
+    const list = sessionsCache.filter((s) => !ql
+      || String(s.id).includes(ql)
+      || (s.title || '').toLowerCase().includes(ql)
+      || (s.model || '').toLowerCase().includes(ql));
+    return {
+      rows: list.map((s) => ({
+        id: s.id,
+        icon: s.active ? 'message-square-dot' : 'message-square',
+        title: s.title,
+        sub: `${s.model || 'unknown model'}, ${s.msg_count} messages, ${s.updated_label || ''}`,
+        current: s.active,
+        meta: s.active
+          ? '<span class="badge is-live">Open now</span>'
+          : `<button type="button" class="row-btn is-icon" data-del="${s.id}" aria-label="Delete session ${s.id}" title="Delete">${icon('trash-2')}</button>`,
+        pick: () => pickAndClose('session_resume', { session_id: s.id }, 'Session resumed'),
+      })),
+      empty: q ? '<strong>No sessions match</strong>Try a different word or the session number.' : '<strong>No saved sessions yet</strong>Conversations are saved as you chat.',
+    };
+  },
+  bindRows(list) {
     list.querySelectorAll('[data-del]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!confirm(`Delete session #${btn.dataset.del}?`)) return;
-        pickerAction('session_delete', { session_id: Number(btn.dataset.del) }).then((res) => {
-          if (res.ok) {
-            showToast('Session deleted');
-            loadSessions();
-          } else showToast(res.error || 'Delete failed', true);
-        });
+        const sid = Number(btn.dataset.del);
+        if (confirmDelete !== sid) {
+          confirmDelete = sid;
+          list.querySelectorAll('[data-del]').forEach((b) => {
+            b.classList.remove('is-danger');
+            b.classList.add('is-icon');
+            b.innerHTML = icon('trash-2');
+          });
+          btn.classList.add('is-danger');
+          btn.classList.remove('is-icon');
+          btn.textContent = 'Delete';
+          return;
+        }
+        btn.disabled = true;
+        const res = await pickerAction('session_delete', { session_id: sid });
+        if (res.ok) {
+          showToast('Session deleted');
+          sessionsCache = sessionsCache.filter((s) => s.id !== sid);
+          confirmDelete = null;
+          reload();
+          document.dispatchEvent(new Event('jarvis:sessions-changed'));
+        } else {
+          btn.disabled = false;
+          showToast(res.error || 'Could not delete the session', true);
+        }
       });
     });
-    icons();
-  } catch {
-    $('picker-list').innerHTML = '<p class="picker-empty">Could not load sessions</p>';
-  }
-}
+  },
+  foot: () => '<span class="spacer"></span><button type="button" class="btn btn-primary" data-foot="new">New chat</button>',
+  bindFoot(foot) {
+    foot.querySelector('[data-foot="new"]')?.addEventListener('click', () => pickAndClose('session_new', {}, 'New chat started'));
+  },
+};
 
-// ─── Models ─────────────────────────────────────────────────────────────
-
-export function openModelPicker() {
-  openPickerShell({
-    title: 'Models',
-    sub: 'Switch AI model for this session',
-    icon: 'cpu',
-    onSearch: () => loadModels(),
-    load: loadModels,
-  });
-}
-
-async function loadModels() {
-  setLoading();
-  try {
-    const q = $('picker-search')?.value || '';
+const modelSpec = {
+  title: 'Models',
+  sub: 'Used for the next message',
+  icon: 'cpu',
+  placeholder: 'Search models or providers',
+  async load(q) {
     const data = await fetchModels(q);
-    const models = data.models || [];
-    const list = $('picker-list');
-    if (!models.length) {
-      list.innerHTML = '<p class="picker-empty">No models found</p>';
-      return;
+    const rows = [];
+    let group = null;
+    for (const m of data.models || []) {
+      if (m.source_label !== group) {
+        group = m.source_label;
+        rows.push({ section: group });
+      }
+      rows.push({
+        icon: m.active ? 'circle-check' : 'cpu',
+        title: m.model_id,
+        sub: m.description || '',
+        current: m.active,
+        meta: m.active ? '<span class="badge is-live">In use</span>' : '',
+        pick: () => (m.active ? closePicker() : pickAndClose('model_select', { option_id: m.id }, `Model: ${m.model_id}`)),
+      });
     }
-    list.innerHTML = models
-      .map(
-        (m) => `
-      <button type="button" class="picker-row${m.active ? ' active' : ''}" data-oid="${escapeHtml(m.id)}">
-        <div class="picker-row-body">
-          <strong>${escapeHtml(m.model_id)}</strong>
-          <span>${escapeHtml(m.source_label)} · ${escapeHtml(m.description || '')}</span>
-        </div>
-        ${m.active ? '<span class="picker-badge live">active</span>' : ''}
-      </button>`,
-      )
-      .join('');
-    list.querySelectorAll('[data-oid]').forEach((btn) => {
-      btn.addEventListener('click', () =>
-        runAction('model_select', { option_id: btn.dataset.oid }, 'Model updated'),
-      );
-    });
-    icons();
-  } catch {
-    $('picker-list').innerHTML = '<p class="picker-empty">Could not load models</p>';
-  }
-}
+    return { rows, empty: '<strong>No models match</strong>Try a provider name such as “anthropic”.' };
+  },
+};
 
-// ─── Agents ─────────────────────────────────────────────────────────────
+let agentsGlobal = false;
 
-let agentsGlobal = true;
-
-export function openAgentPicker() {
-  agentsGlobal = store.session?.global_agents !== false;
-  openPickerShell({
-    title: 'Agents',
-    sub: 'Activate an agent profile',
-    icon: 'sparkles',
-    foot: [
-      {
-        id: 'off',
-        label: 'No agent',
-        className: 'btn-ghost',
-        onClick: () => runAction('agent_select', { name: '__off__' }, 'Agent deactivated'),
-      },
-    ],
-    toolbar: buildAgentToolbar(),
-    onSearch: () => loadAgents(),
-    load: loadAgents,
-  });
-}
-
-function buildAgentToolbar() {
-  return [
-    {
-      id: 'scope',
-      label: agentsGlobal ? 'Global + project' : 'Project only',
-      active: agentsGlobal,
-      onClick: async () => {
-        agentsGlobal = !agentsGlobal;
-        await pickerAction('agents_scope', { global_agents: agentsGlobal });
-        renderToolbar(buildAgentToolbar());
-        loadAgents();
-      },
-    },
-  ];
-}
-
-async function loadAgents() {
-  setLoading();
-  try {
-    const q = ($('picker-search')?.value || '').trim().toLowerCase();
+const agentSpec = {
+  title: 'Agents',
+  sub: 'Adds the agent’s instructions to every message',
+  icon: 'sparkles',
+  placeholder: 'Search agents',
+  init() { agentsGlobal = !!store.session.global_agents; },
+  async load(q) {
     const data = await fetchAgents(agentsGlobal);
-    let agents = data.agents || [];
-    if (q) {
-      agents = agents.filter(
-        (a) => a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q),
-      );
+    agentsGlobal = !!data.global_agents;
+    const ql = q.toLowerCase();
+    const agents = (data.agents || []).filter((a) => !ql || a.name.toLowerCase().includes(ql) || (a.description || '').toLowerCase().includes(ql));
+    const rows = [];
+    if (!ql || 'no agent off none'.includes(ql)) {
+      rows.push({
+        icon: 'circle-off',
+        title: 'No agent',
+        sub: 'Base system prompt only',
+        current: !data.active,
+        pick: () => pickAndClose('agent_select', { name: '__off__' }, 'Agent turned off'),
+      });
     }
-    const list = $('picker-list');
-    if (!agents.length) {
-      list.innerHTML = `<p class="picker-empty">${q ? 'No matching agents' : 'No agents found'}</p>`;
-      return;
+    for (const a of agents) {
+      rows.push({
+        emoji: a.icon || '',
+        icon: 'sparkles',
+        title: a.name,
+        sub: a.description || '',
+        current: a.active,
+        meta: `<span class="badge">${a.scope === 'global' ? 'Global' : 'Project'}</span>`,
+        pick: () => pickAndClose('agent_select', { name: a.name }, `Agent: ${a.name}`),
+      });
     }
-    list.innerHTML = agents
-      .map(
-        (a) => `
-      <button type="button" class="picker-row${a.active ? ' active' : ''}" data-agent="${escapeHtml(a.name)}">
-        <div class="picker-row-body">
-          <strong>${a.icon ? escapeHtml(a.icon) + ' ' : ''}${escapeHtml(a.name)}</strong>
-          <span>${escapeHtml(a.description || a.scope)}</span>
-        </div>
-        ${a.active ? '<span class="picker-badge live">active</span>' : ''}
-      </button>`,
-      )
-      .join('');
-    list.querySelectorAll('[data-agent]').forEach((btn) => {
-      btn.addEventListener('click', () =>
-        runAction('agent_select', { name: btn.dataset.agent }, `Agent: ${btn.dataset.agent}`),
-      );
+    const hidden = data.hidden_global_count ? `${data.hidden_global_count} global agents are hidden. ` : '';
+    return { rows, empty: `<strong>No agents found</strong>${hidden}Add one under .harness/agents/.` };
+  },
+  chips: () => seg(SCOPES, String(agentsGlobal)),
+  bindChips(box) {
+    bindSeg(box, async (val) => {
+      agentsGlobal = val;
+      renderChips();
+      await pickerAction('agents_scope', { global_agents: val });
+      reload();
     });
-    icons();
-  } catch {
-    $('picker-list').innerHTML = '<p class="picker-empty">Could not load agents</p>';
-  }
-}
-
-// ─── Skills ─────────────────────────────────────────────────────────────
+  },
+};
 
 let skillsGlobal = false;
 
-export function openSkillPicker() {
-  skillsGlobal = false;
-  openPickerShell({
-    title: 'Skills',
-    sub: 'Browse skill packs (read-only preview)',
-    icon: 'book-open',
-    toolbar: buildSkillToolbar(),
-    onSearch: () => loadSkills(),
-    load: loadSkills,
-  });
-}
-
-function buildSkillToolbar() {
-  return [
-    {
-      id: 'scope',
-      label: skillsGlobal ? 'Global + project' : 'Project only',
-      active: skillsGlobal,
-      onClick: async () => {
-        skillsGlobal = !skillsGlobal;
-        await pickerAction('skills_scope', { global_skills: skillsGlobal });
-        renderToolbar(buildSkillToolbar());
-        loadSkills();
-      },
-    },
-  ];
-}
-
-async function loadSkills() {
-  setLoading();
-  try {
-    const q = $('picker-search')?.value || '';
+const skillSpec = {
+  title: 'Skills',
+  sub: 'Jarvis loads a skill when a task matches it',
+  icon: 'book-open',
+  placeholder: 'Search skills',
+  init() { skillsGlobal = !!store.session.global_skills; },
+  async load(q) {
     const data = await fetchSkills(skillsGlobal, q);
-    const skills = data.skills || [];
-    const list = $('picker-list');
-    if (!skills.length) {
-      list.innerHTML = '<p class="picker-empty">No skills found</p>';
-      return;
-    }
-    list.innerHTML = skills
-      .map(
-        (s) => `
-      <button type="button" class="picker-row" data-skill="${escapeHtml(s.name)}">
-        <div class="picker-row-body">
-          <strong>${escapeHtml(s.name)}</strong>
-          <span>${escapeHtml(s.description || s.scope)}</span>
-        </div>
-      </button>`,
-      )
-      .join('');
-    list.querySelectorAll('[data-skill]').forEach((btn) => {
-      btn.addEventListener('click', () => previewSkill(btn.dataset.skill));
+    skillsGlobal = !!data.global_skills;
+    const rows = (data.skills || []).map((s) => ({
+      icon: 'book-open',
+      title: s.name,
+      sub: s.description || '',
+      wrap: true,
+      meta: `<span class="badge">${s.scope === 'global' ? 'Global' : 'Project'}</span>`,
+      pick: () => previewSkill(s.name),
+    }));
+    const hidden = data.hidden_global_count ? `${data.hidden_global_count} global skills are hidden — switch to Project + global.` : 'Add one under .harness/skills/<name>/SKILL.md.';
+    return { rows, empty: `<strong>No skills found</strong>${hidden}` };
+  },
+  chips: () => seg(SCOPES, String(skillsGlobal)),
+  bindChips(box) {
+    bindSeg(box, async (val) => {
+      skillsGlobal = val;
+      renderChips();
+      await pickerAction('skills_scope', { global_skills: val });
+      reload();
     });
-    icons();
-  } catch {
-    $('picker-list').innerHTML = '<p class="picker-empty">Could not load skills</p>';
-  }
-}
+  },
+};
 
 async function previewSkill(name) {
   try {
     const data = await fetchSkill(name);
-    $('picker-list')?.classList.add('hidden');
-    const detail = $('picker-detail');
-    detail?.classList.remove('hidden');
-    detail.innerHTML = `
-      <p style="margin:0 0 8px;font-size:13px;color:var(--text-muted)">${escapeHtml(data.description || '')}</p>
-      <pre>${escapeHtml(data.content || '')}</pre>
-      <button type="button" class="btn btn-ghost" id="skill-back" style="margin-top:12px;width:100%">Back to list</button>`;
-    $('skill-back')?.addEventListener('click', () => {
-      detail.classList.add('hidden');
-      $('picker-list')?.classList.remove('hidden');
-    });
+    showDetail(`
+      <button type="button" class="btn btn-quiet detail-back">${icon('arrow-left')}<span>Back to skills</span></button>
+      <div class="md">${renderMarkdown(data.content || '')}</div>`);
   } catch {
-    showToast('Could not load skill', true);
+    showToast('Could not open that skill', true);
   }
 }
-
-// ─── MCP ────────────────────────────────────────────────────────────────
 
 let mcpGlobal = false;
 
-export function openMcpPicker() {
-  mcpGlobal = false;
-  openPickerShell({
-    title: 'MCP Servers',
-    sub: 'Connect or disconnect tool servers',
-    icon: 'plug',
-    toolbar: buildMcpToolbar(),
-    onSearch: () => loadMcp(),
-    load: loadMcp,
-  });
+function mcpBadge(h) {
+  const cls = { live: 'is-live', warn: 'is-warn', failed: 'is-bad' }[h.status] || '';
+  const label = {
+    live: `${h.tool_count || 0} tools`,
+    idle: 'Off',
+    connecting: 'Connecting',
+    failed: 'Failed',
+    warn: 'Check',
+  }[h.status] || h.status || 'Off';
+  return `<span class="badge ${cls}" title="${escapeHtml(h.detail || h.summary || '')}">${escapeHtml(label)}</span>`;
 }
 
-function buildMcpToolbar() {
-  return [
-    {
-      id: 'scope',
-      label: mcpGlobal ? 'Global scope on' : 'Project scope',
-      active: mcpGlobal,
-      onClick: async () => {
-        mcpGlobal = !mcpGlobal;
-        const res = await pickerAction('mcp_scope', { global_mcp: mcpGlobal });
-        if (res.ok) showToast(mcpGlobal ? 'Global MCP enabled' : 'Project MCP only');
-        else showToast(res.error || 'Scope change failed', true);
-        renderToolbar(buildMcpToolbar());
-        loadMcp();
-      },
-    },
-  ];
-}
-
-async function loadMcp() {
-  setLoading();
-  try {
-    const q = $('picker-search')?.value || '';
+const mcpSpec = {
+  title: 'MCP servers',
+  sub: 'Tool servers Jarvis can call',
+  icon: 'plug',
+  placeholder: 'Search servers',
+  init() { mcpGlobal = !!store.session.global_mcp; },
+  async load(q) {
     const data = await fetchMcpServers(q);
     mcpGlobal = !!data.global_mcp;
-    renderToolbar(buildMcpToolbar());
-    const servers = data.servers || [];
-    const list = $('picker-list');
-    if (!servers.length) {
-      list.innerHTML = '<p class="picker-empty">No MCP servers configured</p>';
-      return;
-    }
-    list.innerHTML = servers
-      .map((s) => {
-        const h = s.health || {};
-        const live = h.connected || h.status === 'live';
-        const badge = live ? 'live' : h.status === 'failed' ? 'warn' : 'off';
-        const label = h.summary || (live ? 'connected' : 'offline');
-        return `
-      <div class="picker-row" style="cursor:default">
-        <div class="picker-row-body">
-          <strong>${escapeHtml(s.name)}</strong>
-          <span>${escapeHtml(s.endpoint || s.transport || '')}</span>
-        </div>
-        <span class="picker-badge ${badge}">${escapeHtml(label)}</span>
-        <button type="button" class="btn btn-ok" data-mcp-connect="${escapeHtml(s.name)}" style="flex-shrink:0;padding:6px 10px;min-height:auto;font-size:12px" ${live ? 'disabled' : ''}>Connect</button>
-        <button type="button" class="btn btn-ghost" data-mcp-disconnect="${escapeHtml(s.name)}" style="flex-shrink:0;padding:6px 10px;min-height:auto;font-size:12px" ${live ? '' : 'disabled'}>Off</button>
-      </div>`;
-      })
-      .join('');
+    renderChips();
+    const rows = (data.servers || []).map((s) => {
+      const h = s.health || {};
+      const live = !!h.connected;
+      return {
+        name: s.name,
+        live,
+        icon: live ? 'plug-zap' : 'plug',
+        title: s.name,
+        sub: h.detail || s.endpoint || s.transport || '',
+        meta: `${mcpBadge(h)}<button type="button" class="row-btn" data-mcp="${escapeHtml(s.name)}" data-live="${live}">${live ? 'Disconnect' : 'Connect'}</button>`,
+        pick: () => toggleMcp(s.name, live),
+      };
+    });
+    return { rows, empty: '<strong>No MCP servers configured</strong>Add them in .mcp.json or with /mcp in the terminal.' };
+  },
+  bindRows(list) {
+    list.querySelectorAll('[data-mcp]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMcp(btn.dataset.mcp, btn.dataset.live === 'true', btn);
+      });
+    });
+  },
+  chips: () => seg([
+    { value: 'false', label: 'Project servers' },
+    { value: 'true', label: 'Include global' },
+  ], String(mcpGlobal)),
+  bindChips(box) {
+    bindSeg(box, async (val) => {
+      mcpGlobal = val;
+      renderChips();
+      const res = await pickerAction('mcp_scope', { global_mcp: val });
+      if (!res.ok) showToast(res.error || 'Could not change the scope', true);
+      reload();
+    });
+  },
+};
 
-    list.querySelectorAll('[data-mcp-connect]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const res = await pickerAction('mcp_connect', { name: btn.dataset.mcpConnect });
-        if (res.ok) {
-          showToast(`Connected ${btn.dataset.mcpConnect}`);
-          loadMcp();
-        } else showToast(res.error || 'Connect failed', true);
-      });
-    });
-    list.querySelectorAll('[data-mcp-disconnect]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const res = await pickerAction('mcp_disconnect', { name: btn.dataset.mcpDisconnect });
-        if (res.ok) {
-          showToast(`Disconnected ${btn.dataset.mcpDisconnect}`);
-          loadMcp();
-        } else showToast(res.error || 'Disconnect failed', true);
-      });
-    });
-    icons();
-  } catch {
-    $('picker-list').innerHTML = '<p class="picker-empty">Could not load MCP servers</p>';
+async function toggleMcp(name, live, btn) {
+  const target = btn || $('picker-list').querySelector(`[data-mcp="${CSS.escape(name)}"]`);
+  if (target) {
+    target.disabled = true;
+    target.textContent = live ? 'Disconnecting' : 'Connecting';
   }
+  const res = await pickerAction(live ? 'mcp_disconnect' : 'mcp_connect', { name });
+  if (res.ok) showToast(live ? `Disconnected ${name}` : `Connected ${name}`);
+  else showToast(res.error || `Could not ${live ? 'disconnect' : 'connect'} ${name}`, true);
+  reload();
 }
 
-// ─── Router ─────────────────────────────────────────────────────────────
-
-const PICKER_MAP = {
-  session: openSessionPicker,
-  model: openModelPicker,
-  agent: openAgentPicker,
-  skill: openSkillPicker,
-  mcp: openMcpPicker,
+const SPECS = {
+  session: sessionSpec,
+  model: modelSpec,
+  agent: agentSpec,
+  skill: skillSpec,
+  mcp: mcpSpec,
 };
 
 export function openPickerByKind(kind) {
-  const fn = PICKER_MAP[kind];
-  if (fn) fn();
+  open(kind);
 }
 
 export function initPickers() {
-  $('picker-close')?.addEventListener('click', closePicker);
-  $('picker-overlay')?.addEventListener('click', (e) => {
-    if (e.target === $('picker-overlay')) closePicker();
+  const list = $('picker-list');
+  nav = listNav(list, (idx) => {
+    const row = current?.rows?.[idx];
+    row?.pick?.();
   });
-  $('picker-panel')?.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && $('picker-overlay')?.classList.contains('open')) closePicker();
+  $('picker-close')?.addEventListener('click', closePicker);
+  $('picker-search')?.addEventListener('input', () => {
+    if (current?.kind === 'session') reload();
+    else reloadSoon();
+  });
+  $('picker-search')?.addEventListener('keydown', (e) => nav.handleKey(e));
+  $('picker-detail')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Backspace' && e.target === e.currentTarget) hideDetail();
   });
 }

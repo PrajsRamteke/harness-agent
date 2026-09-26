@@ -1,8 +1,30 @@
 /** Markdown → safe HTML for assistant messages (GFM subset) */
-import { escapeHtml, icons, showToast, copyText } from './utils.js';
+import { escapeHtml, showToast, copyText, flashDone } from './utils.js';
+import { icon } from './icons.js';
 
 const FENCE_RE = /```(\w*)\n?([\s\S]*?)```/g;
 const TILDE_FENCE_RE = /~~~(\w*)\n?([\s\S]*?)~~~/g;
+
+// Bare URLs in already-escaped text: stop at escaped quotes / angle brackets.
+const BARE_URL_RE = /https?:\/\/(?:(?!&quot;|&#39;|&lt;|&gt;)[^\s<>"'\x00])+/g;
+
+/** Keep sentence punctuation (and an unbalanced ")") out of a bare link. */
+function splitTrailing(url) {
+  let end = url.length;
+  while (end > 0) {
+    const ch = url[end - 1];
+    if ('.,;:!?*_'.includes(ch)) {
+      end -= 1;
+    } else if (ch === ')') {
+      const body = url.slice(0, end);
+      if ((body.match(/\(/g) || []).length < (body.match(/\)/g) || []).length) end -= 1;
+      else break;
+    } else {
+      break;
+    }
+  }
+  return [url.slice(0, end), url.slice(end)];
+}
 
 function sanitizeUrl(url) {
   const u = String(url || '').trim();
@@ -58,9 +80,10 @@ function renderInline(text) {
   s = s.replace(/<u>([^<\n]+)<\/u>/g, '<u>$1</u>');
   s = s.replace(/==([^=\n]+)==/g, '<mark>$1</mark>');
 
-  s = s.replace(/(https?:\/\/[^\s<>"']+)/g, (url) =>
-    `<a href="${sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${url}</a>`
-  );
+  s = s.replace(BARE_URL_RE, (match) => {
+    const [url, tail] = splitTrailing(match);
+    return `<a href="${sanitizeUrl(url)}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
+  });
 
   return s.replace(/\x00T(\d+)\x00/g, (_, idx) => tokens[Number(idx)] || '');
 }
@@ -254,8 +277,8 @@ function renderCodeBlock(lang, code, store) {
     `<div class="md-code-block">` +
       `<div class="md-code-head">` +
         `<span class="md-code-lang">${langLabel}</span>` +
-        `<button type="button" class="md-code-copy" aria-label="Copy code" title="Copy">` +
-          `<i data-lucide="copy"></i>` +
+        `<button type="button" class="md-code-copy" aria-label="Copy code">` +
+          `${icon('copy')}<span>Copy</span>` +
         `</button>` +
       `</div>` +
       `<pre class="md-pre"><code class="language-${escapeHtml(lang || 'text')}">${escapeHtml(trimmed)}</code></pre>` +
@@ -270,11 +293,16 @@ function extractFences(text, store) {
     .replace(TILDE_FENCE_RE, (_, lang, code) => renderCodeBlock(lang, code, store));
 }
 
-export function renderMarkdown(source) {
+export function renderMarkdown(source, { streaming = false } = {}) {
   if (!source) return '';
 
+  let src = String(source).replace(/\r\n?/g, '\n');
+  // Mid-stream a code fence is often still open — close it so the partial
+  // block renders as code instead of flashing raw backticks.
+  if (streaming && ((src.match(/^\s*```/gm) || []).length % 2 === 1)) src += '\n```';
+
   const codeBlocks = [];
-  let text = extractFences(String(source), codeBlocks);
+  let text = extractFences(src, codeBlocks);
   text = renderBlocks(text);
   text = text.replace(/\x00CODE(\d+)\x00/g, (_, idx) => codeBlocks[Number(idx)] || '');
   return text;
@@ -290,38 +318,16 @@ export function renderPlainWithLinks(text) {
 }
 
 export function applyMarkdownLinks(container) {
-  container.querySelectorAll('a').forEach((a) => {
-    a.addEventListener('click', (e) => e.stopPropagation());
-  });
-  initCodeCopyButtons(container);
-}
-
-export function initCodeCopyButtons(container) {
   if (!container) return;
-  container.querySelectorAll('.md-code-block').forEach((block) => {
-    const btn = block.querySelector('.md-code-copy');
-    const code = block.querySelector('code');
-    if (!btn || !code || btn.dataset.bound) return;
+  container.querySelectorAll('.md-code-copy:not([data-bound])').forEach((btn) => {
     btn.dataset.bound = '1';
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const text = code.textContent || '';
-      const ok = await copyText(text, code);
-      if (!ok) {
-        showToast('Copy failed', true);
-        return;
-      }
-      btn.classList.add('copied');
-      btn.setAttribute('aria-label', 'Copied');
-      showToast('Copied');
-      icons();
-      window.setTimeout(() => {
-        btn.classList.remove('copied');
-        btn.setAttribute('aria-label', 'Copy code');
-        icons();
-      }, 1500);
+      const code = btn.closest('.md-code-block')?.querySelector('code');
+      const ok = await copyText(code?.textContent || '');
+      if (ok) flashDone(btn);
+      else showToast('Copy failed — select the text instead', true);
     });
   });
-  icons();
 }

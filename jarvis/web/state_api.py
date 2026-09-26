@@ -1,6 +1,7 @@
 """Session snapshot and settings mutations for the web remote API."""
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from ..constants import THINK_EFFORTS, DEFAULT_THINK_EFFORT
@@ -74,21 +75,55 @@ def _tool_result_text(block: dict) -> str:
     return str(body or "").strip()
 
 
-def _count_tool_results(content: Any) -> int:
-    if not isinstance(content, list):
-        return 0
-    return sum(
-        1 for raw in content
-        if _block_dict(raw).get("type") == "tool_result"
-    )
+def _tool_results(messages: list[dict]) -> dict[str, tuple[str, bool]]:
+    """``tool_use_id`` → (result text, is_error) across the whole transcript."""
+    results: dict[str, tuple[str, bool]] = {}
+    for msg in messages:
+        content = msg.get("content")
+        if msg.get("role") != "user" or not isinstance(content, list):
+            continue
+        for raw in content:
+            block = _block_dict(raw)
+            if block.get("type") == "tool_result":
+                results[str(block.get("tool_use_id"))] = (
+                    _tool_result_text(block),
+                    bool(block.get("is_error")),
+                )
+    return results
 
 
-def snapshot_messages() -> list[dict[str, str]]:
-    """Build web transcript entries — mirrors TUI session replay ordering."""
+def _tool_entry(block: dict, results: dict[str, tuple[str, bool]]) -> dict[str, Any]:
+    from .console_mux import tool_row_fields
+
+    tid = str(block.get("id") or "")
+    name = str(block.get("name") or "tool")
+    done = tid in results
+    output, is_err = results.get(tid, ("", False))
+    fields = tool_row_fields(name, block.get("input"), output if done else None)
+    error = is_err or bool(fields.pop("summary_error", False))
+    return {
+        "role": "tool",
+        "id": tid,
+        "name": name,
+        "title": fields.get("title") or name,
+        "args": fields.get("args") or "",
+        "summary": fields.get("summary") or "",
+        "status": ("error" if error else "done") if done else "pending",
+        "text": name,
+    }
+
+
+def snapshot_messages() -> list[dict[str, Any]]:
+    """Build web transcript entries in the same order as the TUI replay.
+
+    Tool calls become structured ``tool`` rows (paired with their results);
+    thinking is included only while the trace is on.
+    """
     from .. import state
 
-    out: list[dict[str, str]] = []
+    out: list[dict[str, Any]] = []
     trace = bool(state.show_internal)
+    results = _tool_results(state.messages)
 
     for msg in state.messages:
         role = msg.get("role") or ""
@@ -98,47 +133,27 @@ def snapshot_messages() -> list[dict[str, str]]:
             text = _content_text(content)
             if text:
                 out.append({"role": "you", "text": text, "title": "You"})
-            if trace and isinstance(content, list):
-                hide_results = _count_tool_results(content) >= 2
-                for raw in content:
-                    block = _block_dict(raw)
-                    if block.get("type") != "tool_result":
-                        continue
-                    if hide_results:
-                        continue
-                    body = _tool_result_text(block)
-                    if body:
-                        out.append({
-                            "role": "log",
-                            "text": body[:2000],
-                            "title": "tool result",
-                        })
             continue
 
         if role == "assistant":
-            if isinstance(content, list):
-                if trace:
-                    for raw in content:
-                        block = _block_dict(raw)
-                        btype = block.get("type")
-                        if btype == "thinking":
-                            t = str(block.get("thinking") or "").strip()
-                            if t:
-                                out.append({"role": "thinking", "text": t, "title": "thinking"})
-                        elif btype == "tool_use":
-                            name = str(block.get("name") or "tool")
-                            args = str(block.get("input") or "")[:800].strip()
-                            detail = f"tool: {name}"
-                            if args:
-                                detail = f"{detail}\n{args}"
-                            out.append({"role": "log", "text": detail, "title": f"tool · {name}"})
+            if not isinstance(content, list):
                 text = _content_text(content)
                 if text:
                     out.append({"role": "assistant", "text": text, "title": "Jarvis"})
-            else:
-                text = _content_text(content)
-                if text:
-                    out.append({"role": "assistant", "text": text, "title": "Jarvis"})
+                continue
+            for raw in content:
+                block = _block_dict(raw)
+                btype = block.get("type")
+                if btype == "thinking":
+                    t = str(block.get("thinking") or "").strip()
+                    if t and trace:
+                        out.append({"role": "thinking", "text": t, "title": "thinking"})
+                elif btype == "text":
+                    t = str(block.get("text") or "").strip()
+                    if t:
+                        out.append({"role": "assistant", "text": t, "title": "Jarvis"})
+                elif btype == "tool_use":
+                    out.append(_tool_entry(block, results))
             continue
 
         text = _content_text(content) if not isinstance(content, str) else content.strip()
@@ -148,21 +163,55 @@ def snapshot_messages() -> list[dict[str, str]]:
     return out
 
 
-def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
+def _session_title(session_id: Any) -> str:
+    if not session_id:
+        return ""
+    try:
+        from ..storage.sessions import db_conn
+
+        conn = db_conn()
+        try:
+            row = conn.execute(
+                "SELECT title FROM sessions WHERE id = ?", (int(session_id),)
+            ).fetchone()
+        finally:
+            conn.close()
+        return str((row[0] if row else "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _project_name() -> str:
+    try:
+        return os.path.basename(os.getcwd().rstrip(os.sep)) or os.getcwd()
+    except OSError:
+        return ""
+
+
+def state_fields(*, busy: bool = False, session_title: str | None = None) -> dict[str, Any]:
+    """Everything the web UI shows about the session, except the transcript.
+
+    Cheap enough to poll every second (``StateWatcher``); pass
+    ``session_title`` to skip the database read when it is already known.
+    """
     from .. import state
 
-    messages = snapshot_messages()
-
     queue_items: list[str] = []
-    for item in state.prompt_queue:
+    for item in list(state.prompt_queue):
         if isinstance(item, tuple):
             queue_items.append(str(item[0]).strip())
         else:
             queue_items.append(str(item).strip())
 
     return {
-        "messages": messages,
         "message_count": len(state.messages),
+        "session_title": (
+            _session_title(state.current_session_id) if session_title is None else session_title
+        ),
+        "project": _project_name(),
+        "global_agents": bool(getattr(state, "global_agents", False)),
+        "global_skills": bool(getattr(state, "global_skills", False)),
+        "global_mcp": bool(getattr(state, "global_mcp", False)),
         "busy": busy,
         "queue": [q for q in queue_items if q],
         "model": state.MODEL,
@@ -178,6 +227,12 @@ def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
         "tokens_total": state.total_tokens,
         "tool_calls": state.tool_calls_count,
     }
+
+
+def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
+    snap = state_fields(busy=busy)
+    snap["messages"] = snapshot_messages()
+    return snap
 
 
 def apply_settings(data: dict[str, Any]) -> dict[str, Any]:

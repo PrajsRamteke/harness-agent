@@ -11,6 +11,17 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
+_RESYNC_LINE = json.dumps({"type": "resync", "data": {}, "ts": 0})
+
+
+def _flush(q: queue.Queue) -> None:
+    try:
+        while True:
+            q.get_nowait()
+    except queue.Empty:
+        pass
+
+
 @dataclass
 class PendingPrompt:
     prompt_id: str
@@ -114,7 +125,13 @@ class WebBridge:
             try:
                 sub.put_nowait(line)
             except queue.Full:
-                pass
+                # A stalled client fell too far behind: dropping single events
+                # would garble streams, so flush its backlog and have it reload.
+                _flush(sub)
+                try:
+                    sub.put_nowait(_RESYNC_LINE)
+                except queue.Full:
+                    pass
 
     def has_subscribers(self) -> bool:
         with self._lock:
@@ -138,7 +155,7 @@ class WebBridge:
         return events
 
     def subscribe(self) -> queue.Queue[str]:
-        q: queue.Queue[str] = queue.Queue(maxsize=256)
+        q: queue.Queue[str] = queue.Queue(maxsize=2048)
         with self._lock:
             self._subscribers.append(q)
         return q

@@ -1,4 +1,6 @@
-/** Central reactive store for session + UI preferences */
+/** Central reactive store for session state + UI preferences */
+import { storageGet } from './utils.js';
+
 const listeners = new Set();
 
 export const store = {
@@ -8,24 +10,33 @@ export const store = {
     model: '',
     agent: '',
     session_id: '',
+    session_title: '',
+    project: '',
     provider: '',
     think_mode: true,
     think_effort: 'high',
     show_internal: true,
     auto_approve: false,
+    global_agents: false,
+    global_skills: false,
+    global_mcp: false,
     tokens_in: 0,
     tokens_out: 0,
     tokens_total: 0,
     tool_calls: 0,
+    message_count: 0,
   },
-  /** Client-side: show thinking bubbles in chat */
-  showThinkingUi: true,
+  /** This device only: show thinking in the transcript */
+  showThoughts: true,
   queue: [],
+  /** Pending agent prompt (approval / question / input) awaiting an answer */
   activePrompt: null,
-  pendingAction: false,
   pendingToggle: null,
-  statusLabel: 'Ready',
+  statusLabel: '',
+  busySince: 0,
 };
+
+let scheduled = false;
 
 export function patchStore(partial) {
   Object.assign(store, partial);
@@ -42,48 +53,30 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
+/** Batch listener calls into one per frame — events arrive in bursts. */
 function notify() {
-  for (const fn of listeners) fn(store);
+  if (scheduled) return;
+  scheduled = true;
+  requestAnimationFrame(() => {
+    scheduled = false;
+    for (const fn of listeners) fn(store);
+  });
 }
 
+const SESSION_KEYS = Object.keys(store.session);
+
+/** Merge a snapshot / settings payload — only keys that are present. */
 export function loadSnapshot(data) {
-  patchSession({
-    model: data.model || '',
-    agent: data.agent || '',
-    session_id: data.session_id || '',
-    provider: data.provider || '',
-    think_mode: data.think_mode !== false,
-    think_effort: data.think_effort || 'high',
-    show_internal: data.show_internal !== false,
-    auto_approve: !!data.auto_approve,
-    tokens_in: data.tokens_in || 0,
-    tokens_out: data.tokens_out || 0,
-    tokens_total: data.tokens_total || 0,
-    tool_calls: data.tool_calls || 0,
-  });
-  patchStore({
-    busy: !!data.busy,
-    queue: data.queue || [],
-  });
+  if (!data || typeof data !== 'object') return;
+  if (data.remote_url) store.remoteUrl = data.remote_url;
+  const patch = {};
+  for (const key of SESSION_KEYS) {
+    if (key in data && data[key] !== undefined && data[key] !== null) patch[key] = data[key];
+  }
+  if (Object.keys(patch).length) patchSession(patch);
+  if ('queue' in data) patchStore({ queue: data.queue || [] });
 }
 
-export function loadSettingsEvent(data) {
-  patchSession(data);
-}
-
-export function applySettingsResponse(settings) {
-  if (!settings) return;
-  patchSession({
-    think_mode: settings.think_mode !== false,
-    think_effort: settings.think_effort || 'high',
-    show_internal: settings.show_internal !== false,
-    auto_approve: !!settings.auto_approve,
-    model: settings.model || store.session.model,
-    agent: settings.agent || store.session.agent,
-    session_id: settings.session_id || store.session.session_id,
-    tokens_in: settings.tokens_in || 0,
-    tokens_out: settings.tokens_out || 0,
-    tokens_total: settings.tokens_total || 0,
-    tool_calls: settings.tool_calls || 0,
-  });
+export function loadUiPrefs() {
+  store.showThoughts = storageGet('jarvis-show-thinking', '1') !== '0';
 }

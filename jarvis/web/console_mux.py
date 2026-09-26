@@ -17,6 +17,26 @@ def _show_thinking_to_web() -> bool:
     return bool(state.show_internal)
 
 
+def tool_row_fields(name: str, tool_input: Any, output: Any = None) -> dict[str, Any]:
+    """Readable ``title`` / ``args`` (+ ``summary`` once finished) for a web tool row.
+
+    Same wording as the TUI rows (``tui/tool_format``) so both views agree.
+    """
+    fields: dict[str, Any] = {}
+    try:
+        from ..tui.tool_format import tool_args, tool_summary, tool_title
+
+        fields["title"] = tool_title(name or "tool")
+        fields["args"] = tool_args(name, tool_input, 120) if tool_input is not None else ""
+        if output is not None:
+            lines, is_err = tool_summary(name, tool_input, str(output or ""), 120)
+            fields["summary"] = "\n".join(lines[:4])
+            fields["summary_error"] = bool(is_err)
+    except Exception:
+        fields.setdefault("title", name or "tool")
+    return fields
+
+
 def _norm_shell_result(result: Any) -> str:
     if result is None:
         return "n"
@@ -33,6 +53,9 @@ class WebMuxConsole:
         self._stream_buffer = ""
         self._thinking_committed = False
         self._broadcast_suppressed = 0
+        # Thinking texts already sent — the same block reaches us from both
+        # thinking_stream_finalize and assistant_stream_commit.
+        self._sent_thinking: list[str] = []
 
     @contextmanager
     def suppress_broadcast(self):
@@ -45,6 +68,13 @@ class WebMuxConsole:
 
     def _should_broadcast(self) -> bool:
         return self._broadcast_suppressed <= 0
+
+    def _emit_thinking(self, text: str) -> None:
+        body = (text or "").strip()
+        if not body or body in self._sent_thinking:
+            return
+        self._sent_thinking = (self._sent_thinking + [body])[-16:]
+        self._bridge.emit("message", {"role": "thinking", "text": body})
 
     def _reset_stream_state(self) -> None:
         self._stream_kind = None
@@ -100,10 +130,7 @@ class WebMuxConsole:
     def thinking_stream_finalize(self) -> None:
         self._primary.thinking_stream_finalize()
         if _show_thinking_to_web() and self._stream_buffer.strip():
-            self._bridge.emit(
-                "message",
-                {"role": "thinking", "text": self._stream_buffer.strip()},
-            )
+            self._emit_thinking(self._stream_buffer)
             self._thinking_committed = True
         if _show_thinking_to_web():
             self._bridge.emit("stream_end", {"kind": "thinking"})
@@ -133,10 +160,9 @@ class WebMuxConsole:
         thinking_blocks: list[str] | None = None,
     ) -> None:
         self._primary.assistant_stream_commit(text, title, was_flagged, thinking_blocks)
-        if _show_thinking_to_web() and thinking_blocks and not self._thinking_committed:
+        if _show_thinking_to_web() and thinking_blocks:
             for block in thinking_blocks:
-                if block.strip():
-                    self._bridge.emit("message", {"role": "thinking", "text": block.strip()})
+                self._emit_thinking(block)
         if text.strip():
             self._bridge.emit(
                 "message",
@@ -171,17 +197,31 @@ class WebMuxConsole:
                 before.splitlines(), after.splitlines(), lineterm="", n=2
             )
             if not ln.startswith(("---", "+++"))
-        ][:120]
+        ]
         if body:
-            verb = {"create": "new file", "write": "rewrote", "edit": "edited"}.get(action, action)
-            self._bridge.emit("log", {"text": f"✎ {verb} · {path}\n" + "\n".join(body)})
+            added = sum(1 for ln in body if ln.startswith("+"))
+            removed = sum(1 for ln in body if ln.startswith("-"))
+            try:
+                from ..tui.tool_format import short_path
+
+                shown = short_path(path) or path
+            except Exception:
+                shown = path
+            self._bridge.emit("diff", {
+                "path": shown,
+                "action": action,
+                "lines": body[:160],
+                "hidden": max(0, len(body) - 160),
+                "added": added,
+                "removed": removed,
+            })
 
     def show_thinking(self, text: str) -> None:
         fn = getattr(self._primary, "show_thinking", None)
         if callable(fn):
             fn(text)
-        if _show_thinking_to_web() and (text or "").strip():
-            self._bridge.emit("message", {"role": "thinking", "text": text.strip()})
+        if _show_thinking_to_web():
+            self._emit_thinking(text)
 
     def show_plan(self, plan: str) -> None:
         fn = getattr(self._primary, "show_plan", None)
@@ -203,6 +243,13 @@ class WebMuxConsole:
         if callable(fn):
             fn(event_type, data)
         slim = {k: v for k, v in data.items() if k not in ("input", "output")}
+        slim.update(tool_row_fields(
+            str(data.get("name") or ""),
+            data.get("input"),
+            data.get("output") if event_type == "tool_done" else None,
+        ))
+        if event_type == "tool_done" and slim.pop("summary_error", False):
+            slim["error"] = True
         self._bridge.emit(event_type, slim)
 
     def refresh_tool_activity(self) -> None:

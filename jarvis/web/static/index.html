@@ -1,205 +1,343 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#0a0c0f">
+  <meta name="theme-color" content="#000000">
   <title>Jarvis Remote</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='9' fill='%230b0b0b' stroke='%23333'/%3E%3Ccircle cx='16' cy='16' r='5.5' fill='%234ade80'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@600;700&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script>
+    // Apply the saved appearance before first paint (no flash). See js/theme.js.
+    (function () {
+      var mode = 'dark', accent = 'green';
+      try {
+        mode = localStorage.getItem('jarvis-theme') || 'dark';
+        accent = localStorage.getItem('jarvis-accent') || 'green';
+      } catch (e) {}
+      if (mode === 'system') mode = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = mode === 'light' ? 'light' : 'dark';
+      document.documentElement.dataset.accent = accent;
+    })();
+  </script>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/layout.css">
-  <link rel="stylesheet" href="/static/css/toolbar.css">
   <link rel="stylesheet" href="/static/css/chat.css">
   <link rel="stylesheet" href="/static/css/composer.css">
-  <link rel="stylesheet" href="/static/css/modals.css">
-  <link rel="stylesheet" href="/static/css/commands.css">
-  <link rel="stylesheet" href="/static/css/pickers.css">
+  <link rel="stylesheet" href="/static/css/overlays.css">
 </head>
 <body>
-  <div class="app">
-    <header class="header">
-      <div class="brand">
-        <div class="brand-mark"><i data-lucide="radio"></i></div>
-        <div class="brand-text">
-          <h1>Jarvis Remote</h1>
-          <p id="session-sub">Connected to your session</p>
-        </div>
-      </div>
-      <div class="header-actions">
-        <button class="header-btn-cmd" id="cmd-btn" type="button" aria-label="All commands">
-          <i data-lucide="layout-grid"></i>
-          <span class="cmd-btn-label">Commands</span>
-        </button>
-        <div class="status-chip" id="status-chip">
-          <span class="dot"></span>
-          <span class="label-text" id="status-label">Ready</span>
-        </div>
-        <button class="icon-btn" id="info-btn" type="button" aria-label="Session info">
-          <i data-lucide="info"></i>
-        </button>
-      </div>
-    </header>
+  <div class="backdrop" aria-hidden="true">
+    <span class="glow"></span>
+    <span class="grid"></span>
+  </div>
 
-    <div class="meta-bar" id="meta-bar" role="region" aria-label="Session context"></div>
-
-    <div class="toolbar" id="toolbar" aria-label="Quick settings">
-      <div class="toolbar-group">
-        <button class="toggle-btn" id="toggle-think" type="button" title="Extended thinking">
-          <i data-lucide="brain"></i><span class="label">Think</span>
-        </button>
-        <div class="effort-dropdown" id="effort-dropdown">
-          <button type="button" class="effort-trigger" id="effort-trigger" aria-haspopup="listbox" aria-expanded="false" aria-label="Thinking effort">
-            <i data-lucide="gauge"></i>
-            <span class="effort-value" id="effort-value">high</span>
-            <i data-lucide="chevron-down" class="effort-chevron"></i>
-          </button>
-          <div class="effort-menu" id="effort-menu" role="listbox" aria-label="Thinking effort" hidden></div>
-        </div>
-      </div>
-      <div class="toolbar-group">
-        <button class="toggle-btn" id="toggle-show-think" type="button" title="Show thinking in chat">
-          <i data-lucide="eye"></i><span class="label">Show think</span>
-        </button>
-        <button class="toggle-btn" id="toggle-trace" type="button" title="Tool trace (/verbose)">
-          <i data-lucide="list-tree"></i><span class="label">Trace</span>
-        </button>
-        <button class="toggle-btn" id="toggle-auto" type="button" title="Auto-approve shell">
-          <i data-lucide="shield"></i><span class="label">Auto</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="banner reconnect" id="reconnect-banner">
-      <i data-lucide="wifi-off"></i>
-      <span class="banner-inner">Reconnecting to session…</span>
-    </div>
-
-    <div class="banner queue" id="queue-banner">
-      <i data-lucide="layers"></i>
-      <div class="banner-inner">
-        <span id="queue-summary">0 queued</span>
-        <div class="queue-list" id="queue-list"></div>
-      </div>
-      <i data-lucide="chevron-down"></i>
-    </div>
-
-    <div class="chat-wrap">
-      <div class="empty-state" id="empty-state">
-        <div class="empty-icon"><i data-lucide="message-square-plus"></i></div>
-        <h2>Remote control ready</h2>
-        <p>Send a message to your running Jarvis session from any device on your network.<span class="mobile-hint"> Tap <strong>Commands</strong> for sessions, models, and settings.</span></p>
-        <div class="quick-cmds">
-          <button class="quick-cmd" data-cmd="/session">Sessions</button>
-          <button class="quick-cmd" data-cmd="/model">Models</button>
-          <button class="quick-cmd" data-cmd="/agent">Agents</button>
-          <button class="quick-cmd" data-cmd="/stats">/stats</button>
-          <button class="quick-cmd" data-cmd="Hello">Say hello</button>
-        </div>
-      </div>
-      <div class="chat" id="chat"></div>
-      <button class="scroll-fab" id="scroll-fab" type="button" aria-label="Scroll to bottom">
-        <i data-lucide="arrow-down"></i>
-      </button>
-    </div>
-
-    <div class="composer">
-      <div class="composer-status" id="composer-status" aria-live="polite" aria-atomic="true">
-        <span class="composer-status-dot" aria-hidden="true"></span>
-        <span class="composer-status-text" id="composer-status-text">Working…</span>
-      </div>
-      <div class="composer-inner">
-        <textarea id="prompt" rows="1" placeholder="Message Jarvis…" autocomplete="off"></textarea>
-        <div class="composer-actions">
-          <button class="btn btn-stop" id="cancel" type="button" aria-label="Stop">
-            <i data-lucide="square"></i>
-          </button>
-          <button class="btn btn-send" id="send" type="button">
-            <i data-lucide="send"></i>
-            <span>Send</span>
-          </button>
-        </div>
-      </div>
-      <p class="composer-hint"><kbd>Enter</kbd> send · <kbd>Shift+Enter</kbd> newline · slash commands work</p>
+  <div class="gate" id="gate" hidden>
+    <div class="gate-card glass-strong">
+      <span class="mark mark-lg" aria-hidden="true"></span>
+      <h1 id="gate-title">Open the link from your terminal</h1>
+      <p id="gate-text">This page needs the private link Jarvis printed when you ran <code>jarvis --web</code>. It ends in <code>?token=…</code>.</p>
+      <button type="button" class="btn btn-primary" id="gate-retry">Try again</button>
     </div>
   </div>
 
-  <div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
-
-  <div class="cmd-overlay" id="cmd-overlay">
-    <div class="cmd-hub" id="cmd-hub">
-      <div class="cmd-hub-head">
-        <h2>Commands</h2>
-        <button class="icon-btn" id="cmd-close" type="button" aria-label="Close">
-          <i data-lucide="x"></i>
-        </button>
-      </div>
-      <div class="cmd-search-wrap">
-        <span class="search-icon" aria-hidden="true"><i data-lucide="search"></i></span>
-        <input class="cmd-search" id="cmd-search" type="search" placeholder="Search sessions, models, agents…" autocomplete="off">
-      </div>
-      <div class="cmd-quick" id="cmd-quick" aria-label="Quick toggles"></div>
-      <div class="cmd-tabs" id="cmd-tabs"></div>
-      <div class="cmd-effort hidden" id="cmd-effort"></div>
-      <div class="cmd-list" id="cmd-list"></div>
-    </div>
-  </div>
-
-  <div class="picker-overlay" id="picker-overlay">
-    <div class="picker-panel" id="picker-panel">
-      <div class="picker-head">
-        <div class="picker-title-wrap">
-          <span class="picker-icon" id="picker-icon"></span>
-          <div>
-            <h2 id="picker-title">Select</h2>
-            <p id="picker-sub"></p>
+  <div class="shell" id="shell">
+    <aside class="sidebar glass" id="sidebar" aria-label="Session controls">
+      <div class="side-head">
+        <div class="brand">
+          <span class="mark" aria-hidden="true"></span>
+          <div class="brand-text">
+            <strong>Jarvis</strong>
+            <span id="conn-line">Connecting…</span>
           </div>
         </div>
-        <button class="icon-btn" id="picker-close" type="button" aria-label="Close">
-          <i data-lucide="x"></i>
+        <button class="icon-btn only-narrow" id="side-close" type="button" aria-label="Close panel"><span data-icon="x"></span></button>
+      </div>
+
+      <button class="btn btn-primary btn-block" id="new-chat" type="button">
+        <span data-icon="plus"></span><span>New chat</span>
+      </button>
+
+      <div class="side-scroll">
+        <section class="side-sec" aria-label="Model and agent">
+          <button class="select-card" id="model-card" type="button">
+            <span class="sc-icon" data-icon="cpu"></span>
+            <span class="sc-body">
+              <span class="sc-label">Model</span>
+              <strong class="sc-value" id="model-name">—</strong>
+              <span class="sc-sub" id="model-provider"></span>
+            </span>
+            <span class="sc-chev" data-icon="chevrons-up-down"></span>
+          </button>
+          <button class="select-card" id="agent-card" type="button">
+            <span class="sc-icon" data-icon="sparkles"></span>
+            <span class="sc-body">
+              <span class="sc-label">Agent</span>
+              <strong class="sc-value" id="agent-name">No agent</strong>
+              <span class="sc-sub" id="agent-sub">Base system prompt</span>
+            </span>
+            <span class="sc-chev" data-icon="chevrons-up-down"></span>
+          </button>
+        </section>
+
+        <section class="side-sec">
+          <div class="sec-head">
+            <h2 class="sec-title">Recent sessions</h2>
+            <button class="link-btn" id="all-sessions" type="button">View all</button>
+          </div>
+          <div class="recent" id="recent-list" role="list"></div>
+        </section>
+
+        <section class="side-sec">
+          <h2 class="sec-title">Reasoning</h2>
+          <label class="switch-row" for="sw-think">
+            <span class="sw-icon" data-icon="brain"></span>
+            <span class="sw-text"><strong>Extended thinking</strong><span>Think before answering</span></span>
+            <input type="checkbox" class="switch" id="sw-think" role="switch">
+          </label>
+          <div class="effort" id="effort" role="radiogroup" aria-label="Thinking effort"></div>
+        </section>
+
+        <section class="side-sec">
+          <h2 class="sec-title">Transcript</h2>
+          <label class="switch-row" for="sw-trace">
+            <span class="sw-icon" data-icon="list-tree"></span>
+            <span class="sw-text"><strong>Tool trace</strong><span>Thinking and tool details</span></span>
+            <input type="checkbox" class="switch" id="sw-trace" role="switch">
+          </label>
+          <label class="switch-row" for="sw-thoughts">
+            <span class="sw-icon" data-icon="eye"></span>
+            <span class="sw-text"><strong>Show thoughts here</strong><span id="thoughts-sub">Only on this device</span></span>
+            <input type="checkbox" class="switch" id="sw-thoughts" role="switch">
+          </label>
+        </section>
+
+        <section class="side-sec">
+          <h2 class="sec-title">Shell</h2>
+          <label class="switch-row warn" for="sw-auto">
+            <span class="sw-icon" data-icon="shield"></span>
+            <span class="sw-text"><strong>Auto-approve commands</strong><span>Skip the approval prompt</span></span>
+            <input type="checkbox" class="switch" id="sw-auto" role="switch">
+          </label>
+        </section>
+
+      </div>
+
+      <div class="side-foot">
+        <div class="usage" id="usage" aria-label="Usage this session">
+          <div class="usage-cell"><span class="usage-num" id="use-in">0</span><span class="usage-lbl">tokens in</span></div>
+          <div class="usage-cell"><span class="usage-num" id="use-out">0</span><span class="usage-lbl">tokens out</span></div>
+          <div class="usage-cell"><span class="usage-num" id="use-tools">0</span><span class="usage-lbl">tool calls</span></div>
+        </div>
+        <div class="foot-actions">
+          <button class="chip-btn" id="open-skills" type="button"><span data-icon="book-open"></span><span>Skills</span></button>
+          <button class="chip-btn" id="open-mcp" type="button"><span data-icon="plug"></span><span>MCP</span></button>
+          <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme" title="Switch theme"><span data-icon="moon"></span></button>
+          <button class="icon-btn" id="appearance-btn" type="button" aria-label="Appearance" title="Appearance"><span data-icon="palette"></span></button>
+        </div>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <main class="main">
+      <header class="topbar glass">
+        <button class="icon-btn only-narrow" id="menu-btn" type="button" aria-label="Open panel"><span data-icon="panel-left"></span></button>
+        <div class="title-wrap">
+          <h1 id="session-title">New session</h1>
+          <p id="session-meta"></p>
+        </div>
+        <div class="status-pill" id="status-pill" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="status-text">Connecting</span>
+        </div>
+        <button class="icon-btn only-wide" id="copy-link" type="button" aria-label="Copy link to this page" title="Copy link — open Jarvis on another device">
+          <span data-icon="link"></span>
         </button>
+        <button class="cmd-btn" id="palette-btn" type="button" aria-label="Commands (Ctrl+K)">
+          <span data-icon="command"></span><span class="cmd-btn-label">Commands</span><kbd id="palette-kbd">Ctrl K</kbd>
+        </button>
+      </header>
+
+      <div class="conn-banner" id="conn-banner" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="conn-banner-text">Lost connection to Jarvis. Reconnecting…</span>
       </div>
-      <div class="picker-toolbar" id="picker-toolbar"></div>
-      <div class="picker-search-wrap">
-        <span class="search-icon" aria-hidden="true"><i data-lucide="search"></i></span>
-        <input class="picker-search" id="picker-search" type="search" placeholder="Search…" autocomplete="off">
+
+      <div class="chat-scroll" id="chat-scroll">
+        <div class="chat" id="chat" aria-live="polite" aria-relevant="additions"></div>
+        <div class="empty" id="empty">
+          <span class="mark mark-xl" aria-hidden="true"></span>
+          <p class="eyebrow">Jarvis remote</p>
+          <h2>What should Jarvis work on?</h2>
+          <p>Messages you send here run in the Jarvis session on your computer, with the same tools, files and approvals.</p>
+          <div class="starters" id="starters"></div>
+        </div>
       </div>
-      <div class="picker-list" id="picker-list"></div>
-      <div class="picker-detail hidden" id="picker-detail"></div>
-      <div class="picker-foot" id="picker-foot"></div>
+
+      <button class="jump-btn" id="jump-btn" type="button" hidden>
+        <span data-icon="arrow-down"></span><span>Latest</span>
+      </button>
+
+      <div class="dock">
+        <div class="dock-chips" id="dock-chips">
+          <div class="chip-slot" id="wait-chip"></div>
+          <div class="chip-slot" id="queue-chips"></div>
+        </div>
+        <div class="composer glass" id="composer">
+          <div class="slash-menu glass-strong" id="slash-menu" role="listbox" hidden></div>
+          <div class="activity" id="activity" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span class="activity-text" id="activity-text">Working</span>
+            <span class="activity-time" id="activity-time"></span>
+          </div>
+          <textarea id="prompt" rows="1" placeholder="Message Jarvis, or type / for commands" autocomplete="off" aria-label="Message"></textarea>
+          <div class="composer-tools">
+            <button class="tool-chip" id="qc-model" type="button" title="Switch model">
+              <span data-icon="cpu"></span><span class="tc-text" id="qc-model-text">Model</span>
+            </button>
+            <div class="tc-wrap">
+              <button class="tool-chip" id="qc-effort" type="button" aria-haspopup="menu" aria-expanded="false" title="Thinking effort">
+                <span data-icon="brain"></span><span class="tc-text" id="qc-effort-text">High</span><span class="tc-chev" data-icon="chevron-down"></span>
+              </button>
+              <div class="effort-menu" id="effort-menu" role="menu" hidden></div>
+            </div>
+            <button class="tool-chip" id="qc-agent" type="button" title="Switch agent">
+              <span data-icon="sparkles"></span><span class="tc-text" id="qc-agent-text">Agent</span>
+            </button>
+            <button class="tool-chip is-icon" id="qc-trace" type="button" aria-pressed="false" title="Tool trace">
+              <span data-icon="list-tree"></span>
+            </button>
+            <button class="tool-chip is-icon is-warn" id="qc-auto" type="button" aria-pressed="false" title="Auto-approve shell commands">
+              <span data-icon="shield"></span>
+            </button>
+            <span class="tc-spacer"></span>
+            <button class="send-btn" id="send" type="button" aria-label="Send">
+              <span class="send-ic" data-icon="arrow-up"></span>
+              <span class="stop-ic" data-icon="square"></span>
+            </button>
+          </div>
+        </div>
+        <p class="composer-hint">
+          <span><kbd>Enter</kbd> send</span>
+          <span><kbd>Shift</kbd><kbd>Enter</kbd> new line</span>
+          <span><kbd>↑</kbd> last message</span>
+          <span><kbd>/</kbd> commands</span>
+        </p>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal" id="palette" hidden>
+    <div class="modal-card glass-strong palette-card" role="dialog" aria-modal="true" aria-label="Commands">
+      <div class="search-row">
+        <span data-icon="search"></span>
+        <input id="palette-input" type="text" placeholder="Search commands, pickers and settings" autocomplete="off" spellcheck="false" aria-label="Search commands">
+        <kbd>Esc</kbd>
+      </div>
+      <div class="modal-list" id="palette-list" role="listbox"></div>
+      <div class="modal-foot hints"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> run</span></div>
     </div>
   </div>
 
-  <div class="drawer-backdrop" id="drawer-backdrop"></div>
-  <aside class="drawer" id="drawer">
-    <h2>Session <button class="icon-btn" id="drawer-close" type="button" aria-label="Close"><i data-lucide="x"></i></button></h2>
-    <div class="drawer-section">
-      <h3>Connection</h3>
-      <div class="drawer-row"><span>Status</span><span id="drawer-status">—</span></div>
-      <div class="drawer-row"><span>Model</span><span id="drawer-model">—</span></div>
-      <div class="drawer-row"><span>Agent</span><span id="drawer-agent">—</span></div>
-      <div class="drawer-row"><span>Session</span><span id="drawer-session">—</span></div>
+  <div class="modal" id="picker" hidden>
+    <div class="modal-card glass-strong picker-card" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+      <div class="picker-head">
+        <span class="picker-icon" id="picker-icon"></span>
+        <div class="picker-titles">
+          <h2 id="picker-title">Select</h2>
+          <p id="picker-sub"></p>
+        </div>
+        <button class="icon-btn" id="picker-close" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="picker-chips" id="picker-chips"></div>
+      <div class="search-row">
+        <span data-icon="search"></span>
+        <input id="picker-search" type="text" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search">
+      </div>
+      <div class="modal-list" id="picker-list" role="listbox"></div>
+      <div class="picker-detail" id="picker-detail" hidden></div>
+      <div class="modal-foot" id="picker-foot"></div>
     </div>
-    <div class="drawer-section">
-      <h3>Usage</h3>
-      <div class="drawer-row"><span>Tokens in/out/total</span><span id="drawer-tokens">—</span></div>
-      <div class="drawer-row"><span>Tool calls</span><span id="drawer-tools">—</span></div>
-    </div>
-    <div class="drawer-section">
-      <h3>Shortcuts</h3>
-      <div class="drawer-row"><span>/session</span><span>Switch session</span></div>
-      <div class="drawer-row"><span>/model</span><span>Change model</span></div>
-      <div class="drawer-row"><span>/think on|off</span><span>Extended thinking</span></div>
-      <div class="drawer-row"><span>/verbose</span><span>Tool trace</span></div>
-    </div>
-  </aside>
+  </div>
 
-  <div class="toast" id="toast"></div>
+  <div class="modal" id="appearance" hidden>
+    <div class="modal-card glass-strong small-card" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+      <div class="picker-head">
+        <span class="picker-icon"><span data-icon="palette"></span></span>
+        <div class="picker-titles">
+          <h2 id="appearance-title">Appearance</h2>
+          <p>Saved in this browser</p>
+        </div>
+        <button class="icon-btn" data-close="appearance" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="setting-block">
+        <h3 class="setting-label">Mode</h3>
+        <div class="mode-grid" id="mode-grid" role="radiogroup" aria-label="Color mode"></div>
+      </div>
+      <div class="setting-block">
+        <h3 class="setting-label">Accent</h3>
+        <div class="accent-grid" id="accent-grid" role="radiogroup" aria-label="Accent color"></div>
+      </div>
+      <div class="setting-block">
+        <h3 class="setting-label">This device</h3>
+        <label class="switch-row" for="sw-alert">
+          <span class="sw-icon" data-icon="bell"></span>
+          <span class="sw-text"><strong>Alert when a reply is ready</strong><span id="alert-sub">While this tab is in the background</span></span>
+          <input type="checkbox" class="switch" id="sw-alert" role="switch">
+        </label>
+        <label class="switch-row" for="sw-compact">
+          <span class="sw-icon" data-icon="rows-3"></span>
+          <span class="sw-text"><strong>Compact transcript</strong><span>Tighter spacing, smaller text</span></span>
+          <input type="checkbox" class="switch" id="sw-compact" role="switch">
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="shortcuts" hidden>
+    <div class="modal-card glass-strong small-card" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+      <div class="picker-head">
+        <span class="picker-icon"><span data-icon="keyboard"></span></span>
+        <div class="picker-titles">
+          <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+          <p>Press <kbd>?</kbd> any time to see these</p>
+        </div>
+        <button class="icon-btn" data-close="shortcuts" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="shortcut-list" id="shortcut-list"></div>
+    </div>
+  </div>
+
+  <div class="modal modal-prompt" id="prompt-modal" hidden>
+    <div class="modal-card glass-strong prompt-card" id="prompt-card" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <script type="module" src="/static/js/app.js"></script>
+  <script>
+    // Boot watchdog: if any module failed to download (flaky Wi-Fi, a busy
+    // server), app.js never runs and the page would sit on "Connecting…"
+    // forever. Reload up to twice, then say what happened.
+    setTimeout(function () {
+      if (window.jarvisRemote || !document.getElementById('gate').hidden) return;
+      var key = 'jarvis-boot-retry', tries = 0;
+      try { tries = Number(sessionStorage.getItem(key) || 0); } catch (e) {}
+      if (tries < 2) {
+        try { sessionStorage.setItem(key, String(tries + 1)); } catch (e) {}
+        location.reload();
+        return;
+      }
+      try { sessionStorage.removeItem(key); } catch (e) {}
+      document.getElementById('gate-title').textContent = 'The page did not finish loading';
+      document.getElementById('gate-text').textContent = 'Some files could not be downloaded from Jarvis. Check that Jarvis is still running and that this device is on the same network, then try again.';
+      document.getElementById('gate').hidden = false;
+    }, 6000);
+  </script>
 </body>
 </html>

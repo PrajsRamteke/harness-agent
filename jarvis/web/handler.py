@@ -1,6 +1,7 @@
 """HTTP request handler for Jarvis web remote (API + static assets)."""
 from __future__ import annotations
 
+import hmac
 import json
 import mimetypes
 import queue
@@ -24,6 +25,8 @@ if TYPE_CHECKING:
     from ..tui.app import JarvisTUI
 
 _STATIC_DIR = Path(__file__).with_name("static")
+_HEARTBEAT_SECS = 8.0
+_PING = b'data: {"type": "ping", "data": {}, "ts": 0}\n\n'
 _INDEX_PATH = _STATIC_DIR / "index.html"
 
 _MIME = {
@@ -33,6 +36,27 @@ _MIME = {
     ".svg": "image/svg+xml",
     ".woff2": "font/woff2",
 }
+
+
+def _normalize_answers(result: dict[str, Any]) -> dict[str, Any]:
+    """Accept ``selected`` (older web clients) as ``selected_ids``.
+
+    ``ask_user_question`` consumers (plan approval, the tool result) read
+    ``selected_ids`` / ``labels`` — the same shape the TUI askbar returns.
+    """
+    answers = []
+    for ans in result.get("answers") or []:
+        if not isinstance(ans, dict):
+            continue
+        ans = dict(ans)
+        if "selected_ids" not in ans and isinstance(ans.get("selected"), list):
+            ans["selected_ids"] = ans.pop("selected")
+        ans.setdefault("selected_ids", [])
+        ans.setdefault("labels", [])
+        answers.append(ans)
+    out = dict(result)
+    out["answers"] = answers
+    return out
 
 
 class WebHandler(BaseHTTPRequestHandler):
@@ -45,16 +69,21 @@ class WebHandler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         auth = self.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
-            return auth[7:].strip() == self.bridge.token
+            return self._token_ok(auth[7:].strip())
         parsed = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(parsed.query)
         token = (qs.get("token") or [""])[0]
-        return token == self.bridge.token
+        return self._token_ok(token)
+
+    def _token_ok(self, token: str) -> bool:
+        return hmac.compare_digest(token.encode("utf-8"), self.bridge.token.encode("utf-8"))
 
     def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        # Assets change with every upgrade and are tiny — always revalidate.
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
@@ -75,7 +104,10 @@ class WebHandler(BaseHTTPRequestHandler):
         return bool(getattr(self.app, "_busy", False)) if self.app else False
 
     def _snapshot(self) -> dict[str, Any]:
-        return snapshot_from_state(busy=self._busy())
+        snap = snapshot_from_state(busy=self._busy())
+        # LAN link (with token) so "Copy link" works on other devices too.
+        snap["remote_url"] = str(getattr(self.app, "_web_primary_url", "") or "")
+        return snap
 
     def _parse_query(self) -> tuple[str, dict[str, list[str]]]:
         parsed = urllib.parse.urlparse(self.path)
@@ -85,6 +117,12 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def _query_str(self, qs: dict[str, list[str]], key: str, default: str = "") -> str:
         return (qs.get(key) or [default])[0]
+
+    def _query_int(self, qs: dict[str, list[str]], key: str, default: int) -> int:
+        try:
+            return int(self._query_str(qs, key, str(default)) or default)
+        except ValueError:
+            return default
 
     def _serve_index(self) -> None:
         if not _INDEX_PATH.is_file():
@@ -134,9 +172,12 @@ class WebHandler(BaseHTTPRequestHandler):
         try:
             while True:
                 try:
-                    line = sub.get(timeout=15.0)
+                    line = sub.get(timeout=_HEARTBEAT_SECS)
                 except queue.Empty:
-                    self.wfile.write(b": ping\n\n")
+                    # A real event, not an SSE comment: the page watches for
+                    # silence to spot connections that died without an error
+                    # (laptop sleep, phone lock, Wi-Fi switch) and reconnects.
+                    self.wfile.write(_PING)
                     self.wfile.flush()
                     continue
                 self.wfile.write(f"data: {line}\n\n".encode("utf-8"))
@@ -148,8 +189,8 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def _handle_api_get(self, path: str, qs: dict[str, list[str]]) -> None:
         if path == "/api/sessions":
-            limit = int(self._query_str(qs, "limit", "50") or 50)
-            offset = int(self._query_str(qs, "offset", "0") or 0)
+            limit = self._query_int(qs, "limit", 50)
+            offset = self._query_int(qs, "offset", 0)
             self._send_json(200, list_sessions(limit=limit, offset=offset))
             return
         if path == "/api/models":
@@ -223,7 +264,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 return
             result = data.get("result")
             if isinstance(result, dict) and "answers" in result:
-                payload = json.dumps(result, ensure_ascii=False)
+                payload = json.dumps(_normalize_answers(result), ensure_ascii=False)
             elif result is None:
                 payload = "n"
             else:
