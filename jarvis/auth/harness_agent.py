@@ -7,7 +7,7 @@ from ..constants import (
     PROVIDER_OPENCODE_ZEN,
     is_harness_agent_model,
 )
-from ._zen_wire import new_session_id, zen_client_kwargs
+from ._zen_wire import RESPONSES_API_MODELS, new_session_id, zen_client_kwargs
 from .opencode_client import OpenCodeClient
 from .opencode_zen import has_opencode_zen_key
 
@@ -70,5 +70,6 @@ def build_harness_agent_client() -> OpenCodeClient:
     return OpenCodeClient(
         base_url=f"{OPENCODE_ZEN_BASE_URL}/",
         gate_tools=_FREE_TIER_GATE_TOOLS,
+        responses_models=set(RESPONSES_API_MODELS),
         **zen_client_kwargs(new_session_id()),
     )

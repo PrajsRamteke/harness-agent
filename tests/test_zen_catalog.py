@@ -1,11 +1,25 @@
 """Live free-model discovery from the public OpenCode catalog."""
 from unittest import mock
 
-from jarvis.auth import zen_catalog
+import pytest
+
+from jarvis.auth import catalog_cache, zen_catalog
 from jarvis.constants.providers import (
     HARNESS_AGENT_DEFAULT_MODEL,
     harness_agent_models_for_picker,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_catalog_cache(tmp_path, monkeypatch):
+    """Tests must never write into the user's real ~/.config catalog cache.
+
+    ``harness_agent_models_for_picker(live=True)`` persists through
+    ``catalog_cache.write`` — without this, fixture models like
+    ``zeta-new-free`` leak into the live /model picker.
+    """
+    monkeypatch.setattr(catalog_cache, "CACHE_DIR", tmp_path)
+    return tmp_path
 
 _FREE = {"input": 0, "output": 0}
 _PAID = {"input": 1, "output": 2}
@@ -36,6 +50,27 @@ def test_fetch_intersects_catalog_and_served():
             ("zeta-new-free", "Zeta New Free"),
             ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free"),
         ]
+
+
+def test_deprecated_status_is_not_a_filter_but_broken_ids_are():
+    """`status: deprecated` is a retirement notice, not breakage.
+
+    mimo-v2.5-free works (200) and must survive; only ids verified broken on use
+    (deepseek-v4-flash-free -> 400) are deny-listed.
+    """
+    catalog = {
+        "opencode": {
+            "models": {
+                "mimo-v2.5-free": {"name": "MiMo V2.5 Free", "cost": _FREE, "status": "deprecated"},
+                "deepseek-v4-flash-free": {"name": "DeepSeek Free", "cost": _FREE},
+            }
+        }
+    }
+    served = {"data": [{"id": "mimo-v2.5-free"}, {"id": "deepseek-v4-flash-free"}]}
+    with mock.patch.object(zen_catalog, "_get_json", side_effect=[catalog, served]):
+        ids = [mid for mid, _ in (zen_catalog.fetch_free_models() or [])]
+    assert "mimo-v2.5-free" in ids
+    assert "deepseek-v4-flash-free" not in ids
 
 
 def test_fetch_returns_none_when_offline():

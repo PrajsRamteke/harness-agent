@@ -141,12 +141,10 @@ MODELS: list[ModelSpec] = [
     ModelSpec("mimo-v2.5-free",                  "MiMo V2.5 Free — default",         PROVIDER_HARNESS_AGENT, default=True),
     ModelSpec("nemotron-3-ultra-free",           "Nemotron 3 Ultra Free",            PROVIDER_HARNESS_AGENT),
     ModelSpec("big-pickle",                      "Big Pickle",                       PROVIDER_HARNESS_AGENT),
-    ModelSpec("union-alpha",                     "Union Alpha Free",                 PROVIDER_HARNESS_AGENT),
     ModelSpec("nemotron-3.5-lightning-free",     "Nemotron 3.5 Lightning Free",      PROVIDER_HARNESS_AGENT),
     ModelSpec("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free",              PROVIDER_HARNESS_AGENT),
     ModelSpec("muse-spark-1.3-contributor-free", "Muse Spark 1.3 Free",              PROVIDER_HARNESS_AGENT),
     ModelSpec("ling-3.0-flash-fin-free",         "Ling 3.0 Flash Fin Free",          PROVIDER_HARNESS_AGENT),
-    ModelSpec("deepseek-v4-flash-free",          "DeepSeek V4 Flash Free",           PROVIDER_HARNESS_AGENT),
 
     # Paid OpenCode Zen picker reuses these slugs; exclusive free IDs have expired.
 

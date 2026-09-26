@@ -568,6 +568,163 @@ class _OpenCodeStream:
         self.close()
 
 
+class _OpenCodeResponsesStream:
+    """Anthropic-style stream adapter for the OpenAI Responses API.
+
+    Mirrors :class:`_OpenCodeStream`'s interface (``delta_stream``,
+    ``text_stream``, ``get_final_message``, ``close``) so the REPL/stream
+    consumer needs no changes. Used for the free-tier models the gateway only
+    serves on ``/responses`` (the muse-spark contributor models) — those return
+    500 when posted to ``/chat/completions``.
+    """
+
+    def __init__(self, response, *, model: str = ""):
+        self._iter = response
+        self._model = model
+        self._final: Optional[_FakeMessage] = None
+        self._closed = False
+        self._text_parts: list[str] = []
+        self._reasoning_parts: list[str] = []
+        self._tool_calls: dict[str, dict] = {}
+        self._usage = _Usage()
+
+    def _record_function_call(self, item) -> None:
+        item_id = getattr(item, "id", "") or getattr(item, "call_id", "") or ""
+        self._tool_calls[item_id] = {
+            "id": getattr(item, "call_id", "") or item_id,
+            "name": getattr(item, "name", "") or "",
+            "arguments": getattr(item, "arguments", "") or "",
+        }
+
+    @property
+    def delta_stream(self) -> Generator[tuple[str, str], None, None]:
+        """Yield ``(kind, chunk)`` where *kind* is ``thinking`` or ``text``."""
+        for event in self._iter:
+            if self._closed:
+                break
+            etype = getattr(event, "type", "")
+            if etype == "response.output_text.delta":
+                delta = getattr(event, "delta", "") or ""
+                if delta:
+                    self._text_parts.append(delta)
+                    yield "text", delta
+            elif etype in (
+                "response.reasoning_summary_text.delta",
+                "response.reasoning_text.delta",
+            ):
+                delta = getattr(event, "delta", "") or ""
+                if delta:
+                    self._reasoning_parts.append(delta)
+                    yield "thinking", delta
+            elif etype == "response.function_call_arguments.delta":
+                item_id = getattr(event, "item_id", "") or ""
+                slot = self._tool_calls.setdefault(
+                    item_id, {"id": item_id, "name": "", "arguments": ""}
+                )
+                slot["arguments"] += getattr(event, "delta", "") or ""
+            elif etype in ("response.output_item.added", "response.output_item.done"):
+                item = getattr(event, "item", None)
+                if item is not None and getattr(item, "type", "") == "function_call":
+                    self._record_function_call(item)
+            elif etype == "response.completed":
+                resp = getattr(event, "response", None)
+                usage = getattr(resp, "usage", None) if resp is not None else None
+                if usage is not None:
+                    self._usage = _Usage(
+                        input_tokens=_get_usage_value(usage, "input_tokens"),
+                        output_tokens=_get_usage_value(usage, "output_tokens"),
+                        total_tokens=_get_usage_value(usage, "total_tokens"),
+                    )
+        self._final = self._build_final()
+
+    @property
+    def text_stream(self) -> Generator[str, None, None]:
+        for kind, chunk in self.delta_stream:
+            if kind == "text":
+                yield chunk
+
+    def _build_final(self) -> _FakeMessage:
+        if self._final is not None:
+            return self._final
+        content: list = []
+        if self._reasoning_parts:
+            content.append(
+                _ContentBlock(type="thinking", thinking="".join(self._reasoning_parts))
+            )
+        if self._text_parts:
+            content.append(_TextBlock(type="text", text="".join(self._text_parts)))
+        for tc in self._tool_calls.values():
+            raw_args = tc.get("arguments") or ""
+            name = tc.get("name") or ""
+            if not raw_args.strip():
+                args = {"__stream_error__": (
+                    f"Provider streamed the {name or 'tool'} call with EMPTY "
+                    f"arguments — none of the required parameters arrived."
+                )}
+            else:
+                try:
+                    parsed = json.loads(raw_args)
+                    args = parsed if isinstance(parsed, dict) else {
+                        "__stream_error__": (
+                            f"Tool arguments for {name or 'tool'} were not a JSON object."
+                        )
+                    }
+                except json.JSONDecodeError as e:
+                    repaired = _repair_truncated_json(raw_args)
+                    if repaired is not None:
+                        repaired["__stream_repair__"] = (
+                            f"recovered malformed streamed JSON arguments "
+                            f"({e.msg} at pos {e.pos})"
+                        )
+                        args = repaired
+                    else:
+                        args = {"__stream_error__": (
+                            f"Provider streamed truncated/invalid JSON arguments "
+                            f"({e.msg} at pos {e.pos}); auto-repair also failed. "
+                            f"Recover by splitting the work into smaller calls."
+                        )}
+            content.append(
+                _ToolUseBlock(type="tool_use", id=tc["id"], name=name, input=args)
+            )
+        stop_reason = (
+            "tool_use"
+            if any(b.get("type") == "tool_use" for b in content)
+            else "end_turn"
+        )
+        self._final = _FakeMessage(
+            content=content, usage=self._usage, stop_reason=stop_reason
+        )
+        return self._final
+
+    def get_final_message(self) -> _FakeMessage:
+        if self._final is not None:
+            return self._final
+        for _ in self.delta_stream:
+            pass
+        return self._final if self._final is not None else self._build_final()
+
+    def close(self) -> None:
+        self._closed = True
+        try:
+            close = getattr(self._iter, "close", None)
+            if callable(close):
+                close()
+        except Exception:
+            pass
+        try:
+            http_resp = getattr(self._iter, "response", None)
+            if http_resp is not None:
+                http_resp.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
 # ---------------------------------------------------------------------------
 # Messages namespace (mimics client.messages)
 # ---------------------------------------------------------------------------
@@ -595,7 +752,7 @@ class _OpenCodeMessages:
         thinking: dict | None = None,
         **_kwargs,
     ):
-        oai_messages = []
+        sys_text = ""
         # Convert system prompt
         if system:
             if isinstance(system, list):
@@ -604,6 +761,61 @@ class _OpenCodeMessages:
                 )
             else:
                 sys_text = str(system)
+
+        owner = self._owner
+        # Responses-only models (free-tier muse-spark) 500 on /chat/completions;
+        # route them to /responses with the same bash/read identity gate.
+        if owner is not None and owner.api_format(model) == "responses":
+            from .codex_client import (
+                _anthropic_messages_to_responses_input,
+                _anthropic_tools_to_responses,
+            )
+
+            input_items = _anthropic_messages_to_responses_input(messages)
+            if sys_text:
+                input_items = [{"role": "developer", "content": sys_text}] + input_items
+            payload: dict[str, Any] = {
+                "model": model,
+                "input": input_items,
+                "stream": True,
+            }
+            resp_tools = _anthropic_tools_to_responses(tools) if tools else []
+            if owner.gate_tools:
+                present = {t["name"] for t in resp_tools}
+                for schema in owner.gate_tools:
+                    if schema.get("name") in present:
+                        continue
+                    resp_tools.append({
+                        "type": "function",
+                        "name": schema["name"],
+                        "description": schema.get("description", ""),
+                        "parameters": schema.get(
+                            "input_schema", {"type": "object", "properties": {}}
+                        ),
+                    })
+            if resp_tools:
+                payload["tools"] = resp_tools
+            extra = owner.next_request_headers()
+            if extra:
+                payload["extra_headers"] = extra
+            try:
+                response = self._client.responses.create(**payload)
+            except Exception as e:
+                err = str(e).lower()
+                if resp_tools and ("tool" in err or "function" in err):
+                    payload.pop("tools", None)
+                    response = self._client.responses.create(**payload)
+                else:
+                    raise
+            resp_stream = _OpenCodeResponsesStream(response, model=model)
+            try:
+                yield resp_stream
+            finally:
+                resp_stream.close()
+            return
+
+        oai_messages = []
+        if sys_text:
             oai_messages.append({"role": "system", "content": sys_text})
         oai_messages.extend(_anthropic_messages_to_openai(messages))
 
@@ -703,10 +915,14 @@ class OpenCodeClient:
         request_id_header: str | None = None,
         request_id_prefix: str = "msg_",
         gate_tools: list[dict] | None = None,
+        responses_models: set[str] | None = None,
     ):
         self._request_id_header = request_id_header
         self._request_id_prefix = request_id_prefix
         self._request_seq = 0
+        # Free-tier models served only on the Responses API (/responses) rather
+        # than /chat/completions — see _zen_wire.RESPONSES_API_MODELS.
+        self.responses_models: set[str] = set(responses_models or ())
         # Tool schemas that must accompany every request even when the caller
         # supplied none. Used by the free Harness Agent tier, whose gateway
         # only accepts requests carrying tools named "bash"+"read".
@@ -719,6 +935,10 @@ class OpenCodeClient:
             timeout=harness_http_timeout(openrouter=True),
         )
         self.messages = _OpenCodeMessages(self._oai, owner=self)
+
+    def api_format(self, model: str) -> str:
+        """Return ``"responses"`` for models served on /responses, else ``"chat"``."""
+        return "responses" if model in self.responses_models else "chat"
 
     def next_request_headers(self) -> dict[str, str] | None:
         if not self._request_id_header:

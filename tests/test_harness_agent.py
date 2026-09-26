@@ -27,12 +27,10 @@ class HarnessAgentTests(unittest.TestCase):
                 "nemotron-3-ultra-free",
                 "mimo-v2.5-free",
                 "big-pickle",
-                "union-alpha",
                 "nemotron-3.5-lightning-free",
                 "muse-spark-1.2-contributor-free",
                 "muse-spark-1.3-contributor-free",
                 "ling-3.0-flash-fin-free",
-                "deepseek-v4-flash-free",
             },
         )
 
@@ -43,7 +41,7 @@ class HarnessAgentTests(unittest.TestCase):
 
     def test_models_for_harness_agent_source(self):
         models = models_for_source(PROVIDER_HARNESS_AGENT)
-        self.assertEqual(len(models), 9)
+        self.assertEqual(len(models), 7)
         self.assertEqual(models[0][0], HARNESS_AGENT_DEFAULT_MODEL)
 
     def test_opencode_zen_models_include_exclusive_and_shared(self):
@@ -51,7 +49,6 @@ class HarnessAgentTests(unittest.TestCase):
         self.assertIn("nemotron-3-ultra-free", ids)
         self.assertIn("mimo-v2.5-free", ids)
         self.assertIn("big-pickle", ids)
-        self.assertIn("union-alpha", ids)
         self.assertNotIn("hy3-free", ids)
         self.assertNotIn("minimax-m2.5-free", ids)
 

@@ -33,12 +33,10 @@ _BUILTIN_HARNESS_ROWS: tuple[tuple[str, str], ...] = (
     ("mimo-v2.5-free", "MiMo V2.5 Free — default"),
     ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free"),
     ("big-pickle", "Big Pickle"),
-    ("union-alpha", "Union Alpha Free"),
     ("nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning Free"),
     ("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free"),
     ("muse-spark-1.3-contributor-free", "Muse Spark 1.3 Free"),
     ("ling-3.0-flash-fin-free", "Ling 3.0 Flash Fin Free"),
-    ("deepseek-v4-flash-free", "DeepSeek V4 Flash Free"),
 )
 
 

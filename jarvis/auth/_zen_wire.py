@@ -48,6 +48,16 @@ SESSION_PREFIX = "ses_"
 REQUEST_ID_PREFIX = "msg_"
 REQUEST_ID_HEADER = "x-opencode-request"
 
+# Free-tier models the gateway serves through the OpenAI Responses API
+# (``/zen/v1/responses``) instead of ``/chat/completions``. These are the
+# catalog entries whose ``provider.npm`` is ``@ai-sdk/openai``; every other
+# free model uses the default OpenAI-compatible (chat/completions) API.
+# Posting a Responses-only model to /chat/completions returns 500.
+RESPONSES_API_MODELS = frozenset({
+    "muse-spark-1.2-contributor-free",
+    "muse-spark-1.3-contributor-free",
+})
+
 # Session ids: "ses_" + 12 lowercase hex + 14 alnum.
 _SESSION_HEX_LEN = 12
 _SESSION_RANDOM_LEN = 14

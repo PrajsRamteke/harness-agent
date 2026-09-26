@@ -27,6 +27,15 @@ CATALOG_URL = "https://models.opencode.ai/api.json"
 SERVED_URL = "https://opencode.ai/zen/v1/models"
 CATALOG_PROVIDER = "opencode"
 
+# Served by the gateway and marked free in the catalog, but verified broken on
+# use — deepseek-v4-flash-free answers 400 "Model is unavailable" on both APIs.
+# NOTE: catalog ``status: "deprecated"`` is only a retirement *notice* and does
+# NOT mean a model is dead (mimo-v2.5-free is deprecated but works), so it must
+# never be used as a filter. This deny-list holds only ids we've confirmed fail.
+BROKEN_FREE_MODELS = frozenset({
+    "deepseek-v4-flash-free",
+})
+
 # The gateway 403s urllib's default "Python-urllib/x.y" User-Agent, so send the
 # same identity the real CLI does.
 REQUEST_HEADERS = {"Accept": "application/json", "User-Agent": OPENCODE_USER_AGENT}
@@ -71,7 +80,7 @@ def fetch_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[tuple[str, str]]
             continue
         mid = entry.get("id")
         info = catalog_models.get(mid)
-        if mid and _is_free(info):
+        if mid and mid not in BROKEN_FREE_MODELS and _is_free(info):
             out.append((mid, (info.get("name") or mid)))
     return out or None
 
