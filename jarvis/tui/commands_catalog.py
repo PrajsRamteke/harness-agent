@@ -13,22 +13,14 @@ COMMANDS = [
     ("/reset", "clear conversation"),
     ("/retry", "re-send last user message"),
     ("/history", "show message summary"),
-    ("/search ", "search conversation for a phrase"),
     ("/export ", "export conversation as markdown"),
-    ("/save ", "save session JSON"),
-    ("/load ", "load session JSON"),
     ("/session", "open the session modal (resume / delete handled inside)"),
     ("/clear", "clear the terminal screen"),
     ("/loop", "repeat a task — /loop <task> (self-paced) · /loop 5m <task> · /loop stop"),
-    ("/keytest", "show what key your terminal sends (Shift+Enter debug)"),
     ("/exit", "quit"),
     # Context
     ("/pin", "pinned context — view · append · /pin on|off|toggle · clear via /unpin"),
     ("/unpin", "clear pinned context"),
-    ("/note ", "append a note to your notes file"),
-    ("/notes", "show your notes file"),
-    ("/alias ", "create a shortcut alias (e.g. /alias gs=/git)"),
-    ("/aliases", "list aliases"),
     # Memory — modal handles list / add / delete / clear
     ("/memory", "open the memory modal (list · add · delete · clear)"),
     # Lessons — modal handles list / search / add / delete / clear
@@ -66,14 +58,19 @@ COMMANDS = [
     ("/sidebar", "toggle the session sidebar (⌃B)"),
     ("/auto", "toggle auto-approve bash"),
     ("/plan", "toggle plan mode — read-only research until you approve a plan"),
-    ("/multi", "enter a multiline message"),
     ("/model", "open model picker (Harness Agent free models listed first)"),
-    ("/mode", "alias for /model — open model picker"),
-    ("/tokens", "usage so far"),
-    ("/cost", "estimated USD cost"),
     ("/stats", "session stats"),
     ("/provider", "one command for everything — OAuth login, API keys, provider switch"),
 ]
+
+
+# Built-ins that still run when typed but aren't listed in the palette, /help
+# or the web menu. Custom commands can't use these names — dispatch would run
+# the built-in instead.
+UNLISTED_BUILTINS = frozenset({
+    "search", "save", "load", "keytest", "note", "notes",
+    "alias", "aliases", "multi", "mode", "tokens", "cost",
+})
 
 
 def _custom_command_entries():
@@ -85,6 +82,7 @@ def _custom_command_entries():
     try:
         from ..storage.commands import list_commands
         builtin_heads = {c.split()[0] for c, _ in COMMANDS}
+        builtin_heads |= {f"/{name}" for name in UNLISTED_BUILTINS}
         entries = []
         for rec in list_commands():
             if f"/{rec['name']}" in builtin_heads:

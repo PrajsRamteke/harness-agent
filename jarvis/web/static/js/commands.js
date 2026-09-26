@@ -39,10 +39,7 @@ export const COMMAND_CATEGORIES = [
       { cmd: '/retry', label: 'Retry', desc: 'Re-send last message', icon: 'refresh-cw' },
       { cmd: '/history', label: 'History', desc: 'Message summary', icon: 'list' },
       { cmd: '/stats', label: 'Stats', desc: 'Session time, msgs, tools', icon: 'bar-chart-3' },
-      { cmd: '/tokens', label: 'Tokens', desc: 'Token usage so far', icon: 'hash' },
-      { cmd: '/cost', label: 'Cost', desc: 'Estimated USD cost', icon: 'dollar-sign' },
       { cmd: '/clear', label: 'Clear screen', desc: 'Clear terminal view', icon: 'eraser' },
-      { cmd: '/search ', label: 'Search', desc: 'Search conversation', icon: 'search', fillOnly: true },
       { cmd: '/export ', label: 'Export', desc: 'Export as markdown', icon: 'download', fillOnly: true },
     ],
   },
@@ -55,8 +52,6 @@ export const COMMAND_CATEGORIES = [
       { cmd: '/lesson', label: 'Lessons', desc: 'Agent lesson memory', icon: 'graduation-cap' },
       { cmd: '/scan', label: 'Scan', desc: 'Deep scan identity & docs', icon: 'scan' },
       { cmd: '/pin', label: 'Pinned context', desc: 'View or edit pinned context', icon: 'pin' },
-      { cmd: '/notes', label: 'Notes', desc: 'Show notes file', icon: 'sticky-note' },
-      { cmd: '/note ', label: 'Add note', desc: 'Append to notes', icon: 'pen-line', fillOnly: true },
     ],
   },
   {
@@ -70,7 +65,6 @@ export const COMMAND_CATEGORIES = [
       { action: 'toggle-show-think', label: 'Show thinking UI', desc: 'Thinking bubbles in chat', icon: 'eye', toggle: true },
       { cmd: '/think', label: 'Think effort', desc: 'Open effort picker on laptop', icon: 'gauge' },
       { cmd: '/verbose', label: 'Verbose', desc: 'Toggle trace via slash', icon: 'file-text' },
-      { cmd: '/multi', label: 'Multiline', desc: 'Enter multiline message', icon: 'align-left' },
     ],
   },
   {
@@ -101,8 +95,6 @@ export const COMMAND_CATEGORIES = [
       { cmd: '/upgrade', label: 'Upgrade', desc: 'Update to latest', icon: 'arrow-up-circle' },
       { cmd: '/copy', label: 'Copy reply', desc: 'Copy last assistant response', icon: 'copy' },
       { cmd: '/paste', label: 'Paste', desc: 'Send clipboard as message', icon: 'clipboard' },
-      { cmd: '/aliases', label: 'Aliases', desc: 'List command shortcuts', icon: 'link' },
-      { cmd: '/alias ', label: 'New alias', desc: 'Create shortcut', icon: 'link-2', fillOnly: true },
     ],
   },
 ];

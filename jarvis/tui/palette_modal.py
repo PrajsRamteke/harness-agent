@@ -20,15 +20,14 @@ from .modal_chrome import (
 
 # Browse view groups (search view is flat). Unlisted commands land in "Other".
 _GROUPS: list[tuple[str, list[str]]] = [
-    ("Session", ["/new", "/session", "/retry", "/history", "/search ", "/export ",
-                 "/save ", "/load ", "/copy", "/paste", "/clear", "/reset", "/exit"]),
-    ("Model & agent", ["/model", "/mode", "/provider", "/think", "/agent", "/agent init",
-                       "/plan", "/auto", "/verbose", "/multi"]),
-    ("Context & memory", ["/pin", "/unpin", "/memory", "/lesson", "/skill", "/scan",
-                          "/note ", "/notes", "/alias ", "/aliases"]),
+    ("Session", ["/new", "/session", "/retry", "/history", "/export ",
+                 "/copy", "/paste", "/clear", "/reset", "/exit"]),
+    ("Model & agent", ["/model", "/provider", "/think", "/agent", "/agent init",
+                       "/plan", "/auto", "/verbose"]),
+    ("Context & memory", ["/pin", "/unpin", "/memory", "/lesson", "/skill", "/scan"]),
     ("Tools", ["/local", "/mcp", "/command", "/loop"]),
-    ("App", ["/theme", "/sidebar", "/settings", "/tokens", "/cost", "/stats",
-             "/upgrade", "/version", "/help", "/keytest"]),
+    ("App", ["/theme", "/sidebar", "/settings", "/stats",
+             "/upgrade", "/version", "/help"]),
 ]
 from .mouse_toggle import enable_mouse, disable_mouse
 

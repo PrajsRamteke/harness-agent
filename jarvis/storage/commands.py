@@ -449,8 +449,9 @@ def delete_command(name: str) -> tuple[bool, str]:
 def _is_reserved(name: str) -> bool:
     """True when /<name> collides with a built-in slash command."""
     try:
-        from ..tui.commands_catalog import COMMANDS
+        from ..tui.commands_catalog import COMMANDS, UNLISTED_BUILTINS
         builtins = {c.strip().lstrip("/").split()[0] for c, _ in COMMANDS}
+        builtins |= UNLISTED_BUILTINS
     except Exception:
         builtins = set()
     # Not all built-ins live in the palette catalog — pad with dispatch-only ones.
