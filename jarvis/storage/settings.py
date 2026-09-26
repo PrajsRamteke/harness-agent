@@ -67,6 +67,29 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+# Bumped when a default changes in a way that files written by older versions
+# must follow. Kept in settings.json as "_version" — outside DEFAULTS, so
+# /settings doesn't list it.
+SETTINGS_VERSION = 2
+_VERSION_KEY = "_version"
+
+
+def _upgrade(doc: dict) -> bool:
+    """Bring a settings.json written by an older Jarvis up to date in place.
+
+    Returns True when ``doc`` changed and should be written back.
+    """
+    if doc.get(_VERSION_KEY, 1) >= SETTINGS_VERSION:
+        return False
+    # v2 — thinking effort default medium → high. Older saves wrote every
+    # default into the file, so "medium" there is the old default, not a choice.
+    think = doc.get("think")
+    if isinstance(think, dict) and think.get("effort") == "medium":
+        think["effort"] = "high"
+    doc[_VERSION_KEY] = SETTINGS_VERSION
+    return True
+
+
 def _deep_merge(base: dict, overlay: dict) -> dict:
     """Recursive merge — overlay values win, but unknown keys are kept."""
     out = copy.deepcopy(base)
@@ -204,6 +227,7 @@ class Settings:
                     on_disk = parsed
             except (OSError, json.JSONDecodeError):
                 on_disk = {}
+        upgraded = bool(on_disk) and _upgrade(on_disk)
 
         legacy = _migrate_legacy()
         project = _read_project_settings()
@@ -220,7 +244,9 @@ class Settings:
         # once so subsequent reads stop touching the legacy files. We never
         # write the project file from here — it's user-managed.
         write_back = _deep_merge(legacy, on_disk)
-        if legacy and not on_disk:
+        if upgraded:
+            self.save()
+        elif legacy and not on_disk:
             self.save()
         elif legacy and write_back != on_disk:
             self.save()
@@ -232,6 +258,7 @@ class Settings:
             self._loaded = True
         # Ensure defaults are represented so users can see what's available.
         out = _deep_merge(DEFAULTS, self._data)
+        out[_VERSION_KEY] = SETTINGS_VERSION
         _atomic_write(
             self.path,
             json.dumps(out, indent=2, ensure_ascii=False) + "\n",
@@ -267,13 +294,17 @@ class Settings:
         """Full merged view (defaults + overrides)."""
         if not self._loaded:
             self.load()
-        return _deep_merge(DEFAULTS, self._data)
+        out = _deep_merge(DEFAULTS, self._data)
+        out.pop(_VERSION_KEY, None)
+        return out
 
     def overrides(self) -> dict[str, Any]:
         """Only the user-set values (what's actually in the file on disk)."""
         if not self._loaded:
             self.load()
-        return copy.deepcopy(self._data)
+        out = copy.deepcopy(self._data)
+        out.pop(_VERSION_KEY, None)
+        return out
 
     def reload(self) -> dict[str, Any]:
         """Re-read from disk and return the new merged view."""
@@ -307,6 +338,7 @@ class Settings:
                     on_disk = parsed
             except (OSError, json.JSONDecodeError):
                 on_disk = {}
+        _upgrade(on_disk)
         _set_by_path(on_disk, path, coerced)
         _atomic_write(
             self.path,
