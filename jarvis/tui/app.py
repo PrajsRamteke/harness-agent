@@ -544,7 +544,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             esc = _rich_escape(self._web_primary_url)
             self._tui_console.print(
                 f"[{ui.FG_DIM}]🌐 remote[/]  [link={esc}]{esc}[/link]  "
-                f"[{ui.FG_DIM}]· scan QR top-right · ⌃⇧U copy[/]"
+                f"[{ui.FG_DIM}]· scan the QR top-right (click it to hide) · /web qr · ⌃⇧U copy[/]"
             )
 
     def _render_welcome_intro(self) -> None:
@@ -940,6 +940,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             self._open_local_cmd_modal(initial=rest)
         elif stripped == "/sidebar":
             self.action_toggle_sidebar()
+        elif stripped.lower() == "/web" or stripped.lower().startswith("/web "):
+            self._handle_web_command(stripped)
         elif _is_pet_badges_command(stripped):
             self._open_pet_badges()
         elif _is_pet_card_command(stripped):

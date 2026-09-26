@@ -64,6 +64,7 @@ DEFAULTS: dict[str, Any] = {
     "pin":    {"enabled": True},  # inject pinned.txt into every system prompt
     "pet":    {"enabled": True, "nudges": True, "notify": True},  # the TUI pets
     "ui":     {"sticky_prompt": True},  # pin your prompt above a long reply
+    "web":    {"qr": True},  # corner QR code while the web remote runs
 }
 
 
@@ -177,7 +178,7 @@ def _coerce(path: str, value: Any) -> Any:
             raise ValueError(f"think.effort must be one of {_VALID_THINK_EFFORTS}")
         return value
     if path in ("skills.global", "mcp.global", "agent.global", "think.mode", "pin.enabled", "ui.mouse",
-                "ui.sticky_prompt", "pet.enabled", "pet.nudges", "pet.notify"):
+                "ui.sticky_prompt", "pet.enabled", "pet.nudges", "pet.notify", "web.qr"):
         if isinstance(value, str):
             v = value.strip().lower()
             if v in ("true", "1", "yes", "on"):

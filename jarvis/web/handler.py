@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .bridge import WebBridge
+from .bridge import CLOSE_SENTINEL, WebBridge
 from .pickers_api import (
     get_skill,
     list_agents,
@@ -180,6 +180,8 @@ class WebHandler(BaseHTTPRequestHandler):
                     self.wfile.write(_PING)
                     self.wfile.flush()
                     continue
+                if line == CLOSE_SENTINEL:
+                    break
                 self.wfile.write(f"data: {line}\n\n".encode("utf-8"))
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):

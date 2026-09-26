@@ -12,6 +12,8 @@ from typing import Any, Callable
 
 
 _RESYNC_LINE = json.dumps({"type": "resync", "data": {}, "ts": 0})
+# Put on every subscriber queue by ``WebBridge.close``; the SSE loop exits.
+CLOSE_SENTINEL = "\x00close"
 
 
 def _flush(q: queue.Queue) -> None:
@@ -136,6 +138,24 @@ class WebBridge:
     def has_subscribers(self) -> bool:
         with self._lock:
             return bool(self._subscribers)
+
+    def subscriber_count(self) -> int:
+        with self._lock:
+            return len(self._subscribers)
+
+    def close(self) -> None:
+        """Web remote stopped: end every SSE stream and release waiting prompts."""
+        with self._lock:
+            subs = list(self._subscribers)
+            pending = [p.prompt_id for p in self._pending.values() if not p.resolved]
+        for prompt_id in pending:
+            self.dismiss_prompt(prompt_id)
+        for sub in subs:
+            _flush(sub)
+            try:
+                sub.put_nowait(CLOSE_SENTINEL)
+            except queue.Full:
+                pass
 
     def history(self) -> list[dict[str, Any]]:
         with self._lock:

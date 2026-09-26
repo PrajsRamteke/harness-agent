@@ -9,7 +9,10 @@ app instance.
 """
 from __future__ import annotations
 
+import threading
 from contextlib import nullcontext
+
+from rich.markup import escape as _rich_escape
 
 from ..console_shim import TUIConsole
 from ..console_swap import _swap_console_everywhere
@@ -35,7 +38,7 @@ from ... import state
 class WebRemoteMixin:
     """Web-remote (browser bridge) behaviour for ``JarvisTUI``."""
 
-    def _start_web_remote(self, tui_console: TUIConsole) -> None:
+    def _start_web_remote(self, tui_console: TUIConsole) -> bool:
         from ...web.bridge import WebBridge
         from ...web.console_mux import WebMuxConsole
         from ...web.server import primary_remote_url, start_web_server
@@ -75,8 +78,9 @@ class WebRemoteMixin:
                 f"[{ui.FG_DIM}]Stop the other jarvis --web session or set "
                 f"HARNESS_WEB_PORT to a free port.[/]"
             )
-            return
+            return False
 
+        state.web_enabled = True
         state.web_port = bound_port
         if bound_port != preferred_port:
             self._tui_console.print(
@@ -85,6 +89,135 @@ class WebRemoteMixin:
             )
         self._web_primary_url = primary_remote_url(self._web_urls)
         self._render_web_bar()
+        return True
+
+    def _stop_web_remote(self) -> None:
+        """``/web stop``: close browsers' streams, free the port, unwrap the console."""
+        from ...web.server import stop_web_server
+
+        mux = getattr(self, "_web_mux", None)
+        server, bridge = getattr(self, "_web_server", None), self._web_bridge
+        if mux is not None:
+            primary = mux._primary
+            _swap_console_everywhere(primary)
+            self._tui_console = primary
+        self._web_mux = None
+        self._web_bridge = None
+        self._web_server = None
+        self._web_urls = []
+        self._web_primary_url = ""
+        state.web_enabled = False
+        self._render_web_bar()
+        # server.shutdown() waits for the accept loop — keep it off the UI thread.
+        threading.Thread(
+            target=stop_web_server, args=(server, bridge), daemon=True, name="jarvis-web-stop"
+        ).start()
+        self._tui_console.print(f"[{ui.FG_DIM}]🌐 web remote stopped · /web to start it again[/]")
+
+    # ─── QR + /web ────────────────────────────────────────────────────
+    def _web_qr_wanted(self) -> bool:
+        """Corner QR preference (settings ``web.qr``, default on)."""
+        try:
+            from ...storage.settings import get_settings
+
+            return get_settings().get("web.qr") is not False
+        except Exception:
+            return True
+
+    def _set_web_qr_wanted(self, shown: bool) -> None:
+        try:
+            from ...storage.settings import get_settings
+
+            get_settings().set("web.qr", bool(shown))
+        except Exception:
+            pass
+        self._render_web_bar()
+
+    def action_toggle_web_qr(self) -> None:
+        shown = not self._web_qr_wanted()
+        self._set_web_qr_wanted(shown)
+        self.notify(
+            "QR pinned to the corner" if shown else "QR hidden — /web qr shows it any time",
+            timeout=2.5,
+        )
+
+    def action_hide_web_qr(self) -> None:
+        self._set_web_qr_wanted(False)
+        self.notify("QR hidden — /web qr shows it any time", timeout=2.5)
+
+    def action_open_web_url(self) -> None:
+        url = self._web_primary_url
+        if not url:
+            return
+        import webbrowser
+
+        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+
+    def action_web_connect(self) -> None:
+        self._open_web_modal()
+
+    def _open_web_modal(self) -> None:
+        """Start the remote if needed, then show the QR + link dialog."""
+        started_now = False
+        if self._web_bridge is None:
+            if not self._start_web_remote(self._tui_console):
+                return
+            started_now = True
+            esc = _rich_escape(self._web_primary_url)
+            self._tui_console.print(
+                f"[{ui.FG_DIM}]🌐 web remote on[/]  [link={esc}]{esc}[/link]"
+            )
+        from ..web_modal import WebConnectScreen
+
+        bridge = self._web_bridge
+
+        def after(result: str | None) -> None:
+            if result == "stop":
+                self._stop_web_remote()
+
+        self.push_screen(
+            WebConnectScreen(
+                self._web_primary_url,
+                list(self._web_urls or []),
+                corner_qr=self._web_qr_wanted(),
+                clients=lambda: bridge.subscriber_count() if bridge else 0,
+            ),
+            after,
+        )
+        if started_now:
+            self._set_status("web remote on")
+
+    def _handle_web_command(self, text: str) -> None:
+        """``/web`` · ``/web qr`` · ``/web show|hide`` · ``/web copy`` · ``/web stop``."""
+        parts = (text or "").strip().split()
+        sub = parts[1].lower() if len(parts) > 1 else ""
+        running = self._web_bridge is not None
+        if sub in ("", "qr", "open", "start", "on", "link", "url"):
+            self._open_web_modal()
+        elif sub in ("hide", "off-qr", "noqr"):
+            self._set_web_qr_wanted(False)
+            self.notify("Corner QR hidden — /web qr shows it any time", timeout=2.5)
+        elif sub in ("show", "pin"):
+            self._set_web_qr_wanted(True)
+            if running:
+                self.notify("QR pinned to the corner", timeout=2.5)
+            else:
+                self._open_web_modal()
+        elif sub == "copy":
+            if not running and not self._start_web_remote(self._tui_console):
+                return
+            ok = self._copy_web_url(show_status=False)
+            self.notify("Web link copied" if ok else "Copy failed", timeout=2.5)
+        elif sub in ("stop", "off"):
+            if running:
+                self._stop_web_remote()
+            else:
+                self.notify("The web remote isn't running", timeout=2.5)
+        else:
+            self._tui_console.print(
+                f"[{ui.FG_DIM}]/web · /web qr — QR + link (starts the remote)  ·  "
+                f"/web hide · /web show — corner QR  ·  /web copy  ·  /web stop[/]"
+            )
 
     def _render_web_bar(self) -> None:
         try:
@@ -96,8 +229,13 @@ class WebRemoteMixin:
         except Exception:
             qr = None
         if self._web_primary_url:
-            bar and bar.set_url(self._web_primary_url)
-            qr and qr.set_url(self._web_primary_url)
+            wanted = self._web_qr_wanted()
+            bar and bar.set_url(self._web_primary_url, qr_shown=wanted)
+            if qr:
+                if wanted:
+                    qr.set_url(self._web_primary_url)
+                else:
+                    qr.hide()
         else:
             bar and bar.hide_bar()
             qr and qr.hide()
@@ -170,6 +308,8 @@ class WebRemoteMixin:
             or _is_theme_modal_command(s)
 
             or s.lower() == "/local"
+            or s.lower() == "/web"
+            or s.lower().startswith("/web ")
             or s.lower() == "/sidebar"
             or s.lower() == "/agent init"
         )

@@ -54,6 +54,11 @@ _SECTIONS = [
         ("/command scope project|global", "where /command new writes"),
         ("  $ARGUMENTS · $1…$9", "placeholders in the template, filled from what you type after /<name>"),
     ]),
+    ("Web remote (browser / phone)", [
+        ("/web · /web qr", "QR code + link to open this session in a browser — starts the remote if needed"),
+        ("/web hide · /web show", "hide / pin the corner QR (or click the QR to hide it)"),
+        ("/web copy · /web stop", "copy the link · stop the web remote"),
+    ]),
     ("Theme", [
         ("/theme", "open the theme picker (15 themes — live preview)"),
     ]),

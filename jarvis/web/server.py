@@ -93,6 +93,19 @@ def start_web_server(
     return server, urls, bound_port
 
 
+def stop_web_server(server: _JarvisHTTPServer | None, bridge: WebBridge | None) -> None:
+    """Shut the remote down: end SSE streams, stop syncing, free the port."""
+    if bridge is not None:
+        bridge.close()
+    if server is None:
+        return
+    watcher = getattr(server, "state_watcher", None)
+    if watcher is not None:
+        watcher.stop()
+    server.shutdown()      # waits for serve_forever's loop (≤ poll interval)
+    server.server_close()
+
+
 def primary_remote_url(urls: list[str]) -> str:
     """Prefer LAN address for phone access; fall back to localhost."""
     for url in urls:
