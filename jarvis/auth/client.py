@@ -14,7 +14,7 @@ from ..constants import (
     OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI,
+    PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI, PROVIDER_HARNESS_AGENT,
     KIMCHI_BASE_URL, KIMCHI_USER_AGENT,
     is_harness_agent_model,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
@@ -269,9 +269,12 @@ def _build_opencode_zen_client_for_model(
     *,
     source: str = "",
 ) -> OpenCodeClient:
-    use_free = state.harness_agent_free or should_use_harness_agent_client(
-        model, source=source
-    )
+    if source in (PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE_ZEN):
+        # An explicit /model pick decides the tier — otherwise choosing a paid
+        # Zen model while on the free tier would keep the free client.
+        use_free = source == PROVIDER_HARNESS_AGENT
+    else:
+        use_free = state.harness_agent_free or should_use_harness_agent_client(model)
     state.harness_agent_free = use_free
     if use_free:
         return build_harness_agent_client()

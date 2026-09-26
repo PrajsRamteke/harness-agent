@@ -7,7 +7,8 @@ from ...constants import AUTH_API_KEY, AUTH_MODE_FILE, AUTH_OAUTH, PROVIDER_FILE
 from ...constants.oauth_providers import (
     OAUTH_ID_ANTHROPIC, OAUTH_ID_OPENAI_CODEX, OAuthProviderSpec,
 )
-from ...constants.providers import CODEX_DEFAULT_MODEL, PROVIDER_OPENAI_CODEX
+from ...constants.providers import PROVIDER_OPENAI_CODEX, normalize_model_for_provider
+from ...storage.prefs import save_last_model
 from ...utils.io import _secure_write
 from ... import state
 from ..anthropic_models import sync_anthropic_model_ids
@@ -17,6 +18,18 @@ from ..oauth_tokens import clear_oauth_tokens, load_oauth_tokens
 from .oauth_status import oauth_connection_status
 
 OAuthActionResult = tuple[bool, str, list[str] | None]
+
+
+def adopt_provider_model(provider: str) -> None:
+    """After a sign-in switched to ``provider``, move the model there too.
+
+    Swapping only the client left e.g. a Harness Agent model id selected, so
+    the next request asked Anthropic / Codex for a model they don't serve and
+    only a restart (which re-resolves the model) made chat work again.
+    """
+    state.harness_agent_free = False
+    state.MODEL = normalize_model_for_provider(state.MODEL, provider)
+    save_last_model()
 
 
 def is_active_oauth(spec: OAuthProviderSpec) -> bool:
@@ -46,23 +59,23 @@ def activate_oauth(spec: OAuthProviderSpec) -> OAuthActionResult:
         _secure_write(PROVIDER_FILE, PROVIDER_ANTHROPIC)
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
         try:
-            state.client = _build_client_from_mode(AUTH_OAUTH)
+            state.client = _build_client_from_mode(AUTH_OAUTH, interactive=False)
             model_ids = sync_anthropic_model_ids(state.client)
         except Exception as e:
             return False, f"failed to activate: {e}", None
+        adopt_provider_model(PROVIDER_ANTHROPIC)
         return True, f"✓ active: {spec.label} (OAuth)", model_ids
 
     if spec.id == OAUTH_ID_OPENAI_CODEX:
         state.provider = PROVIDER_OPENAI_CODEX
         state.auth_mode = AUTH_OAUTH
-        if not state.MODEL or state.MODEL.startswith("claude-"):
-            state.MODEL = CODEX_DEFAULT_MODEL
         _secure_write(PROVIDER_FILE, PROVIDER_OPENAI_CODEX)
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
         try:
             state.client = _build_codex_client()
         except Exception as e:
             return False, f"failed to activate: {e}", None
+        adopt_provider_model(PROVIDER_OPENAI_CODEX)
         from ...constants.providers import CODEX_MODELS
         model_ids = [m for m, _ in CODEX_MODELS]
         return True, f"✓ active: {spec.label} (OAuth)", model_ids

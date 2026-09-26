@@ -115,6 +115,16 @@ def _get_key_info(k: dict) -> dict[str, Any]:
     }
 
 
+def _apply_key_change(provider: str, *, removed: bool = False) -> str:
+    """Apply a saved/deleted key to the running session (no restart needed)."""
+    try:
+        from ..commands.control import apply_key_change
+
+        return apply_key_change(provider, removed=removed)
+    except Exception as e:
+        return f"restart Jarvis to apply it ({e})"
+
+
 def _key_id(provider: str) -> str:
     return f"{ID_PREFIX}{provider}"
 
@@ -370,9 +380,11 @@ class KeyModalScreen(TuiModalScreen[None]):
             file_path: pathlib.Path = k_def["file_path"]
             _secure_write(file_path, new_val)
             self._populate()
-            self._notify(f"✓ {k_def['label']} key saved to {file_path.name}")
         except Exception as e:
             self._notify(f"✗ failed to save: {e}", error=True)
+            return
+        note = _apply_key_change(k_def["provider"])
+        self._notify(f"✓ {k_def['label']} key saved" + (f" — {note}" if note else ""))
 
     def action_delete(self) -> None:
         provider = self._highlighted_provider()
@@ -405,9 +417,11 @@ class KeyModalScreen(TuiModalScreen[None]):
             try:
                 info["file_path"].unlink(missing_ok=True)
                 self._populate()
-                self._notify(f"✓ {label} key file deleted")
             except Exception as e:
                 self._notify(f"✗ failed to delete: {e}", error=True)
+                return
+            note = _apply_key_change(k_def["provider"], removed=True)
+            self._notify(f"✓ {label} key deleted" + (f" — {note}" if note else ""))
 
         self.app.push_screen(_ConfirmDeleteScreen(label, file_name), after)
 

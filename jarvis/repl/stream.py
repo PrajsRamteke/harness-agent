@@ -29,7 +29,7 @@ from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
 from ..constants.providers import model_supports_images
 from ..constants import (
-    PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+    PROVIDER_ANTHROPIC, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
 )
 from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
@@ -37,7 +37,7 @@ from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refre
 from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
-from .trim import prune_tool_images, trim_messages
+from .trim import anthropic_wire_messages, prune_tool_images, trim_messages
 from .render import assistant_model_label
 from .stream_display import RichAssistantStreamDisplay
 from .turn_progress import report_turn_phase
@@ -551,10 +551,14 @@ def call_claude_stream():
     tools = select_tools(state.messages)
     if state.show_internal and not getattr(console, "renders_tool_rows", False):
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
+    messages = prune_tool_images(trim_messages(state.messages),
+                                 vision=model_supports_images(state.MODEL))
+    if state.provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER):
+        # History may hold another provider's replies (switched mid-session).
+        messages = anthropic_wire_messages(messages)
     kwargs: Dict[str, Any] = dict(
         model=state.MODEL, max_tokens=API_MAX_TOKENS, system=build_system(),
-        messages=prune_tool_images(trim_messages(state.messages),
-                                   vision=model_supports_images(state.MODEL)),
+        messages=messages,
         tools=tools,
     )
     if state.think_mode:
@@ -635,15 +639,13 @@ def call_claude_stream():
                     console.print(
                         "[red]Auth error — Provider: OpenRouter (API key)[/]\n"
                         "[yellow]OpenRouter rejected the key. "
-                        "Delete `~/.config/harness-agent/openrouter_key` and restart, "
-                        "or run /provider to reconfigure.[/]"
+                        "Replace it with /key — no restart needed.[/]"
                     )
                 elif state.provider == "opencode":
                     console.print(
                         "[red]Auth error — Provider: OpenCode Go (API key)[/]\n"
                         "[yellow]OpenCode rejected the key. "
-                        "Delete `~/.config/harness-agent/opencode_key` and restart, "
-                        "or run /provider to reconfigure.[/]"
+                        "Replace it with /key — no restart needed.[/]"
                     )
                 elif state.provider == PROVIDER_OPENAI_CODEX and not oauth_refreshed:
                     tokens = load_codex_oauth_tokens()

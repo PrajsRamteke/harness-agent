@@ -331,6 +331,8 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
             self._busy = False
             self._set_status(f"tokens saved but client build failed — {e}", ok=False)
             return
+        from ..auth.connect.oauth_actions import adopt_provider_model
+        adopt_provider_model(PROVIDER_ANTHROPIC)
 
         self._busy = False
         if model_ids:

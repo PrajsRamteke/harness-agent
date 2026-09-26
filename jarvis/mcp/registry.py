@@ -228,6 +228,7 @@ class MCPRegistry:
     def __init__(self) -> None:
         self._servers: dict[str, MCPServerState] = {}
         self._health: dict[str, MCPHealthRecord] = {}
+        self._connecting: set[str] = set()  # connect() in flight
         self._lock = threading.Lock()
 
         # References to the Jarvis tool system — set via init_jarvis()
@@ -291,6 +292,14 @@ class MCPRegistry:
             rec = self._health_record(server_name)
             rec.last_disconnect_reason = error
 
+    def set_connecting(self, names: Iterable[str], on: bool) -> None:
+        """Mark servers as queued/in-flight so health reads "connecting"."""
+        with self._lock:
+            if on:
+                self._connecting.update(names)
+            else:
+                self._connecting.difference_update(names)
+
     def get_server_health(
         self,
         server_name: str,
@@ -317,6 +326,9 @@ class MCPRegistry:
             last_tool_at = rec.last_tool_at
             last_disconnect = rec.last_disconnect_reason
             tool_calls_err = rec.tool_calls_err
+            connecting = connecting or (
+                server_name in self._connecting and not connected
+            )
 
         hints = _preflight_hints(server_name, config) if config else []
 
@@ -465,7 +477,16 @@ class MCPRegistry:
 
             state = MCPServerState(config=config)
             self._servers[server_name] = state
+            self._connecting.add(server_name)
+        try:
+            return self._connect(server_name, state, config)
+        finally:
+            with self._lock:
+                self._connecting.discard(server_name)
 
+    def _connect(
+        self, server_name: str, state: MCPServerState, config: dict[str, Any],
+    ) -> str | None:
         loop = _get_loop()
         try:
             transport_type = config.get("type", "stdio")
@@ -859,21 +880,36 @@ def as_prompt_block() -> str:
     return "\n".join(lines)
 
 
-def auto_connect_servers(console_print: Callable | None = None) -> None:
+def auto_connect_servers(
+    console_print: Callable | None = None,
+    on_change: Callable[[], None] | None = None,
+) -> None:
     """Auto-connect MCP servers listed in the config's auto_connect field.
 
     Quiet on success — connection status lives in the sidebar and ``/mcp``;
-    only problems are printed.
+    problems are printed only when ``console_print`` is given (the TUI passes
+    none and shows them in the sidebar). ``on_change`` runs when a server
+    starts and finishes connecting, so a status view can repaint.
     """
     from .config import get_config
 
     config = get_config()
-    for name in config.get_auto_connect():
-        server_cfg = config.get_server(name)
-        if server_cfg is None:
-            if console_print:
-                console_print(f"[yellow]mcp: server '{name}' not found in config, skipping[/]")
-            continue
-        error = mcp_registry.connect(name, server_cfg)
-        if error and console_print:
-            console_print(f"[red]mcp: failed to connect '{name}': {error}[/]")
+    queued = [n for n in config.get_auto_connect() if config.get_server(n) is not None]
+    mcp_registry.set_connecting(queued, True)
+    if on_change:
+        on_change()
+    try:
+        for name in config.get_auto_connect():
+            server_cfg = config.get_server(name)
+            if server_cfg is None:
+                if console_print:
+                    console_print(f"[yellow]mcp: server '{name}' not found in config, skipping[/]")
+                continue
+            error = mcp_registry.connect(name, server_cfg)
+            mcp_registry.set_connecting([name], False)
+            if on_change:
+                on_change()
+            if error and console_print:
+                console_print(f"[red]mcp: failed to connect '{name}': {error}[/]")
+    finally:
+        mcp_registry.set_connecting(queued, False)

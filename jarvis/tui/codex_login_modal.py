@@ -31,7 +31,7 @@ from ..constants.codex_oauth import (
     CODEX_OAUTH_CLIENT_ID,
     CODEX_OAUTH_REDIRECT_URI,
 )
-from ..constants.providers import CODEX_DEFAULT_MODEL, CODEX_MODELS, PROVIDER_OPENAI_CODEX
+from ..constants.providers import CODEX_MODELS, PROVIDER_OPENAI_CODEX
 from ..utils.io import _secure_write
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import disable_mouse, enable_mouse
@@ -186,8 +186,6 @@ class CodexLoginModalScreen(TuiModalScreen[list[str] | None]):
 
         state.provider = PROVIDER_OPENAI_CODEX
         state.auth_mode = AUTH_OAUTH
-        if not state.MODEL or state.MODEL.startswith("claude-"):
-            state.MODEL = CODEX_DEFAULT_MODEL
         try:
             _secure_write(PROVIDER_FILE, state.provider)
             _secure_write(AUTH_MODE_FILE, state.auth_mode)
@@ -202,6 +200,8 @@ class CodexLoginModalScreen(TuiModalScreen[list[str] | None]):
         except Exception as e:
             self._set_status(f"tokens saved but client build failed — {e}", ok=False)
             return
+        from ..auth.connect.oauth_actions import adopt_provider_model
+        adopt_provider_model(PROVIDER_OPENAI_CODEX)
 
         model_ids = [m for m, _ in CODEX_MODELS]
         self._set_status(f"✓ signed in to OpenAI Codex — {len(model_ids)} models", ok=True)

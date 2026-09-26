@@ -8,7 +8,7 @@ from ..constants import (
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS, OPENCODE_ZEN_MODEL_IDS,
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
-    models_for, is_harness_agent_model,
+    models_for, is_harness_agent_model, normalize_model_for_provider,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_HARNESS_AGENT, PROVIDER_KIMCHI,
     KIMCHI_DEFAULT_MODEL, KIMCHI_MODEL_IDS,
@@ -16,7 +16,6 @@ from ..constants import (
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
 )
-from ..constants.models import MODEL as _DEFAULT_ANTHROPIC_MODEL
 from ..utils.io import _secure_write
 from ..utils.time_fmt import fmt_duration
 from ..auth.oauth_tokens import load_oauth_tokens
@@ -27,7 +26,7 @@ from ..auth.opencode_zen import prompt_for_opencode_zen_key, has_opencode_zen_ke
 from ..auth.harness_agent import should_use_harness_agent_client
 from ..auth.client import (
     _build_client_from_mode, _build_opencode_client,
-    _build_opencode_zen_client_for_model,
+    _build_opencode_zen_client_for_model, _has_anthropic_api_key,
 )
 from ..repl.banners import header_panel
 from ..repl.stats import estimated_cost
@@ -253,7 +252,18 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
 
     skip_key = source == PROVIDER_HARNESS_AGENT
     if target_provider != state.provider:
-        _handle_provider(target_provider, skip_key_prompt=skip_key)
+        auth_mode = ""
+        if source == PROVIDER_ANTHROPIC_AUTH:
+            if not load_oauth_tokens():
+                console.print("[yellow]Anthropic OAuth not configured — run /login first[/]")
+                return
+            auth_mode = AUTH_OAUTH
+        elif source == PROVIDER_ANTHROPIC_API:
+            if not _has_anthropic_api_key():
+                console.print("[yellow]Anthropic API key not configured — add one with /key[/]")
+                return
+            auth_mode = AUTH_API_KEY
+        _handle_provider(target_provider, skip_key_prompt=skip_key, auth_mode=auth_mode)
         if state.provider != target_provider:
             return  # switch failed (e.g. user cancelled key prompt)
 
@@ -279,7 +289,7 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
             state.auth_mode = target_auth
             _secure_write(AUTH_MODE_FILE, target_auth)
             try:
-                state.client = _build_client_from_mode(target_auth)
+                state.client = _build_client_from_mode(target_auth, interactive=False)
             except Exception as e:
                 console.print(f"[red]failed to switch auth mode: {e}[/]")
                 return
@@ -428,6 +438,54 @@ def _revert_provider_switch(prev_provider: str) -> None:
     _secure_write(PROVIDER_FILE, prev_provider)
 
 
+def apply_key_change(provider: str, *, removed: bool = False) -> str:
+    """Make a key saved or deleted in /key take effect in this session.
+
+    Saving the key the session is running on rebuilds the client, so the new
+    key is used on the next turn. Deleting it drops to the free Harness Agent
+    tier instead of leaving the old key live in memory. Keys for other
+    providers only change what /model lists, which it re-reads on open.
+
+    Returns a short note for the caller to show ("" when nothing changed).
+    """
+    label = PROVIDER_LABELS.get(provider, provider)
+    if provider == PROVIDER_ANTHROPIC:
+        in_use = state.provider == provider and state.auth_mode == AUTH_API_KEY
+    elif provider == PROVIDER_OPENCODE_ZEN:
+        in_use = state.provider == provider and not state.harness_agent_free
+    else:
+        in_use = state.provider == provider
+
+    if removed:
+        if not in_use:
+            return ""
+        from ..auth.client import _fallback_harness_agent_client
+
+        keep = state.MODEL if is_harness_agent_model(state.MODEL) else HARNESS_AGENT_DEFAULT_MODEL
+        state.client = _fallback_harness_agent_client(preferred_model=keep)
+        save_last_model()
+        return f"switched to Harness Agent (free) · {state.MODEL}"
+
+    if not in_use:
+        return f"{label} models are now in /model"
+    try:
+        if provider == PROVIDER_OPENCODE:
+            state.client = _build_opencode_client()
+        elif provider == PROVIDER_OPENCODE_ZEN:
+            state.client = _build_opencode_zen_client_for_model(
+                state.MODEL, source=PROVIDER_OPENCODE_ZEN,
+            )
+        elif provider == PROVIDER_KIMCHI:
+            from ..auth.client import _build_kimchi_client
+
+            state.client = _build_kimchi_client()
+        else:  # OpenRouter, or Anthropic on its API key
+            state.client = _build_client_from_mode(state.auth_mode, interactive=False)
+    except Exception as e:
+        return f"saved, but reconnecting failed: {e}"
+    return f"now in use for {label}"
+
+
 def _prompt_provider_key_if_needed(
     target: str, prev_provider: str, *, skip_key_prompt: bool = False,
 ) -> bool:
@@ -457,8 +515,27 @@ def _prompt_provider_key_if_needed(
     return True
 
 
-def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
-    """/provider [anthropic|openrouter|opencode] — switch provider mid-session."""
+def _usable_anthropic_auth_mode(preferred: str = "") -> str | None:
+    """Anthropic auth mode whose credential exists right now, or None.
+
+    Tries ``preferred``, then the current mode, then API key, then OAuth.
+    """
+    available = {
+        AUTH_API_KEY: _has_anthropic_api_key(),
+        AUTH_OAUTH: load_oauth_tokens() is not None,
+    }
+    for mode in (preferred, state.auth_mode, AUTH_API_KEY, AUTH_OAUTH):
+        if available.get(mode):
+            return mode
+    return None
+
+
+def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str = ""):
+    """/provider [anthropic|openrouter|opencode] — switch provider mid-session.
+
+    ``auth_mode`` picks the Anthropic credential (OAuth vs API key) when the
+    caller knows it, e.g. a model chosen under "Anthropic Auth" in /model.
+    """
     target = arg.strip().lower() if arg else ""
     if not target:
         console.print(Panel(
@@ -522,8 +599,13 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
         if state.MODEL not in _KIMCHI_MODEL_IDS:
             state.MODEL = KIMCHI_DEFAULT_MODEL
     else:
-        if "/" in state.MODEL or state.MODEL in _OPENCODE_MODEL_IDS:
-            state.MODEL = _DEFAULT_ANTHROPIC_MODEL
+        state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_ANTHROPIC)
+        # Use whichever Anthropic credential exists now — a stale auth_mode
+        # (e.g. api_key right after an OAuth sign-in) would prompt for a key.
+        mode = _usable_anthropic_auth_mode(auth_mode)
+        if mode:
+            state.auth_mode = mode
+            _secure_write(AUTH_MODE_FILE, mode)
 
     if target in (PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_KIMCHI):
         if not _prompt_provider_key_if_needed(
@@ -553,6 +635,8 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False):
             state.client = _build_client_from_mode(
                 PROVIDER_OPENROUTER if target == PROVIDER_OPENROUTER else state.auth_mode
             )
+        if target != PROVIDER_OPENCODE_ZEN:
+            state.harness_agent_free = False
         console.print(f"[green]✓ switched to[/] [bold cyan]{PROVIDER_LABELS[target]}[/] "
                       f"[dim](model: {state.MODEL})[/]")
         header_panel()

@@ -220,3 +220,56 @@ def prune_tool_images(messages: List[Dict], *, vision: bool,
         if new_content is not None:
             out[mi] = {**messages[mi], "content": new_content}
     return out
+
+
+# Fields the Messages API accepts per assistant block type. Blocks built by the
+# OpenAI-style clients (Harness Agent / OpenCode / Kimchi / Codex) are plain
+# objects and may carry extras.
+_WIRE_BLOCK_KEYS = {
+    "text": ("type", "text"),
+    "tool_use": ("type", "id", "name", "input"),
+    "thinking": ("type", "thinking", "signature"),
+}
+
+
+def _foreign_block_to_dict(block: Any) -> Dict:
+    data = block.model_dump() if hasattr(block, "model_dump") else dict(vars(block))
+    keys = _WIRE_BLOCK_KEYS.get(data.get("type"))
+    if keys:
+        data = {k: data[k] for k in keys if k in data}
+    return data
+
+
+def anthropic_wire_messages(messages: List[Dict]) -> List[Dict]:
+    """History the Anthropic SDK (Anthropic / OpenRouter) can send.
+
+    After switching mid-session from an OpenAI-style provider, earlier replies
+    are that client's own block objects: the SDK can't JSON-encode them
+    (``TypeError: Object of type _ContentBlock is not JSON serializable``), and
+    their thinking blocks carry no signature, which the Messages API rejects.
+    Those blocks become plain dicts and unsigned thinking is dropped. SDK
+    blocks pass through untouched. Returns a copy only when something changed —
+    never mutates ``state.messages``.
+    """
+    from pydantic import BaseModel
+
+    out = list(messages)
+    for mi, msg in enumerate(messages):
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        new_content = []
+        changed = False
+        for block in content:
+            if not isinstance(block, (dict, BaseModel)):
+                block = _foreign_block_to_dict(block)
+                changed = True
+            if isinstance(block, dict) and block.get("type") == "thinking" and not block.get("signature"):
+                changed = True
+                continue
+            new_content.append(block)
+        if changed:
+            if not new_content and msg.get("role") == "assistant":
+                new_content = [{"type": "text", "text": "…"}]
+            out[mi] = {**msg, "content": new_content}
+    return out

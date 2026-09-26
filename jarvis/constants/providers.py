@@ -451,15 +451,33 @@ def _has_openai_codex_oauth() -> bool:
 
 
 def is_harness_agent_model(model: str) -> bool:
-    """True when ``model`` is a free Harness Agent (OpenCode Zen public) model."""
+    """True when ``model`` is a free Harness Agent (OpenCode Zen public) model.
+
+    Includes free models discovered at runtime (on-disk catalog cache), so a
+    newly released free model the user picked survives a restart.
+    """
     m = (model or "").strip()
+    if not m:
+        return False
     if m in HARNESS_AGENT_MODEL_IDS:
         return True
-    return m in {mid for mid, _ in _HARNESS_AGENT_MODEL_FALLBACK}
+    if m in {mid for mid, _ in _HARNESS_AGENT_MODEL_FALLBACK}:
+        return True
+    try:
+        from ..auth.zen_catalog import cached_free_models
+
+        return any(mid == m for mid, _ in cached_free_models())
+    except Exception:
+        return False
 
 
 def connected_model_sources() -> list[str]:
-    """Model-picker sources. Harness Agent is always first and always included."""
+    """Model-picker sources. Harness Agent is always first and always included.
+
+    Every other source appears only while its credential exists (API key in
+    env or on disk, or stored OAuth tokens). Nothing is cached, so a key added
+    or removed mid-session shows up the next time ``/model`` opens.
+    """
     sources: list[str] = [PROVIDER_HARNESS_AGENT]
     if _has_anthropic_api():
         sources.append(PROVIDER_ANTHROPIC_API)

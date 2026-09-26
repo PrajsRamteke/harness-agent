@@ -462,6 +462,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._pet_slow_tick()
         self._load_sticky_pref()
         self._sync_sticky_prompt()
+        self._refresh_sidebar()
+
+    def _refresh_sidebar(self) -> None:
         try:
             sb = self.query_one("#sidebar", Sidebar)
             if not sb.has_class("hidden"):
@@ -586,13 +589,21 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
     @work(thread=True)
     def _auto_connect_mcp_background(self) -> None:
-        """Connect configured MCP servers without blocking the first prompt."""
+        """Connect configured MCP servers without blocking the first prompt.
+
+        Nothing is printed to the transcript — with several servers the
+        connect/fail lines piled up right above the composer. Status (and
+        failures) show in the sidebar's MCP section and in /mcp.
+        """
         from ..mcp.registry import auto_connect_servers
 
-        def _print(msg: str) -> None:
-            self.call_from_thread(lambda m=msg: self._tui_console.print(m))
+        def _repaint() -> None:
+            try:
+                self.call_from_thread(self._refresh_sidebar)
+            except Exception:
+                pass  # app shutting down
 
-        auto_connect_servers(console_print=_print)
+        auto_connect_servers(on_change=_repaint)
 
     def _submit_startup_prompt(self) -> None:
         """Send a prompt passed on the CLI: jarvis \"your question here\"."""
