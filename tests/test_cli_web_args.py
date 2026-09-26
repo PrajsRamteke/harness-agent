@@ -33,3 +33,10 @@ def test_web_with_startup_prompt():
 def test_normalize_web_args_expansion():
     assert _normalize_web_args(["--web", "9000"]) == ["--web", "--web-port", "9000"]
     assert _normalize_web_args(["--web", "hello"]) == ["--web", "hello"]
+
+
+def test_tunnel_flag_with_web_and_port():
+    args = _parse(["--web", "9000", "--tunnel"])
+    assert args.web is True and args.web_port == 9000 and args.tunnel is True
+    args = _parse(["--tunnel"])
+    assert args.tunnel is True and args.web is False  # --tunnel alone implies --web in main()

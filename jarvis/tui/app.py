@@ -234,6 +234,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._web_server = None
         self._web_urls: list[str] = []
         self._web_primary_url = ""
+        self._web_tunnel = None          # "Anywhere" tunnel (jarvis/web/tunnel.py)
+        self._web_public_link = ""       # its URL + token, once live
         # Git branch cache — refreshed every few seconds, not every repaint.
         self._git_branch: str | None = None
         self._git_branch_checked_at: float = 0.0
@@ -382,6 +384,12 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
         if state.web_enabled:
             self._start_web_remote(tui_console)
+            if state.web_tunnel and self._web_bridge is not None:
+                if self._start_tunnel() == "missing":
+                    self._tui_console.print(
+                        f"[{ui.WARN}]--tunnel: no tunnel app found — install one: "
+                        f"brew install cloudflared (no account needed)[/]"
+                    )
 
         from ..auth.client import make_client
         from ..storage.sessions import db_init, db_create_session

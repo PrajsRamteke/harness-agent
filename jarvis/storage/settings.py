@@ -64,7 +64,7 @@ DEFAULTS: dict[str, Any] = {
     "pin":    {"enabled": True},  # inject pinned.txt into every system prompt
     "pet":    {"enabled": True, "nudges": True, "notify": True},  # the TUI pets
     "ui":     {"sticky_prompt": True},  # pin your prompt above a long reply
-    "web":    {"qr": True},  # corner QR code while the web remote runs
+    "web":    {"qr": True, "tunnel": "auto"},  # corner QR · Anywhere provider (auto|cloudflare|ngrok)
 }
 
 
@@ -173,6 +173,11 @@ def _coerce(path: str, value: Any) -> Any:
         if value not in valid:
             raise ValueError(f"theme must be one of {valid}")
         return value
+    if path == "web.tunnel":
+        v = str(value).strip().lower()
+        if v not in ("auto", "cloudflare", "ngrok"):
+            raise ValueError("web.tunnel must be one of ['auto', 'cloudflare', 'ngrok']")
+        return v
     if path == "think.effort":
         if value not in _VALID_THINK_EFFORTS:
             raise ValueError(f"think.effort must be one of {_VALID_THINK_EFFORTS}")

@@ -87,6 +87,7 @@ prompt_queue: list = []
 startup_prompt: str = ""  # one-shot prompt from `jarvis "..."` CLI args
 web_enabled: bool = False
 web_port: int = 8765
+web_tunnel: bool = False  # --tunnel: also open a public "Anywhere" link at startup
 auto_approve: bool = False
 # Plan mode — session-scoped (never persisted). While True the tool router
 # exposes only read-only tools + exit_plan_mode; flipped off when the user

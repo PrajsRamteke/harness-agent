@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 import mimetypes
 import queue
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 
 _STATIC_DIR = Path(__file__).with_name("static")
 _HEARTBEAT_SECS = 8.0
+_POLL_WAIT_SECS = 20.0
 _PING = b'data: {"type": "ping", "data": {}, "ts": 0}\n\n'
 _INDEX_PATH = _STATIC_DIR / "index.html"
 
@@ -75,6 +77,35 @@ class WebHandler(BaseHTTPRequestHandler):
         token = (qs.get("token") or [""])[0]
         return self._token_ok(token)
 
+    # Headers a reverse proxy / tunnel adds. Their presence means the request
+    # did not come straight from a browser on this network.
+    _PROXY_HEADERS = (
+        "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded",
+        "X-Real-IP", "Cf-Connecting-Ip", "Cf-Ray", "Cdn-Loop", "Ngrok-Trace-Id",
+    )
+
+    def _may_hand_out_token(self) -> bool:
+        """Only a direct visit from this computer or the LAN gets the token.
+
+        A tunnel (cloudflared / ngrok) connects from 127.0.0.1 too, so the
+        client address alone can't tell — proxy headers and the tunnel's
+        public Host can.
+        """
+        for name in self._PROXY_HEADERS:
+            if self.headers.get(name):
+                return False
+        host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
+        public_host = (getattr(self.bridge, "public_host", "") or "").lower()
+        if public_host and host == public_host:
+            return False
+        if host.endswith((".trycloudflare.com", ".ngrok-free.app", ".ngrok.app", ".ngrok.io", ".ngrok.dev")):
+            return False
+        try:
+            ip = ipaddress.ip_address((self.client_address or ("",))[0])
+        except ValueError:
+            return False
+        return ip.is_loopback or ip.is_private or ip.is_link_local
+
     def _token_ok(self, token: str) -> bool:
         return hmac.compare_digest(token.encode("utf-8"), self.bridge.token.encode("utf-8"))
 
@@ -106,7 +137,11 @@ class WebHandler(BaseHTTPRequestHandler):
     def _snapshot(self) -> dict[str, Any]:
         snap = snapshot_from_state(busy=self._busy())
         # LAN link (with token) so "Copy link" works on other devices too.
-        snap["remote_url"] = str(getattr(self.app, "_web_primary_url", "") or "")
+        snap["remote_url"] = str(
+            getattr(self.app, "_web_public_link", "")
+            or getattr(self.app, "_web_primary_url", "")
+            or ""
+        )
         return snap
 
     def _parse_query(self) -> tuple[str, dict[str, list[str]]]:
@@ -156,7 +191,10 @@ class WebHandler(BaseHTTPRequestHandler):
     def _stream_events(self) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
+        # no-transform: a tunnel / CDN (Cloudflare) must not compress or buffer
+        # the stream — events have to reach the browser as they happen.
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("X-Accel-Buffering", "no")
         self.send_header("Connection", "keep-alive")
         self.end_headers()
 
@@ -188,6 +226,37 @@ class WebHandler(BaseHTTPRequestHandler):
             pass
         finally:
             self.bridge.unsubscribe(sub)
+
+    def _poll_events(self, qs: dict[str, list[str]]) -> None:
+        """Long-poll transport — for tunnels that hold SSE back until it ends.
+
+        No ``cursor``: the snapshot (+ pending prompts) and the cursor to
+        continue from. With ``cursor``: events after it, waiting up to 20 s.
+        """
+        client_id = self._query_str(qs, "cid")[:64]
+        raw = self._query_str(qs, "cursor").strip()
+        if not raw:
+            self.bridge.touch_poller(client_id)
+            snap = self._snapshot()
+            cursor = self.bridge.latest_seq()
+            events = [{"type": "snapshot", "data": snap, "ts": 0}, *self.bridge.pending_events()]
+            body = json.dumps({"cursor": cursor, "events": events}, ensure_ascii=False)
+        else:
+            try:
+                cursor = int(raw)
+            except ValueError:
+                cursor = -1
+            body = self.bridge.poll(cursor, timeout=_POLL_WAIT_SECS, client_id=client_id)
+        data = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store, no-transform")
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
 
     def _handle_api_get(self, path: str, qs: dict[str, list[str]]) -> None:
         if path == "/api/sessions":
@@ -294,11 +363,15 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if path == "/":
             if not self._authorized():
-                # Redirect so QR codes can omit the token param entirely.
-                self.send_response(302)
-                self.send_header("Location", f"/?token={self.bridge.token}")
-                self.end_headers()
-                return
+                if self._may_hand_out_token():
+                    # Same network: redirect so the local QR can omit the token.
+                    self.send_response(302)
+                    self.send_header("Location", f"/?token={self.bridge.token}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                # Through a tunnel / from outside: the page shows "open the
+                # link from your terminal" — it never learns the token.
             self._serve_index()
             return
 
@@ -308,6 +381,10 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if path == "/api/events":
             self._stream_events()
+            return
+
+        if path == "/api/poll":
+            self._poll_events(qs)
             return
 
         if path == "/api/state":

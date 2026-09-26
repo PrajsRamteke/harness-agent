@@ -64,6 +64,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--tunnel",
+        action="store_true",
+        help=(
+            "with --web: also open a public HTTPS link (Cloudflare quick tunnel "
+            "or ngrok) so the web remote works from any network"
+        ),
+    )
+    parser.add_argument(
         "--web-port",
         type=int,
         default=None,
@@ -201,7 +209,9 @@ def main() -> None:
     from . import state
     from .web.server import default_web_port, web_enabled_from_env
 
-    state.web_enabled = bool(args.web or web_enabled_from_env())
+    tunnel_env = os.environ.get("HARNESS_WEB_TUNNEL", "").strip().lower() in ("1", "true", "yes", "on")
+    state.web_tunnel = bool(args.tunnel or tunnel_env)
+    state.web_enabled = bool(args.web or web_enabled_from_env() or state.web_tunnel)
     state.web_port = args.web_port if args.web_port is not None else default_web_port()
 
     from .bootstrap import ensure_harness_agent_defaults

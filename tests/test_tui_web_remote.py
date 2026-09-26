@@ -154,3 +154,85 @@ def test_web_stop_frees_the_port_and_unwraps_the_console(web_app):
             await pilot.pause(0.8)
 
     asyncio.run(run())
+
+
+def test_web_anywhere_opens_a_public_link_with_the_token(web_app, tmp_path, monkeypatch):
+    import stat
+
+    import jarvis.web.tunnel as tun
+    from jarvis.tui.web_modal import WebConnectScreen
+
+    script = tmp_path / "cloudflared"
+    script.write_text(
+        "#!/bin/sh\n"
+        "sleep 0.3\n"
+        "echo 'INF |  https://test-anywhere.trycloudflare.com  |'\n"
+        "exec sleep 30\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(tun, "binary_for", lambda p: str(script) if p == "cloudflare" else None)
+    monkeypatch.setattr(tun, "_doh_resolves", lambda host: True)
+
+    async def run() -> None:
+        app = web_app()
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(0.3)
+            app._handle_web_command("/web anywhere")
+            await pilot.pause(0.2)
+            screen = app.screen
+            assert isinstance(screen, WebConnectScreen) and screen._mode == "anywhere"
+            assert screen._anywhere_state() == "starting"
+
+            for _ in range(40):  # tunnel reports its URL → dialog repaints
+                await pilot.pause(0.1)
+                if screen._anywhere_state() == "live":
+                    break
+            assert screen._anywhere_state() == "live"
+            token = app._web_bridge.token
+            assert app._web_public_link == f"https://test-anywhere.trycloudflare.com/?token={token}"
+            assert app._web_bridge.public_host == "test-anywhere.trycloudflare.com"
+            await pilot.pause(0.1)
+            qr = screen.query_one("#web_qr")
+            assert not qr.has_class("-message")  # a QR, not the "starting…" note
+            from jarvis.web.qr_ascii import qr_ascii
+            assert str(qr.content) == qr_ascii(app._web_public_link)  # token is IN the QR
+
+            # "turn off Anywhere" → back to the local network, process stopped.
+            proc = app._web_tunnel._proc
+            screen.action_mode("local_off")
+            await pilot.pause(0.5)
+            assert app._web_tunnel is None and not app._web_public_link
+            assert app._web_bridge.public_host == ""
+            assert screen._mode == "local"
+            for _ in range(30):
+                if proc.poll() is not None:
+                    break
+                await pilot.pause(0.1)
+            assert proc.poll() is not None
+            app._stop_web_remote()
+            await pilot.pause(0.6)
+
+    asyncio.run(run())
+
+
+def test_anywhere_without_a_tunnel_app_explains_how_to_get_one(web_app, monkeypatch):
+    import jarvis.web.tunnel as tun
+    from jarvis.tui.web_modal import WebConnectScreen
+
+    monkeypatch.setattr(tun, "binary_for", lambda p: None)
+
+    async def run() -> None:
+        app = web_app()
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(0.3)
+            app._handle_web_command("/web anywhere")
+            await pilot.pause(0.3)
+            screen = app.screen
+            assert isinstance(screen, WebConnectScreen)
+            assert screen._anywhere_state() == "missing"
+            text = str(screen.query_one("#web_qr").render())
+            assert "brew install cloudflared" in text
+            app._stop_web_remote()
+            await pilot.pause(0.6)
+
+    asyncio.run(run())

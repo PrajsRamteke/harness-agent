@@ -2,7 +2,7 @@
 import { $, escapeHtml, showToast, copyText } from './utils.js';
 import { icon, hydrateIcons } from './icons.js';
 import { store, loadSnapshot, loadUiPrefs } from './store.js';
-import { connectEvents, fetchState, hasToken } from './api.js';
+import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
 import { handleEvent } from './events.js';
 import { initChat, renderSnapshot, invalidateSnapshot } from './chat.js';
 import { initComposer, fillPrompt, submitPrompt } from './composer.js';
@@ -132,6 +132,7 @@ function boot() {
       setConnected(false);
       invalidateSnapshot();
     },
+    onResync: invalidateSnapshot,
     onUnauthorized: recoverToken,
   });
 
@@ -146,7 +147,7 @@ function boot() {
     $('prompt')?.focus();
   });
 
-  window.jarvisRemote = { store, submitPrompt };
+  window.jarvisRemote = { store, submitPrompt, transport: transportMode };
 }
 
 if (document.readyState === 'loading') {

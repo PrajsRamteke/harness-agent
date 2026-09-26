@@ -95,6 +95,7 @@ class WebRemoteMixin:
         """``/web stop``: close browsers' streams, free the port, unwrap the console."""
         from ...web.server import stop_web_server
 
+        self._stop_tunnel(quiet=True)
         mux = getattr(self, "_web_mux", None)
         server, bridge = getattr(self, "_web_server", None), self._web_bridge
         if mux is not None:
@@ -113,6 +114,114 @@ class WebRemoteMixin:
             target=stop_web_server, args=(server, bridge), daemon=True, name="jarvis-web-stop"
         ).start()
         self._tui_console.print(f"[{ui.FG_DIM}]🌐 web remote stopped · /web to start it again[/]")
+
+    # ─── Anywhere (public tunnel) ─────────────────────────────────────
+    def _tunnel_preference(self) -> str:
+        try:
+            from ...storage.settings import get_settings
+
+            return str(get_settings().get("web.tunnel") or "auto")
+        except Exception:
+            return "auto"
+
+    def _on_ui_thread(self, fn, *args) -> None:
+        """Run ``fn`` on the UI thread from anywhere (tunnel threads call this)."""
+        if threading.get_ident() == getattr(self, "_thread_id", None):
+            fn(*args)
+        else:
+            try:
+                self.call_from_thread(fn, *args)
+            except Exception:
+                pass
+
+    def _start_tunnel(self) -> str:
+        """Open the public link. Returns "starting", "live", "running" or "missing"."""
+        from ...web.tunnel import Tunnel, pick_provider
+
+        if self._web_bridge is None and not self._start_web_remote(self._tui_console):
+            return "error"
+        current = getattr(self, "_web_tunnel", None)
+        if current is not None and current.status in ("starting", "live"):
+            return "running"
+        provider = pick_provider(self._tunnel_preference())
+        if provider is None:
+            return "missing"
+        tunnel = Tunnel(
+            provider=provider,
+            port=int(state.web_port),
+            on_change=lambda t: self._on_ui_thread(self._on_tunnel_change, t),
+        )
+        self._web_tunnel = tunnel
+        self._web_public_link = ""
+        tunnel.start()
+        return "starting"
+
+    def _on_tunnel_change(self, tunnel) -> None:
+        from urllib.parse import urlparse
+
+        from ...web.tunnel import public_link
+
+        if tunnel is not getattr(self, "_web_tunnel", None):
+            return  # an older tunnel we already replaced / stopped
+        bridge = self._web_bridge
+        if tunnel.status == "live" and bridge is not None:
+            bridge.public_host = urlparse(tunnel.url).hostname or ""
+            self._web_public_link = public_link(tunnel.url, bridge.token)
+            esc = _rich_escape(self._web_public_link)
+            self._tui_console.print(
+                f"[{ui.OK}]🌍 anywhere[/]  [link={esc}]{esc}[/link]  "
+                f"[{ui.FG_DIM}]· works from any network · /web local turns it off[/]"
+            )
+            self.notify("Anywhere link is live — scan it from /web", timeout=3)
+        elif tunnel.status == "error":
+            self._web_public_link = ""
+            if bridge is not None:
+                bridge.public_host = ""
+            self._tui_console.print(f"[{ui.WARN}]🌍 anywhere link failed: {_rich_escape(tunnel.error)}[/]")
+        # An open /web dialog shows the QR the moment the link is ready.
+        from ..web_modal import WebConnectScreen
+
+        if isinstance(self.screen, WebConnectScreen):
+            self.screen._paint()
+
+    def _stop_tunnel(self, *, quiet: bool = False) -> None:
+        tunnel = getattr(self, "_web_tunnel", None)
+        self._web_tunnel = None
+        self._web_public_link = ""
+        if self._web_bridge is not None:
+            self._web_bridge.public_host = ""
+        if tunnel is None:
+            return
+        threading.Thread(target=tunnel.stop, daemon=True, name="tunnel-stop").start()
+        if not quiet:
+            self._tui_console.print(f"[{ui.FG_DIM}]🌍 anywhere link closed · local network only[/]")
+
+    def _install_cloudflared(self) -> None:
+        """One-key install from the /web dialog (Homebrew)."""
+        import shutil
+        import subprocess
+
+        brew = shutil.which("brew")
+        if not brew:
+            self.notify("Install cloudflared from developers.cloudflare.com (Homebrew not found)",
+                        severity="warning", timeout=5)
+            return
+        self.notify("Installing cloudflared with Homebrew…", timeout=4)
+
+        def run() -> None:
+            try:
+                r = subprocess.run([brew, "install", "cloudflared"], capture_output=True, text=True, timeout=600)
+                ok = r.returncode == 0
+                msg = "cloudflared installed — press a to go Anywhere" if ok else (
+                    "brew install cloudflared failed: " + (r.stderr or r.stdout).strip().splitlines()[-1][:120]
+                )
+            except Exception as exc:
+                ok, msg = False, f"brew install cloudflared failed: {exc}"
+            self._on_ui_thread(
+                lambda: self.notify(msg, severity="information" if ok else "error", timeout=5)
+            )
+
+        threading.Thread(target=run, daemon=True, name="install-cloudflared").start()
 
     # ─── QR + /web ────────────────────────────────────────────────────
     def _web_qr_wanted(self) -> bool:
@@ -156,7 +265,7 @@ class WebRemoteMixin:
     def action_web_connect(self) -> None:
         self._open_web_modal()
 
-    def _open_web_modal(self) -> None:
+    def _open_web_modal(self, mode: str | None = None) -> None:
         """Start the remote if needed, then show the QR + link dialog."""
         started_now = False
         if self._web_bridge is None:
@@ -181,6 +290,7 @@ class WebRemoteMixin:
                 list(self._web_urls or []),
                 corner_qr=self._web_qr_wanted(),
                 clients=lambda: bridge.subscriber_count() if bridge else 0,
+                mode=mode or ("anywhere" if getattr(self, "_web_tunnel", None) else "local"),
             ),
             after,
         )
@@ -194,6 +304,14 @@ class WebRemoteMixin:
         running = self._web_bridge is not None
         if sub in ("", "qr", "open", "start", "on", "link", "url"):
             self._open_web_modal()
+        elif sub in ("anywhere", "tunnel", "public", "remote", "internet"):
+            if self._start_tunnel() == "error":
+                return
+            self._open_web_modal("anywhere")
+        elif sub in ("local", "lan", "private"):
+            if getattr(self, "_web_tunnel", None) is not None:
+                self._stop_tunnel()
+            self._open_web_modal("local")
         elif sub in ("hide", "off-qr", "noqr"):
             self._set_web_qr_wanted(False)
             self.notify("Corner QR hidden — /web qr shows it any time", timeout=2.5)
@@ -216,6 +334,7 @@ class WebRemoteMixin:
         else:
             self._tui_console.print(
                 f"[{ui.FG_DIM}]/web · /web qr — QR + link (starts the remote)  ·  "
+                f"/web anywhere — public link for any network · /web local  ·  "
                 f"/web hide · /web show — corner QR  ·  /web copy  ·  /web stop[/]"
             )
 
@@ -241,7 +360,8 @@ class WebRemoteMixin:
             qr and qr.hide()
 
     def _copy_web_url(self, *, show_status: bool = True) -> bool:
-        url = self._web_primary_url
+        # The Anywhere link while it's live — that's the one worth sharing to a phone.
+        url = getattr(self, "_web_public_link", "") or self._web_primary_url
         if not url:
             return False
         ok = self._copy_to_system_clipboard(url)
