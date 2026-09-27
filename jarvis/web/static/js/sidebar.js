@@ -1,5 +1,5 @@
 /** Sidebar: model + agent, reasoning and transcript switches, recent sessions, usage */
-import { $, escapeHtml, formatCount, debounce } from './utils.js';
+import { $, escapeHtml, formatCount, debounce, countTo, animateEl, SPRING } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
 import { fetchSessions } from './api.js';
@@ -59,10 +59,16 @@ function renderEffort(s) {
     });
   }
   box.classList.toggle('is-off', !on);
-  box.querySelectorAll('.effort-opt').forEach((btn) => {
+  const opts = [...box.querySelectorAll('.effort-opt')];
+  opts.forEach((btn) => {
     btn.setAttribute('aria-checked', String(on && btn.dataset.effort === current));
     btn.disabled = s.pendingToggle === 'think_effort';
   });
+  // One thumb slides between the options instead of each lighting up.
+  const idx = opts.findIndex((b) => b.dataset.effort === current);
+  if (idx >= 0) box.style.setProperty('--i', String(idx));
+  box.classList.toggle('has-thumb', on && idx >= 0);
+  if (!box.classList.contains('is-ready')) requestAnimationFrame(() => box.classList.add('is-ready'));
 }
 
 function renderSwitches(s) {
@@ -94,9 +100,12 @@ function renderCards(s) {
 }
 
 function renderUsage(s) {
-  $('use-in').textContent = formatCount(s.session.tokens_in);
-  $('use-out').textContent = formatCount(s.session.tokens_out);
-  $('use-tools').textContent = formatCount(s.session.tool_calls);
+  // The first numbers (page load, a resumed session) just appear; only
+  // changes while connected count up.
+  const animate = { animate: s.connected };
+  countTo($('use-in'), s.session.tokens_in, formatCount, animate);
+  countTo($('use-out'), s.session.tokens_out, formatCount, animate);
+  countTo($('use-tools'), s.session.tool_calls, formatCount, animate);
   $('use-in').title = `${s.session.tokens_in} input tokens`;
   $('use-out').title = `${s.session.tokens_out} output tokens`;
 }
@@ -106,8 +115,15 @@ function renderThemeButton() {
   if (!btn) return;
   const light = isLightTheme();
   if (btn.dataset.theme === String(light)) return;
+  const first = !btn.dataset.theme;
   btn.dataset.theme = String(light);
   btn.innerHTML = icon(light ? 'moon' : 'sun');
+  if (!first) {
+    animateEl(btn.firstElementChild, [
+      { transform: 'rotate(-120deg) scale(0.4)', opacity: 0 },
+      { transform: 'none', opacity: 1 },
+    ], { duration: 520, easing: SPRING });
+  }
   btn.setAttribute('aria-label', light ? 'Switch to dark theme' : 'Switch to light theme');
   btn.title = btn.getAttribute('aria-label');
 }
@@ -149,8 +165,8 @@ async function loadRecent() {
       list.innerHTML = '<p class="recent-empty">Saved sessions show up here.</p>';
       return;
     }
-    list.innerHTML = sessions.map((x) => `
-      <button type="button" class="recent-row" role="listitem" data-sid="${x.id}" title="${escapeHtml(x.title)}">
+    list.innerHTML = sessions.map((x, i) => `
+      <button type="button" class="recent-row" role="listitem" data-sid="${x.id}" title="${escapeHtml(x.title)}" style="--i:${i}">
         <span class="rr-dot" aria-hidden="true"></span>
         <span class="rr-body">
           <span class="rr-title">${escapeHtml(x.title)}</span>

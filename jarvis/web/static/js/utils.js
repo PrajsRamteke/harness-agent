@@ -19,12 +19,18 @@ export function showToast(msg, isError = false) {
   el.className = `toast${isError ? ' is-error' : ''}`;
   el.setAttribute('role', isError ? 'alert' : 'status');
   el.innerHTML = `${icon(isError ? 'circle-alert' : 'check')}<span>${escapeHtml(msg)}</span>`;
+  const life = isError ? 4200 : 2400;
+  // The hairline under the text runs down with the toast's remaining time.
+  el.style.setProperty('--life', `${life}ms`);
   stack.appendChild(el);
   while (stack.children.length > 3) stack.firstElementChild.remove();
-  setTimeout(() => {
+  const leave = () => {
+    if (el.classList.contains('is-leaving')) return;
     el.classList.add('is-leaving');
     setTimeout(() => el.remove(), 320);
-  }, isError ? 4200 : 2400);
+  };
+  el.addEventListener('click', leave);
+  setTimeout(leave, life);
 }
 
 export function readToken() {
@@ -60,6 +66,75 @@ export function formatElapsed(sec) {
 }
 
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+// ─── Motion ───────────────────────────────────────────────────────────────
+
+const reduceQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+export function reducedMotion() {
+  return reduceQuery.matches;
+}
+
+/** Springy overshoot for small pops; `--ease` (tokens.css) for everything else. */
+export const SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)';
+export const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+
+/**
+ * One-shot Web Animation. CSS's reduced-motion override doesn't reach
+ * element.animate(), so this checks the preference itself.
+ */
+export function animateEl(el, keyframes, options) {
+  if (!el?.animate || reducedMotion()) return null;
+  try {
+    return el.animate(keyframes, options);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tween a number shown in `el` to `value` (usage counters). Calls with the
+ * value already on its way are no-ops, so re-renders don't cut it short.
+ */
+export function countTo(el, value, format = String, { animate = true } = {}) {
+  if (!el) return;
+  const to = Number(value) || 0;
+  const prev = el.dataset.value;
+  if (prev !== undefined && Number(prev) === to) return;
+  el.dataset.value = String(to);
+  const from = prev === undefined ? to : Number(prev);
+  cancelAnimationFrame(el._countRaf || 0);
+  if (from === to || !animate || reducedMotion() || document.hidden) {
+    el.textContent = format(to);
+    return;
+  }
+  const start = performance.now();
+  const dur = 700;
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - (1 - t) ** 3;
+    el.textContent = format(Math.round(from + (to - from) * eased));
+    if (t < 1) el._countRaf = requestAnimationFrame(step);
+  };
+  el._countRaf = requestAnimationFrame(step);
+  if (to > from) {
+    el.classList.remove('is-bumped');
+    requestAnimationFrame(() => el.classList.add('is-bumped'));
+    clearTimeout(el._bumpTimer);
+    el._bumpTimer = setTimeout(() => el.classList.remove('is-bumped'), 900);
+  }
+}
+
+/**
+ * A tiny tap on phones that support it (Android); silently nothing elsewhere.
+ * Browsers refuse (and log) vibration before the first tap on the page.
+ */
+export function haptic(pattern = 8) {
+  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
+  try {
+    navigator.vibrate?.(pattern);
+  } catch { /* not allowed */ }
+}
 
 export function storageGet(key, fallback = null) {
   try {

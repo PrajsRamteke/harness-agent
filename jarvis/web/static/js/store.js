@@ -34,6 +34,12 @@ export const store = {
   pendingToggle: null,
   statusLabel: '',
   busySince: 0,
+  /** Stop was pressed: the turn's end reads "Stopped", not "Done". */
+  stopRequested: false,
+  /** Brief "Done in 42s" / "Stopped" on the status pill after a turn: { label, kind } */
+  doneFlash: null,
+  /** Has ever connected — before that, "Connecting", not "Lost connection". */
+  everConnected: false,
 };
 
 let scheduled = false;

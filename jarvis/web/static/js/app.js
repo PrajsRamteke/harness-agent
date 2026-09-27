@@ -5,7 +5,7 @@ import { store, loadSnapshot, loadUiPrefs } from './store.js';
 import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
 import { handleEvent } from './events.js';
 import { initChat, renderSnapshot, invalidateSnapshot } from './chat.js';
-import { initComposer, fillPrompt, submitPrompt } from './composer.js';
+import { initComposer, fillPrompt, submitPrompt, insertQuote } from './composer.js';
 import { initStatus, setBusy, setConnected, setQueue } from './status.js';
 import { initSidebar } from './sidebar.js';
 import { initModals } from './modal.js';
@@ -15,6 +15,7 @@ import { initPrompts } from './prompts.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initQuickbar } from './quickbar.js';
 import { initShortcuts } from './shortcuts.js';
+import { initQuote } from './quote.js';
 import { newChat } from './actions.js';
 
 const STARTERS = [
@@ -28,7 +29,7 @@ function renderStarters() {
   const box = $('starters');
   if (!box) return;
   box.innerHTML = STARTERS.map((s, i) => `
-    <button type="button" class="starter" data-i="${i}">
+    <button type="button" class="starter" data-i="${i}" style="--i:${i}">
       ${icon(s.icon)}
       <span><strong>${escapeHtml(s.title)}</strong><span>${escapeHtml(s.text || 'Pick up where you left off')}</span></span>
     </button>`).join('');
@@ -107,7 +108,8 @@ function boot() {
 
   loadUiPrefs();
   initModals();
-  initChat({ onReuse: fillPrompt });
+  initChat();
+  initQuote({ onQuote: insertQuote });
   initStatus();
   initComposer({ onCatalogItem: runItem, onOpenPicker: openPickerByKind });
   initSidebar({ onOpenPicker: openPickerByKind });

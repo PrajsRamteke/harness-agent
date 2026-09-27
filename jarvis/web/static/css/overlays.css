@@ -13,6 +13,10 @@
 :root[data-theme="light"] .modal { background: rgba(0, 0, 0, 0.18); }
 :root[data-theme="dim"] .modal { background: rgba(10, 10, 12, 0.45); }
 .modal-prompt { z-index: 70; align-items: center; padding-top: 24px; }
+/* Closing: the stack already treats it as closed; this is only the fade (modal.js). */
+.modal.is-closing { animation: fade-out 0.18s ease forwards; pointer-events: none; }
+.modal.is-closing .modal-card { animation: card-out 0.18s var(--ease) forwards; }
+@keyframes card-out { to { opacity: 0; transform: translateY(6px) scale(0.97); } }
 
 .modal-card:focus { outline: none; }
 .modal-card {
@@ -80,6 +84,8 @@
   transition: background 0.12s;
 }
 .list-row.is-cursor { background: var(--card-hover); box-shadow: inset 0 0 0 1px var(--line); }
+.modal-list.is-opening .list-row { animation: rise 0.3s var(--ease) backwards; animation-delay: calc(40ms + var(--i, 0) * 16ms); }
+.modal-list.is-opening .list-section { animation: fade 0.3s ease backwards; }
 .list-row.is-current .lr-title::after {
   content: "";
   display: inline-block;
@@ -104,8 +110,9 @@
   box-shadow: inset 0 1px 0 var(--highlight);
   color: var(--text-2);
   font-size: 16px;
+  transition: color 0.15s, border-color 0.15s, transform 0.25s var(--spring);
 }
-.list-row.is-cursor .lr-icon { color: var(--accent); border-color: var(--accent-line); }
+.list-row.is-cursor .lr-icon { color: var(--accent); border-color: var(--accent-line); transform: scale(1.05); }
 
 .lr-body { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
 .lr-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -153,9 +160,10 @@
   color: var(--text-2);
   font-size: 12.5px;
   font-weight: 600;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s var(--ease);
 }
 .row-btn:hover:not(:disabled) { background: var(--card-hover); color: var(--text); }
+.row-btn:active:not(:disabled) { transform: scale(0.94); }
 .row-btn.is-icon { width: 30px; padding: 0; display: grid; place-items: center; }
 .row-btn.is-icon .ic { width: 14px; height: 14px; }
 .row-btn.is-danger { color: var(--danger); border-color: var(--danger-line); background: var(--danger-soft); }
@@ -263,9 +271,10 @@
   border-radius: 14px;
   border: 1px solid var(--line);
   background: var(--card);
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.25s, transform 0.2s var(--ease);
 }
-.mode-card:hover { border-color: var(--line-2); background: var(--card-hover); }
+.mode-card:hover { border-color: var(--line-2); background: var(--card-hover); transform: translateY(-2px); }
+.mode-card:active { transform: scale(0.97); }
 .mode-card[aria-checked="true"] { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
 .mode-label { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; }
 .mode-label .ic { width: 14px; height: 14px; }
@@ -297,7 +306,7 @@
 .mode-system i:nth-child(3) { background: rgba(128, 128, 128, 0.2); }
 .mode-card[aria-checked="true"] .mode-preview i:nth-child(2) { background: var(--accent); }
 
-.accent-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.accent-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .accent-chip {
   display: flex;
   flex-direction: column;
@@ -309,8 +318,11 @@
   background: none;
   font-size: 12px;
   color: var(--text-2);
+  transition: background 0.15s, color 0.15s;
 }
 .accent-chip:hover { background: var(--card); }
+.accent-chip:hover .accent-dot { transform: scale(1.08); }
+.accent-chip:active .accent-dot { transform: scale(0.92); }
 .accent-chip[aria-checked="true"] { color: var(--text); border-color: var(--line); background: var(--card); }
 .accent-dot {
   display: grid;
@@ -321,7 +333,95 @@
   background: var(--swatch);
   box-shadow: 0 0 0 1px var(--line-2), 0 4px 14px -6px var(--swatch);
   color: #0a0a0a;
+  transition: transform 0.25s var(--spring), box-shadow 0.25s;
 }
+.accent-dot .ic { animation: pop-in 0.4s var(--spring); }
+/* Custom: a colour wheel until it's the chosen accent, then its colour. */
+.accent-chip.is-custom:not([aria-checked="true"]) .accent-dot {
+  background: conic-gradient(from 180deg, #f87171, #fbbf24, #4ade80, #2dd4bf, #60a5fa, #a78bfa, #f472b6, #f87171);
+  box-shadow: 0 0 0 1px var(--line-2);
+}
+.accent-chip.is-custom .accent-dot { transition: transform 0.25s var(--spring), box-shadow 0.25s, background 0.2s; }
+
+/* ─── Hue bar: drag for any accent colour (theme.js) ─────────────────── */
+.hue-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.hue-bar {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 14px;
+  margin: 0;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg,
+    hsl(0 85% 62%), hsl(30 90% 58%), hsl(55 90% 55%), hsl(90 70% 52%), hsl(130 65% 52%),
+    hsl(165 70% 48%), hsl(195 80% 55%), hsl(220 85% 64%), hsl(255 85% 70%), hsl(285 80% 66%),
+    hsl(320 80% 64%), hsl(345 85% 63%), hsl(360 85% 62%));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  outline: none;
+  opacity: 0.8;
+  transition: opacity 0.2s, box-shadow 0.2s;
+}
+.hue-row.is-active .hue-bar,
+.hue-bar:hover,
+.hue-bar:focus-visible { opacity: 1; }
+.hue-bar:focus-visible { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18), 0 0 0 3px var(--focus); }
+.hue-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--pick, #fff);
+  border: 3px solid #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.18);
+  transition: transform 0.22s var(--spring);
+}
+.hue-bar::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--pick, #fff);
+  border: 3px solid #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.18);
+  transition: transform 0.22s var(--spring);
+}
+.hue-bar:hover::-webkit-slider-thumb { transform: scale(1.08); }
+.hue-bar:active::-webkit-slider-thumb { transform: scale(1.22); }
+.hue-bar:active::-moz-range-thumb { transform: scale(1.22); }
+
+.hue-exact {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+  background: var(--card);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.15s var(--ease);
+}
+.hue-exact:hover { background: var(--card-hover); color: var(--text); }
+.hue-exact:active { transform: scale(0.92); }
+.hue-row.is-active .hue-exact { color: var(--accent); border-color: var(--accent-line); }
+.hue-exact:focus-within { box-shadow: 0 0 0 3px var(--focus); }
+.hue-exact .ic { width: 15px; height: 15px; }
+/* The native picker covers the button, invisible, so a tap opens it. */
+.hue-exact input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.hue-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-3); }
 .accent-chip[data-accent="mono"] .accent-dot { color: var(--bg); }
 .accent-chip[aria-checked="true"] .accent-dot { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--swatch); }
 :root[data-theme="light"] .accent-dot { color: #fff; }
@@ -384,9 +484,10 @@
 .prompt-note { margin: -6px 0 0; font-size: 12.5px; color: var(--text-3); text-align: center; }
 
 .ask-progress { display: flex; gap: 6px; }
-.ask-progress i { flex: 1; height: 4px; border-radius: 99px; background: var(--card-hover); }
+.ask-progress i { flex: 1; height: 4px; border-radius: 99px; background: var(--card-hover); transition: background 0.3s; }
 .ask-progress i.is-done { background: var(--accent-deep); }
-.ask-progress i.is-now { background: var(--accent); }
+.ask-progress i.is-now { background: var(--accent); animation: grow-x 0.4s var(--ease); transform-origin: left; }
+@keyframes grow-x { from { transform: scaleX(0.2); } to { transform: none; } }
 
 .ask-q { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.4; }
 .ask-q small { display: block; margin-bottom: 4px; font-size: 12.5px; font-weight: 500; color: var(--text-3); }
@@ -402,9 +503,15 @@
   border: 1px solid var(--line);
   background: var(--card);
   text-align: left;
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s var(--ease);
+  animation: rise 0.3s var(--ease) backwards;
 }
+.choice:nth-child(2) { animation-delay: 35ms; }
+.choice:nth-child(3) { animation-delay: 70ms; }
+.choice:nth-child(4) { animation-delay: 105ms; }
+.choice:nth-child(n + 5) { animation-delay: 140ms; }
 .choice:hover { background: var(--card-hover); border-color: var(--line-2); }
+.choice:active { transform: scale(0.99); }
 .choice:focus-visible { outline: none; border-color: var(--line-2); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08); }
 .choice.is-selected {
   border-color: var(--accent-line);
@@ -422,9 +529,10 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--text-3);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 .choice.is-multi .choice-key { border-radius: 7px; }
-.choice.is-selected .choice-key { background: var(--accent-deep); border-color: transparent; color: var(--on-accent); }
+.choice.is-selected .choice-key { background: var(--accent-deep); border-color: transparent; color: var(--on-accent); animation: pop-in 0.36s var(--spring); }
 .choice-body { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
 .choice-body strong { font-size: 14.5px; font-weight: 600; }
 .choice-body span { font-size: 13px; color: var(--text-2); }
@@ -451,6 +559,7 @@
 /* ─── Phones: dialogs become bottom sheets ────────────────────────────── */
 @media (max-width: 560px) {
   .mode-grid { grid-template-columns: repeat(2, 1fr); }
+  .accent-grid { grid-template-columns: repeat(4, 1fr); }
   .modal { align-items: flex-end; padding: 40px 0 0; }
   .modal-card {
     max-width: none;
@@ -476,3 +585,42 @@
   .prompt-actions .btn kbd { display: none; }
 }
 @keyframes sheet { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes sheet-out { to { transform: translateY(100%); } }
+@media (max-width: 560px) {
+  .modal.is-closing .modal-card { animation: sheet-out 0.2s var(--ease) forwards; }
+}
+
+/* ─── Quote pill: select text in the transcript → quote it (quote.js) ─── */
+.quote-pill {
+  position: fixed;
+  z-index: 55;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px 0 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-2);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px) scale(0.9);
+  transition: opacity 0.16s ease, transform 0.26s var(--spring), visibility 0s linear 0.26s, border-color 0.2s;
+}
+.quote-pill.is-shown {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 0.16s ease, transform 0.26s var(--spring), visibility 0s, border-color 0.2s;
+}
+.quote-pill:hover { border-color: var(--accent-line); }
+.quote-pill:active { transform: scale(0.95); }
+.quote-pill .ic { width: 14px; height: 14px; color: var(--accent); }

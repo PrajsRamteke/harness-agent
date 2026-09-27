@@ -4,8 +4,11 @@
  * lands in one `.turn-agent` with a single avatar. Live streams render into
  * a bubble that is finalised in place when the committed message arrives, so
  * nothing flickers or jumps.
+ *
+ * Sent messages are never edited: every prompt is a new message. Only live
+ * entries animate in (`is-new`); a snapshot re-render stays still.
  */
-import { $, escapeHtml, copyText, flashDone, truncate } from './utils.js';
+import { $, escapeHtml, copyText, flashDone, truncate, animateEl, SPRING } from './utils.js';
 import { icon } from './icons.js';
 import { store } from './store.js';
 import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
@@ -13,13 +16,23 @@ import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 const chat = () => $('chat');
 const scroller = () => $('chat-scroll');
 
+/** Long user messages fold behind "Show more" past these. */
+const FOLD_LINES = 9;
+const FOLD_CHARS = 700;
+/** A tool group folds once it has this many rows; the newest 3 stay visible (chat.css). */
+const TOOL_FOLD_AT = 6;
+const TOOL_FOLD_KEEP = 3;
+
 /** tool id → row element (live + snapshot rows) */
 const toolRows = new Map();
 /** Active stream: { kind, el, body, buffer, raf } */
 let live = null;
 let stickToBottom = true;
 let lastSnapshotSig = null;
-let fillPromptFn = null;
+/** True while a snapshot is being rendered: nothing animates or counts as new. */
+let restoring = false;
+/** Items added while scrolled up — shown on the "Latest" button. */
+let unseen = 0;
 
 export function normalizeRole(role) {
   const r = String(role || 'assistant').toLowerCase();
@@ -30,22 +43,60 @@ export function normalizeRole(role) {
 
 // ─── Scrolling ────────────────────────────────────────────────────────────
 
-export function initChat({ onReuse } = {}) {
-  fillPromptFn = onReuse;
+export function initChat() {
   const sc = scroller();
   const jump = $('jump-btn');
   sc?.addEventListener('scroll', () => {
     const dist = sc.scrollHeight - sc.scrollTop - sc.clientHeight;
     stickToBottom = dist < 60;
     if (stickToBottom) {
-      jump.hidden = true;
-      jump.classList.remove('has-new');
+      hideJump();
     } else if (dist > 240) {
       jump.hidden = false;
     }
   }, { passive: true });
   jump?.addEventListener('click', () => scrollToBottom(true, true));
   syncThoughtsVisibility();
+}
+
+function hideJump() {
+  const jump = $('jump-btn');
+  if (!jump) return;
+  jump.hidden = true;
+  jump.classList.remove('has-new');
+  unseen = 0;
+  paintUnseen();
+}
+
+function paintUnseen() {
+  const badge = $('jump-count');
+  if (!badge) return;
+  const was = badge.textContent;
+  badge.hidden = unseen < 1;
+  badge.textContent = unseen > 99 ? '99+' : String(unseen);
+  $('jump-btn')?.classList.toggle('has-count', unseen > 0);
+  if (unseen > 0 && was !== badge.textContent) {
+    animateEl(badge, [{ transform: 'scale(0.6)' }, { transform: 'scale(1.18)' }, { transform: 'none' }], { duration: 360, easing: SPRING });
+  }
+}
+
+/** Something new landed in the transcript (live only). */
+function noteUnseen() {
+  if (restoring || stickToBottom) return;
+  unseen += 1;
+  paintUnseen();
+}
+
+/**
+ * Only live entries animate in. The class is dropped once every entrance
+ * (children included) has played, so re-showing the element later — a
+ * folded tool group, thoughts toggled back on — doesn't replay it.
+ */
+function markNew(el) {
+  if (restoring || !el) return el;
+  el.classList.add('is-new');
+  setTimeout(() => el.classList.remove('is-new'), 1200);
+  return el;
 }
 
 export function scrollToBottom(force = false, smooth = false) {
@@ -57,11 +108,7 @@ export function scrollToBottom(force = false, smooth = false) {
   }
   stickToBottom = true;
   sc.scrollTo({ top: sc.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
-  const jump = $('jump-btn');
-  if (jump) {
-    jump.hidden = true;
-    jump.classList.remove('has-new');
-  }
+  hideJump();
 }
 
 // ─── Structure helpers ────────────────────────────────────────────────────
@@ -72,15 +119,34 @@ function isAgentTurn(el) {
 
 /** The body of the current agent turn, creating a new turn when needed. */
 function agentBody() {
-  removeTyping();
   const root = chat();
+  // The "working" placeholder turn becomes the real one, so its avatar
+  // stays put instead of vanishing and popping in again.
+  const pending = document.getElementById('typing-turn');
+  if (pending && pending === root.lastElementChild) {
+    pending.removeAttribute('id');
+    document.getElementById('typing')?.remove();
+    return pending.querySelector('.agent-body');
+  }
+  removeTyping();
   const last = root.lastElementChild;
   if (isAgentTurn(last)) return last.querySelector('.agent-body');
   const turn = document.createElement('div');
   turn.className = 'turn-agent';
   turn.innerHTML = '<span class="mark" aria-hidden="true"></span><div class="agent-body"></div>';
+  markNew(turn);
   root.appendChild(turn);
   return turn.querySelector('.agent-body');
+}
+
+/** A turn just finished: the avatar gives one soft ring. */
+export function markTurnDone() {
+  const turns = chat()?.querySelectorAll(':scope > .turn-agent:not(#typing-turn)');
+  const mark = turns?.[turns.length - 1]?.querySelector(':scope > .mark');
+  if (!mark) return;
+  mark.classList.remove('is-done');
+  requestAnimationFrame(() => mark.classList.add('is-done'));
+  setTimeout(() => mark.classList.remove('is-done'), 1300);
 }
 
 function removeTyping() {
@@ -153,20 +219,46 @@ function appendUser(text) {
   row.className = 'turn-you';
   const bubble = document.createElement('div');
   const isCommand = /^[/!]\S/.test(text) && !text.includes('\n');
-  bubble.className = `bubble-you md${isCommand ? ' is-command' : ''}`;
-  if (isCommand) bubble.textContent = text;
+  bubble.className = `bubble-you${isCommand ? ' is-command' : ''}`;
+  const body = document.createElement('div');
+  body.className = 'you-body md';
+  if (isCommand) body.textContent = text;
   else {
-    bubble.innerHTML = renderMarkdown(text);
-    applyMarkdownLinks(bubble);
+    body.innerHTML = renderMarkdown(text);
+    applyMarkdownLinks(body);
   }
+  bubble.appendChild(body);
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
-  actions.append(
-    actionButton('pencil', 'Edit', () => fillPromptFn?.(text)),
-    copyAction(() => text),
-  );
+  actions.append(copyAction(() => text));
   row.append(bubble, actions);
+  markNew(row);
   chat().appendChild(row);
+  if (!isCommand && (text.split('\n').length > FOLD_LINES || text.length > FOLD_CHARS)) foldUser(bubble, body);
+}
+
+/** Long pasted prompts fold to a few lines; the toggle sits inside the bubble. */
+function foldUser(bubble, body) {
+  bubble.classList.add('is-long', 'is-folded');
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'you-more';
+  more.setAttribute('aria-expanded', 'false');
+  more.innerHTML = `<span>Show more</span>${icon('chevron-down')}`;
+  more.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const folded = bubble.classList.toggle('is-folded');
+    more.setAttribute('aria-expanded', String(!folded));
+    more.querySelector('span').textContent = folded ? 'Show more' : 'Show less';
+  });
+  bubble.appendChild(more);
+  // Length is only a hint: a long single line can still fit a wide screen.
+  requestAnimationFrame(() => {
+    if (body.isConnected && body.scrollHeight <= body.clientHeight + 2) {
+      bubble.classList.remove('is-long', 'is-folded');
+      more.remove();
+    }
+  });
 }
 
 function makeAgentText(text, { title = '', liveStream = false } = {}) {
@@ -205,7 +297,8 @@ function makeThinking(text, { liveStream = false } = {}) {
       <span class="think-preview"></span>
       <span class="think-chev">${icon('chevron-right')}</span>
     </button>
-    <div class="think-body"></div>`;
+    <div class="fold"><div class="fold-inner"><div class="think-body"></div></div></div>`;
+  markNew(el);
   const body = el.querySelector('.think-body');
   body.textContent = text || '';
   el.querySelector('.think-preview').textContent = liveStream ? '' : thinkingPreview(text);
@@ -218,7 +311,7 @@ function makeThinking(text, { liveStream = false } = {}) {
 
 function appendAssistant(text, title) {
   const { wrap } = makeAgentText(text, { title });
-  agentBody().appendChild(wrap);
+  agentBody().appendChild(markNew(wrap));
 }
 
 function appendThinking(text) {
@@ -245,7 +338,7 @@ function appendNotice(text) {
     more.classList.add('notice-more');
     el.querySelector('.notice-body').appendChild(more);
   }
-  chat().appendChild(el);
+  chat().appendChild(markNew(el));
 }
 
 // ─── Tool rows ────────────────────────────────────────────────────────────
@@ -304,7 +397,7 @@ function paintTool(row, data) {
       <span class="tool-state" title="${stateLabel}" aria-label="${stateLabel}">${stateHtml}</span>
       <span class="tool-chev">${hasOut ? icon('chevron-right') : ''}</span>
     </button>
-    ${hasOut ? `<div class="tool-out">${escapeHtml(summary)}</div>` : ''}`;
+    ${hasOut ? `<div class="fold"><div class="fold-inner"><div class="tool-out">${escapeHtml(summary)}</div></div></div>` : ''}`;
   row.title = args ? `${title} ${args}` : title;
   if (hasOut) {
     row.querySelector('.tool-head').addEventListener('click', () => {
@@ -321,9 +414,55 @@ function createToolRow(data) {
   row.dataset.name = data.name || '';
   if (data.status === 'error' && data.summary) row.classList.add('is-open');
   paintTool(row, data);
-  toolsContainer().appendChild(row);
+  const box = toolsContainer();
+  box.appendChild(markNew(row));
   if (data.id) toolRows.set(String(data.id), row);
+  syncToolFold(box);
   return row;
+}
+
+/**
+ * Long tool runs fold: past TOOL_FOLD_AT rows only the newest few stay
+ * visible, behind a "N earlier tool calls" toggle (failures are counted in
+ * the label so they're never silently hidden).
+ */
+function syncToolFold(box) {
+  if (!box) return;
+  const rows = box.querySelectorAll(':scope > .tool');
+  let btn = box.querySelector(':scope > .tools-more');
+  if (rows.length < TOOL_FOLD_AT) {
+    btn?.remove();
+    box.classList.remove('is-folded', 'is-expanded');
+    return;
+  }
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tools-more';
+    btn.addEventListener('click', () => {
+      const expanded = box.classList.toggle('is-expanded');
+      box.classList.toggle('is-folded', !expanded);
+      syncToolFold(box);
+    });
+    box.prepend(btn);
+  }
+  const expanded = box.classList.contains('is-expanded');
+  box.classList.toggle('is-folded', !expanded);
+  const hidden = [...rows].slice(0, rows.length - TOOL_FOLD_KEEP);
+  const failed = hidden.filter((r) => r.dataset.status === 'error').length;
+  btn.classList.toggle('has-failed', !expanded && failed > 0);
+  btn.setAttribute('aria-expanded', String(expanded));
+  btn.innerHTML = expanded
+    ? `${icon('chevrons-down-up')}<span>Hide earlier tool calls</span>`
+    : `${icon('chevrons-up-down')}<span>${hidden.length} earlier tool call${hidden.length === 1 ? '' : 's'}</span>${failed ? `<span class="tm-failed">${failed} failed</span>` : ''}`;
+}
+
+/** A running row just finished: its check draws in (or it nudges on error). */
+function settleRow(row) {
+  row.classList.remove('just-settled');
+  row.classList.add('just-settled');
+  clearTimeout(row._settleTimer);
+  row._settleTimer = setTimeout(() => row.classList.remove('just-settled'), 800);
 }
 
 export function toolStart(data) {
@@ -335,6 +474,7 @@ export function toolStart(data) {
   } else {
     finalizeLive();
     createToolRow({ ...data, status: 'running' });
+    noteUnseen();
   }
   afterAppend();
 }
@@ -344,11 +484,14 @@ export function toolDone(data) {
   const status = data.error ? 'error' : 'done';
   const row = id && toolRows.get(id);
   if (row?.isConnected) {
+    const wasRunning = row.dataset.status === 'running';
     paintTool(row, { ...data, status });
+    if (wasRunning) settleRow(row);
     if (status === 'error' && row.dataset.summary) {
       row.classList.add('is-open');
       row.querySelector('.tool-head')?.setAttribute('aria-expanded', 'true');
     }
+    syncToolFold(row.parentElement);
   } else {
     createToolRow({ ...data, status });
   }
@@ -396,7 +539,8 @@ export function appendDiff(data) {
     });
     el.appendChild(more);
   }
-  agentBody().appendChild(el);
+  agentBody().appendChild(markNew(el));
+  noteUnseen();
   afterAppend();
 }
 
@@ -439,6 +583,7 @@ export function appendMessage(role, text, title) {
   }
   if (r === 'you') finalizeLive();
   appendEntry({ role: r, text: value, title });
+  if (r !== 'thinking') noteUnseen();
   afterAppend({ scroll: true });
   if (r === 'you') scrollToBottom(true);
 }
@@ -468,8 +613,9 @@ function startLive(kind, title) {
     live = { kind, el, body: tb, buffer: '', raf: 0 };
   } else {
     const parts = makeAgentText('', { title, liveStream: true });
-    body.appendChild(parts.wrap);
+    body.appendChild(markNew(parts.wrap));
     live = { kind, el: parts.wrap, bubble: parts.bubble, body: parts.body, actions: parts.actions, buffer: '', raf: 0 };
+    noteUnseen();
   }
   scrollToBottom();
 }
@@ -491,6 +637,11 @@ function finalizeLive(finalText, { stopped = false } = {}) {
     cur.bubble.classList.remove('is-live');
     cur.el.dataset.raw = text;
     cur.actions.hidden = false;
+    // The finished reply settles with a faint glow sweep.
+    if (!stopped) {
+      cur.bubble.classList.add('just-done');
+      setTimeout(() => cur.bubble.classList.remove('just-done'), 1000);
+    }
     if (stopped) {
       cur.bubble.classList.add('is-stopped');
       const note = document.createElement('span');
@@ -568,11 +719,16 @@ export function renderSnapshot(data) {
   root.innerHTML = '';
   toolRows.clear();
   live = null;
-  messages.forEach(appendEntry);
-  if (keep) {
-    const body = agentBody();
-    body.appendChild(keep.el);
-    live = keep;
+  restoring = true;
+  try {
+    messages.forEach(appendEntry);
+    if (keep) {
+      const body = agentBody();
+      body.appendChild(keep.el);
+      live = keep;
+    }
+  } finally {
+    restoring = false;
   }
   lastSnapshotSig = sig;
   syncThoughtsVisibility();

@@ -1,13 +1,18 @@
-/** Message composer: send / stop / queue, slash-command menu, prompt history */
-import { $, escapeHtml, showToast, storageGet, storageSet } from './utils.js';
+/** Message composer: send / stop / queue, slash-command menu, prompt history,
+ * per-device draft, quoting. Every send is a new message — nothing already
+ * sent is ever edited. */
+import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, haptic, EASE, SPRING } from './utils.js';
 import { icon } from './icons.js';
-import { store, subscribe } from './store.js';
+import { store, subscribe, patchStore } from './store.js';
 import { sendPrompt, cancelTurn } from './api.js';
 import { CATALOG, LOCAL_PICKERS, LAPTOP_COMMANDS, matchItem, rankItems } from './catalog.js';
 import { scrollToBottom } from './chat.js';
+import { quoteLines } from './quote.js';
 
 const HISTORY_KEY = 'jarvis-prompt-history';
 const HISTORY_MAX = 50;
+/** Unsent text survives a reload or a phone evicting the tab. */
+const DRAFT_KEY = 'jarvis-draft';
 
 let sending = false;
 let history = [];
@@ -34,6 +39,31 @@ function loadHistory() {
   } catch {
     history = [];
   }
+}
+
+function saveDraft() {
+  storageSet(DRAFT_KEY, prompt()?.value || '');
+}
+const saveDraftSoon = debounce(saveDraft, 300);
+
+function restoreDraft() {
+  const el = prompt();
+  const draft = storageGet(DRAFT_KEY, '');
+  if (!el || !draft || el.value) return;
+  el.value = draft;
+  autoResizePrompt();
+}
+
+/** The arrow lifts off and drops back in; a tick of haptics on phones. */
+function launchSend() {
+  haptic(8);
+  const ic = $('send')?.querySelector('.send-ic .ic');
+  animateEl(ic, [
+    { transform: 'translateY(0)', opacity: 1 },
+    { transform: 'translateY(-22px)', opacity: 0, offset: 0.42 },
+    { transform: 'translateY(16px)', opacity: 0, offset: 0.43 },
+    { transform: 'translateY(0)', opacity: 1 },
+  ], { duration: 560, easing: EASE });
 }
 
 function remember(text) {
@@ -63,6 +93,7 @@ export async function submitPrompt(text) {
   syncSendButton();
   if (text === undefined && el) setPromptValue('');
   closeSlash();
+  launchSend();
   try {
     await sendPrompt(value);
     remember(value);
@@ -79,9 +110,12 @@ export async function submitPrompt(text) {
 }
 
 export async function stopTurn() {
+  patchStore({ stopRequested: true });
+  haptic(12);
   try {
     await cancelTurn();
   } catch {
+    patchStore({ stopRequested: false });
     showToast('Could not stop — check the connection', true);
   }
 }
@@ -115,6 +149,7 @@ export function setPromptValue(text) {
   el.value = text;
   autoResizePrompt();
   syncSendButton();
+  saveDraft();
 }
 
 export function fillPrompt(text) {
@@ -124,6 +159,21 @@ export function fillPrompt(text) {
   el.focus();
   el.setSelectionRange(el.value.length, el.value.length);
   updateSlash();
+}
+
+/** Add a quote of `text` to the message being written (quote.js). */
+export function insertQuote(text) {
+  const el = prompt();
+  if (!el) return;
+  const block = `${quoteLines(text)}\n\n`;
+  const cur = el.value.replace(/\s+$/, '');
+  fillPrompt(cur ? `${cur}\n\n${block}` : block);
+  el.scrollTop = el.scrollHeight;
+  animateEl($('composer'), [
+    { transform: 'scale(1)' },
+    { transform: 'scale(1.012)' },
+    { transform: 'scale(1)' },
+  ], { duration: 420, easing: SPRING });
 }
 
 // ─── Slash menu ───────────────────────────────────────────────────────────
@@ -157,8 +207,10 @@ function updateSlash() {
     return;
   }
   slashCursor = Math.min(slashCursor, slashItems.length - 1);
+  // Rows cascade in only as the menu opens, not on every keystroke.
+  menu.classList.toggle('is-opening', menu.hidden);
   menu.innerHTML = slashItems.map((it, i) => `
-    <button type="button" class="slash-item${i === slashCursor ? ' is-cursor' : ''}" role="option" data-i="${i}" aria-selected="${i === slashCursor}">
+    <button type="button" class="slash-item${i === slashCursor ? ' is-cursor' : ''}" role="option" data-i="${i}" aria-selected="${i === slashCursor}" style="--i:${i}">
       ${icon(it.icon)}
       <span class="slash-cmd">${escapeHtml(it.cmd.trim())}</span>
       <span class="slash-desc">${escapeHtml(it.desc)}</span>
@@ -275,12 +327,15 @@ export function initComposer({ onCatalogItem, onOpenPicker } = {}) {
   loadHistory();
 
   const el = prompt();
+  restoreDraft();
   el?.addEventListener('input', () => {
     autoResizePrompt();
     syncSendButton();
     historyIdx = -1;
     updateSlash();
+    saveDraftSoon();
   });
+  window.addEventListener('pagehide', saveDraft);
   el?.addEventListener('keydown', onKeyDown);
   el?.addEventListener('blur', () => setTimeout(closeSlash, 120));
   $('send')?.addEventListener('click', onSendClick);

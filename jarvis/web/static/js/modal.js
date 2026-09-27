@@ -1,7 +1,10 @@
 /** Modal stack (Esc closes the top one, focus is trapped and restored) + list keyboard nav */
-import { $, trapFocus } from './utils.js';
+import { $, trapFocus, reducedMotion } from './utils.js';
 
 const stack = [];
+/** id → timer while a dialog plays its exit animation */
+const closing = new Map();
+const EXIT_MS = 180;
 
 export function isModalOpen(id) {
   return stack.some((m) => m.id === id);
@@ -20,6 +23,12 @@ export function openModal(id, { onClose, focus } = {}) {
     const entry = stack.find((m) => m.id === id);
     entry.onClose = onClose;
   }
+  // Reopened mid-exit: cancel the exit and stay open.
+  if (closing.has(id)) {
+    clearTimeout(closing.get(id));
+    closing.delete(id);
+    el.classList.remove('is-closing');
+  }
   el.hidden = false;
   document.body.classList.add('has-modal');
   const target = typeof focus === 'string' ? $(focus) : focus;
@@ -36,7 +45,19 @@ export function closeModal(id, reason = 'done') {
   if (idx === -1) return;
   const [entry] = stack.splice(idx, 1);
   const el = $(id);
-  if (el) el.hidden = true;
+  // The stack is already updated, so the app treats it as closed right away;
+  // the element just fades out before it's hidden.
+  if (el && reducedMotion()) {
+    el.hidden = true;
+  } else if (el) {
+    el.classList.add('is-closing');
+    clearTimeout(closing.get(id));
+    closing.set(id, setTimeout(() => {
+      closing.delete(id);
+      el.classList.remove('is-closing');
+      el.hidden = true;
+    }, EXIT_MS));
+  }
   if (!stack.length) document.body.classList.remove('has-modal');
   try {
     entry.onClose?.(reason);

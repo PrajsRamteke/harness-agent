@@ -42,6 +42,17 @@
   border-color: var(--warn-line);
   background: linear-gradient(var(--warn-soft), var(--warn-soft)), var(--glass-strong);
   cursor: pointer;
+  animation: pop 0.28s var(--ease), attention 2.2s ease-in-out 0.4s 4;
+}
+.dock-chip.is-waiting .ic { animation: bell 2.2s ease-in-out 0.4s 4; transform-origin: 50% 10%; }
+@keyframes attention {
+  0%, 100% { box-shadow: var(--shadow), 0 0 0 0 rgba(251, 191, 36, 0); }
+  40% { box-shadow: var(--shadow), 0 0 0 6px rgba(251, 191, 36, 0.16); }
+}
+@keyframes bell {
+  0%, 50%, 100% { transform: rotate(0); }
+  10%, 30% { transform: rotate(14deg); }
+  20%, 40% { transform: rotate(-14deg); }
 }
 .dock-chip.is-waiting .ic { color: var(--warn); }
 .dock-chip.is-waiting strong { font-weight: 600; }
@@ -62,12 +73,31 @@
 .composer {
   border-radius: 24px;
   padding: 12px 10px 10px 16px;
-  transition: border-color 0.2s, box-shadow 0.25s;
+  transition: border-color 0.25s, box-shadow 0.3s;
 }
 .composer:focus-within {
-  border-color: var(--line-2);
-  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow), 0 0 0 4px rgba(255, 255, 255, 0.035);
+  border-color: rgba(var(--accent-rgb), 0.26);
+  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow), 0 0 0 4px rgba(var(--accent-rgb), 0.06);
 }
+
+/* While Jarvis works, a thin accent light sweeps along the top edge. */
+.composer::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 24px;
+  right: 24px;
+  height: 1px;
+  background-image: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.95), transparent);
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  background-position: -100% 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+body.is-busy .composer::before { opacity: 1; animation: scan 1.9s ease-in-out infinite; }
+@keyframes scan { from { background-position: -100% 0; } to { background-position: 200% 0; } }
 
 .activity {
   display: flex;
@@ -78,7 +108,7 @@
   border-bottom: 1px solid var(--line);
   font-size: 13px;
   color: var(--text-2);
-  animation: fade 0.25s ease;
+  animation: rise 0.3s var(--ease);
 }
 .activity-text {
   flex: 1;
@@ -132,9 +162,14 @@
   font-size: 12.5px;
   font-weight: 500;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s var(--ease);
 }
 .tool-chip:hover { background: var(--card-hover); color: var(--text); border-color: var(--line-2); }
+.tool-chip:active { transform: scale(0.94); }
+.tool-chip .tc-chev .ic { transition: transform 0.25s var(--ease); }
+.tool-chip[aria-expanded="true"] .tc-chev .ic { transform: rotate(180deg); }
+.tool-chip.is-icon .ic { transition: transform 0.35s var(--spring); }
+.tool-chip.is-icon[aria-pressed="true"] .ic { transform: scale(1.08); }
 .tool-chip .ic { width: 14px; height: 14px; }
 .tool-chip .tc-chev .ic { width: 12px; height: 12px; opacity: 0.7; }
 .tc-text { overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
@@ -154,8 +189,15 @@
   border: 1px solid var(--line-2);
   background: rgba(14, 14, 14, 0.98);
   box-shadow: var(--shadow-lg);
-  animation: pop 0.18s var(--ease);
+  animation: pop 0.2s var(--ease);
+  transform-origin: 20% 100%;
 }
+.effort-item { animation: rise 0.24s var(--ease) backwards; }
+.effort-item:nth-child(2) { animation-delay: 20ms; }
+.effort-item:nth-child(3) { animation-delay: 40ms; }
+.effort-item:nth-child(4) { animation-delay: 60ms; }
+.effort-item:nth-child(5) { animation-delay: 80ms; }
+.effort-item:nth-child(6) { animation-delay: 100ms; }
 :root[data-theme="light"] .effort-menu { background: rgba(255, 255, 255, 0.98); }
 :root[data-theme="dim"] .effort-menu { background: rgba(44, 45, 52, 0.98); }
 .effort-item {
@@ -194,6 +236,10 @@
 .send-btn:active:not(:disabled) { transform: scale(0.96); }
 .send-btn:disabled { opacity: 0.35; filter: saturate(0.4); box-shadow: none; }
 .send-btn .ic { width: 19px; height: 19px; stroke-width: 2.4; }
+/* The arrow's slot clips it, so the launch reads as lifting out (composer.js). */
+.send-btn .send-ic { overflow: hidden; border-radius: 4px; }
+.send-btn:hover:not(:disabled) .send-ic .ic { transform: translateY(-1px); }
+.send-btn .send-ic .ic { transition: transform 0.2s var(--ease); }
 .send-btn .stop-ic { display: none; }
 .send-btn .stop-ic .ic { width: 14px; height: 14px; fill: currentColor; }
 
@@ -203,7 +249,7 @@
   box-shadow: inset 0 0 0 1px var(--danger-line);
 }
 .send-btn.is-stop .send-ic { display: none; }
-.send-btn.is-stop .stop-ic { display: grid; }
+.send-btn.is-stop .stop-ic { display: grid; animation: pop-in 0.35s var(--spring); }
 .send-btn.is-stop::before {
   content: "";
   position: absolute;
@@ -254,7 +300,11 @@
   background: none;
   text-align: left;
 }
+.slash-menu.is-opening .slash-item { animation: rise 0.26s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 18ms); }
+.slash-item { transition: background 0.12s; }
 .slash-item.is-cursor { background: var(--card-hover); box-shadow: inset 0 0 0 1px var(--line); }
+.slash-item .ic { transition: color 0.15s, transform 0.25s var(--spring); }
+.slash-item.is-cursor .ic { transform: scale(1.1); }
 .slash-item .ic { color: var(--text-3); }
 .slash-item.is-cursor .ic { color: var(--accent); }
 .slash-cmd { font-family: var(--font-mono); font-size: 13px; font-weight: 500; flex-shrink: 0; }

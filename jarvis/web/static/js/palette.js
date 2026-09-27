@@ -47,7 +47,7 @@ function render() {
       html += `<div class="list-section" role="presentation">${escapeHtml(group)}</div>`;
     }
     html += `
-      <div class="list-row" role="option" data-idx="${i}" aria-selected="false">
+      <div class="list-row" role="option" data-idx="${i}" aria-selected="false" style="--i:${Math.min(i, 14)}">
         <span class="lr-icon">${icon(it.icon)}</span>
         <span class="lr-body">
           <span class="lr-title">${escapeHtml(it.label)}</span>
@@ -107,10 +107,17 @@ function pick(idx) {
   runItem(item);
 }
 
+let openingTimer = 0;
+
 export function openPalette() {
   const input = $('palette-input');
+  const list = $('palette-list');
   input.value = '';
   render();
+  // Rows cascade in on open only — typing re-renders without it.
+  list.classList.add('is-opening');
+  clearTimeout(openingTimer);
+  openingTimer = setTimeout(() => list.classList.remove('is-opening'), 700);
   openModal('palette', { focus: input });
   nav.reset(0);
 }
@@ -129,6 +136,7 @@ export function initPalette({ onOpenPicker }) {
   $('palette-btn')?.addEventListener('click', openPalette);
   const input = $('palette-input');
   input.addEventListener('input', () => {
+    list.classList.remove('is-opening');
     render();
     nav.reset(0);
   });

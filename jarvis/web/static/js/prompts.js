@@ -4,12 +4,19 @@
  * agent is still blocked on an answer — so a chip above the composer brings
  * it back. Answering in the terminal closes it here (`prompt_resolved`).
  */
-import { $, escapeHtml, showToast } from './utils.js';
+import { $, escapeHtml, showToast, haptic } from './utils.js';
 import { icon } from './icons.js';
 import { store, patchStore } from './store.js';
 import { respondPrompt } from './api.js';
 import { openModal, closeModal, topModal } from './modal.js';
 import { syncTyping } from './chat.js';
+import { needsAttention } from './theme.js';
+
+const ATTENTION = {
+  shell_approval: 'A shell command needs your approval.',
+  ask_user: 'Jarvis has a question for you.',
+  text_input: 'Jarvis needs a value from you.',
+};
 
 const MODAL = 'prompt-modal';
 let answering = false;
@@ -19,9 +26,14 @@ let keyHandler = null;
 const card = () => $('prompt-card');
 
 function setActive(prompt) {
+  const fresh = prompt && prompt.id !== store.activePrompt?.id;
   patchStore({ activePrompt: prompt });
   renderWaitChip();
   syncTyping();
+  if (fresh) {
+    haptic(20);
+    needsAttention(ATTENTION[prompt.kind]);
+  }
 }
 
 function renderWaitChip() {
@@ -75,6 +87,7 @@ async function answer(result) {
   card().querySelectorAll('button').forEach((b) => { b.disabled = true; });
   try {
     await respondPrompt(p.id, result);
+    haptic(8);
     finish();
   } catch (err) {
     if (err?.status === 404) {

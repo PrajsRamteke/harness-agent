@@ -23,6 +23,14 @@
       if (mode === 'system') mode = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       document.documentElement.dataset.theme = (mode === 'light' || mode === 'dim') ? mode : 'dark';
       document.documentElement.dataset.accent = accent;
+      // Custom accent: the raw colour now; theme.js tunes it for the theme.
+      try {
+        var hex = accent === 'custom' && localStorage.getItem('jarvis-accent-custom');
+        if (hex && /^#[0-9a-f]{6}$/i.test(hex)) {
+          var n = parseInt(hex.slice(1), 16);
+          document.documentElement.style.setProperty('--accent-rgb', (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255));
+        }
+      } catch (e) {}
     })();
   </script>
   <link rel="stylesheet" href="/static/css/tokens.css">
@@ -163,10 +171,12 @@
         </button>
       </header>
 
-      <div class="conn-banner" id="conn-banner" hidden>
+      <div class="conn-banner" id="conn-banner" role="status" hidden>
         <span class="spinner" aria-hidden="true"></span>
+        <span class="cb-ok" data-icon="wifi" aria-hidden="true"></span>
         <span id="conn-banner-text">Lost connection to Jarvis. Reconnecting…</span>
       </div>
+
 
       <div class="chat-scroll" id="chat-scroll">
         <div class="chat" id="chat" aria-live="polite" aria-relevant="additions"></div>
@@ -180,7 +190,7 @@
       </div>
 
       <button class="jump-btn" id="jump-btn" type="button" hidden>
-        <span data-icon="arrow-down"></span><span>Latest</span>
+        <span data-icon="arrow-down"></span><span>Latest</span><span class="jump-count" id="jump-count" hidden></span>
       </button>
 
       <div class="dock">
@@ -282,6 +292,14 @@
       <div class="setting-block">
         <h3 class="setting-label">Accent</h3>
         <div class="accent-grid" id="accent-grid" role="radiogroup" aria-label="Accent color"></div>
+        <div class="hue-row" id="hue-row">
+          <input type="range" class="hue-bar" id="accent-hue" min="0" max="359" step="1" value="258" aria-label="Custom accent colour: drag along the colour bar">
+          <label class="hue-exact" title="Pick an exact colour">
+            <input type="color" id="accent-exact" value="#a78bfa" aria-label="Pick an exact accent colour">
+            <span data-icon="pipette" aria-hidden="true"></span>
+          </label>
+        </div>
+        <p class="hue-hint">Drag the bar for any colour. It's kept readable in light and dark.</p>
       </div>
       <div class="setting-block">
         <h3 class="setting-label">This device</h3>
@@ -318,6 +336,10 @@
   </div>
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <button type="button" class="quote-pill" id="quote-pill" aria-label="Quote the selected text in a new message">
+    <span data-icon="quote" aria-hidden="true"></span><span>Quote</span>
+  </button>
 
   <script type="module" src="/static/js/app.js"></script>
   <script>
