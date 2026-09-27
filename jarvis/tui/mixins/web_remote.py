@@ -394,6 +394,10 @@ class WebRemoteMixin:
         text = (text or "").strip()
         if not text:
             return
+        # Before the busy check, same as the composer: queued, it would reach
+        # the slash dispatcher as "unknown: /loop".
+        if self._try_loop_command(text):
+            return
         if self._busy:
             self._stash_prompt(text)
             return

@@ -13,6 +13,7 @@ countdown on the activity line above the composer.
 """
 from __future__ import annotations
 
+import re
 import time
 
 from rich.markup import escape
@@ -20,6 +21,9 @@ from rich.markup import escape
 from ... import loop as loop_state
 from ... import state
 from .. import theme as ui
+
+# "/loop" then whitespace (a space or a newline) or nothing — not "/loopy".
+_LOOP_CMD = re.compile(r"/loop(?=\s|$)")
 
 _USAGE = (
     "usage: [bold]/loop <task>[/] (Jarvis paces itself) · [bold]/loop 5m <task>[/] "
@@ -38,6 +42,19 @@ class LoopMixin:
         self._loop_quiet = None                 # LoopQuietBlock of the current quiet streak
 
     # ── command ──────────────────────────────────────────────────────
+    def _try_loop_command(self, text: str) -> bool:
+        """Run ``/loop …`` from any entry point (terminal composer, web remote).
+
+        The slash dispatcher doesn't know /loop, so every entry point must
+        catch it first — and before its busy check: a loop started mid-turn
+        just runs after that turn (``_loop_fire`` waits).
+        """
+        s = (text or "").strip()
+        if not _LOOP_CMD.match(s):
+            return False
+        self._loop_command(s[len("/loop"):])
+        return True
+
     def _loop_command(self, arg: str) -> None:
         arg = (arg or "").strip()
         con = self._tui_console

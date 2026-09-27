@@ -149,6 +149,7 @@ from .mixins.file_ref import FileRefPickerMixin  # noqa: E402
 from .mixins.pet import PetMixin  # noqa: E402
 from .mixins.prompt_nav import PromptNavMixin  # noqa: E402
 from .mixins.loop import LoopMixin  # noqa: E402
+from .mixins.bg_jobs import BgJobsMixin  # noqa: E402
 from .pet_widget import PetBubble, PetBuddy  # noqa: E402
 from .prompt_history import PromptHistory  # noqa: E402
 from .sidebar import Sidebar  # noqa: E402
@@ -184,7 +185,7 @@ _TIPS = (
 
 
 class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMixin,
-                FileRefPickerMixin, App):
+                BgJobsMixin, FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
 
@@ -249,6 +250,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._ask_user = AskUserController(self)
         self._pet_init()
         self._loop_init()
+        self._bg_init()
         self._history = PromptHistory()
         self._turn_is_llm = False
         self._turn_cancelled = False
@@ -414,9 +416,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._apply_sidebar_visibility()
         self._pet_apply_visibility()
         self._load_sticky_pref()
-        from ..tools import background as _bg
-
-        _bg.add_finish_hook(self._on_bg_job_finished)
+        self._bg_attach()  # job notices + auto-wake (mixins/bg_jobs.py)
 
         self.query_one("#prompt", PromptArea).focus()
         self.call_after_refresh(self._render_welcome_intro)
@@ -426,31 +426,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             self.set_timer(0.05, self._submit_startup_prompt)
 
     def on_unmount(self) -> None:
-        from ..tools import background as _bg
-
-        _bg.remove_finish_hook(self._on_bg_job_finished)
-
-    def _on_bg_job_finished(self, job) -> None:
-        """Watcher thread: a run_bg job exited — say so in the transcript."""
-        if not self.is_running:
-            return
-        from ..tools.background import fmt_secs
-
-        if job.killed:
-            mark, color, what = "✕", ui.FG_DIM, "stopped"
-        elif job.code == 0:
-            mark, color, what = "✓", ui.OK, "finished"
-        else:
-            mark, color, what = "✗", ui.ERR, f"failed · exit {job.code}"
-        cmd = " ".join(job.cmd.split())
-        cmd = cmd if len(cmd) <= 70 else cmd[:69] + "…"
-        try:
-            self._tui_console.print(
-                f"[{color}]{mark}[/] [{ui.FG_MUTE}]background job #{job.id} {what}[/] "
-                f"[{ui.FG_DIM}]· {fmt_secs(job.elapsed)} · {_rich_escape(cmd)}[/]"
-            )
-        except Exception:
-            pass
+        self._bg_detach()
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_sidebar_visibility()
@@ -1424,8 +1400,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             self.exit()
             return
 
-        if stripped == "/loop" or stripped.startswith("/loop "):
-            self._loop_command(stripped[len("/loop"):])
+        if self._try_loop_command(stripped):
             return
 
         if stripped == "/keytest":
@@ -1857,6 +1832,11 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                     return
 
             self._begin_turn(next_prompt)
+            return
+
+        # A background job finished while this turn ran: hand its output to the
+        # agent now. Not right after Esc — the job stays unread in the prompt.
+        if not self._turn_cancelled and self._bg_wake():
             return
 
         self._set_status("ready")

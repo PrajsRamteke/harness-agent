@@ -21,6 +21,8 @@ export const CATALOG = [
   { group: 'Conversation', cmd: '/stats', label: 'Stats', desc: 'Session time, messages and tools', icon: 'chart-column' },
   { group: 'Conversation', fill: true, cmd: '/export ', label: 'Export', desc: 'Save the conversation as markdown', icon: 'download' },
   { group: 'Conversation', cmd: '/copy', label: 'Copy last reply', desc: 'Copy the latest answer on your computer', icon: 'copy' },
+  { group: 'Conversation', fill: true, cmd: '/loop ', label: 'Loop a task', desc: 'Repeat a task; Jarvis paces itself (/loop 5m … for a fixed interval)', icon: 'timer', keys: 'repeat schedule watch interval recurring' },
+  { group: 'Conversation', cmd: '/loop stop', label: 'Stop the loop', desc: 'End the running /loop', icon: 'square', keys: 'loop end cancel' },
 
   { group: 'Settings', action: 'toggle-think', label: 'Extended thinking', desc: 'Think before answering', icon: 'brain', toggle: 'think_mode' },
   { group: 'Settings', action: 'toggle-trace', label: 'Tool trace', desc: 'Show thinking and tool details', icon: 'list-tree', toggle: 'show_internal' },

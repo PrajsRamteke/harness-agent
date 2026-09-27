@@ -291,17 +291,18 @@ BACKGROUND_TOOLS = [
         "Run a shell command in the BACKGROUND and return immediately with a job id. "
         "Use it for anything slow — test suites, builds, installs, type-checks, dev "
         "servers, watchers, benchmarks — so you keep working (read/edit files, run other "
-        "tools) while it runs, then collect the result with bg_output. Same approval as "
-        "run_bash. Jobs survive across turns and are listed under BACKGROUND JOBS in the "
-        "system prompt; finished ones say so. Use run_bash for quick commands."
+        "tools) while it runs. Don't sit waiting on it: keep working, or end your turn — "
+        "the result says whether Jarvis wakes you with the output when the job finishes. "
+        "Same approval as run_bash. Jobs survive across turns and are listed under "
+        "BACKGROUND JOBS in the system prompt; finished ones say so. Use run_bash for quick commands."
     ),
      "input_schema":{"type":"object","properties":{
         "cmd":{"type":"string","description":"Shell command, run in the project directory"}},"required":["cmd"]}},
     {"name":"bg_output","description":(
         "Check a background job: status, exit code and its latest output. No job_id = "
-        "list all jobs. wait=N blocks up to N seconds (max 600) until the job finishes — "
-        "use it when you have nothing else to do. new_only=true returns only output since "
-        "your last check (cheap polling)."
+        "list all jobs. wait=N blocks up to N seconds until the job finishes — only for a "
+        "job about to finish (capped at 30s when Jarvis auto-wakes you; then end your turn "
+        "instead). new_only=true returns only output since your last check (cheap polling)."
     ),
      "input_schema":{"type":"object","properties":{
         "job_id":{"type":"integer"},

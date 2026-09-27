@@ -98,7 +98,8 @@ export async function submitPrompt(text) {
     await sendPrompt(value);
     remember(value);
     if (LAPTOP_COMMANDS.has(value)) showToast('Opened in the terminal on your computer');
-    else if (wasBusy) showToast('Queued — sends when Jarvis is free');
+    // /loop isn't queued: it starts now and its first run waits for this turn.
+    else if (wasBusy && !/^\/loop(\s|$)/.test(value)) showToast('Queued — sends when Jarvis is free');
     scrollToBottom(true);
   } catch (err) {
     if (text === undefined && el && !el.value) setPromptValue(value);

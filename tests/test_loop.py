@@ -212,6 +212,43 @@ def test_loop_without_wakeup_ends_and_fixed_interval_keeps_going(app_with_fake_a
     asyncio.run(run())
 
 
+def test_loop_from_the_web_remote_and_after_a_newline(app_with_fake_agent):
+    """The web hands prompts to _handle_web_submit, not the composer: /loop
+    used to fall through to the slash dispatcher ("unknown: /loop")."""
+    from jarvis import state
+
+    JarvisTUI, script, seen = app_with_fake_agent
+
+    async def run() -> None:
+        app = JarvisTUI()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            t = app.query_one("#transcript")
+            app._handle_web_submit("/loop check the deploy")
+            await _idle(pilot, app)
+            assert "loop started" in t.plain_text()
+            assert "unknown" not in t.plain_text()
+            assert seen == ["check the deploy"]
+
+            # Sent from the web mid-turn: starts the loop (first run after this
+            # turn), never queued as plain text for the dispatcher.
+            app._busy = True
+            app._handle_web_submit("/loop 5m ping the server")
+            assert not state.prompt_queue and app._loop_pending
+            app._busy = False
+            app._handle_web_submit("/loop stop")
+            await pilot.pause(0.1)
+            assert L.active() is None
+
+            # A pasted task on the next line (no space after /loop) in the terminal.
+            await _send(pilot, app, "/loop\nwatch the logs")
+            await _idle(pilot, app)
+            assert seen[-1] == "watch the logs"
+            assert "unknown" not in t.plain_text()
+
+    asyncio.run(run())
+
+
 def test_loop_waits_for_the_users_turn(app_with_fake_agent):
     JarvisTUI, script, seen = app_with_fake_agent
     script.extend([lambda: L.schedule_wakeup(600), None, lambda: L.schedule_wakeup(600)])

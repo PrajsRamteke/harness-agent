@@ -15,6 +15,13 @@ Finished jobs whose output hasn't been read are listed in the system prompt
 (``prompt_block``) so the model notices on its next request; the UI prints a
 notice when a job finishes (``add_finish_hook``). Every job still running is
 killed when Jarvis exits.
+
+**Auto-wake** (``set_auto_wake``, on in the TUI): nobody has to sit waiting on
+a job. The agent starts it, keeps working or ends its turn, and when the job
+exits the TUI starts a turn carrying its output (``take_wake_batch`` +
+``wake_message``, see ``tui/mixins/bg_jobs.py``). While it's on, blocking
+``bg_output(wait=…)`` is capped at ``WAKE_MAX_WAIT`` so a turn can't hang on a
+long job.
 """
 from __future__ import annotations
 
@@ -35,6 +42,8 @@ from ..constants import CWD, MAX_TOOL_OUTPUT
 
 MAX_RUNNING = 8
 MAX_WAIT = 600.0
+WAKE_MAX_WAIT = 30.0   # bg_output(wait=…) cap while auto-wake is on
+WAKE_TAIL = 40         # output lines per job in a wake-up message
 DEFAULT_TAIL = 60
 KILL_GRACE = 3.0
 LOG_DIR = pathlib.Path(tempfile.gettempdir()) / "jarvis-bg" / str(os.getpid())
@@ -76,6 +85,18 @@ _jobs: dict[int, Job] = {}
 _next_id = 1
 _lock = threading.Lock()
 _finish_hooks: list[Callable[[Job], None]] = []
+_auto_wake = False
+
+
+def set_auto_wake(on: bool) -> None:
+    """The UI will start a turn with a job's output when it finishes (TUI only —
+    the legacy REPL can't, so the tools then tell the model to poll instead)."""
+    global _auto_wake
+    _auto_wake = bool(on)
+
+
+def auto_wake() -> bool:
+    return _auto_wake
 
 
 def add_finish_hook(fn: Callable[[Job], None]) -> None:
@@ -260,9 +281,14 @@ def run_bg(cmd: str) -> str:
         job.read_done = True
         more = f"(… {omitted} earlier lines)\n" if omitted else ""
         return f"$ {cmd}\nexit={job.code} (finished within a second — no need to poll)\n{more}{body}"
-    return (
-        f"started background job #{job_id} (pid {proc.pid}): {cmd}\n"
-        f"log: {log}\n"
+    head = f"started background job #{job_id} (pid {proc.pid}): {cmd}\nlog: {log}\n"
+    if _auto_wake:
+        return head + (
+            "Don't wait for it. Carry on with other work; if there's nothing else to do, "
+            "end your turn now (tell the user it's running). When it finishes, Jarvis "
+            "starts a new turn for you with its output — no bg_output polling needed."
+        )
+    return head + (
         f"Keep working meanwhile. Check it with bg_output(job_id={job_id}); "
         f"add wait=120 to block until it finishes."
     )
@@ -285,6 +311,10 @@ def bg_output(job_id: int | str | None = None, wait: float = 0, tail: int = DEFA
         wait = max(0.0, min(float(wait or 0), MAX_WAIT))
     except (TypeError, ValueError):
         wait = 0.0
+    # Auto-wake delivers the result anyway: never let a turn hang on a long job.
+    capped = _auto_wake and wait > WAKE_MAX_WAIT
+    if capped:
+        wait = WAKE_MAX_WAIT
     try:
         tail = max(1, min(int(tail or DEFAULT_TAIL), 400))
     except (TypeError, ValueError):
@@ -314,6 +344,10 @@ def bg_output(job_id: int | str | None = None, wait: float = 0, tail: int = DEFA
     if not finished:
         if interrupted:
             lines.append("(stopped waiting — the turn was cancelled; the job keeps running)")
+        elif capped:
+            lines.append(f"still running after {fmt_secs(wait)} (waits are capped at "
+                         f"{fmt_secs(WAKE_MAX_WAIT)}). Stop waiting: do other work or end your "
+                         "turn — Jarvis wakes you with the output when it finishes.")
         elif wait:
             lines.append(f"still running after waiting {fmt_secs(wait)} — check again later "
                          f"or bg_kill(job_id={job.id}).")
@@ -365,7 +399,10 @@ def prompt_block() -> str:
     rows = [j for j in jobs() if j.running or not j.read_done]
     if not rows:
         return ""
-    out = ["", "", "BACKGROUND JOBS (started with run_bg — they keep running between turns):"]
+    title = "BACKGROUND JOBS (started with run_bg — they keep running between turns"
+    title += ("; when one finishes Jarvis wakes you with its output, so don't wait on them):"
+              if _auto_wake else "):")
+    out = ["", "", title]
     for j in rows:
         if j.running:
             out.append(f"- #{j.id} running for {fmt_secs(j.elapsed)}: {_short(j.cmd, 120)}")
@@ -373,3 +410,48 @@ def prompt_block() -> str:
             out.append(f"- #{j.id} FINISHED ({j.status}, {fmt_secs(j.elapsed)}) — output not read yet, "
                        f"call bg_output(job_id={j.id}): {_short(j.cmd, 120)}")
     return "\n".join(out)
+
+
+# ── auto-wake ─────────────────────────────────────────────────────────────
+
+
+def take_wake_batch() -> list[Job]:
+    """Finished jobs whose output nobody has read (killed ones excluded — the
+    agent or user stopped those on purpose). Marks them read."""
+    with _lock:
+        batch = [j for j in _jobs.values() if not j.running and not j.read_done and not j.killed]
+        for j in batch:
+            j.read_done = True
+    return sorted(batch, key=lambda j: j.id)
+
+
+def _outcome(job: Job) -> str:
+    return "finished" if job.code == 0 else f"failed · exit {job.code}"
+
+
+def wake_message(batch: list[Job]) -> tuple[str, str, str]:
+    """``(prompt for the model, short line for the transcript, badge)``."""
+    ids = ", ".join(f"#{j.id}" for j in batch)
+    what = "Background job" if len(batch) == 1 else f"{len(batch)} background jobs"
+    parts = [f"[Automatic message from Jarvis — not typed by the user. {what} {ids} "
+             f"finished; here is the output, so you don't need bg_output.]"]
+    budget = max(2000, (MAX_TOOL_OUTPUT - 800) // max(1, len(batch)))
+    for j in batch:
+        body, omitted = _read(j, tail=WAKE_TAIL, new_only=False)
+        if len(body) > budget:
+            body = "…" + body[-budget:]
+        more = f", {omitted} earlier lines in {j.log}" if omitted else ""
+        parts.append(
+            f"\nBackground job #{j.id} {_outcome(j)} after {fmt_secs(j.elapsed)}\n$ {j.cmd}\n"
+            f"--- output (last {WAKE_TAIL} lines{more}) ---\n{body or '(no output)'}"
+        )
+    parts.append(
+        "\nContinue whatever you started this for (e.g. fix what failed, then re-check). "
+        "If that work is done, tell the user the result in a sentence or two."
+    )
+    if len(batch) == 1:
+        j = batch[0]
+        display = f"background job #{j.id} {_outcome(j)} · {fmt_secs(j.elapsed)} · {_short(j.cmd, 70)}"
+    else:
+        display = " · ".join(f"#{j.id} {_outcome(j)}" for j in batch)
+    return "\n".join(parts), display, f"& job {ids}"
