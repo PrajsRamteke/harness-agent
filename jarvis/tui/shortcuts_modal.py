@@ -18,6 +18,8 @@ _SHORTCUTS = """
   esc            interrupt the running turn · close a popup
   ⌃C             interrupt · clear the prompt · press twice to quit
   !cmd           run a shell command directly (no model)
+  ⌃G             ✦ enhance — fix spelling & grammar of the prompt
+                 with the current model (press again to undo)
 
 [bold]Commands & files[/]
   /              command list — type to filter, ⇥ complete, ↵ run

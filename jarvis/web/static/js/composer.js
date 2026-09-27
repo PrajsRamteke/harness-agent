@@ -1,10 +1,10 @@
 /** Message composer: send / stop / queue, slash-command menu, prompt history,
- * per-device draft, quoting. Every send is a new message — nothing already
- * sent is ever edited. */
-import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, haptic, EASE, SPRING } from './utils.js';
+ * per-device draft, quoting, one-click enhance. Every send is a new message —
+ * nothing already sent is ever edited. */
+import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, haptic, isMac, EASE, SPRING } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe, patchStore } from './store.js';
-import { sendPrompt, cancelTurn } from './api.js';
+import { sendPrompt, cancelTurn, enhancePrompt } from './api.js';
 import { CATALOG, LOCAL_PICKERS, LAPTOP_COMMANDS, matchItem, rankItems } from './catalog.js';
 import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
@@ -22,6 +22,10 @@ let slashItems = [];
 let slashCursor = 0;
 let runCatalogItem = null;
 let openPicker = null;
+let enhancing = false;
+let enhanceGen = 0;
+/** `{ original, result }` while the enhanced text is still in the box. */
+let enhanceUndo = null;
 
 const prompt = () => $('prompt');
 
@@ -80,6 +84,10 @@ export async function submitPrompt(text) {
   const el = prompt();
   const value = String(text ?? el?.value ?? '').trim();
   if (!value || sending) return;
+  if (enhancing && text === undefined) {
+    showToast('Still enhancing — one moment');
+    return;
+  }
 
   const pickerKind = LOCAL_PICKERS[value.toLowerCase()];
   if (pickerKind && openPicker) {
@@ -128,7 +136,7 @@ function syncSendButton() {
   const hasText = !!el.value.trim();
   const stop = store.busy && !hasText;
   btn.classList.toggle('is-stop', stop);
-  btn.disabled = sending || !store.connected || (!hasText && !store.busy);
+  btn.disabled = sending || enhancing || !store.connected || (!hasText && !store.busy);
   const label = stop ? 'Stop' : store.busy ? 'Queue message' : 'Send';
   btn.setAttribute('aria-label', label);
   btn.title = stop ? 'Stop (Esc)' : label;
@@ -150,6 +158,7 @@ export function setPromptValue(text) {
   el.value = text;
   autoResizePrompt();
   syncSendButton();
+  syncEnhanceButton();
   saveDraft();
 }
 
@@ -170,6 +179,121 @@ export function insertQuote(text) {
   const cur = el.value.replace(/\s+$/, '');
   fillPrompt(cur ? `${cur}\n\n${block}` : block);
   el.scrollTop = el.scrollHeight;
+  animateEl($('composer'), [
+    { transform: 'scale(1)' },
+    { transform: 'scale(1.012)' },
+    { transform: 'scale(1)' },
+  ], { duration: 420, easing: SPRING });
+}
+
+// ─── Enhance: fix spelling & grammar with the current model ──────────────
+// The corrected text replaces what's in the box; nothing is sent. The chip
+// then offers Undo until the text is edited or sent.
+
+const canEnhance = (value) => !!value.trim() && !/^\s*[/!]/.test(value);
+const ENHANCE_MODES = {
+  idle: { icon: 'wand-sparkles', text: 'Enhance', title: 'Fix spelling and grammar with the current model' },
+  busy: { icon: '', text: 'Enhancing…', title: 'Enhancing your message — Esc cancels' },
+  undo: { icon: 'rotate-ccw', text: 'Undo', title: 'Put your original message back' },
+};
+
+function syncEnhanceButton() {
+  const btn = $('qc-enhance');
+  const el = prompt();
+  if (!btn || !el) return;
+  if (enhanceUndo && el.value !== enhanceUndo.result) enhanceUndo = null;
+  const mode = enhancing ? 'busy' : enhanceUndo ? 'undo' : 'idle';
+  btn.hidden = mode === 'idle' && !canEnhance(el.value);
+  btn.disabled = mode === 'idle' && !store.connected;
+  if (btn.dataset.mode === mode) return;
+  btn.dataset.mode = mode;
+  const m = ENHANCE_MODES[mode];
+  btn.querySelector('.en-ic').innerHTML = m.icon ? icon(m.icon) : '<span class="spinner" aria-hidden="true"></span>';
+  $('qc-enhance-text').textContent = m.text;
+  btn.title = m.title;
+  btn.setAttribute('aria-label', m.title);
+  btn.setAttribute('aria-busy', String(mode === 'busy'));
+}
+
+/** Swap the whole message; on desktop as an edit the browser can undo (⌘Z). */
+function replacePromptText(text) {
+  const el = prompt();
+  let done = false;
+  if (!matchMedia('(pointer: coarse)').matches) {
+    // Focusing on a phone would pop the keyboard up — they have the Undo chip.
+    el.focus();
+    el.select();
+    try {
+      done = document.execCommand('insertText', false, text) && el.value === text;
+    } catch {
+      done = false;
+    }
+  }
+  if (!done) el.value = text;
+  el.setSelectionRange(el.value.length, el.value.length);
+  autoResizePrompt();
+  syncSendButton();
+  saveDraft();
+}
+
+function finishEnhance() {
+  enhancing = false;
+  const el = prompt();
+  if (el) el.readOnly = false;
+  syncEnhanceButton();
+  syncSendButton();
+}
+
+function cancelEnhance() {
+  if (!enhancing) return false;
+  enhanceGen += 1;
+  finishEnhance();
+  showToast('Enhance cancelled');
+  return true;
+}
+
+/** Enhance chip / Alt+E: enhance the message, or undo the enhance just made. */
+export async function enhanceMessage() {
+  const el = prompt();
+  if (!el || enhancing) return;
+  if (enhanceUndo && el.value === enhanceUndo.result) {
+    const { original } = enhanceUndo;
+    enhanceUndo = null; // before the swap, so its input event doesn't count as an edit
+    replacePromptText(original);
+    syncEnhanceButton();
+    return;
+  }
+  const original = el.value;
+  if (!canEnhance(original) || !store.connected) return;
+  closeSlash();
+  enhancing = true;
+  const gen = ++enhanceGen;
+  el.readOnly = true;
+  syncEnhanceButton();
+  syncSendButton();
+  haptic(8);
+  let res;
+  try {
+    res = await enhancePrompt(original);
+  } catch (err) {
+    res = { ok: false, error: err?.status === 503 ? 'Jarvis is not ready yet' : 'check the connection' };
+  }
+  if (gen !== enhanceGen) return; // cancelled
+  finishEnhance();
+  if (el.value !== original) return;
+  if (!res?.ok) {
+    showToast(`Couldn't enhance: ${res?.error || 'unknown error'}`, true);
+    return;
+  }
+  if (!res.changed) {
+    showToast('Looks good — nothing to fix');
+    return;
+  }
+  enhanceUndo = { original, result: res.text };
+  replacePromptText(res.text);
+  enhanceUndo.result = el.value; // the textarea may normalise line breaks
+  syncEnhanceButton();
+  haptic(6);
   animateEl($('composer'), [
     { transform: 'scale(1)' },
     { transform: 'scale(1.012)' },
@@ -301,6 +425,11 @@ function onKeyDown(e) {
     if (e.key === 'Escape') { e.preventDefault(); closeSlash(); return; }
   }
 
+  if (e.key === 'Escape' && cancelEnhance()) {
+    e.preventDefault();
+    return;
+  }
+
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
     e.preventDefault();
     submitPrompt();
@@ -332,6 +461,7 @@ export function initComposer({ onCatalogItem, onOpenPicker } = {}) {
   el?.addEventListener('input', () => {
     autoResizePrompt();
     syncSendButton();
+    syncEnhanceButton();
     historyIdx = -1;
     updateSlash();
     saveDraftSoon();
@@ -340,9 +470,15 @@ export function initComposer({ onCatalogItem, onOpenPicker } = {}) {
   el?.addEventListener('keydown', onKeyDown);
   el?.addEventListener('blur', () => setTimeout(closeSlash, 120));
   $('send')?.addEventListener('click', onSendClick);
+  const enhanceBtn = $('qc-enhance');
+  enhanceBtn?.addEventListener('mousedown', (e) => e.preventDefault()); // keep the caret
+  enhanceBtn?.addEventListener('click', enhanceMessage);
+  document.querySelectorAll('.kbd-alt').forEach((k) => { k.textContent = isMac ? '⌥' : 'Alt'; });
 
   subscribe(syncSendButton);
+  subscribe(syncEnhanceButton);
   window.addEventListener('resize', autoResizePrompt);
   autoResizePrompt();
   syncSendButton();
+  syncEnhanceButton();
 }

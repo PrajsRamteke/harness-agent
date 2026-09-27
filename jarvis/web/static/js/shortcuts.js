@@ -11,6 +11,7 @@ const SHEET = [
   { keys: ['Enter'], label: 'Send the message' },
   { keys: ['Shift', 'Enter'], label: 'New line' },
   { keys: ['↑'], label: 'Previous message (empty box)' },
+  { keys: [ALT, 'E'], label: 'Enhance: fix spelling and grammar of your message (again to undo)' },
   { keys: ['Esc'], label: 'Stop Jarvis, or close a dialog' },
   { keys: [ALT, 'N'], label: 'New chat' },
   { keys: [ALT, 'M'], label: 'Switch model' },
@@ -36,7 +37,7 @@ function typing(e) {
   return !!e.target.closest?.('input, textarea, [contenteditable="true"]');
 }
 
-/** `handlers`: { newChat, openPicker(kind), toggleTheme } */
+/** `handlers`: { newChat, openPicker(kind), toggleTheme, enhance } */
 export function initShortcuts(handlers) {
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || topModal()) return;
@@ -55,6 +56,7 @@ export function initShortcuts(handlers) {
       KeyS: () => handlers.openPicker('session'),
       KeyA: () => handlers.openPicker('agent'),
       KeyT: () => handlers.toggleTheme(),
+      KeyE: () => handlers.enhance?.(),
     };
     const fn = map[e.code];
     if (fn) {

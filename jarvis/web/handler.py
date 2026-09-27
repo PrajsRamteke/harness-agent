@@ -328,6 +328,18 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": ok})
             return
 
+        if path == "/api/enhance":
+            # Side request on this handler thread — nothing joins the chat.
+            from ..prompt_enhance import EnhanceError, enhance_prompt
+
+            try:
+                result = enhance_prompt(str(data.get("text") or ""))
+            except EnhanceError as exc:
+                self._send_json(200, {"ok": False, "error": str(exc)})
+                return
+            self._send_json(200, {"ok": True, "text": result.text, "changed": result.changed})
+            return
+
         if path == "/api/respond":
             prompt_id = str(data.get("id") or "").strip()
             if not prompt_id:

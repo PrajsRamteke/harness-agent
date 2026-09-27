@@ -178,6 +178,23 @@ body.is-busy .composer::before { opacity: 1; animation: scan 1.9s ease-in-out in
 .tool-chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
 .tool-chip.is-warn[aria-pressed="true"] { color: var(--warn); border-color: var(--warn-line); background: var(--warn-soft); }
 
+/* Enhance (composer.js): next to Send, accent-tinted so it reads as an action
+   on the message; shows only while there's text to fix. */
+.enhance-chip {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  animation: pop-in 0.3s var(--spring);
+}
+.enhance-chip:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.enhance-chip:disabled { opacity: 0.45; }
+.enhance-chip[data-mode="busy"] { cursor: progress; }
+.enhance-chip[data-mode="undo"] { color: var(--text-2); border-color: var(--line-2); background: var(--card); }
+.enhance-chip[data-mode="undo"]:hover { color: var(--text); background: var(--card-hover); border-color: var(--line-2); }
+.enhance-chip .en-ic { display: grid; place-items: center; width: 14px; height: 14px; }
+.enhance-chip .spinner { width: 12px; height: 12px; }
+#prompt[readonly] { opacity: 0.55; transition: opacity 0.2s; }
+
 .effort-menu {
   position: absolute;
   left: 0;
@@ -324,4 +341,6 @@ body.is-busy .composer::before { opacity: 1; animation: scan 1.9s ease-in-out in
   #qc-agent { display: none; }
   .tc-text { max-width: 96px; }
   #qc-model .tc-text { max-width: 84px; }
+  .enhance-chip { width: 30px; padding: 0; justify-content: center; }
+  .enhance-chip .tc-text { display: none; }
 }

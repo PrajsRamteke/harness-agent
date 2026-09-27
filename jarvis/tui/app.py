@@ -150,6 +150,8 @@ from .mixins.pet import PetMixin  # noqa: E402
 from .mixins.prompt_nav import PromptNavMixin  # noqa: E402
 from .mixins.loop import LoopMixin  # noqa: E402
 from .mixins.bg_jobs import BgJobsMixin  # noqa: E402
+from .mixins.enhance import EnhanceMixin  # noqa: E402
+from .enhance_button import EnhanceButton  # noqa: E402
 from .pet_widget import PetBubble, PetBuddy  # noqa: E402
 from .prompt_history import PromptHistory  # noqa: E402
 from .sidebar import Sidebar  # noqa: E402
@@ -178,6 +180,7 @@ _TIPS = (
     "Tip: drop an image or PDF into the prompt to attach it",
     "Tip: /model switches models · /theme changes colors",
     "Tip: !git status runs a shell command without the model",
+    "Tip: ⌃G (or ✦ enhance) fixes spelling & grammar before you send",
 )
 
 
@@ -185,7 +188,7 @@ _TIPS = (
 
 
 class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMixin,
-                BgJobsMixin, FileRefPickerMixin, App):
+                BgJobsMixin, EnhanceMixin, FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
 
@@ -212,6 +215,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         Binding("alt+down", "step_prompt(1)", show=False, priority=True),
         Binding("ctrl+shift+u", "copy_web_url", "Copy URL", show=False),
         Binding("ctrl+y", "copy_last_reply", "Copy reply", show=False),
+        Binding("ctrl+g", "enhance_prompt", "Enhance prompt", show=False),
     ]
 
     def __init__(self):
@@ -251,6 +255,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._pet_init()
         self._loop_init()
         self._bg_init()
+        self._enhance_init()
         self._history = PromptHistory()
         self._turn_is_llm = False
         self._turn_cancelled = False
@@ -362,6 +367,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                     placeholder=_PLACEHOLDER,
                     soft_wrap=True,
                 )
+                yield EnhanceButton(id="enhance", classes="hidden")
                 yield PetBuddy(id="pet")
             with Horizontal(id="footer"):
                 yield FooterBar(id="footer_left", classes="-left")
@@ -1332,6 +1338,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         if self.file_ref_picker_active:
             self.close_file_ref_picker()
             return
+        if self._enhance_cancel():
+            return
         if self._busy:
             self._cancel_turn()
             return
@@ -1373,10 +1381,14 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
     # ─── input handling ──────────────────────────────────────────────
     def on_prompt_area_submitted(self, event: "PromptArea.Submitted") -> None:
+        if self._enhance_running:
+            self._set_status("✦ still enhancing — wait a moment, or esc to cancel")
+            return
         raw = event.value or ""
         text = raw.strip()
         inp = self.query_one("#prompt", PromptArea)
         inp.clear()
+        self._enhance_forget()
         self._last_input_value = ""
         self.close_file_ref_picker()
         self._sync_composer_mode()
@@ -1978,6 +1990,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             self._set_status(f"copied to terminal clipboard ({n} chars)")
 
     def action_cancel_or_quit(self):
+        if self._enhance_cancel():
+            return
         if self._busy:
             self._cancel_turn()
             return

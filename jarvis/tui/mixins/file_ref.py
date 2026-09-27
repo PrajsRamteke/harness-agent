@@ -100,6 +100,9 @@ class FileRefPickerMixin:
             self._run_attachment_tokenize()
         self._sync_file_ref_picker()
         self._sync_composer_mode()
+        enhance_sync = getattr(self, "_enhance_sync", None)
+        if callable(enhance_sync):
+            enhance_sync()
         if val:
             typing = getattr(self, "_pet_typing", None)
             if callable(typing):

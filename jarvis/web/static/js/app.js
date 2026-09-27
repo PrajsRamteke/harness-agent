@@ -5,7 +5,7 @@ import { store, loadSnapshot, loadUiPrefs } from './store.js';
 import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
 import { handleEvent } from './events.js';
 import { initChat, renderSnapshot, invalidateSnapshot } from './chat.js';
-import { initComposer, fillPrompt, submitPrompt, insertQuote } from './composer.js';
+import { initComposer, fillPrompt, submitPrompt, insertQuote, enhanceMessage } from './composer.js';
 import { initStatus, setBusy, setConnected, setQueue } from './status.js';
 import { initSidebar } from './sidebar.js';
 import { initModals } from './modal.js';
@@ -117,7 +117,7 @@ function boot() {
   initPickers();
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
-  initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme });
+  initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage });
   renderStarters();
 
   $('copy-link')?.addEventListener('click', async () => {

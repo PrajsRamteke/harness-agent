@@ -250,6 +250,8 @@ export function transportMode() {
 
 export const sendPrompt = (text) => api('/api/prompt', 'POST', { text });
 export const cancelTurn = () => api('/api/cancel', 'POST', {});
+/** Fix spelling / grammar with the current model → `{ ok, text, changed }` or `{ ok: false, error }`. */
+export const enhancePrompt = (text) => api('/api/enhance', 'POST', { text });
 export const respondPrompt = (id, result) => api('/api/respond', 'POST', { id, result });
 export const updateSettings = (patch) => api('/api/settings', 'POST', patch);
 export const fetchState = () => api('/api/state');
