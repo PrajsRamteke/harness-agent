@@ -17,6 +17,29 @@ Harness is a **terminal-native AI agent** that lives in your terminal. You talk 
 
 ## 🚀 Quick Start
 
+### 🪟 Windows
+
+Open **PowerShell** or **Command Prompt** and paste this one line:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install.ps1 | iex"
+```
+
+Then open a **new terminal** in your project folder and run:
+
+```powershell
+jarvis
+```
+
+**No Python 3.10+ or Git yet?** Install both with `winget` first, open a new terminal, then run the command above:
+
+```powershell
+winget install -e --id Python.Python.3.12
+winget install -e --id Git.Git
+```
+
+### 🍎 macOS / 🐧 Linux
+
 **macOS without Python 3.10+** (install Python, then Jarvis):
 
 ```bash
@@ -90,6 +113,12 @@ That's it. You'll be prompted to pick an auth method on first run.
   brew install python@3.11
   ```
   The install script also checks `/opt/homebrew/bin/python3.*` if Homebrew is not on your `PATH` yet.
+- **Windows** — Python 3.10+ and Git. Easiest via `winget`:
+  ```powershell
+  winget install -e --id Python.Python.3.12
+  winget install -e --id Git.Git
+  ```
+  [Windows Terminal](https://aka.ms/terminal) is recommended for the TUI (it's the default on Windows 11).
 - **macOS** — required for macOS control features. Core agent works on any platform.
 - **API key** (sk-ant-…) or a **Pro/Max subscription**
 
@@ -97,7 +126,41 @@ That's it. You'll be prompted to pick an auth method on first run.
 
 ## 📦 Installation
 
-### One-command install (recommended)
+### One-command install — Windows
+
+In **PowerShell** or **Command Prompt**:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install.ps1 | iex"
+```
+
+Already inside PowerShell? The shorter form works too, and makes `jarvis` available in that same window straight away:
+
+```powershell
+irm https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install.ps1 | iex
+```
+
+What it does:
+
+- clones Jarvis into `%LOCALAPPDATA%\harness-agent` and installs it in its own virtual environment (no admin rights needed)
+- adds a `jarvis` command in `%USERPROFILE%\.local\bin` and puts that folder on your user `PATH`
+
+**Update:** run the same command again.
+
+**Troubleshooting: "'jarvis' is not recognized"** — open a **new** terminal so it picks up the updated `PATH`. For the current PowerShell window only:
+
+```powershell
+$env:Path = "$HOME\.local\bin;$env:Path"
+jarvis
+```
+
+**Uninstall:**
+
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\harness-agent", "$HOME\.local\bin\jarvis.cmd"
+```
+
+### One-command install — macOS / Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
@@ -133,6 +196,17 @@ python3 -m venv .venv
 source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -e .
 jarvis --help                # verify the CLI is on PATH
+```
+
+**Windows (PowerShell):**
+
+```powershell
+git clone https://github.com/PrajsRamteke/harness-agent.git
+cd harness-agent
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1   # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+pip install -e .
+jarvis --help
 ```
 
 `pip install -e .` installs runtime dependencies from `pyproject.toml` and registers the `jarvis` command. You do **not** need `pip install -r requirements.txt` for normal development (that file mirrors the same deps for reference or tooling-only installs).
