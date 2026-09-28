@@ -504,10 +504,11 @@ class WebRemoteMixin:
                         result = dict(result)
                         result["render_warning"] = str(exc)
 
-            if action == "model_select":
+            provider_change = action.startswith("provider_")
+            if action == "model_select" or provider_change:
                 self._write_status_line(busy=False)
 
-            if action in ("session_resume", "session_new", "model_select", "agent_select"):
+            if action in ("session_resume", "session_new", "model_select", "agent_select") or provider_change:
                 self._set_status("ready")
 
         # The HTTP handler broadcasts the fresh snapshot once this returns.

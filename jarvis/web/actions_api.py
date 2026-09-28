@@ -11,6 +11,11 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
     """Execute a picker mutation. Returns {ok, error?, ...}."""
     action = (action or "").strip()
 
+    if action.startswith("provider_"):
+        from .providers_api import run_provider_action
+
+        return run_provider_action(action, data, console_print=console_print)
+
     if action == "session_resume":
         sid = int(data.get("session_id") or 0)
         if sid <= 0:

@@ -30,7 +30,9 @@ from textual.widgets import Input, Static
 from rich.text import Text
 
 from .. import state
-from ..auth.oauth_tokens import save_oauth_tokens, clear_oauth_tokens, exchange_oauth_code, parse_oauth_paste
+from ..auth.oauth_tokens import (
+    anthropic_authorize_url, save_oauth_tokens, clear_oauth_tokens, exchange_oauth_code, parse_oauth_paste,
+)
 from ..auth.anthropic_models import sync_anthropic_model_ids
 from ..auth.pkce import _pkce_pair
 from ..constants import (
@@ -194,17 +196,7 @@ class LoginModalScreen(TuiModalScreen[list[str] | None]):
     def _regenerate_pkce(self) -> None:
         """Create a fresh PKCE pair + authorize URL (used on mount and Ctrl+R)."""
         self._verifier, self._challenge, self._oauth_state = _pkce_pair()
-        params = {
-            "code": "true",
-            "client_id": OAUTH_CLIENT_ID,
-            "response_type": "code",
-            "redirect_uri": OAUTH_REDIRECT_URI,
-            "scope": OAUTH_SCOPES,
-            "code_challenge": self._challenge,
-            "code_challenge_method": "S256",
-            "state": self._oauth_state,
-        }
-        self._auth_url = OAUTH_AUTHORIZE_URL + "?" + urllib.parse.urlencode(params)
+        self._auth_url = anthropic_authorize_url(self._challenge, self._oauth_state)
 
     def on_unmount(self) -> None:
         disable_mouse()

@@ -32,7 +32,7 @@ from ..constants import (
     PROVIDER_ANTHROPIC, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
 )
-from ..auth.oauth_tokens import load_oauth_tokens, oauth_refresh
+from ..auth.oauth_tokens import learn_claude_code_version, load_oauth_tokens, oauth_refresh
 from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refresh
 from ..auth.client import _build_client_from_mode
 from .. import state
@@ -576,6 +576,7 @@ def call_claude_stream():
     _worker_thread_id = threading.current_thread().ident or 0
     delays = [1, 3, 6]
     oauth_refreshed = False
+    claude_version_retried = False
     openrouter_model_retried = False
     panel_title = f"jarvis · {assistant_model_label()}"
     for attempt in range(len(delays) + 1):
@@ -674,6 +675,23 @@ def call_claude_stream():
                     console.print("[red]Auth error — Provider: Anthropic (API key)[/]\n"
                                   "[yellow]Run /provider and set a new API key.[/]")
                 raise HarnessAPIError("auth error")
+            if (
+                e.status_code == 400
+                and state.provider == "anthropic"
+                and state.auth_mode == "oauth"
+                and not claude_version_retried
+            ):
+                # "Claude Code X does not support this model; version Y or
+                # newer is required": claim Y from now on and send it again.
+                newer = learn_claude_code_version(e)
+                if newer:
+                    claude_version_retried = True
+                    console.print(
+                        f"[dim]Anthropic needs Claude Code {newer}+ for this model — "
+                        "updated, retrying…[/]"
+                    )
+                    state.client = _build_client_from_mode("oauth", interactive=False)
+                    continue
             if e.status_code == 402:
                 console.print(
                     f"[red]Payment required — Provider: {state.provider}[/]\n"

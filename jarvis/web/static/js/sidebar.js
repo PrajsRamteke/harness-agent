@@ -12,6 +12,7 @@ import {
   toggleSetting,
 } from './actions.js';
 import { toggleTheme, isLightTheme, openAppearance } from './theme.js';
+import { onProvidersChange } from './providers.js';
 
 const PROVIDER_LABELS = {
   anthropic: 'Anthropic',
@@ -21,6 +22,8 @@ const PROVIDER_LABELS = {
   openai_codex: 'ChatGPT (Codex)',
   kimchi: 'Kimchi',
 };
+/** Filled from /api/providers: "Claude Pro / Max" rather than "Anthropic". */
+let activeProviderLabel = '';
 
 let openPicker = () => {};
 let recentSig = '';
@@ -92,7 +95,7 @@ function renderCards(s) {
   const model = s.session.model || '—';
   $('model-name').textContent = model;
   $('model-name').title = model;
-  $('model-provider').textContent = PROVIDER_LABELS[s.session.provider] || s.session.provider || '';
+  $('model-provider').textContent = activeProviderLabel || PROVIDER_LABELS[s.session.provider] || s.session.provider || '';
 
   const agent = s.session.agent;
   $('agent-name').textContent = agent || 'No agent';
@@ -141,6 +144,23 @@ function render(s) {
     refreshRecent();
   }
   markActiveRecent(s.session.session_id);
+}
+
+function renderProviders(data) {
+  const connected = (data.providers || []).filter((p) => p.connected && p.kind !== 'free');
+  activeProviderLabel = data.active_label || '';
+  $('model-provider').textContent = activeProviderLabel || PROVIDER_LABELS[store.session.provider] || '';
+  const name = $('providers-name');
+  const line = $('providers-line');
+  if (!name || !line) return;
+  if (!connected.length) {
+    name.textContent = 'Add a provider';
+    line.textContent = 'Free tier now · sign in or paste a key';
+  } else {
+    name.textContent = `${connected.length} connected`;
+    line.textContent = connected.map((p) => p.label).join(', ');
+  }
+  $('providers-card').title = connected.length ? `Connected: ${line.textContent}` : 'Sign in or paste an API key';
 }
 
 // ─── Recent sessions ──────────────────────────────────────────────────────
@@ -213,6 +233,7 @@ export function initSidebar({ onOpenPicker }) {
   });
   $('model-card')?.addEventListener('click', () => { closeOnNarrow(); openPicker('model'); });
   $('agent-card')?.addEventListener('click', () => { closeOnNarrow(); openPicker('agent'); });
+  $('providers-card')?.addEventListener('click', () => { closeOnNarrow(); openPicker('provider'); });
   $('all-sessions')?.addEventListener('click', () => { closeOnNarrow(); openPicker('session'); });
   $('open-skills')?.addEventListener('click', () => { closeOnNarrow(); openPicker('skill'); });
   $('open-mcp')?.addEventListener('click', () => { closeOnNarrow(); openPicker('mcp'); });
@@ -232,4 +253,5 @@ export function initSidebar({ onOpenPicker }) {
   subscribe(render);
   render(store);
   renderThemeButton();
+  onProvidersChange(renderProviders);
 }

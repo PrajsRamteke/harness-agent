@@ -13,7 +13,12 @@ OAUTH_BETA_HEADER = (
     "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,"
     "effort-2025-11-24"
 )
-OAUTH_USER_AGENT = "claude-cli/2.1.98 (external, cli)"
+# The Claude Code version subscription traffic claims. Anthropic refuses newer
+# models to old versions (400 ``claude_code_version_too_old``, naming the
+# minimum); ``auth/oauth_tokens.py`` learns that minimum, saves it and retries,
+# so this baseline only has to be recent, not current.
+CLAUDE_CODE_VERSION = "2.1.283"
+OAUTH_USER_AGENT = f"claude-cli/{CLAUDE_CODE_VERSION} (external, cli)"
 OAUTH_TOKEN_USER_AGENT = OAUTH_USER_AGENT
 # Anthropic OAuth wire protocol requires this exact string as the first system
 # block. It is NOT the agent's user-facing identity — see repl/system.py and

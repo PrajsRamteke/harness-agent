@@ -196,7 +196,7 @@ export function flashDone(btn, label = 'Copied') {
 export function trapFocus(container, e) {
   if (e.key !== 'Tab' || !container) return;
   const items = [...container.querySelectorAll(
-    'button:not([disabled]), input:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])',
+    'button:not([disabled]), input:not([disabled]), textarea, a[href], [tabindex]:not([tabindex="-1"])',
   )].filter((el) => el.offsetParent !== null);
   if (!items.length) return;
   const first = items[0];

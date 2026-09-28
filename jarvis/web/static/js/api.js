@@ -296,3 +296,24 @@ export const fetchSkill = (name) => api(`/api/skills/${encodeURIComponent(name)}
 export function fetchMcpServers(q = '') {
   return api(`/api/mcp${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 }
+
+// ─── Providers and login (jarvis/web/providers_api.py) ────────────────────
+export const fetchProviders = () => api('/api/providers');
+export const fetchOAuthStatus = (flow) => api(`/api/providers/oauth?flow=${encodeURIComponent(flow)}`);
+
+/** `path` is key · key/remove · use · signout · oauth/start|finish|cancel.
+ * Always resolves to `{ok, error?, message?, providers?, state?}`. */
+export async function providerPost(path, data = {}) {
+  try {
+    const res = await fetch(`/api/providers/${path}`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => null);
+    if (!body || typeof body !== 'object') return { ok: false, error: res.statusText || 'Invalid response' };
+    return body;
+  } catch {
+    return { ok: false, error: 'Jarvis is not reachable' };
+  }
+}

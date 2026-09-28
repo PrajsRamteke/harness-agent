@@ -13,6 +13,7 @@ export const CATALOG = [
   { group: 'Go to', picker: 'agent', cmd: '/agent', label: 'Agent', desc: 'Activate an agent profile', icon: 'sparkles', keys: 'profile persona' },
   { group: 'Go to', picker: 'skill', cmd: '/skill', label: 'Skills', desc: 'Browse installed skill packs', icon: 'book-open' },
   { group: 'Go to', picker: 'mcp', cmd: '/mcp', label: 'MCP servers', desc: 'Connect or disconnect tool servers', icon: 'plug', keys: 'tools servers' },
+  { group: 'Go to', picker: 'provider', cmd: '/provider', label: 'Providers and login', desc: 'Sign in, add API keys, switch provider', icon: 'key-round', keys: 'login logout sign in oauth api key keys account anthropic claude chatgpt codex openrouter opencode zen kimchi' },
 
   { group: 'Conversation', action: 'session_new', cmd: '/new', label: 'New chat', desc: 'Start a fresh conversation', icon: 'plus', keys: 'clear fresh' },
   { group: 'Conversation', cmd: '/retry', label: 'Retry', desc: 'Send the last message again', icon: 'refresh-cw' },
@@ -36,7 +37,6 @@ export const CATALOG = [
   { group: 'Memory', cmd: '/pin', label: 'Pinned context', desc: 'Context added to every prompt', icon: 'pin', laptop: true },
   { group: 'Memory', cmd: '/scan', label: 'Scan project', desc: 'Deep scan of identity and docs', icon: 'scan-search' },
 
-  { group: 'On your computer', cmd: '/provider', label: 'Providers and login', desc: 'OAuth, API keys, provider switch', icon: 'key-round', laptop: true },
   { group: 'On your computer', cmd: '/settings', label: 'All settings', desc: 'Every preference, in the terminal', icon: 'sliders-horizontal', laptop: true },
   { group: 'On your computer', cmd: '/theme', label: 'Terminal theme', desc: 'Colours of the terminal app', icon: 'palette', laptop: true },
   { group: 'On your computer', cmd: '/agent init', label: 'Scaffold .harness/', desc: 'Create the project agent folders', icon: 'folder-plus', laptop: true },
@@ -59,7 +59,17 @@ export const LOCAL_PICKERS = {
   '/skill': 'skill',
   '/skills': 'skill',
   '/mcp': 'mcp',
+  '/provider': 'provider',
+  '/providers': 'provider',
+  '/login': 'provider',
+  '/logout': 'provider',
+  '/auth': 'provider',
+  '/key': 'provider',
+  '/keys': 'provider',
 };
+
+/** Commands whose argument the web picker takes too: `/provider openrouter`. */
+export const LOCAL_PICKERS_WITH_ARG = new Set(['/provider', '/providers', '/login', '/key']);
 
 export const LAPTOP_COMMANDS = new Set(
   CATALOG.filter((c) => c.laptop).map((c) => c.cmd.trim()),

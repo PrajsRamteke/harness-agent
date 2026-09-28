@@ -97,6 +97,15 @@
             </span>
             <span class="sc-chev" data-icon="chevrons-up-down"></span>
           </button>
+          <button class="select-card" id="providers-card" type="button">
+            <span class="sc-icon" data-icon="key-round"></span>
+            <span class="sc-body">
+              <span class="sc-label">Providers</span>
+              <strong class="sc-value" id="providers-name">Add a provider</strong>
+              <span class="sc-sub" id="providers-line">Sign in or paste an API key</span>
+            </span>
+            <span class="sc-chev" data-icon="chevron-right"></span>
+          </button>
         </section>
 
         <section class="side-sec">
@@ -283,6 +292,20 @@
       <div class="modal-list" id="picker-list" role="listbox"></div>
       <div class="picker-detail" id="picker-detail" hidden></div>
       <div class="modal-foot" id="picker-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="providers" hidden>
+    <div class="modal-card glass-strong providers-card" role="dialog" aria-modal="true" aria-labelledby="providers-title">
+      <div class="picker-head">
+        <span class="picker-icon"><span data-icon="key-round"></span></span>
+        <div class="picker-titles">
+          <h2 id="providers-title">Providers</h2>
+          <p id="providers-sub">Sign in or paste an API key. Saved on your computer.</p>
+        </div>
+        <button class="icon-btn" data-close="providers" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="pv-body" id="providers-body"></div>
     </div>
   </div>
 

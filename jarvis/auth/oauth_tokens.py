@@ -1,15 +1,92 @@
 """OAuth token persistence & refresh."""
-import json, time, urllib.parse
+import json, re, time, urllib.parse
 from typing import Optional
 
 from ..console import console
 from ..constants import (
     OAUTH_FILE, OAUTH_TOKEN_URL, OAUTH_CLIENT_ID, OAUTH_SCOPES,
-    OAUTH_REDIRECT_URI, OAUTH_TOKEN_USER_AGENT,
+    OAUTH_REDIRECT_URI,
 )
 from ..constants.models import OAUTH_DEFAULT_EXPIRY, OAUTH_EXPIRY_BUFFER
 from ..utils.io import _secure_write
 from ..utils.http import _http_json
+
+
+# ── Claude Code version the subscription traffic claims ───────────────────
+# Anthropic turns old Claude Code versions away from newer models with a 400
+# ``claude_code_version_too_old`` that names the minimum. Rather than break
+# every Claude Pro/Max session until the constant is bumped by hand, learn
+# that minimum once, keep it on disk, and send it from then on.
+
+_VERSION_RE = re.compile(r"\d+(?:\.\d+){1,3}")
+_REQUIRED_RE = re.compile(r"version\s+(\d+(?:\.\d+){1,3})\s+or\s+newer", re.IGNORECASE)
+
+
+def _version_file():
+    from ..constants.paths import CONFIG_DIR
+
+    return CONFIG_DIR / "claude_code_version"
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def claude_code_version() -> str:
+    """The built-in version, or the newer minimum Anthropic asked for."""
+    from ..constants.oauth import CLAUDE_CODE_VERSION
+
+    try:
+        saved = _version_file().read_text().strip()
+    except OSError:
+        saved = ""
+    if _VERSION_RE.fullmatch(saved) and _version_key(saved) > _version_key(CLAUDE_CODE_VERSION):
+        return saved
+    return CLAUDE_CODE_VERSION
+
+
+def oauth_user_agent() -> str:
+    return f"claude-cli/{claude_code_version()} (external, cli)"
+
+
+def learn_claude_code_version(error: object) -> Optional[str]:
+    """Save the minimum a ``claude_code_version_too_old`` refusal names.
+
+    Returns that version when it's newer than what was sent (the caller
+    rebuilds the client and retries), else None — any other error, or a
+    minimum we already meet, so a caller can never retry in a loop.
+    """
+    text = str(error)
+    if "claude_code_version_too_old" not in text and "or newer is required" not in text:
+        return None
+    match = _REQUIRED_RE.search(text)
+    if not match:
+        return None
+    needed = match.group(1)
+    if _version_key(needed) <= _version_key(claude_code_version()):
+        return None
+    try:
+        _secure_write(_version_file(), needed)
+    except OSError:
+        return None
+    return needed
+
+
+def anthropic_authorize_url(challenge: str, state: str) -> str:
+    """claude.ai sign-in link for a PKCE session; the page ends on ``code#state``."""
+    from ..constants import OAUTH_AUTHORIZE_URL
+
+    params = {
+        "code": "true",
+        "client_id": OAUTH_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": OAUTH_REDIRECT_URI,
+        "scope": OAUTH_SCOPES,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+    }
+    return OAUTH_AUTHORIZE_URL + "?" + urllib.parse.urlencode(params)
 
 
 def parse_oauth_code(raw: str) -> str:
@@ -60,19 +137,19 @@ def exchange_oauth_code(code: str, verifier: str, state: str) -> tuple[int, obje
             "redirect_uri": OAUTH_REDIRECT_URI,
             "code_verifier": verifier,
         },
-        user_agent=OAUTH_TOKEN_USER_AGENT,
+        user_agent=oauth_user_agent(),
     )
 
 
 def oauth_client_headers() -> dict[str, str]:
     """Default HTTP headers for Anthropic API calls authenticated via OAuth."""
-    from ..constants import OAUTH_BETA_HEADER, OAUTH_USER_AGENT
+    from ..constants import OAUTH_BETA_HEADER
 
     return {
         "anthropic-beta": OAUTH_BETA_HEADER,
         "anthropic-dangerous-direct-browser-access": "true",
         "x-app": "cli",
-        "User-Agent": OAUTH_USER_AGENT,
+        "User-Agent": oauth_user_agent(),
     }
 
 
@@ -108,7 +185,7 @@ def oauth_refresh(tokens: dict) -> Optional[dict]:
         "grant_type": "refresh_token",
         "refresh_token": tokens["refresh_token"],
         "client_id": OAUTH_CLIENT_ID,
-    }, user_agent=OAUTH_TOKEN_USER_AGENT)
+    }, user_agent=oauth_user_agent())
     if status != 200 or not isinstance(body, dict) or "access_token" not in body:
         return None
     expires_in = int(body.get("expires_in") or OAUTH_DEFAULT_EXPIRY)

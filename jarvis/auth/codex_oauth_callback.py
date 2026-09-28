@@ -35,8 +35,13 @@ def wait_for_codex_oauth_callback(
     port: int,
     timeout: float = 300.0,
     on_ready: Callable[[str], None] | None = None,
+    stop: threading.Event | None = None,
 ) -> tuple[str, str]:
-    """Block until browser hits ``/auth/callback``; return ``(code, state)``."""
+    """Block until browser hits ``/auth/callback``; return ``(code, state)``.
+
+    Setting ``stop`` ends the wait early (within ~0.5 s) with
+    ``CodexOAuthCallbackError("Sign-in cancelled")`` and frees the port.
+    """
     result: dict[str, object] = {"done": False}
     redirect_uri = f"http://localhost:{port}/auth/callback"
 
@@ -98,6 +103,8 @@ def wait_for_codex_oauth_callback(
         ready.set()
         end = time.monotonic() + timeout
         while time.monotonic() < end and not result.get("done"):
+            if stop is not None and stop.is_set():
+                break
             server.handle_request()
         server.server_close()
 
@@ -112,6 +119,8 @@ def wait_for_codex_oauth_callback(
 
     worker.join(timeout=max(0.0, timeout))
     if not result.get("done"):
+        if stop is not None and stop.is_set():
+            raise CodexOAuthCallbackError("Sign-in cancelled")
         raise CodexOAuthCallbackError("Timed out waiting for browser sign-in")
     if result.get("error"):
         raise result["error"]  # type: ignore[misc]

@@ -16,6 +16,7 @@ import { setBusy, setQueue, setStatusLabel } from './status.js';
 import { renderShellApproval, renderAskUser, renderTextInput, handlePromptResolved } from './prompts.js';
 import { refreshRecent } from './sidebar.js';
 import { fetchState } from './api.js';
+import { refreshProviders } from './providers.js';
 
 let runningTools = 0;
 
@@ -122,6 +123,12 @@ export function handleEvent(evt) {
       break;
     case 'prompt_resolved':
       handlePromptResolved(data.id);
+      break;
+
+    case 'providers':
+      // A key or sign-in changed (this tab, another one, or the terminal's
+      // ChatGPT callback): reload the list for the sidebar and dialog.
+      refreshProviders();
       break;
 
     default:

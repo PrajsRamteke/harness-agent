@@ -9,6 +9,7 @@ import { store } from './store.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
 import { runAction } from './actions.js';
 import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
+import { openProviders } from './providers.js';
 import {
   pickerAction,
   fetchSessions,
@@ -105,7 +106,13 @@ function hideDetail() {
   $('picker-search')?.focus();
 }
 
-function open(kind) {
+function open(kind, arg = '') {
+  // Providers is its own dialog (rows with forms), not a pick-one list.
+  if (kind === 'provider') {
+    if (isModalOpen('picker')) closePicker();
+    openProviders(arg);
+    return;
+  }
   const spec = SPECS[kind];
   if (!spec) return;
   current = { kind, spec, rows: null };
@@ -247,7 +254,13 @@ const modelSpec = {
         pick: () => (m.active ? closePicker() : pickAndClose('model_select', { option_id: m.id }, `Model: ${m.model_id}`)),
       });
     }
-    return { rows, empty: '<strong>No models match</strong>Try a provider name such as “anthropic”.' };
+    return { rows, empty: '<strong>No models match</strong>Try a provider name such as “anthropic”, or add a provider below.' };
+  },
+  // Models only list providers that are set up — adding one is a click away.
+  foot: () => `<span class="picker-foot-note">Missing a provider?</span><span class="spacer"></span>
+    <button type="button" class="btn" data-foot="providers">${icon('key-round')}<span>Add a provider</span></button>`,
+  bindFoot(foot) {
+    foot.querySelector('[data-foot="providers"]')?.addEventListener('click', () => open('provider'));
   },
 };
 
@@ -425,8 +438,8 @@ const SPECS = {
   mcp: mcpSpec,
 };
 
-export function openPickerByKind(kind) {
-  open(kind);
+export function openPickerByKind(kind, arg = '') {
+  open(kind, arg);
 }
 
 export function initPickers() {

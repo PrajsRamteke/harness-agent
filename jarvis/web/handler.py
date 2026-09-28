@@ -20,7 +20,7 @@ from .pickers_api import (
     list_sessions,
     list_skills,
 )
-from .state_api import snapshot_from_state
+from .state_api import snapshot_from_state, state_fields
 
 if TYPE_CHECKING:
     from ..tui.app import JarvisTUI
@@ -288,10 +288,65 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/mcp":
             self._send_json(200, list_mcp_servers(query=self._query_str(qs, "q")))
             return
+        if path == "/api/providers":
+            from .providers_api import list_providers
+
+            self._send_json(200, list_providers())
+            return
+        if path == "/api/providers/oauth":
+            from .providers_api import oauth_status
+
+            self._send_json(200, oauth_status(self._query_str(qs, "flow")))
+            return
         self.send_response(404)
         self.end_headers()
 
+    def _handle_providers_post(self, path: str, data: dict[str, Any]) -> None:
+        """Keys, sign-in and switching (``providers_api``). Network calls run
+        here; session changes hop to the TUI main thread via the bridge."""
+        from . import providers_api as pv
+
+        run = pv.bridge_runner(self.bridge)
+        card_id = str(data.get("id") or "").strip()
+        flow_id = str(data.get("flow") or "").strip()
+        if path == "/api/providers/key":
+            result = pv.save_key(card_id, str(data.get("key") or ""), use=bool(data.get("use", True)), run_action=run)
+        elif path == "/api/providers/key/remove":
+            result = run("provider_key_remove", {"id": card_id})
+        elif path == "/api/providers/use":
+            result = run("provider_use", {"id": card_id})
+        elif path == "/api/providers/signout":
+            result = run("provider_sign_out", {"id": card_id})
+        elif path == "/api/providers/oauth/start":
+            result = pv.start_oauth(card_id, run_action=run)
+        elif path == "/api/providers/oauth/finish":
+            result = pv.finish_oauth(flow_id, str(data.get("code") or ""), run_action=run)
+        elif path == "/api/providers/oauth/cancel":
+            result = pv.cancel_oauth(flow_id)
+        else:
+            self.send_response(404)
+            self.end_headers()
+            return
+        body = dict(result) if isinstance(result, dict) else {"ok": False, "error": "invalid response"}
+        try:
+            body["providers"] = pv.list_providers()
+            fields = state_fields(busy=self._busy())
+            body["state"] = fields
+        except Exception:
+            fields = None
+        if body.get("ok") and fields is not None and path not in (
+            "/api/providers/oauth/start", "/api/providers/oauth/cancel",
+        ):
+            # Other open tabs see the new model / provider now, not on the
+            # next watcher tick (the provider list event comes from ``run``).
+            self.bridge.emit("state", fields)
+        self._send_json(200, body)
+
     def _handle_api_post(self, path: str, data: dict[str, Any]) -> None:
+        if path.startswith("/api/providers/"):
+            self._handle_providers_post(path, data)
+            return
+
         if path == "/api/action":
             action = str(data.get("action") or "").strip()
             if not action:

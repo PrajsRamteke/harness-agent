@@ -5,7 +5,7 @@ import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, 
 import { icon } from './icons.js';
 import { store, subscribe, patchStore } from './store.js';
 import { sendPrompt, cancelTurn, enhancePrompt } from './api.js';
-import { CATALOG, LOCAL_PICKERS, LAPTOP_COMMANDS, matchItem, rankItems } from './catalog.js';
+import { CATALOG, LOCAL_PICKERS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchItem, rankItems } from './catalog.js';
 import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
 
@@ -89,10 +89,12 @@ export async function submitPrompt(text) {
     return;
   }
 
-  const pickerKind = LOCAL_PICKERS[value.toLowerCase()];
+  const [head, ...rest] = value.split(/\s+/);
+  const withArg = rest.length && LOCAL_PICKERS_WITH_ARG.has(head.toLowerCase());
+  const pickerKind = LOCAL_PICKERS[value.toLowerCase()] || (withArg ? LOCAL_PICKERS[head.toLowerCase()] : '');
   if (pickerKind && openPicker) {
     if (text === undefined && el) setPromptValue('');
-    openPicker(pickerKind);
+    openPicker(pickerKind, withArg ? rest.join(' ') : '');
     return;
   }
 
