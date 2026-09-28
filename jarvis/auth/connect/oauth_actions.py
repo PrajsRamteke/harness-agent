@@ -76,8 +76,8 @@ def activate_oauth(spec: OAuthProviderSpec) -> OAuthActionResult:
         except Exception as e:
             return False, f"failed to activate: {e}", None
         adopt_provider_model(PROVIDER_OPENAI_CODEX)
-        from ...constants.providers import CODEX_MODELS
-        model_ids = [m for m, _ in CODEX_MODELS]
+        from ...constants.providers import codex_models_for_picker
+        model_ids = [m for m, _ in codex_models_for_picker()]
         return True, f"✓ active: {spec.label} (OAuth)", model_ids
 
     return False, f"{spec.label} activation not implemented", None

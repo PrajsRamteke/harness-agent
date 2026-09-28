@@ -307,11 +307,12 @@ def _default_model(source: str) -> str:
 
     if source == PROVIDER_OPENROUTER:
         return p.openrouter_default_model()
+    if source == PROVIDER_OPENAI_CODEX_AUTH:
+        return p.codex_default_model()
     return {
         PROVIDER_HARNESS_AGENT: p.HARNESS_AGENT_DEFAULT_MODEL,
         PROVIDER_ANTHROPIC_API: p.ANTHROPIC_DEFAULT_MODEL,
         PROVIDER_ANTHROPIC_AUTH: p.ANTHROPIC_DEFAULT_MODEL,
-        PROVIDER_OPENAI_CODEX_AUTH: p.CODEX_DEFAULT_MODEL,
         PROVIDER_OPENCODE: p.OPENCODE_DEFAULT_MODEL,
         PROVIDER_OPENCODE_ZEN: p.OPENCODE_ZEN_DEFAULT_MODEL,
         PROVIDER_KIMCHI: p.KIMCHI_DEFAULT_MODEL,

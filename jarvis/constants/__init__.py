@@ -55,6 +55,7 @@ from .providers import (
     model_option_id, parse_model_option_id,
     model_belongs_to_provider, normalize_model_for_provider,
     CODEX_DEFAULT_MODEL, CODEX_MODELS, CODEX_BASE_URL,
+    codex_models_for_picker, codex_default_model,
     KIMCHI_MODELS, KIMCHI_BASE_URL, KIMCHI_USER_AGENT, KIMCHI_DEFAULT_MODEL, KIMCHI_MODEL_IDS,
 )
 from .api_keys import API_KEY_SPECS, api_key_spec, api_key_spec_for_provider

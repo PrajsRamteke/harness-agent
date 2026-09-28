@@ -31,7 +31,7 @@ from ..constants.codex_oauth import (
     CODEX_OAUTH_CLIENT_ID,
     CODEX_OAUTH_REDIRECT_URI,
 )
-from ..constants.providers import CODEX_MODELS, PROVIDER_OPENAI_CODEX
+from ..constants.providers import PROVIDER_OPENAI_CODEX, codex_models_for_picker
 from ..utils.io import _secure_write
 from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen
 from .mouse_toggle import disable_mouse, enable_mouse
@@ -203,7 +203,7 @@ class CodexLoginModalScreen(TuiModalScreen[list[str] | None]):
         from ..auth.connect.oauth_actions import adopt_provider_model
         adopt_provider_model(PROVIDER_OPENAI_CODEX)
 
-        model_ids = [m for m, _ in CODEX_MODELS]
+        model_ids = [m for m, _ in codex_models_for_picker()]
         self._set_status(f"✓ signed in to OpenAI Codex — {len(model_ids)} models", ok=True)
         self.set_timer(0.6, lambda ids=model_ids: self._finish_login(ids))
 

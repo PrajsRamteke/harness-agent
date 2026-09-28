@@ -149,9 +149,12 @@ MODELS: list[ModelSpec] = [
     # Paid OpenCode Zen picker reuses these slugs; exclusive free IDs have expired.
 
     # ── OpenAI Codex (ChatGPT subscription / OAuth) ───────────────────────────
-    ModelSpec("gpt-5.5",      "GPT-5.5 — Codex recommended", PROVIDER_OPENAI_CODEX, default=True, supports_images=True),
-    ModelSpec("gpt-5.4",      "GPT-5.4 — Codex fallback",    PROVIDER_OPENAI_CODEX, supports_images=True),
-    ModelSpec("gpt-5.4-mini", "GPT-5.4 Mini — faster Codex", PROVIDER_OPENAI_CODEX, supports_images=True),
+    # Offline seed only — the live line-up comes from the Codex backend (see
+    # jarvis/auth/codex_catalog.py). gpt-5.5 (404) and gpt-5.4 / gpt-5.4-mini
+    # (400) no longer serve ChatGPT accounts.
+    ModelSpec("gpt-6-luna",    "GPT-6-Luna — Fast and affordable model for easier tasks", PROVIDER_OPENAI_CODEX, default=True, supports_images=True),
+    ModelSpec("gpt-5.6-terra", "GPT-5.6-Terra — Older balanced model for straightforward work", PROVIDER_OPENAI_CODEX, supports_images=True),
+    ModelSpec("gpt-5.6-luna",  "GPT-5.6-Luna — Older fast and efficient model", PROVIDER_OPENAI_CODEX, supports_images=True),
 
     # ── Kimchi (llm.kimchi.dev — OpenAI-compatible, BYO API key) ───────────────
     ModelSpec("glm-5.2-fp8",       "GLM-5.2 FP8 — latest GLM model",       PROVIDER_KIMCHI, supports_images=True),
@@ -278,6 +281,45 @@ def openrouter_default_model() -> str:
     if discovered:
         return discovered[0].id
     return OPENROUTER_DEFAULT_MODEL
+
+
+def codex_models_for_picker(live: bool = False) -> list[tuple[str, str]]:
+    """Codex rows: the account's live line-up, or the seeds when it's unknown.
+
+    Unlike OpenRouter, seeds are *not* appended to a live list — a model the
+    backend no longer serves is dead, and offering it is what broke Codex when
+    gpt-5.5 was retired. ``live=False`` reads the on-disk cache only.
+    """
+    try:
+        from ..auth.codex_catalog import models_for_display
+
+        discovered = models_for_display(live=live)
+    except Exception:
+        discovered = []
+    if not discovered:
+        return list(CODEX_MODELS)
+    for m in discovered:
+        register_dynamic_model(
+            m.id, m.label, PROVIDER_OPENAI_CODEX, supports_images=m.supports_images
+        )
+    return [(m.id, m.label) for m in discovered]
+
+
+def codex_default_model() -> str:
+    """Default Codex model: the backend's top pick that hasn't refused us."""
+    try:
+        from ..auth.codex_catalog import models_for_display, refused_ids
+
+        usable = [m for m in models_for_display() if m.usable]
+        refused = refused_ids()
+    except Exception:
+        usable, refused = [], set()
+    if usable:
+        return usable[0].id
+    for mid, _ in CODEX_MODELS:
+        if mid not in refused:
+            return mid
+    return CODEX_DEFAULT_MODEL
 OPENCODE_MODELS = [
     (mid, info[0])
     for mid, info in MODEL_INFO.items()
@@ -587,7 +629,7 @@ def models_for_source(source: str, live: bool = False, cached: bool = False):
         from ..auth.anthropic_models import anthropic_auth_models_for_picker
         return anthropic_auth_models_for_picker()
     if source == PROVIDER_OPENAI_CODEX_AUTH:
-        return list(CODEX_MODELS)
+        return codex_models_for_picker(live=live)
     if source == PROVIDER_KIMCHI:
         return list(KIMCHI_MODELS)
     return models_for(source)
@@ -677,7 +719,7 @@ def models_for(provider: str):
     if provider == PROVIDER_OPENCODE_ZEN:
         return opencode_zen_models_for_picker()
     if provider == PROVIDER_OPENAI_CODEX:
-        return CODEX_MODELS
+        return codex_models_for_picker()
     if provider == PROVIDER_KIMCHI:
         return KIMCHI_MODELS
     return list(ANTHROPIC_MODELS)
@@ -699,6 +741,14 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
         return m.startswith("claude-")
     if provider == PROVIDER_KIMCHI:
         return m in KIMCHI_MODEL_IDS
+    if provider == PROVIDER_OPENAI_CODEX:
+        # A live-discovered model picked last session isn't registered yet.
+        try:
+            from ..auth.codex_catalog import cached_models
+
+            return any(cm.id == m for cm in cached_models())
+        except Exception:
+            return False
     return False
 
 
@@ -722,6 +772,18 @@ def infer_provider_for_model(model: str) -> str:
 
 def normalize_model_for_provider(model: str, provider: str) -> str:
     """Use ``model`` when valid for ``provider``; otherwise the provider default."""
+    if provider == PROVIDER_OPENAI_CODEX:
+        # A saved model that Codex has since refused (e.g. a retired gpt-5.5)
+        # must not survive a restart as the model every turn is sent to.
+        try:
+            from ..auth.codex_catalog import refused_ids
+
+            refused = refused_ids()
+        except Exception:
+            refused = set()
+        if (model or "").strip() not in refused and model_belongs_to_provider(model, provider):
+            return model.strip()
+        return codex_default_model()
     if model_belongs_to_provider(model, provider):
         return model.strip()
     if provider == PROVIDER_OPENCODE_ZEN:
@@ -734,8 +796,8 @@ def normalize_model_for_provider(model: str, provider: str) -> str:
 def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
     """Refresh every live model catalog into the on-disk cache.
 
-    Safe to call from a background thread — it only performs public, unauthenticated
-    GETs. Returns True when at least one catalog came back, so a caller that is
+    Safe to call from a background thread — only public GETs, plus the Codex
+    line-up with the user's own OAuth token when signed in. Returns True when at least one catalog came back, so a caller that is
     showing cached rows knows whether re-rendering is worthwhile.
 
     ``retry_blocked=True`` (an explicit ``/model refresh``) also clears the
@@ -754,6 +816,12 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
         ok = bool(_or_refresh(retry_blocked=retry_blocked)) or ok
     except Exception:
         pass
+    try:
+        from ..auth.codex_catalog import refresh_models as _codex_refresh
+
+        ok = bool(_codex_refresh(retry_refused=retry_blocked)) or ok
+    except Exception:
+        pass
     return ok
 
 
@@ -762,7 +830,8 @@ def model_catalogs_are_fresh() -> bool:
     try:
         from ..auth.zen_catalog import cache_is_fresh as _zen_fresh
         from ..auth.openrouter_catalog import cache_is_fresh as _or_fresh
+        from ..auth.codex_catalog import cache_is_fresh as _codex_fresh
 
-        return _zen_fresh() and _or_fresh()
+        return _zen_fresh() and _or_fresh() and _codex_fresh()
     except Exception:
         return False

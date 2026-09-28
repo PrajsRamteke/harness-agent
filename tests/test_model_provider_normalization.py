@@ -23,4 +23,7 @@ def test_opencode_rejects_codex_model():
 
 
 def test_codex_keeps_valid_model():
-    assert normalize_model_for_provider("gpt-5.4", PROVIDER_OPENAI_CODEX) == "gpt-5.4"
+    assert (
+        normalize_model_for_provider("gpt-5.6-terra", PROVIDER_OPENAI_CODEX)
+        == "gpt-5.6-terra"
+    )

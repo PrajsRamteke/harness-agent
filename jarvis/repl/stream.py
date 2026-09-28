@@ -273,6 +273,17 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
             )
 
 
+def _codex_refused_model(e: Exception) -> bool:
+    """True when Codex refused the *model* (not the request or the token)."""
+    status = getattr(e, "status_code", None)
+    text = str(e).lower()
+    if status == 404:
+        return "model_not_found" in text or "does not exist" in text
+    if status == 400:
+        return "model is not supported" in text
+    return False
+
+
 def _stop_on_rate_limit(detail: str = "") -> None:
     """Print a clear rate-limit message and abort the turn (no backoff retries)."""
     report_turn_phase("Rate limited — stopping")
@@ -578,6 +589,7 @@ def call_claude_stream():
     oauth_refreshed = False
     claude_version_retried = False
     openrouter_model_retried = False
+    codex_model_retried = False
     panel_title = f"jarvis · {assistant_model_label()}"
     for attempt in range(len(delays) + 1):
         try:
@@ -777,10 +789,35 @@ def call_claude_stream():
             if getattr(e, "status_code", None) == 429:
                 _stop_on_rate_limit(str(e))
                 raise
-            if getattr(e, "status_code", None) == 400 and state.provider == PROVIDER_OPENAI_CODEX:
+            if state.provider == PROVIDER_OPENAI_CODEX and _codex_refused_model(e):
+                # Codex retires models without warning: 404 model_not_found for
+                # a still-listed legacy one, 400 "not supported" for a dropped
+                # one. Remember it and move to the next model it does serve.
+                from ..auth.codex_catalog import mark_unavailable
+                from ..constants.providers import codex_default_model
+
+                refused = state.MODEL
+                mark_unavailable(refused)
+                fallback = codex_default_model()
+                if not codex_model_retried and fallback != refused:
+                    codex_model_retried = True
+                    console.print(
+                        f"[yellow]Codex no longer serves '{refused}' for this "
+                        f"account — switching to [cyan]{fallback}[/]. "
+                        "It stays in /model, marked unavailable.[/]"
+                    )
+                    state.MODEL = fallback
+                    kwargs["model"] = fallback
+                    try:
+                        from ..storage.prefs import save_last_model
+                        save_last_model()
+                    except Exception:
+                        pass
+                    continue
                 console.print(
-                    f"[red]Codex rejected model '{state.MODEL}'.[/]\n"
-                    "[yellow]Run /model to pick a Codex model (e.g. gpt-5.4), "
-                    "or /provider to switch provider.[/]"
+                    f"[red]Codex rejected model '{refused}'.[/]\n"
+                    "[yellow]Run /model refresh, then /model to pick a Codex "
+                    "model, or /provider to switch provider.[/]"
                 )
+                raise HarnessAPIError("model not available")
             raise

@@ -9,6 +9,7 @@ from ..constants import (
     HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS, OPENCODE_ZEN_MODEL_IDS,
     OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     models_for, is_harness_agent_model, normalize_model_for_provider,
+    model_belongs_to_provider,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_HARNESS_AGENT, PROVIDER_KIMCHI,
     KIMCHI_DEFAULT_MODEL, KIMCHI_MODEL_IDS,
@@ -216,13 +217,13 @@ def resolve_model_arg(arg: str) -> tuple[str, str] | None:
 _OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
 _OPENCODE_ZEN_MODEL_IDS = set(OPENCODE_ZEN_MODEL_IDS)
 _HARNESS_AGENT_MODEL_IDS = set(HARNESS_AGENT_MODEL_IDS)
-_CODEX_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENAI_CODEX)}
 _KIMCHI_MODEL_IDS = set(KIMCHI_MODEL_IDS)
 
 
 def _provider_for_model(model: str) -> str:
     """Determine provider from model id."""
-    if model in _CODEX_MODEL_IDS:
+    # Not a frozen id set: the Codex line-up is discovered at runtime.
+    if model_belongs_to_provider(model, PROVIDER_OPENAI_CODEX):
         return PROVIDER_OPENAI_CODEX
     if model in _HARNESS_AGENT_MODEL_IDS:
         return PROVIDER_OPENCODE_ZEN
@@ -585,9 +586,7 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         if state.MODEL not in _OPENCODE_ZEN_MODEL_IDS:
             state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
     elif target == PROVIDER_OPENAI_CODEX:
-        from ..constants import CODEX_DEFAULT_MODEL
-        if state.MODEL not in _CODEX_MODEL_IDS:
-            state.MODEL = CODEX_DEFAULT_MODEL
+        state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_OPENAI_CODEX)
         if not load_codex_oauth_tokens():
             console.print("[yellow]OpenAI Codex OAuth not configured — run /login first[/]")
             state.provider = prev_provider

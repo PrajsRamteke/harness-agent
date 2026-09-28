@@ -86,6 +86,15 @@ runtime**, not hard-coded:
   the catalog marks them, so the only way to know is to be refused once —
   entries age out after a week). `FreeModel.usable` is the combined check, and
   only usable models are ever auto-selected as a fallback.
+- `auth/codex_catalog.py` — the ChatGPT-OAuth Codex line-up from
+  `chatgpt.com/backend-api/codex/models` (needs the user's access token and a
+  recent `client_version` — an old one returns only legacy models). Codex
+  retires models silently (404 `model_not_found` for a still-listed legacy id,
+  400 "not supported" for a dropped one): `repl/stream.py` marks the model
+  `unavailable` (sorted last, ages out after a week) and retries on
+  `codex_default_model()`, and `normalize_model_for_provider` never keeps a
+  refused Codex model. Seeds in `constants/providers.py` are used only while
+  the cache is cold and are never appended to a live list.
 - `auth/catalog_cache.py` — stale-while-revalidate disk cache under
   `~/.config/harness-agent/model_catalog/`.
 
