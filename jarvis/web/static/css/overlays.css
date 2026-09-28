@@ -262,7 +262,7 @@
 .setting-label { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; color: var(--text-3); }
 .setting-block .switch-row { padding: 9px 8px; margin: 0 -8px; }
 
-.mode-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .mode-card {
   display: flex;
   flex-direction: column;
@@ -276,7 +276,7 @@
 .mode-card:hover { border-color: var(--line-2); background: var(--card-hover); transform: translateY(-2px); }
 .mode-card:active { transform: scale(0.97); }
 .mode-card[aria-checked="true"] { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
-.mode-label { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; }
+.mode-label { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; white-space: nowrap; }
 .mode-label .ic { width: 14px; height: 14px; }
 .mode-card[aria-checked="true"] .mode-label { color: var(--accent); }
 
@@ -288,10 +288,15 @@
   overflow: hidden;
   border: 1px solid var(--line);
 }
-.mode-preview i { position: absolute; display: block; border-radius: 4px; }
-.mode-preview i:nth-child(1) { left: 8px; top: 8px; width: 22px; bottom: 8px; }
-.mode-preview i:nth-child(2) { left: 36px; top: 10px; right: 10px; height: 8px; }
-.mode-preview i:nth-child(3) { left: 36px; top: 24px; right: 26px; height: 22px; border-radius: 6px; }
+/* One .mode-look per theme shown; System stacks light + dark and clips the
+   dark one to the right of a diagonal. theme.js picks the soft or crisp look. */
+.mode-look { position: absolute; inset: 0; }
+.mode-preview.is-split .mode-look + .mode-look { clip-path: polygon(62% 0, 100% 0, 100% 100%, 38% 100%); }
+.mode-look i { position: absolute; display: block; border-radius: 4px; }
+/* Proportional, so the sketch still reads on a phone-width card. */
+.mode-look i:nth-child(1) { left: 8px; top: 8px; width: 20%; bottom: 8px; }
+.mode-look i:nth-child(2) { left: calc(20% + 16px); top: 10px; right: 10px; height: 8px; }
+.mode-look i:nth-child(3) { left: calc(20% + 16px); top: 24px; right: 22%; height: 22px; border-radius: 6px; }
 .mode-dark { background: #000; }
 .mode-dark i { background: #1c1c1c; }
 .mode-dark i:nth-child(3) { background: #141414; box-shadow: inset 0 0 0 1px #2a2a2a; }
@@ -301,10 +306,12 @@
 .mode-light { background: #f6f6f5; }
 .mode-light i { background: #e5e5e5; }
 .mode-light i:nth-child(3) { background: #fff; box-shadow: inset 0 0 0 1px #e0e0e0; }
-.mode-system { background: linear-gradient(115deg, #f6f6f5 50%, #000 50%); }
-.mode-system i { background: rgba(128, 128, 128, 0.35); }
-.mode-system i:nth-child(3) { background: rgba(128, 128, 128, 0.2); }
-.mode-card[aria-checked="true"] .mode-preview i:nth-child(2) { background: var(--accent); }
+.mode-soft { background: #f4f1ea; }
+.mode-soft i { background: #e7e2d7; }
+.mode-soft i:nth-child(3) { background: #fffdf8; box-shadow: inset 0 0 0 1px #e3ddcf; }
+.mode-card[aria-checked="true"] .mode-look i:nth-child(2) { background: var(--accent); }
+
+.setting-block .soft-row { margin: 10px -8px 0; }
 
 .accent-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .accent-chip {
@@ -558,7 +565,6 @@
 
 /* ─── Phones: dialogs become bottom sheets ────────────────────────────── */
 @media (max-width: 560px) {
-  .mode-grid { grid-template-columns: repeat(2, 1fr); }
   .accent-grid { grid-template-columns: repeat(4, 1fr); }
   .modal { align-items: flex-end; padding: 40px 0 0; }
   .modal-card {

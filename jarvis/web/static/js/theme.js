@@ -1,4 +1,4 @@
-/** Appearance: light / dark / system mode, accent colour, device preferences */
+/** Appearance: light / dark / system mode, soft contrast, accent colour, device preferences */
 import { $, escapeHtml, storageGet, storageSet, reducedMotion, haptic } from './utils.js';
 import { icon } from './icons.js';
 import { patchStore } from './store.js';
@@ -7,12 +7,21 @@ import { openModal } from './modal.js';
 export const MODES = [
   { id: 'system', label: 'System', icon: 'monitor' },
   { id: 'light', label: 'Light', icon: 'sun' },
-  { id: 'dim', label: 'Soft dark', icon: 'cloud-moon' },
   { id: 'dark', label: 'Dark', icon: 'moon' },
 ];
 
-const THEME_COLOR = { light: '#f6f6f5', dim: '#1c1d21', dark: '#000000' };
-export const THEME_LABEL = { light: 'Light', dim: 'Soft dark', dark: 'Dark' };
+/** Soft is a switch on top of the mode: light → warm paper, dark → charcoal. */
+const SOFT_SUB = {
+  system: 'Warm paper in light, charcoal in dark',
+  light: 'Warm paper instead of bright white',
+  dark: 'Charcoal instead of pure black',
+};
+
+const THEME_COLOR = { light: '#f6f6f5', soft: '#f4f1ea', dim: '#1c1d21', dark: '#000000' };
+export const THEME_LABEL = { light: 'Light', soft: 'Soft light', dim: 'Soft dark', dark: 'Dark' };
+
+/** Themes that use the light palette (tokens.css keys off data-theme). */
+const LIGHT_THEMES = new Set(['light', 'soft']);
 
 export const ACCENTS = [
   { id: 'green', label: 'Green', dark: '#4ade80', light: '#16a34a' },
@@ -83,7 +92,7 @@ function luminance(rgb) {
  */
 function customAccentVars(hex, theme) {
   const [h, s, l] = rgbToHsl(hexToRgb(hex));
-  const light = theme === 'light';
+  const light = theme === 'light' || theme === 'soft';
   let L = l;
   for (let i = 0; i < 100 && L > 5 && L < 95; i++) {
     const lum = luminance(hslToRgb(h, s, L));
@@ -106,31 +115,45 @@ function hueToHex(h) {
   return rgbToHex(hslToRgb(h, s < 30 ? 80 : s, Math.max(45, Math.min(70, l))));
 }
 
+// Old builds stored the soft themes as modes of their own ('dim', 'soft'):
+// move them to mode + soft once, so the next save keeps the soft look.
+const LEGACY_SOFT = { dim: 'dark', soft: 'light' };
+let savedMode = storageGet('jarvis-theme', 'dark');
+if (LEGACY_SOFT[savedMode]) {
+  savedMode = LEGACY_SOFT[savedMode];
+  storageSet('jarvis-theme', savedMode);
+  storageSet('jarvis-soft', '1');
+}
+
 export const prefs = {
-  mode: storageGet('jarvis-theme', 'dark'),
+  mode: MODES.some((m) => m.id === savedMode) ? savedMode : 'dark',
+  soft: storageGet('jarvis-soft', '0') === '1',
   accent: storageGet('jarvis-accent', 'green'),
   custom: validHex(storageGet('jarvis-accent-custom', '')) || CUSTOM_DEFAULT,
   alert: storageGet('jarvis-alert', '1') !== '0',
   compact: storageGet('jarvis-compact', '0') === '1',
-  // Which dark the light/dark flip returns to: 'dark' or 'dim'.
-  darkVariant: storageGet('jarvis-dark-variant', 'dark') === 'dim' ? 'dim' : 'dark',
 };
 
-/** 'light' | 'dim' | 'dark' — what is actually on screen. */
+/** 'light' | 'soft' | 'dim' | 'dark' — what is actually on screen. */
 export function resolvedTheme() {
-  if (prefs.mode === 'system') return systemLight.matches ? 'light' : 'dark';
-  if (prefs.mode === 'light' || prefs.mode === 'dim') return prefs.mode;
-  return 'dark';
+  const light = prefs.mode === 'system' ? systemLight.matches : prefs.mode === 'light';
+  if (light) return prefs.soft ? 'soft' : 'light';
+  return prefs.soft ? 'dim' : 'dark';
 }
 
 export function isLightTheme() {
-  return resolvedTheme() === 'light';
+  return LIGHT_THEMES.has(resolvedTheme());
 }
 
 function apply() {
   const root = document.documentElement;
   const theme = resolvedTheme();
-  root.dataset.theme = theme;
+  // Soft light is a light theme with warmer surfaces: it wears data-theme
+  // "light" (so every light rule in the CSS applies) plus data-variant="soft"
+  // for the handful of token overrides in tokens.css.
+  root.dataset.theme = theme === 'soft' ? 'light' : theme;
+  if (theme === 'soft') root.dataset.variant = 'soft';
+  else delete root.dataset.variant;
   const custom = prefs.accent === 'custom';
   root.dataset.accent = custom || ACCENTS.some((a) => a.id === prefs.accent) ? prefs.accent : 'green';
   // A custom accent is set inline (beats every preset rule in tokens.css).
@@ -184,21 +207,28 @@ function withReveal(src, change) {
   }
 }
 
-export function setMode(mode, src) {
-  const next = MODES.some((m) => m.id === mode) ? mode : 'dark';
-  const before = resolvedTheme();
-  prefs.mode = next;
-  storageSet('jarvis-theme', prefs.mode);
-  if (prefs.mode === 'dark' || prefs.mode === 'dim') {
-    prefs.darkVariant = prefs.mode;
-    storageSet('jarvis-dark-variant', prefs.mode);
-  }
+/** Apply a mode / soft change; the reveal only plays when the colours change. */
+function retheme(before, src) {
   const run = () => {
     apply();
     paintAppearance();
   };
   if (resolvedTheme() !== before) withReveal(src, run);
   else run();
+}
+
+export function setMode(mode, src) {
+  const before = resolvedTheme();
+  prefs.mode = MODES.some((m) => m.id === mode) ? mode : 'dark';
+  storageSet('jarvis-theme', prefs.mode);
+  retheme(before, src);
+}
+
+export function setSoft(on, src) {
+  const before = resolvedTheme();
+  prefs.soft = on;
+  storageSet('jarvis-soft', on ? '1' : '0');
+  retheme(before, src);
 }
 
 export function setAccent(accent, src) {
@@ -235,9 +265,9 @@ export function setCustomAccent(hex, { src, live = false } = {}) {
   });
 }
 
-/** Quick flip between light and dark (sidebar button, palette, Alt+T). */
+/** Quick flip between light and dark (sidebar button, palette, Alt+T); soft carries over. */
 export function toggleTheme(src) {
-  setMode(isLightTheme() ? prefs.darkVariant : 'light', src);
+  setMode(isLightTheme() ? 'dark' : 'light', src);
 }
 
 function notificationsUsable() {
@@ -325,14 +355,23 @@ document.addEventListener('visibilitychange', () => {
 function paintAppearance() {
   const modes = $('mode-grid');
   if (!modes) return;
+  // Previews show what each mode looks like with the current soft setting.
+  const lightLook = prefs.soft ? 'soft' : 'light';
+  const darkLook = prefs.soft ? 'dim' : 'dark';
+  const look = (cls) => `<span class="mode-look mode-${cls}"><i></i><i></i><i></i></span>`;
+  const preview = { system: look(lightLook) + look(darkLook), light: look(lightLook), dark: look(darkLook) };
   modes.innerHTML = MODES.map((m) => `
     <button type="button" class="mode-card" role="radio" data-mode="${m.id}" aria-checked="${prefs.mode === m.id}">
-      <span class="mode-preview mode-${m.id}" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="mode-preview${m.id === 'system' ? ' is-split' : ''}" aria-hidden="true">${preview[m.id]}</span>
       <span class="mode-label">${icon(m.icon)}<span>${escapeHtml(m.label)}</span></span>
     </button>`).join('');
   modes.querySelectorAll('[data-mode]').forEach((btn) => {
     btn.addEventListener('click', (e) => setMode(btn.dataset.mode, e));
   });
+  const soft = $('sw-soft');
+  if (soft) soft.checked = prefs.soft;
+  const softSub = $('soft-sub');
+  if (softSub) softSub.textContent = SOFT_SUB[prefs.mode];
 
   paintAccents();
 
@@ -420,6 +459,7 @@ export function initTheme() {
   });
   $('accent-exact')?.addEventListener('input', (e) => setCustomAccent(e.target.value, { live: true }));
   $('accent-exact')?.addEventListener('change', paintAccents);
+  $('sw-soft')?.addEventListener('change', (e) => setSoft(e.target.checked, e));
   $('sw-alert')?.addEventListener('change', (e) => setAlert(e.target.checked));
   $('sw-compact')?.addEventListener('change', (e) => setCompact(e.target.checked));
 }

@@ -121,6 +121,37 @@
   --shadow-lg: 0 30px 70px -28px rgba(0, 0, 0, 0.35);
 }
 
+/* Soft light: warm paper instead of near-white — lifted, low-glare surfaces
+   and a softer ink, at lower contrast than Light. It wears data-theme
+   "light" (so every light rule below and in the other sheets applies) plus
+   data-variant "soft"; only the surface, ink and shadow tokens change.
+   Higher specificity than the light block, so these win without reordering. */
+:root[data-theme="light"][data-variant="soft"] {
+  --bg: #f4f1ea;
+
+  --text: #2b2a26;
+  --text-2: #5f5b53;
+  --text-3: #8d887e;
+
+  --glass: rgba(255, 254, 250, 0.72);
+  --glass-strong: rgba(255, 254, 250, 0.92);
+  --card: rgba(255, 254, 250, 0.72);
+  --card-hover: #fffefb;
+  --card-sunk: rgba(70, 60, 40, 0.05);
+  --tile: linear-gradient(180deg, #fffefb, #f0ede5);
+  --line: rgba(60, 54, 42, 0.1);
+  --line-2: rgba(60, 54, 42, 0.18);
+  --highlight: rgba(255, 255, 255, 0.9);
+
+  --you-fill: #fffefb;
+  --you-line: rgba(60, 54, 42, 0.12);
+  --code-bg: #1f1e1a;
+  --code-line: rgba(255, 255, 255, 0.08);
+
+  --shadow: 0 14px 34px -20px rgba(60, 50, 30, 0.22);
+  --shadow-lg: 0 30px 70px -28px rgba(60, 50, 30, 0.32);
+}
+
 /* Soft dark: charcoal instead of pure black — lifted panels, gentler
    contrast, same accents as Dark. Only the surfaces and text change. */
 :root[data-theme="dim"] {
@@ -285,6 +316,8 @@ body.is-offline .glow { opacity: 0.15; }
   :root[data-theme="dim"] .glass-strong { background: rgba(44, 45, 52, 0.98); }
   :root[data-theme="light"] .glass,
   :root[data-theme="light"] .glass-strong { background: rgba(250, 250, 255, 0.96); }
+  :root[data-theme="light"][data-variant="soft"] .glass,
+  :root[data-theme="light"][data-variant="soft"] .glass-strong { background: rgba(255, 254, 250, 0.96); }
 }
 
 /* ─── Mark (brand + avatar): a tile with a live dot ───────────────────── */
