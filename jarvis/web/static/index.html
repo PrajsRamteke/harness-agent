@@ -189,11 +189,12 @@
         </div>
       </div>
 
-      <button class="jump-btn" id="jump-btn" type="button" hidden>
-        <span data-icon="arrow-down"></span><span>Latest</span><span class="jump-count" id="jump-count" hidden></span>
-      </button>
-
       <div class="dock">
+        <!-- Inside the dock so it always floats just above it, however tall the
+             dock gets (activity row, queued chips, a multi-line draft). -->
+        <button class="jump-btn" id="jump-btn" type="button" hidden>
+          <span data-icon="arrow-down"></span><span>Latest</span><span class="jump-count" id="jump-count" hidden></span>
+        </button>
         <div class="dock-chips" id="dock-chips">
           <div class="chip-slot" id="wait-chip"></div>
           <div class="chip-slot" id="queue-chips"></div>

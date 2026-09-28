@@ -576,10 +576,12 @@
 .typing i:nth-child(3) { animation-delay: 0.28s; }
 
 /* ─── Jump to latest ──────────────────────────────────────────────────── */
+/* Lives inside .dock: anchored to the dock's top edge, so it rides above the
+   composer whatever its height (activity row, chips, multi-line draft). */
 .jump-btn {
   position: absolute;
   left: 50%;
-  bottom: 138px;
+  bottom: calc(100% + 12px);
   z-index: 4;
   display: inline-flex;
   align-items: center;
@@ -763,7 +765,6 @@ body.is-compact .turn-agent:has(> .agent-body > .agent-text:first-child) > .mark
 /* ─── Narrow ──────────────────────────────────────────────────────────── */
 @media (max-width: 960px) {
   .chat-scroll { padding: 16px 4px 22px; }
-  .jump-btn { bottom: 112px; }
 }
 
 @media (max-width: 560px) {
