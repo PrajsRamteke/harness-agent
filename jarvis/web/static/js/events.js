@@ -17,6 +17,8 @@ import { renderShellApproval, renderAskUser, renderTextInput, handlePromptResolv
 import { refreshRecent } from './sidebar.js';
 import { fetchState } from './api.js';
 import { refreshProviders } from './providers.js';
+import { loadChanges, applyChange } from './changes.js';
+import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
 
 let runningTools = 0;
 
@@ -36,6 +38,9 @@ export function handleEvent(evt) {
       renderSnapshot(data);
       setBusy(!!data.busy);
       setQueue(data.queue || []);
+      loadChanges(data.changes, data.session_id);
+      loadActivity(data.messages);
+      setJobs(data.jobs);
       if (prevSession && prevSession !== data.session_id) refreshRecent();
       break;
     }
@@ -45,7 +50,13 @@ export function handleEvent(evt) {
       loadSnapshot(data);
       setBusy(!!data.busy);
       setQueue(data.queue || []);
+      if ('jobs' in data) setJobs(data.jobs);
       syncThoughtsVisibility();
+      break;
+
+    case 'change':
+      // A file was created, edited or deleted: the panel's list + that file's diff.
+      applyChange(data);
       break;
 
     case 'resync':
@@ -103,11 +114,13 @@ export function handleEvent(evt) {
     case 'tool_start':
       runningTools += 1;
       toolStart(data);
+      noteToolStart(data);
       setStatusLabel(toolLabel() || `${data.title || data.name || 'Tool'} ${data.args || ''}`.trim());
       break;
     case 'tool_done':
       runningTools = Math.max(0, runningTools - 1);
       toolDone(data);
+      noteToolDone(data);
       if (runningTools) setStatusLabel(toolLabel() || 'Running tools');
       else setStatusLabel('Thinking');
       break;

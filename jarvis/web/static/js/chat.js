@@ -12,6 +12,7 @@ import { $, escapeHtml, copyText, flashDone, truncate, animateEl, SPRING } from 
 import { icon } from './icons.js';
 import { store } from './store.js';
 import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
+import { openChange } from './changes.js';
 
 const chat = () => $('chat');
 const scroller = () => $('chat-scroll');
@@ -525,8 +526,10 @@ export function appendDiff(data) {
       <span class="diff-path" title="${escapeHtml(data.path || '')}">${escapeHtml(verb)} ${escapeHtml(data.path || '')}</span>
       <span class="diff-add">+${Number(data.added) || 0}</span>
       <span class="diff-del">−${Number(data.removed) || 0}</span>
+      ${data.id ? `<button type="button" class="diff-open" title="Open in the changes panel">${icon('panel-right')}<span>Panel</span></button>` : ''}
     </div>
     <pre class="diff-body">${body}${extra}</pre>`;
+  el.querySelector('.diff-open')?.addEventListener('click', () => openChange(data.id));
   if (lines.length > 12) {
     el.classList.add('is-collapsed');
     const more = document.createElement('button');

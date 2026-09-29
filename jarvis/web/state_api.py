@@ -188,6 +188,31 @@ def _project_name() -> str:
         return ""
 
 
+def jobs_fields() -> list[dict[str, Any]]:
+    """Background jobs (``run_bg``) for the Activity tab, newest last.
+
+    Only stable values: a running job carries its wall-clock start (the page
+    counts up by itself), a finished one its final duration — so an unchanged
+    job list never looks like news to ``StateWatcher``.
+    """
+    try:
+        from ..tools import background
+    except Exception:
+        return []
+    out: list[dict[str, Any]] = []
+    for job in background.jobs()[-12:]:
+        running = job.running
+        out.append({
+            "id": job.id,
+            "cmd": " ".join(job.cmd.split())[:160],
+            "status": "running" if running else ("killed" if job.killed else "done"),
+            "code": job.code,
+            "started": int(job.started_at),
+            "secs": None if running else int(round(job.elapsed)),
+        })
+    return out
+
+
 def state_fields(*, busy: bool = False, session_title: str | None = None) -> dict[str, Any]:
     """Everything the web UI shows about the session, except the transcript.
 
@@ -226,12 +251,16 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "tokens_out": state.total_out,
         "tokens_total": state.total_tokens,
         "tool_calls": state.tool_calls_count,
+        "jobs": jobs_fields(),
     }
 
 
 def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
+    from .. import file_changes
+
     snap = state_fields(busy=busy)
     snap["messages"] = snapshot_messages()
+    snap["changes"] = file_changes.summaries()
     return snap
 
 

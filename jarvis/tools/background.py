@@ -58,6 +58,7 @@ class Job:
     proc: subprocess.Popen
     log: pathlib.Path
     t0: float = field(default_factory=time.monotonic)
+    started_at: float = field(default_factory=time.time)  # wall clock, for display
     t1: float | None = None
     code: int | None = None
     killed: bool = False

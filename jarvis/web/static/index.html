@@ -44,6 +44,7 @@
   <link rel="stylesheet" href="/static/css/chat.css">
   <link rel="stylesheet" href="/static/css/composer.css">
   <link rel="stylesheet" href="/static/css/overlays.css">
+  <link rel="stylesheet" href="/static/css/inspector.css">
 </head>
 <body>
   <div class="backdrop" aria-hidden="true">
@@ -184,6 +185,11 @@
         <button class="cmd-btn" id="palette-btn" type="button" aria-label="Commands (Ctrl+K)">
           <span data-icon="command"></span><span class="cmd-btn-label">Commands</span><kbd id="palette-kbd">Ctrl K</kbd>
         </button>
+        <button class="insp-btn" id="insp-btn" type="button" aria-controls="inspector" aria-expanded="false" aria-label="Changes and activity" title="Changes and activity (Alt D)">
+          <span class="insp-ic" data-icon="panel-right"></span>
+          <span class="insp-stat" id="insp-stat" hidden><b class="num-add" id="insp-add">+0</b><b class="num-del" id="insp-del">−0</b></span>
+          <span class="insp-badge" id="insp-badge" hidden>0</span>
+        </button>
       </header>
 
       <div class="conn-banner" id="conn-banner" role="status" hidden>
@@ -212,6 +218,7 @@
         </button>
         <div class="dock-chips" id="dock-chips">
           <div class="chip-slot" id="wait-chip"></div>
+          <div class="chip-slot" id="changes-chip"></div>
           <div class="chip-slot" id="queue-chips"></div>
         </div>
         <div class="composer glass" id="composer">
@@ -260,6 +267,62 @@
         </p>
       </div>
     </main>
+
+    <aside class="inspector glass" id="inspector" aria-label="Changes and activity" aria-hidden="true" inert>
+      <div class="insp-resize" id="insp-resize" role="separator" aria-orientation="vertical" aria-label="Resize panel" tabindex="0"></div>
+      <header class="insp-head" id="insp-head">
+        <div class="insp-tabs" id="insp-tabs" role="tablist" aria-label="Panel">
+          <button class="insp-tab is-active" id="tab-changes" type="button" role="tab" aria-selected="true" aria-controls="pane-changes" data-tab="changes">
+            <span data-icon="file-diff"></span><span>Changes</span><span class="tab-count" id="tab-count-changes" hidden>0</span>
+          </button>
+          <button class="insp-tab" id="tab-activity" type="button" role="tab" aria-selected="false" aria-controls="pane-activity" data-tab="activity" tabindex="-1">
+            <span data-icon="activity"></span><span>Activity</span><span class="tab-dot" id="tab-dot-activity" hidden></span>
+          </button>
+        </div>
+        <button class="icon-btn only-roomy" id="insp-expand" type="button" aria-pressed="false" aria-label="Make the panel wider" title="Wider"><span data-icon="maximize-2"></span></button>
+        <button class="icon-btn" id="insp-close" type="button" aria-label="Close panel" title="Close"><span data-icon="x"></span></button>
+      </header>
+
+      <div class="insp-body">
+        <section class="insp-pane is-active" id="pane-changes" role="tabpanel" aria-labelledby="tab-changes">
+          <div class="chg-top" id="chg-top" hidden>
+            <div class="chg-summary">
+              <div class="chg-headline">
+                <strong id="chg-files" aria-live="polite" aria-atomic="true">0 files changed</strong>
+                <span class="chg-nums"><b class="num-add" id="chg-add">+0</b><b class="num-del" id="chg-del">−0</b><span class="chg-since">this session</span></span>
+              </div>
+              <div class="chg-tools" role="toolbar" aria-label="Diff options">
+                <button class="tool-icon" id="chg-follow" type="button" aria-pressed="true" aria-label="Follow along" title="Follow along: open each file as Jarvis changes it"><span data-icon="radio"></span></button>
+                <button class="tool-icon" id="chg-wrap" type="button" aria-pressed="false" aria-label="Wrap long lines" title="Wrap long lines"><span data-icon="wrap-text"></span></button>
+                <button class="tool-icon only-roomy" id="chg-view" type="button" aria-pressed="false" aria-label="Side by side" title="Side by side"><span data-icon="columns-2"></span></button>
+                <button class="tool-icon" id="chg-fold" type="button" aria-label="Expand all" title="Expand all"><span data-icon="chevrons-up-down"></span></button>
+                <button class="tool-icon" id="chg-patch" type="button" aria-label="Copy everything as a patch" title="Copy as patch (git apply)"><span data-icon="copy"></span></button>
+              </div>
+            </div>
+            <div class="chg-ratio" id="chg-ratio" aria-hidden="true"><i class="r-add"></i><i class="r-del"></i></div>
+            <div class="chg-filters" id="chg-filters" role="group" aria-label="Show" hidden></div>
+          </div>
+          <div class="chg-scroll" id="chg-scroll">
+            <div class="chg-list" id="chg-list" role="list"></div>
+            <div class="chg-empty" id="chg-empty">
+              <span class="chg-empty-ic" data-icon="file-diff"></span>
+              <h3>No file changes yet</h3>
+              <p>Files Jarvis creates, edits, renames or deletes show up here as they happen, each with a live diff.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="insp-pane" id="pane-activity" role="tabpanel" aria-labelledby="tab-activity" inert>
+          <div class="act-scroll" id="act-scroll">
+            <div class="act-now" id="act-now"></div>
+            <div class="act-card" id="act-jobs" hidden></div>
+            <div class="act-card" id="act-mix"></div>
+            <div class="act-card" id="act-timeline"></div>
+          </div>
+        </section>
+      </div>
+    </aside>
+    <div class="insp-scrim" id="insp-scrim"></div>
   </div>
 
   <div class="modal" id="palette" hidden>

@@ -8,6 +8,7 @@ import threading
 from http.server import ThreadingHTTPServer
 from typing import TYPE_CHECKING
 
+from .. import file_changes
 from .bridge import WebBridge
 from .handler import WebHandler
 from .sync import StateWatcher
@@ -89,6 +90,15 @@ def start_web_server(
     watcher = StateWatcher(bridge, busy=lambda: bool(getattr(app, "_busy", False)))
     watcher.start()
     server.state_watcher = watcher  # type: ignore[attr-defined]
+
+    def push_change(fid: str) -> None:
+        # Runs on the tool's thread right after it wrote the file; the diff is
+        # only worth building while a browser is watching.
+        if bridge.has_subscribers():
+            bridge.emit("change", file_changes.change_event(fid))
+
+    file_changes.subscribe(push_change)
+    server.change_listener = push_change  # type: ignore[attr-defined]
     urls = _local_urls(bound_port, bridge.token)
     return server, urls, bound_port
 
@@ -102,6 +112,9 @@ def stop_web_server(server: _JarvisHTTPServer | None, bridge: WebBridge | None) 
     watcher = getattr(server, "state_watcher", None)
     if watcher is not None:
         watcher.stop()
+    listener = getattr(server, "change_listener", None)
+    if listener is not None:
+        file_changes.unsubscribe(listener)
     server.shutdown()      # waits for serve_forever's loop (≤ poll interval)
     server.server_close()
 

@@ -17,6 +17,7 @@ const SHEET = [
   { keys: [ALT, 'M'], label: 'Switch model' },
   { keys: [ALT, 'S'], label: 'Sessions' },
   { keys: [ALT, 'A'], label: 'Agents' },
+  { keys: [ALT, 'D'], label: 'Show or hide the changes panel' },
   { keys: [ALT, 'T'], label: 'Light or dark mode' },
   { keys: ['?'], label: 'This list' },
 ];
@@ -37,7 +38,7 @@ function typing(e) {
   return !!e.target.closest?.('input, textarea, [contenteditable="true"]');
 }
 
-/** `handlers`: { newChat, openPicker(kind), toggleTheme, enhance } */
+/** `handlers`: { newChat, openPicker(kind), toggleTheme, enhance, toggleInspector } */
 export function initShortcuts(handlers) {
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || topModal()) return;
@@ -55,6 +56,7 @@ export function initShortcuts(handlers) {
       KeyM: () => handlers.openPicker('model'),
       KeyS: () => handlers.openPicker('session'),
       KeyA: () => handlers.openPicker('agent'),
+      KeyD: () => handlers.toggleInspector?.(),
       KeyT: () => handlers.toggleTheme(),
       KeyE: () => handlers.enhance?.(),
     };

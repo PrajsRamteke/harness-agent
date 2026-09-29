@@ -453,7 +453,7 @@ def multi_edit(
                 _cache_invalidate(p)
 
         if backed_up:
-            _emit_diff(path, before_txt, txt, action="edit")
+            _emit_diff(str(p), before_txt, txt, action="edit")
 
         i = j
 

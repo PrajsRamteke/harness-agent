@@ -12,6 +12,7 @@ from __future__ import annotations
 import difflib
 import pathlib
 
+from .. import file_changes
 from ..console import console, Panel
 from ..constants import CWD
 from .. import state
@@ -91,6 +92,9 @@ def _build_diff_body(before: str, after: str) -> tuple[object | None, int, int]:
 
 def emit_file_diff(path: str, before: str, after: str, *, action: str = "write") -> None:
     """Render a live unified diff panel for a file write/edit. Never raises."""
+    # The ledger behind the web "Changes" panel records every change, whether
+    # or not the inline diff is shown (HARNESS_SHOW_DIFFS=0 only hides that).
+    file_changes.record(path, None if action == "create" else before, after, action)
     try:
         if not getattr(state, "show_file_diffs", True):
             return

@@ -13,6 +13,7 @@ import {
 } from './actions.js';
 import { toggleTheme, isLightTheme, openAppearance } from './theme.js';
 import { onProvidersChange } from './providers.js';
+import { closeInspector, isDocked, isInspectorOpen } from './inspector.js';
 
 const PROVIDER_LABELS = {
   anthropic: 'Anthropic',
@@ -33,6 +34,8 @@ let lastTitle = null;
 // ─── Drawer (narrow screens) ──────────────────────────────────────────────
 
 export function openSidebar() {
+  // Both drawers slide over the page on small screens: one at a time.
+  if (!isDocked() && isInspectorOpen()) closeInspector();
   document.body.classList.add('side-open');
   $('sidebar')?.querySelector('button, input')?.focus({ preventScroll: true });
 }

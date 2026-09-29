@@ -40,6 +40,8 @@ export const store = {
   doneFlash: null,
   /** Has ever connected — before that, "Connecting", not "Lost connection". */
   everConnected: false,
+  /** The computer's clock minus this device's, in seconds (for "2m ago", job timers). */
+  skew: 0,
 };
 
 let scheduled = false;

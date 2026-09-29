@@ -6,7 +6,7 @@ import threading
 
 from ..console import console
 from ..constants import CWD, MAX_TOOL_OUTPUT, DEFAULT_BASH_TIMEOUT
-from .. import state
+from .. import file_changes, state
 
 _bash_lock = threading.Lock()
 
@@ -72,15 +72,21 @@ def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
             env = os.environ.copy()
             env.setdefault("GIT_PAGER", "cat")
             env.setdefault("PAGER", "cat")
-            r = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=str(CWD),
-                env=env,
-            )
+            # Files the command deletes / renames / edits in place show up in
+            # the web Changes panel (nothing is recorded if nothing changed).
+            settle_changes = file_changes.watch_shell(cmd)
+            try:
+                r = subprocess.run(
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    cwd=str(CWD),
+                    env=env,
+                )
+            finally:
+                settle_changes()
             out = (r.stdout or "") + (f"\n[stderr]\n{r.stderr}" if r.stderr else "")
             return f"$ {cmd}\nexit={r.returncode}\n{out[-MAX_TOOL_OUTPUT:]}"
         except subprocess.TimeoutExpired:

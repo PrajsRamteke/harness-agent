@@ -3,7 +3,9 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  /* Third track: the inspector panel (inspector.css). Zero until it opens. */
+  grid-template-columns: 300px minmax(0, 1fr) var(--insp-col, 0px);
+  transition: grid-template-columns 0.46s var(--ease);
   gap: 14px;
   height: 100dvh;
   padding: calc(14px + var(--safe-top)) 14px calc(14px + var(--safe-bottom));

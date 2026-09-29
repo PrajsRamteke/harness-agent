@@ -4,6 +4,7 @@ import { icon } from './icons.js';
 import { patchStore, store, subscribe } from './store.js';
 import { settleTools, syncTyping, markTurnDone } from './chat.js';
 import { replyReady, isAlertTitle } from './theme.js';
+import { noteBusy } from './activity.js';
 
 let elapsedTimer = 0;
 let flashTimer = 0;
@@ -37,12 +38,14 @@ export function setBusy(next) {
   const busy = !!next;
   if (busy === store.busy) return;
   const since = store.busySince;
+  const stopped = store.stopRequested;
   patchStore({
     busy,
     busySince: busy ? Date.now() : 0,
     statusLabel: busy ? 'Thinking' : '',
     ...(busy ? { doneFlash: null, stopRequested: false } : {}),
   });
+  noteBusy(busy, { secs: since ? (Date.now() - since) / 1000 : 0, stopped });
   if (!busy) {
     settleTools();
     flashOutcome(since);

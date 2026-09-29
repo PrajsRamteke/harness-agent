@@ -1,13 +1,16 @@
 /** Application bootstrap */
 import { $, escapeHtml, showToast, copyText } from './utils.js';
 import { icon, hydrateIcons } from './icons.js';
-import { store, loadSnapshot, loadUiPrefs } from './store.js';
+import { store, loadUiPrefs } from './store.js';
 import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
 import { handleEvent } from './events.js';
-import { initChat, renderSnapshot, invalidateSnapshot } from './chat.js';
+import { initChat, invalidateSnapshot } from './chat.js';
 import { initComposer, fillPrompt, submitPrompt, insertQuote, enhanceMessage } from './composer.js';
-import { initStatus, setBusy, setConnected, setQueue } from './status.js';
+import { initStatus, setConnected } from './status.js';
 import { initSidebar } from './sidebar.js';
+import { initInspector, toggleInspector } from './inspector.js';
+import { initChanges } from './changes.js';
+import { initActivity } from './activity.js';
 import { initModals } from './modal.js';
 import { initPalette, runItem } from './palette.js';
 import { initPickers, openPickerByKind } from './pickers.js';
@@ -83,10 +86,7 @@ async function recoverToken() {
 async function loadInitialState() {
   try {
     const data = await fetchState();
-    loadSnapshot(data);
-    renderSnapshot(data);
-    setBusy(!!data.busy);
-    setQueue(data.queue || []);
+    handleEvent({ type: 'snapshot', data });
   } catch (err) {
     if (err?.status === 401) {
       recoverToken();
@@ -114,12 +114,15 @@ function boot() {
   initStatus();
   initComposer({ onCatalogItem: runItem, onOpenPicker: openPickerByKind });
   initSidebar({ onOpenPicker: openPickerByKind });
+  initInspector();
+  initChanges();
+  initActivity();
   initPalette({ onOpenPicker: openPickerByKind });
   initPickers();
   initProviders({ onOpenPicker: openPickerByKind });
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
-  initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage });
+  initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector });
   renderStarters();
 
   $('copy-link')?.addEventListener('click', async () => {

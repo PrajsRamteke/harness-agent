@@ -225,6 +225,19 @@ def test_js_modules_import_existing_files_and_names():
                 assert name in exports[mod], f"{f.name} imports {name} not exported by {mod}"
 
 
+def test_every_element_id_the_scripts_look_up_exists():
+    """A typo in `$('some-id')` fails silently in the browser (null, no error)."""
+    js = {f.name: f.read_text() for f in (STATIC / "js").glob("*.js")}
+    markup = (STATIC / "index.html").read_text() + "\n".join(js.values())
+    missing: dict[str, list[str]] = {}
+    built_by_helpers = {"pv-quick"}     # providers.js field('pv-quick', …) writes the id
+    for name, src in js.items():
+        for ident in set(re.findall(r"\$\('([\w-]+)'\)", src)) - built_by_helpers:
+            if f'id="{ident}"' not in markup and f"id='{ident}'" not in markup:
+                missing.setdefault(ident, []).append(name)
+    assert missing == {}
+
+
 def test_every_icon_used_is_bundled():
     src = (STATIC / "js" / "icons.js").read_text()
     bundled = set(json.loads(re.search(r"const ICONS = (\{.*\});", src).group(1)))

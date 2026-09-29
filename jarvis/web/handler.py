@@ -288,6 +288,26 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/mcp":
             self._send_json(200, list_mcp_servers(query=self._query_str(qs, "q")))
             return
+        if path == "/api/changes":
+            from .. import file_changes
+
+            self._send_json(200, file_changes.summaries())
+            return
+        if path == "/api/changes/file":
+            from .. import file_changes
+
+            found = file_changes.detail(self._query_str(qs, "id"))
+            if found is None:
+                self._send_json(404, {"error": "file has no changes"})
+            else:
+                self._send_json(200, found)
+            return
+        if path == "/api/changes/patch":
+            from .. import file_changes
+
+            fid = self._query_str(qs, "id") or None
+            self._send_json(200, {"patch": file_changes.patch_text(fid)})
+            return
         if path == "/api/providers":
             from .providers_api import list_providers
 

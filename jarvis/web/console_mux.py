@@ -207,7 +207,10 @@ class WebMuxConsole:
                 shown = short_path(path) or path
             except Exception:
                 shown = path
+            from ..file_changes import file_id
+
             self._bridge.emit("diff", {
+                "id": file_id(path),
                 "path": shown,
                 "action": action,
                 "lines": body[:160],
