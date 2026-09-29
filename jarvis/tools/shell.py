@@ -4,6 +4,8 @@ import re
 import subprocess
 import threading
 
+from rich.markup import escape
+
 from ..console import console
 from ..constants import CWD, MAX_TOOL_OUTPUT, DEFAULT_BASH_TIMEOUT
 from .. import file_changes, state
@@ -40,7 +42,9 @@ def ask_approval(cmd: str) -> str | None:
     """
     if state.auto_approve or _is_safe_readonly_command(cmd):
         return None
-    console.print(f"[yellow]→ run:[/] [cyan]{cmd}[/]")
+    # The command is model-written text: a `[x for x in y]` in it must print as
+    # text, not be read as a Rich style tag (the TUI crashes on an unknown one).
+    console.print(f"[yellow]→ run:[/] [cyan]{escape(cmd)}[/]")
     try:
         approve = getattr(console, "prompt_shell_approval", None)
         if approve is not None:

@@ -94,8 +94,13 @@ class _PromptWaiter:
 
         if threading.current_thread() is threading.main_thread():
             _go()  # call_from_thread raises on the UI thread
-        else:
+            return
+        try:
             self._app.call_from_thread(_go)
+        except RuntimeError:
+            # The app has already stopped (it crashed or was closed): there is
+            # no screen to dismiss, but whoever is waiting still gets answered.
+            self.deliver(value)
 
 
 class TUIConsole:

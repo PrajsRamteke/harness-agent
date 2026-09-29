@@ -56,3 +56,39 @@ def test_search_like_command_runs_without_prompt():
             out = run_bash("rg -n agent .harness", 20)
     assert "match" in out
     assert "USER DENIED" not in out
+
+
+def test_approval_prompt_prints_the_command_as_text_not_markup():
+    """`[f(i) for i in x]` in a command must not become a Rich style tag — the
+    TUI raised MissingStyle on it and the whole app went down."""
+    from rich.text import Text
+
+    from jarvis.tools import shell
+
+    printed: list[str] = []
+
+    class _Console:
+        def print(self, text, *a, **k):
+            printed.append(text)
+
+        def input(self, *a, **k):
+            return "y"
+
+    cmd = "python3 -c \"print([f'value_{i}' for i in range(45)])\" && echo [red]x[/red]"
+    with patch.object(state, "auto_approve", False), patch.object(shell, "console", _Console()):
+        assert shell.ask_approval(cmd) is None
+    assert Text.from_markup(printed[0]).plain == f"→ run: {cmd}"
+
+
+def test_dismissing_a_prompt_after_the_app_stopped_still_answers_the_waiter():
+    from jarvis.tui.console_shim import _PromptWaiter
+
+    class _StoppedApp:
+        def call_from_thread(self, fn):
+            raise RuntimeError("App is not running")
+
+    waiter = _PromptWaiter(_StoppedApp())
+    t = threading.Thread(target=lambda: waiter.dismiss_screen(object, "n"))
+    t.start()
+    t.join(timeout=2)
+    assert waiter.wait(timeout=1) == "n"
