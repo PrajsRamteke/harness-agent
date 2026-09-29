@@ -38,6 +38,23 @@ MAX_LINE = 400               # chars kept per diff row
 MAX_SHELL_FILES = 60         # files snapshotted around one shell command
 MAX_SHELL_BYTES = 8 * 1024 * 1024
 _LEDGERS_KEPT = 8
+# Persisted per-session change ledgers (SQLite): baselines + edit steps so the
+# web Changes panel survives a restart and a session resume. Large texts are
+# never persisted wholesale — see _persist_ledger().
+_CHANGES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS session_file_changes (
+    session_id INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    existed INTEGER NOT NULL,
+    baseline TEXT NOT NULL DEFAULT '',
+    big INTEGER NOT NULL DEFAULT 0,
+    first_ts REAL NOT NULL DEFAULT 0,
+    last_ts REAL NOT NULL DEFAULT 0,
+    steps_json TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (session_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_sfc_session ON session_file_changes(session_id);
+"""
 
 # Never look inside these when a shell command names a directory.
 _SKIP_PARTS = {
@@ -77,6 +94,9 @@ class Tracked:
 _lock = threading.RLock()
 _ledgers: "OrderedDict[int, dict[str, Tracked]]" = OrderedDict()
 _listeners: list[Callable[[str], None]] = []
+_persisted_sids: set[int] = set()   # sessions whose ledger was loaded from SQLite
+_dirty_sids: set[int] = set()       # sessions with unflushed ledger writes
+_persist_timer: threading.Timer | None = None
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -228,17 +248,244 @@ def _ledger() -> dict[str, Tracked]:
     led = _ledgers.get(sid)
     if led is None:
         led = _ledgers[sid] = {}
+        evicted: list[int] = []
         while len(_ledgers) > _LEDGERS_KEPT:
-            _ledgers.popitem(last=False)
+            old, _ = _ledgers.popitem(last=False)
+            evicted.append(old)
+        for old in evicted:
+            # Flushed synchronously — the debounced timer may not have run yet,
+            # and a later flush must not see a missing ledger as "netted out".
+            _persist_ledger(old)
+            with _lock:
+                _persisted_sids.discard(old)
+        _restore_session(sid, led)
     else:
         _ledgers.move_to_end(sid)
     return led
 
 
 def reset() -> None:
-    """Forget every ledger (tests)."""
+    """Forget every ledger (tests).
+
+    Clears in-memory ledgers AND persisted rows so tests never leak into
+    each other through the sessions DB (every test uses session id 1).
+    """
     with _lock:
+        sids = list(_ledgers.keys()) or ([_session_key()] if _session_key() else [])
         _ledgers.clear()
+        _persisted_sids.clear()
+        _dirty_sids.clear()
+    for sid in sids:
+        try:
+            conn = _changes_conn()
+            try:
+                with conn:
+                    conn.execute("DELETE FROM session_file_changes WHERE session_id = ?", (sid,))
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+
+def forget_session(sid: int) -> None:
+    """Drop one session's in-memory ledger (called when it is deleted)."""
+    try:
+        sid = int(sid)
+    except (TypeError, ValueError):
+        return
+    with _lock:
+        _ledgers.pop(sid, None)
+        _persisted_sids.discard(sid)
+        _dirty_sids.discard(sid)
+    try:
+        from .storage.sessions import db_conn
+
+        conn = db_conn()
+        try:
+            with conn:
+                conn.execute("DELETE FROM session_file_changes WHERE session_id = ?", (sid,))
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+# ── persistence (SQLite) ─────────────────────────────────────────────────
+# The ledger is in-memory while a session runs; each write is flushed to the
+# sessions DB (debounced) so the web Changes panel survives a restart and a
+# resume. Only baselines + aggregate edit steps are stored — never the current
+# file text — so the table stays small and resume re-diffs against disk.
+
+_PERSIST_DEBOUNCE_SECS = 2.0
+_PERSIST_BASELINE_CHARS = 200_000   # bigger baselines → counts only, like _BIG
+_PERSIST_STEPS_KEPT = 40
+
+
+def _changes_conn():
+    from .storage.sessions import db_conn
+
+    conn = db_conn()
+    try:
+        conn.executescript(_CHANGES_SCHEMA)
+    except Exception:
+        pass
+    return conn
+
+
+def _schedule_persist(sid: int) -> None:
+    if not sid:
+        return
+    with _lock:
+        _dirty_sids.add(sid)
+        global _persist_timer
+        if _persist_timer is not None:
+            return
+        _persist_timer = threading.Timer(_PERSIST_DEBOUNCE_SECS, _flush_dirty)
+        _persist_timer.daemon = True
+        _persist_timer.start()
+
+
+def _flush_dirty() -> None:
+    with _lock:
+        global _persist_timer
+        _persist_timer = None
+        sids = sorted(_dirty_sids)
+        _dirty_sids.clear()
+    for sid in sids:
+        _persist_ledger(sid)
+
+
+def flush() -> None:
+    """Write pending ledgers to SQLite now (restart / tests)."""
+    _flush_dirty()
+
+
+def _persist_ledger(sid: int) -> None:
+    try:
+        sid = int(sid or 0)
+    except (TypeError, ValueError):
+        return
+    if not sid:
+        return
+    with _lock:
+        led = _ledgers.get(sid)
+        rows = [] if led is None else list(led.values())
+    if not rows:
+        # A session whose files all netted out to zero: clear stale rows.
+        try:
+            conn = _changes_conn()
+            try:
+                with conn:
+                    conn.execute("DELETE FROM session_file_changes WHERE session_id = ?", (sid,))
+            finally:
+                conn.close()
+        except Exception:
+            pass
+        return
+    payload: list[tuple] = []
+    for tf in rows:
+        baseline = tf.baseline if isinstance(tf.baseline, str) else ""
+        big = 1 if (tf.big or len(baseline) > _PERSIST_BASELINE_CHARS) else 0
+        if big and len(baseline) > _PERSIST_BASELINE_CHARS:
+            baseline = ""
+        steps = [
+            {"ts": s.ts, "action": s.action, "added": s.added, "removed": s.removed}
+            for s in (tf.steps or [])[-_PERSIST_STEPS_KEPT:]
+        ]
+        payload.append((
+            sid, _norm(tf.path), 1 if tf.existed else 0, baseline, big,
+            float(tf.first_ts or 0), float(tf.last_ts or 0),
+            __import__("json").dumps(steps),
+        ))
+    try:
+        conn = _changes_conn()
+        try:
+            with conn:
+                paths = [p[1] for p in payload]
+                if paths:
+                    q = ",".join("?" for _ in paths)
+                    conn.execute(
+                        f"DELETE FROM session_file_changes WHERE session_id = ? AND path NOT IN ({q})",
+                        (sid, *paths),
+                    )
+                else:
+                    conn.execute("DELETE FROM session_file_changes WHERE session_id = ?", (sid,))
+                conn.executemany(
+                    "INSERT OR REPLACE INTO session_file_changes"
+                    " (session_id, path, existed, baseline, big, first_ts, last_ts, steps_json)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    payload,
+                )
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _restore_session(sid: int, led: dict[str, Tracked]) -> None:
+    """Load a persisted ledger into memory (once per process per session).
+
+    Baselines are replayed as-is; the current text is re-read from disk, so
+    files edited outside Jarvis (or after a restart) still diff correctly.
+    """
+    try:
+        sid = int(sid or 0)
+    except (TypeError, ValueError):
+        return
+    if not sid or sid in _persisted_sids:
+        return
+    _persisted_sids.add(sid)
+    try:
+        conn = _changes_conn()
+        try:
+            db_rows = conn.execute(
+                "SELECT path, existed, baseline, big, first_ts, last_ts, steps_json"
+                " FROM session_file_changes WHERE session_id = ?",
+                (sid,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return
+    if not db_rows:
+        return
+    import json as _json
+
+    for r in db_rows:
+        try:
+            path = _norm(str(r[0] or ""))
+            if not path or path in led:
+                continue
+            baseline = str(r[2] or "")
+            big = bool(r[3])
+            try:
+                steps_raw = _json.loads(r[6] or "[]")
+            except Exception:
+                steps_raw = []
+            steps = [
+                Step(ts=float(s.get("ts") or 0), action=str(s.get("action") or "edit"),
+                     added=int(s.get("added") or 0), removed=int(s.get("removed") or 0))
+                for s in steps_raw if isinstance(s, dict)
+            ][:_PERSIST_STEPS_KEPT]
+            tf = Tracked(
+                path=path,
+                existed=bool(r[1]),
+                baseline="" if big else baseline,
+                big=big,
+                first_ts=float(r[4] or 0),
+                last_ts=float(r[5] or 0),
+                steps=steps,
+            )
+            _settle(tf)
+            # A file whose content now matches its baseline nets out — but its
+            # edit history is still worth showing, so keep the row (the same
+            # rule _visible() applies to live files).
+            tf.current = _text_of(tf)
+            if tf.current is not None and not tf.big and tf.baseline == tf.current and not steps:
+                continue
+            led[path] = tf
+        except Exception:
+            continue
 
 
 def subscribe(fn: Callable[[str], None]) -> None:
@@ -300,6 +547,8 @@ def _record(path, before, after, action) -> str | None:
         tf.sig = _sig(key)
         tf.last_ts = now
         tf.net_key = None
+        sid = _session_key()
+    _schedule_persist(sid)
     return file_id(key)
 
 

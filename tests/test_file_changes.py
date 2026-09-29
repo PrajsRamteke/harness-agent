@@ -162,6 +162,58 @@ def test_sessions_keep_separate_ledgers(proj):
     assert fc.summaries()["totals"]["files"] == 1
 
 
+def test_ledger_survives_a_restart(proj):
+    """Edits persist to SQLite and the Changes panel restores after a restart."""
+    f = write(proj, "app.py", "a\nb\nc\n")
+    edit(f, "a\nB\nc\nd\n")
+    edit(f, "a\nB\nC\nd\n", "write")
+    fc.flush()
+
+    # Simulate a process restart: drop all in-memory state.
+    fc._ledgers.clear()
+    fc._persisted_sids.clear()
+    fc._dirty_sids.clear()
+
+    files = by_path(fc.summaries())
+    assert list(files) == ["app.py"]
+    row = files["app.py"]
+    assert row["status"] == "modified" and row["edits"] == 2
+    assert (row["added"], row["removed"]) == (3, 2)
+    d = fc.detail(row["id"])
+    assert len(d["hunks"]) > 0 and [s["action"] for s in d["steps"]] == ["edit", "write"]
+
+
+def test_restored_file_tracks_later_outside_edits(proj):
+    f = write(proj, "app.py", "a\n")
+    edit(f, "b\n")
+    fc.flush()
+    fc._ledgers.clear()
+    fc._persisted_sids.clear()
+    fc._dirty_sids.clear()
+
+    f.write_text("b\nc\n")   # edited outside Jarvis after the restart
+    row = by_path(fc.summaries())["app.py"]
+    assert row["added"] == 2
+
+
+def test_deleted_session_forgets_its_changes(proj):
+    from jarvis.storage.sessions import db_conn
+
+    f = write(proj, "app.py", "a\n")
+    edit(f, "b\n")
+    fc.flush()
+    fc.forget_session(1)
+    assert fc.summaries()["files"] == []
+    conn = db_conn()
+    try:
+        left = conn.execute(
+            "SELECT COUNT(*) FROM session_file_changes WHERE session_id = 1"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert left == 0
+
+
 def test_listeners_hear_about_each_change(proj):
     heard = []
     fc.subscribe(heard.append)

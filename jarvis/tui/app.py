@@ -433,6 +433,12 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
     def on_unmount(self) -> None:
         self._bg_detach()
+        try:
+            from .. import file_changes
+
+            file_changes.flush()
+        except Exception:
+            pass
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_sidebar_visibility()
