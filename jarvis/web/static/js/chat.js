@@ -8,9 +8,11 @@
  * Sent messages are never edited: every prompt is a new message. Only live
  * entries animate in (`is-new`); a snapshot re-render stays still.
  */
-import { $, escapeHtml, copyText, flashDone, truncate, animateEl, SPRING } from './utils.js';
+import { $, escapeHtml, copyText, flashDone, truncate, showToast, animateEl, SPRING } from './utils.js';
 import { icon } from './icons.js';
 import { store } from './store.js';
+import { fetchToolOutput } from './api.js';
+import { openModal } from './modal.js';
 import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 import { openChange } from './changes.js';
 
@@ -58,6 +60,15 @@ export function initChat() {
   }, { passive: true });
   jump?.addEventListener('click', () => scrollToBottom(true, true));
   syncThoughtsVisibility();
+  initToolOutputModal();
+  // Tool rows are also clickable targets for the Activity tab's "jump here".
+  sc?.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-full]');
+    if (btn?.dataset.full) {
+      e.stopPropagation();
+      openToolOutput(btn.dataset.full);
+    }
+  });
 }
 
 function hideJump() {
@@ -378,6 +389,8 @@ function toolKindIcon(name) {
 }
 
 function paintTool(row, data) {
+  const id = String(data.id || row.dataset.id || '');
+  if (id) row.dataset.id = id;
   const status = data.status || row.dataset.status || 'running';
   row.dataset.status = status;
   const summary = data.summary ?? row.dataset.summary ?? '';
@@ -386,10 +399,20 @@ function paintTool(row, data) {
   row.dataset.title = title;
   const args = data.args ?? row.dataset.args ?? '';
   row.dataset.args = args;
+  const hasFull = Boolean(data.has_full) || row.dataset.hasFull === '1';
+  const fullChars = data.full_chars ?? data.output_chars ?? row.dataset.fullChars ?? 0;
+  if (data.has_full) {
+    row.dataset.hasFull = '1';
+    row.dataset.fullChars = String(fullChars || 0);
+    if (data.id) fullById.set(String(data.id), { name: data.name || '', title, args });
+  } else if (!data.id && !hasFull) {
+    row.dataset.hasFull = '';
+  }
 
   const stateHtml = status === 'running' ? '<span class="spinner"></span>' : icon(STATE_ICON[status] || 'check');
   const hasOut = !!summary && status !== 'running';
   const stateLabel = { running: 'Running', done: 'Done', error: 'Failed', pending: 'Not finished' }[status] || '';
+  const fullLabel = hasFull ? `Full output${row.dataset.fullChars ? ` · ${fmtChars(row.dataset.fullChars)}` : ''}` : '';
   row.innerHTML = `
     <button type="button" class="tool-head" ${hasOut ? `aria-expanded="${row.classList.contains('is-open')}"` : 'disabled'}>
       <span class="tool-kind">${icon(toolKindIcon(row.dataset.name || data.name))}</span>
@@ -398,12 +421,16 @@ function paintTool(row, data) {
       <span class="tool-state" title="${stateLabel}" aria-label="${stateLabel}">${stateHtml}</span>
       <span class="tool-chev">${hasOut ? icon('chevron-right') : ''}</span>
     </button>
-    ${hasOut ? `<div class="fold"><div class="fold-inner"><div class="tool-out">${escapeHtml(summary)}</div></div></div>` : ''}`;
+    ${hasOut ? `<div class="fold"><div class="fold-inner"><div class="tool-out">${escapeHtml(summary)}</div>${hasFull && row.dataset.id ? `<button type="button" class="tool-full" data-full="${escapeHtml(row.dataset.id)}" title="${escapeHtml(fullLabel)}">${icon('maximize-2')}<span>Full output${row.dataset.fullChars ? ` · ${escapeHtml(fmtChars(row.dataset.fullChars))}` : ''}</span></button>` : ''}</div></div>` : ''}`;
   row.title = args ? `${title} ${args}` : title;
   if (hasOut) {
     row.querySelector('.tool-head').addEventListener('click', () => {
       const open = row.classList.toggle('is-open');
       row.querySelector('.tool-head').setAttribute('aria-expanded', String(open));
+    });
+    row.querySelector('[data-full]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openToolOutput(row.dataset.id);
     });
   }
 }
@@ -413,6 +440,13 @@ function createToolRow(data) {
   row.className = 'tool';
   if (data.id) row.dataset.id = data.id;
   row.dataset.name = data.name || '';
+  if (data.id && data.has_full) {
+    fullById.set(String(data.id), {
+      name: data.name || '',
+      title: data.title || data.name || 'Tool',
+      args: data.args || '',
+    });
+  }
   if (data.status === 'error' && data.summary) row.classList.add('is-open');
   paintTool(row, data);
   const box = toolsContainer();
@@ -545,6 +579,69 @@ export function appendDiff(data) {
   agentBody().appendChild(markNew(el));
   noteUnseen();
   afterAppend();
+}
+
+// ─── Full tool output viewer ──────────────────────────────────────────────
+
+/** tool id → { name, title, args } remembered from rows (snapshot rows too). */
+const fullById = new Map();
+
+function fmtChars(n) {
+  const v = Number(n) || 0;
+  if (v < 1000) return `${v} chars`;
+  if (v < 1_000_000) return `${(v / 1000).toFixed(v < 10_000 ? 1 : 0).replace(/\.0$/, '')}k chars`;
+  return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M chars`;
+}
+
+let fullText = '';
+
+/** Open the full recorded output for one tool call (fetched on demand). */
+export function openToolOutput(id) {
+  const key = String(id || '');
+  if (!key) return;
+  const meta = fullById.get(key) || {};
+  openModal('tool-output-modal');
+  $('tool-output-title').textContent = meta.title || meta.name || 'Full output';
+  $('tool-output-sub').textContent = meta.args || 'Loading…';
+  $('tool-output-icon').innerHTML = `<span data-icon="terminal"></span>`;
+  const metaEl = $('tool-output-meta');
+  metaEl.hidden = true;
+  metaEl.innerHTML = '';
+  const body = $('tool-output-body');
+  body.textContent = 'Loading…';
+  $('tool-output-scroll').scrollTop = 0;
+  $('tool-output-note').textContent = '';
+  fullText = '';
+  fetchToolOutput(key).then((res) => {
+    fullText = String(res?.output || '');
+    const chars = Number(res?.chars) || fullText.length;
+    $('tool-output-title').textContent = res?.name ? `${res.name} — full output` : (meta.title || 'Full output');
+    $('tool-output-sub').textContent = res?.args || meta.args || `${fmtChars(chars)}${res?.status ? ` · ${res.status}` : ''}`;
+    body.textContent = fullText || '(no output)';
+    $('tool-output-note').textContent = `${fmtChars(chars)}${res?.truncated ? ' · truncated for viewing' : ''}`;
+    const live = toolRows.get(key);
+    if (live && live.isConnected && res?.output !== undefined) {
+      live.dataset.hasFull = '1';
+      live.dataset.fullChars = String(chars);
+      paintTool(live, {});
+    }
+  }).catch((err) => {
+    body.textContent = err?.status === 404 ? 'No full output saved for this step.' : 'Could not load the full output.';
+    $('tool-output-sub').textContent = meta.args || '';
+    if (err?.status !== 404) showToast('Could not load the full output', true);
+  });
+}
+
+function initToolOutputModal() {
+  $('tool-output-copy')?.addEventListener('click', async (btn) => {
+    const el = $('tool-output-copy');
+    if (!fullText) {
+      showToast('Nothing to copy yet', true);
+      return;
+    }
+    if (await copyText(fullText)) flashDone(el, 'Copied');
+    else showToast('Copy failed', true);
+  });
 }
 
 // ─── Public append API (live events + snapshots) ──────────────────────────

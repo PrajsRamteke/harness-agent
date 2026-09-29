@@ -52,7 +52,7 @@ def backfill_tool_output_history() -> bool:
             ap = json.dumps(inp, ensure_ascii=False)[:120]
             use_meta[str(tid)] = (str(block.get("name") or "tool"), ap)
 
-    collected: list[tuple[str, str, str]] = []
+    collected: list[tuple[str, str, str, str]] = []
     for msg in state.messages:
         if msg.get("role") != "user":
             continue
@@ -66,10 +66,10 @@ def backfill_tool_output_history() -> bool:
             name, ap = use_meta.get(tid, ("tool", ""))
             body = _tool_result_text(block.get("content")).strip()
             if body:
-                collected.append((name, ap, body))
+                collected.append((tid, name, ap, body))
 
-    for name, ap, body in collected[-TOOL_UI_HISTORY_SIZE:]:
-        state.record_tool_output(name, ap, body)
+    for tid, name, ap, body in collected[-TOOL_UI_HISTORY_SIZE:]:
+        state.record_tool_output(name, ap, body, tid)
 
     return bool(state.tool_output_history)
 

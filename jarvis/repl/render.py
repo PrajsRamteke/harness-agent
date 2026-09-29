@@ -459,7 +459,7 @@ def render_assistant(resp) -> bool:
         for b in tool_uses:
             if b.id in outputs:
                 icon, ap, out_str = outputs[b.id]
-                state.record_tool_output(b.name, ap, out_str)
+                state.record_tool_output(b.name, ap, out_str, b.id)
                 if (
                     state.show_internal
                     and not getattr(console, "renders_tool_rows", False)

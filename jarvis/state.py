@@ -103,7 +103,7 @@ last_clipboard_image_digest: str = ""
 tool_output_history: deque = deque(maxlen=TOOL_UI_HISTORY_SIZE)
 
 
-def record_tool_output(name: str, args_preview: str, content: str) -> None:
+def record_tool_output(name: str, args_preview: str, content: str, tool_id: str = "") -> None:
     """Remember a tool result for the scrollable output viewer."""
     tool_output_history.append(
         {
@@ -111,6 +111,7 @@ def record_tool_output(name: str, args_preview: str, content: str) -> None:
             "args": args_preview,
             "content": content,
             "ts": time.time(),
+            "id": tool_id or "",
         }
     )
 

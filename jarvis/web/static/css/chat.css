@@ -469,6 +469,24 @@
   overflow-y: auto;
 }
 .tool[data-status="error"] .tool-out { color: #fca5a5; }
+.tool-full {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 12px 10px 48px;
+  padding: 5px 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-2);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, transform 0.12s var(--ease);
+}
+.tool-full:hover { color: var(--accent); border-color: var(--accent-line); }
+.tool-full:active { transform: scale(0.96); }
+.tool-full .ic { width: 13px; height: 13px; }
 
 /* ─── Diff ────────────────────────────────────────────────────────────── */
 .diff {

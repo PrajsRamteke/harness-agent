@@ -274,6 +274,9 @@ export async function pickerAction(action, data = {}) {
 
 export const fetchSessions = (limit = 50) => api(`/api/sessions?limit=${limit}`);
 
+/** Full recorded output for one tool call → `{ id, name, args, output, chars, truncated }`. */
+export const fetchToolOutput = (id) => api(`/api/tool-output?id=${encodeURIComponent(id)}`);
+
 export function fetchModels(q = '') {
   return api(`/api/models${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 }

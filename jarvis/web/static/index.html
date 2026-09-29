@@ -437,6 +437,28 @@
     <div class="modal-card glass-strong prompt-card" id="prompt-card" role="dialog" aria-modal="true"></div>
   </div>
 
+  <div class="modal" id="tool-output-modal" hidden>
+    <div class="modal-card glass-strong tool-output-card" role="dialog" aria-modal="true" aria-labelledby="tool-output-title">
+      <div class="picker-head">
+        <span class="picker-icon" id="tool-output-icon"><span data-icon="terminal"></span></span>
+        <div class="picker-titles">
+          <h2 id="tool-output-title">Full output</h2>
+          <p id="tool-output-sub">Loading…</p>
+        </div>
+        <button class="icon-btn" data-close="tool-output-modal" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="tool-output-meta" id="tool-output-meta" hidden></div>
+      <div class="tool-output-scroll" id="tool-output-scroll" tabindex="0">
+        <pre class="tool-output-body" id="tool-output-body">Loading…</pre>
+      </div>
+      <div class="modal-foot">
+        <span class="picker-foot-note" id="tool-output-note"></span>
+        <span class="spacer"></span>
+        <button class="row-btn" id="tool-output-copy" type="button">Copy</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <button type="button" class="quote-pill" id="quote-pill" aria-label="Quote the selected text in a new message">

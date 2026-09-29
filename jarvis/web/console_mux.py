@@ -29,7 +29,10 @@ def tool_row_fields(name: str, tool_input: Any, output: Any = None) -> dict[str,
         fields["title"] = tool_title(name or "tool")
         fields["args"] = tool_args(name, tool_input, 120) if tool_input is not None else ""
         if output is not None:
-            lines, is_err = tool_summary(name, tool_input, str(output or ""), 120)
+            full = str(output or "")
+            fields["output_chars"] = len(full)
+            fields["has_full"] = bool(full.strip())
+            lines, is_err = tool_summary(name, tool_input, full, 120)
             fields["summary"] = "\n".join(lines[:4])
             fields["summary_error"] = bool(is_err)
     except Exception:

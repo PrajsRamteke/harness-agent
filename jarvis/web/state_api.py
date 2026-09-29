@@ -101,7 +101,7 @@ def _tool_entry(block: dict, results: dict[str, tuple[str, bool]]) -> dict[str, 
     output, is_err = results.get(tid, ("", False))
     fields = tool_row_fields(name, block.get("input"), output if done else None)
     error = is_err or bool(fields.pop("summary_error", False))
-    return {
+    entry: dict[str, Any] = {
         "role": "tool",
         "id": tid,
         "name": name,
@@ -111,6 +111,89 @@ def _tool_entry(block: dict, results: dict[str, tuple[str, bool]]) -> dict[str, 
         "status": ("error" if error else "done") if done else "pending",
         "text": name,
     }
+    # Full output lives in tool_output_history (keyed by tool id); keep it out
+    # of every transcript payload (SSE/poll/snapshot) so loads stay fast, and
+    # let the page fetch it on demand from /api/tool-output?id=<tool id>.
+    if done and fields.get("has_full"):
+        entry["has_full"] = True
+        entry["full_chars"] = int(fields.get("output_chars") or 0)
+    return entry
+
+
+def tool_output_text(tool_id: str) -> dict[str, Any] | None:
+    """Full recorded output for one tool call (for the web "full output" viewer).
+
+    Live registry first (freshest, has running output), then the recorded
+    history deque, then the session messages as a last resort. Returns a dict
+    with ``found``/``output``/``chars``/``truncated`` — or None when unknown.
+    """
+    tid = (tool_id or "").strip()
+    if not tid:
+        return None
+    from .. import state
+    from ..constants import TOOL_UI_VIEWER_MAX_CHARS
+
+    try:
+        from ..repl.tool_runs import run_by_id
+
+        run = run_by_id(tid)
+        if run and (run.get("content") or run.get("status") in ("running", "queued")):
+            raw = str(run.get("content") or "")
+            return {
+                "id": tid,
+                "name": str(run.get("name") or "tool"),
+                "args": str(run.get("label") or run.get("args") or "")[:240],
+                "status": str(run.get("status") or ""),
+                "output": raw,
+                "chars": len(raw),
+                "truncated": False,
+            }
+    except Exception:
+        pass
+
+    for entry in list(state.tool_output_history):
+        if str(entry.get("id") or "") == tid and str(entry.get("content") or ""):
+            raw = str(entry.get("content") or "")
+            out = raw
+            cut = len(raw) > TOOL_UI_VIEWER_MAX_CHARS
+            if cut:
+                out = raw[:TOOL_UI_VIEWER_MAX_CHARS] + (
+                    f"\n\n… truncated for viewer ({len(raw):,} chars total)"
+                )
+            return {
+                "id": tid,
+                "name": str(entry.get("name") or "tool"),
+                "args": str(entry.get("args") or "")[:240],
+                "output": out,
+                "chars": len(raw),
+                "truncated": cut,
+            }
+
+    # Last resort: the raw tool_result in the transcript (uncapped).
+    for msg in state.messages:
+        content = msg.get("content")
+        if msg.get("role") != "user" or not isinstance(content, list):
+            continue
+        for raw_block in content:
+            block = _block_dict(raw_block)
+            if block.get("type") == "tool_result" and str(block.get("tool_use_id") or "") == tid:
+                raw = _tool_result_text(block)
+                if raw.strip():
+                    out = raw
+                    cut = len(raw) > TOOL_UI_VIEWER_MAX_CHARS
+                    if cut:
+                        out = raw[:TOOL_UI_VIEWER_MAX_CHARS] + (
+                            f"\n\n… truncated for viewer ({len(raw):,} chars total)"
+                        )
+                    return {
+                        "id": tid,
+                        "name": "tool",
+                        "args": "",
+                        "output": out,
+                        "chars": len(raw),
+                        "truncated": cut,
+                    }
+    return None
 
 
 def snapshot_messages() -> list[dict[str, Any]]:

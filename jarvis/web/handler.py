@@ -288,6 +288,15 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/mcp":
             self._send_json(200, list_mcp_servers(query=self._query_str(qs, "q")))
             return
+        if path == "/api/tool-output":
+            from .state_api import tool_output_text
+
+            found = tool_output_text(self._query_str(qs, "id"))
+            if found is None:
+                self._send_json(404, {"error": "no full output for this tool call"})
+            else:
+                self._send_json(200, found)
+            return
         if path == "/api/changes":
             from .. import file_changes
 
