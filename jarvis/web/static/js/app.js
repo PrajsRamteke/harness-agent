@@ -1,5 +1,5 @@
 /** Application bootstrap */
-import { $, escapeHtml, showToast, copyText } from './utils.js';
+import { $, escapeHtml, showToast } from './utils.js';
 import { icon, hydrateIcons } from './icons.js';
 import { store, loadUiPrefs } from './store.js';
 import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
@@ -22,6 +22,7 @@ import { initTheme, toggleTheme } from './theme.js';
 import { initQuickbar } from './quickbar.js';
 import { initShortcuts } from './shortcuts.js';
 import { initQuote } from './quote.js';
+import { initQr } from './qr.js';
 import { newChat } from './actions.js';
 
 const STARTERS = [
@@ -113,6 +114,7 @@ function boot() {
   initModals();
   initChat();
   initQuote({ onQuote: insertQuote });
+  initQr();
   initStatus();
   initComposer({ onCatalogItem: runItem, onOpenPicker: openPickerByKind });
   initSidebar({ onOpenPicker: openPickerByKind });
@@ -128,11 +130,6 @@ function boot() {
   initQuickbar({ onOpenPicker: openPickerByKind });
   initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector });
   renderStarters();
-
-  $('copy-link')?.addEventListener('click', async () => {
-    if (await copyText(store.remoteUrl || location.href)) showToast('Link copied — open it on any device on your network');
-    else showToast('Copy failed — copy the address bar instead', true);
-  });
 
   loadInitialState();
 

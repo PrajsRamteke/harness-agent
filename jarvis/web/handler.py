@@ -294,6 +294,17 @@ class WebHandler(BaseHTTPRequestHandler):
 
             self._send_json(200, mcp_auth_status(self._query_str(qs, "name")))
             return
+        if path == "/api/qr":
+            # QR for the link the page would copy. The page may pass the link
+            # it is showing (``url``); otherwise the server's own remote link.
+            from .qr_ascii import qr_svg
+
+            url = self._query_str(qs, "url") or self._snapshot().get("remote_url", "")
+            if not url.startswith(("http://", "https://")) or len(url) > 2000:
+                self._send_json(404, {"error": "no shareable link"})
+                return
+            self._send_bytes(200, qr_svg(url).encode("utf-8"), "image/svg+xml")
+            return
         if path == "/api/tool-output":
             from .state_api import tool_output_text
 

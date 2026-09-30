@@ -125,3 +125,25 @@ def qr_dimensions(art: str) -> tuple[int, int]:
     lines = art.split("\n")
     cols = max((len(line) for line in lines), default=0)
     return cols, len(lines)
+
+
+def qr_svg(data: str) -> str:
+    """Return the QR as a standalone SVG string (pure Python — no Pillow needed).
+
+    Used by the web page's "QR code" dialog; the quiet zone is kept so phone
+    cameras can lock on, and the page draws it on a white card in every theme.
+    """
+    import qrcode
+    import qrcode.image.svg
+
+    qr = qrcode.QRCode(
+        border=2,
+        box_size=10,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        image_factory=qrcode.image.svg.SvgPathImage,
+    )
+    qr.add_data(data)
+    qr.make(fit=True)
+    buf = io.BytesIO()
+    qr.make_image().save(buf)
+    return buf.getvalue().decode("utf-8")

@@ -1001,3 +1001,23 @@
   .pv-now-btn { width: 38px; padding: 0; }
   .pv-now-btn span { display: none; }
 }
+
+/* QR code dialog — the code always sits on white so cameras can read it in dark themes */
+.qr-card { max-width: 380px; }
+.qr-body { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 20px 20px; }
+.qr-frame {
+  width: min(260px, 100%);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border-radius: 14px;
+  padding: 6px;
+  color: #555;
+  font-size: 13px;
+  text-align: center;
+}
+.qr-frame svg { width: 100%; height: 100%; display: block; }
+.qr-url { max-width: 100%; margin: 0; font: 12px/1.4 var(--font-mono); color: var(--text-3, var(--text-2)); word-break: break-all; text-align: center; }
+.qr-note { margin: 0; font-size: 12.5px; color: var(--text-2); text-align: center; }
+.qr-note:empty { display: none; }

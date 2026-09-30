@@ -180,8 +180,8 @@
           <span class="status-dot" aria-hidden="true"></span>
           <span id="status-text">Connecting</span>
         </div>
-        <button class="icon-btn only-wide" id="copy-link" type="button" aria-label="Copy link to this page" title="Copy link — open Jarvis on another device">
-          <span data-icon="link"></span>
+        <button class="icon-btn only-wide" id="qr-btn" type="button" aria-label="Share this session: QR code and link" title="Share — scan the QR code or copy the link">
+          <span data-icon="qr-code"></span>
         </button>
         <button class="cmd-btn" id="palette-btn" type="button" aria-label="Commands (Ctrl+K)">
           <span data-icon="command"></span><span class="cmd-btn-label">Commands</span><kbd id="palette-kbd">Ctrl K</kbd>
@@ -357,6 +357,25 @@
       <div class="modal-list" id="picker-list" role="listbox"></div>
       <div class="picker-detail" id="picker-detail" hidden></div>
       <div class="modal-foot" id="picker-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="qr" hidden>
+    <div class="modal-card glass-strong qr-card" role="dialog" aria-modal="true" aria-labelledby="qr-title">
+      <div class="picker-head">
+        <span class="picker-icon"><span data-icon="qr-code"></span></span>
+        <div class="picker-titles">
+          <h2 id="qr-title">Open on your phone</h2>
+          <p id="qr-sub">Scan with your camera to continue this session</p>
+        </div>
+        <button class="icon-btn" data-close="qr" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="qr-body">
+        <div class="qr-frame" id="qr-frame" aria-live="polite"></div>
+        <p class="qr-url" id="qr-url"></p>
+        <p class="qr-note" id="qr-note"></p>
+        <button class="btn" id="qr-copy" type="button"><span data-icon="link"></span> Copy link</button>
+      </div>
     </div>
   </div>
 
