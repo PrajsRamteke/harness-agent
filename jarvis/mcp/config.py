@@ -75,7 +75,8 @@ def _normalize_claude_code_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
     * ``command`` may be a string (+ ``args``) **or** a single list giving the
       full argv (OpenCode style)
     * ``env`` and ``environment`` are both honored
-    * ``type`` may be ``"local"`` (treated as stdio) or ``"remote"`` (sse)
+    * ``type`` may be ``"local"`` (treated as stdio) or ``"remote"`` (streamable
+      http — falls back to sse on its own when the server only speaks that)
     * ``enabled: false`` skips the entry entirely
     """
     if not isinstance(cfg, dict):
@@ -95,7 +96,7 @@ def _normalize_claude_code_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
         (declared_type == "" and has_command)
     )
     is_sse = (
-        declared_type in ("sse", "http", "remote") or
+        declared_type in ("sse", "http", "remote", "streamable-http", "streamable_http", "streamablehttp") or
         (declared_type == "" and has_url and not has_command)
     )
 
@@ -119,10 +120,12 @@ def _normalize_claude_code_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
         return entry
 
     if is_sse and has_url:
-        entry["type"] = "sse"
+        entry["type"] = "sse" if declared_type == "sse" else guess_remote_type(str(cfg["url"]))
         entry["url"] = str(cfg["url"])
         if isinstance(cfg.get("headers"), dict):
             entry["headers"] = dict(cfg["headers"])
+        if cfg.get("oauth") is False:
+            entry["oauth"] = False
         return entry
 
     return None
@@ -156,7 +159,7 @@ def _extract_servers(
             if not isinstance(cfg, dict):
                 continue
             entry = dict(cfg)
-            entry.setdefault("type", "sse" if "url" in entry else "stdio")
+            entry.setdefault("type", guess_remote_type(str(entry["url"])) if "url" in entry else "stdio")
             servers[name] = entry
     raw_auto = data.get("auto_connect")
     if isinstance(raw_auto, list):
@@ -204,6 +207,13 @@ def _parse_config_file(
     except (json.JSONDecodeError, OSError):
         return {}, []
     return _extract_servers(_descend(raw, pointer))
+
+
+def guess_remote_type(url: str) -> str:
+    """``sse`` for the classic ``…/sse`` endpoints, otherwise streamable ``http``
+    (the connector tries the other transport by itself if it guessed wrong)."""
+    path = url.split("?", 1)[0].rstrip("/").lower()
+    return "sse" if path.endswith("/sse") else "http"
 
 
 # ── MCPConfig ────────────────────────────────────────────────────────────
@@ -414,7 +424,7 @@ class MCPConfig:
         if command:
             server_type = "stdio"
         elif url:
-            server_type = "sse"
+            server_type = guess_remote_type(url)
         else:
             raise ValueError("Must provide either --command (stdio) or --url (sse)")
 
@@ -477,7 +487,7 @@ class MCPConfig:
 
 def _normalize_server_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
     """Accept Jarvis-native or Claude-Code-style server entries."""
-    if cfg.get("type") in ("stdio", "sse") and ("command" in cfg or "url" in cfg):
+    if cfg.get("type") in ("stdio", "sse", "http") and ("command" in cfg or "url" in cfg):
         return {k: v for k, v in cfg.items() if not k.startswith("_")}
     return _normalize_claude_code_entry(cfg)
 
@@ -687,6 +697,151 @@ def merge_json_into_project(
         save_project_mcp_file(project_servers, project_auto, path)
 
     return {"added": added, "skipped": skipped, "path": str(path)}
+
+
+# ── scope-aware writers (install / move / remove) ────────────────────────
+#
+# These edit the file for a scope directly and keep whatever schema is already
+# there: a Claude-Code style ``.mcp.json`` (``mcpServers``) stays that way, so
+# the file keeps working in the other tools that read it. A new project file is
+# written in that shared format; the Jarvis global file uses ``servers`` +
+# ``auto_connect``.
+
+SCOPES = ("project", "global")
+
+
+def scope_path(scope: str, project_path: str | pathlib.Path | None = None) -> pathlib.Path:
+    if scope == "project":
+        return pathlib.Path(project_path) if project_path else _project_config_path()
+    if scope == "global":
+        return MCP_GLOBAL_CONFIG_FILE
+    raise ValueError(f"scope must be 'project' or 'global', not '{scope}'")
+
+
+def _read_raw(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_raw(path: pathlib.Path, data: dict[str, Any], *, private: bool) -> None:
+    import os
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if private:
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+    os.replace(tmp, path)
+
+
+def _slot(raw: dict[str, Any], scope: str) -> str:
+    if scope == "global":
+        return "servers" if "mcpServers" not in raw else "mcpServers"
+    if "mcpServers" in raw:
+        return "mcpServers"
+    if "servers" in raw:
+        return "servers"
+    return "mcpServers"
+
+
+def server_in_scope(name: str, scope: str, project_path: str | pathlib.Path | None = None) -> bool:
+    raw = _read_raw(scope_path(scope, project_path))
+    return any(isinstance(raw.get(k), dict) and name in raw[k] for k in ("servers", "mcpServers"))
+
+
+def read_scope_server(name: str, scope: str, project_path: str | pathlib.Path | None = None) -> dict[str, Any] | None:
+    servers, _auto = _parse_config_file(scope_path(scope, project_path))
+    entry = servers.get(name)
+    return {k: v for k, v in entry.items() if not k.startswith("_")} if entry else None
+
+
+def write_server(
+    name: str,
+    entry: dict[str, Any],
+    *,
+    scope: str,
+    replace: bool = False,
+    auto_connect: bool = True,
+    project_path: str | pathlib.Path | None = None,
+) -> dict[str, Any]:
+    """Add ``entry`` under ``name`` in the file for ``scope``. Returns ``{path, replaced}``."""
+    path = scope_path(scope, project_path)
+    raw = _read_raw(path)
+    key = _slot(raw, scope)
+    servers = raw.get(key)
+    if not isinstance(servers, dict):
+        servers = raw[key] = {}
+    existed = name in servers
+    if existed and not replace:
+        raise ValueError(f"'{name}' is already in the {scope} config ({path})")
+    servers[name] = {k: v for k, v in entry.items() if not str(k).startswith("_")}
+    if key == "servers":
+        auto = raw.get("auto_connect")
+        if not isinstance(auto, list):
+            auto = raw["auto_connect"] = []
+        if auto_connect and name not in auto:
+            auto.append(name)
+        if not auto_connect and name in auto:
+            auto.remove(name)
+    _write_raw(path, raw, private=(scope == "global"))
+    return {"path": str(path), "replaced": existed}
+
+
+def delete_server(name: str, *, scope: str, project_path: str | pathlib.Path | None = None) -> bool:
+    """Remove ``name`` from the file for ``scope``. True if it was there."""
+    path = scope_path(scope, project_path)
+    raw = _read_raw(path)
+    removed = False
+    for key in ("servers", "mcpServers"):
+        block = raw.get(key)
+        if isinstance(block, dict) and name in block:
+            del block[name]
+            removed = True
+    auto = raw.get("auto_connect")
+    if isinstance(auto, list) and name in auto:
+        auto.remove(name)
+    if removed:
+        _write_raw(path, raw, private=(scope == "global"))
+    return removed
+
+
+def locate_server(name: str) -> list[dict[str, str]]:
+    """Every place ``name`` is defined, whether or not that scope is switched on:
+    ``[{scope, source, path, editable}]``. Other tools' configs are not editable."""
+    found: list[dict[str, str]] = []
+    pp = _project_config_path()
+    if name in _parse_config_file(pp)[0]:
+        found.append({"scope": "project", "source": "project", "path": str(pp), "editable": "yes"})
+    for label, file_path, pointer in _global_sources():
+        if name in _parse_config_file(file_path, pointer)[0]:
+            found.append({
+                "scope": "global",
+                "source": label,
+                "path": str(file_path),
+                "editable": "yes" if label == "jarvis" else "no",
+            })
+    return found
+
+
+def ensure_global_visible() -> bool:
+    """Turn the global MCP scope on if it was off (a server installed globally is
+    invisible otherwise). Returns True when this call switched it on."""
+    from .. import state
+
+    if getattr(state, "global_mcp", False):
+        return False
+    state.global_mcp = True
+    try:
+        state.save_mcp_config()
+    except Exception:
+        pass
+    return True
 
 
 # ── module-level singleton ───────────────────────────────────────────────

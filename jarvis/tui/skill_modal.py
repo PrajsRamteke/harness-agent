@@ -8,6 +8,8 @@ NOT change any persistent activation state.
 
 * ↑/↓ to navigate
 * Enter to preview the highlighted skill's body in the transcript
+* a to install a skill from a link (GitHub, SKILL.md, archive, folder)
+* d to remove (press twice) · m to move project ↔ global · u to update from its source
 * i to import the highlighted global skill into this project
 * e to export the highlighted project skill to your global config
 * g to toggle global-scope visibility (re-scans + reloads list)
@@ -16,13 +18,15 @@ NOT change any persistent activation state.
 """
 from __future__ import annotations
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import CenterMiddle, Vertical
-from textual.widgets import Input, OptionList, Static
+from textual.containers import CenterMiddle, Horizontal, Vertical
+from textual.widgets import Button, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 
+from ..storage import skill_install as si
 from ..storage import skills as sk
 from .. import state
 from .modal_chrome import (
@@ -48,6 +52,8 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         min-height: 12;
     }
     SkillBrowserScreen Input { margin-bottom: 1; }
+    SkillBrowserScreen #skill_buttons { height: 1; margin-top: 1; }
+    SkillBrowserScreen #skill_buttons Button { margin: 0 1 0 0; }
     """
     )
 
@@ -56,11 +62,21 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         Binding("down", "cursor_down", show=False),
         Binding("up", "cursor_up", show=False),
         Binding("g", "toggle_global", "Global", show=True),
+        Binding("a", "add_skill", "Install", show=True),
+        Binding("d", "remove_skill", "Remove", show=True),
+        Binding("m", "move_skill", "Move", show=False),
+        Binding("u", "update_skill", "Update", show=False),
         Binding("i", "import_to_project", "Import", show=True),
         Binding("e", "export_to_global", "Export", show=True),
         Binding("r", "refresh", "Refresh", show=True),
         Binding("slash", "focus_search", "Search", show=True),
     ]
+
+    def __init__(self, *, add: bool = False) -> None:
+        super().__init__()
+        self._open_add = add
+        self._rows: dict[str, dict] = {}
+        self._armed_remove: str | None = None
 
     def compose(self) -> ComposeResult:
         with CenterMiddle():
@@ -69,9 +85,11 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
                 yield Static("", id="modal_status")
                 yield Input(placeholder="search name or description…", id="skill_search")
                 yield OptionList(id="skill_list")
+                with Horizontal(id="skill_buttons"):
+                    yield Button("+ Install skill", id="skill_add", variant="primary", compact=True)
                 yield Static(
-                    hint_line(("↵", "preview"), ("/", "search"), ("g", "global"),
-                              ("i/e", "import/export"), ("r", "refresh"), ("esc", "close")),
+                    hint_line(("↵", "preview"), ("a", "install from link"), ("d", "remove"), ("m", "move"),
+                              ("u", "update"), ("g", "global"), ("i/e", "import/export"), ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -83,6 +101,8 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         except AttributeError:
             self._prev_scroll_y = None
         self._populate()
+        if self._open_add:
+            self.call_after_refresh(self.action_add_skill)
 
     def on_unmount(self) -> None:
         disable_mouse()
@@ -98,21 +118,18 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         opts = self.query_one("#skill_list", OptionList)
         opts.clear_options()
 
-        skills = sk.discover_skills(force=True)
-        # Apply inline filter when the search box has text.
+        # Inline filter when the search box has text.
         try:
             q = (self.query_one("#skill_search", Input).value or "").strip().lower()
         except Exception:
             q = ""
-        if q:
-            skills = [
-                s for s in skills
-                if q in s["name"].lower() or q in s.get("description", "").lower()
-            ]
+        info = si.describe_installed(q)
+        skills = info["skills"]
+        self._rows = {r["name"]: r for r in skills}
 
         if not skills:
             opts.add_option(empty_row(
-                "No skills found — drop SKILL.md files into .harness/skills/<name>/"
+                "No skills yet — press a to install one from a link (or drop a SKILL.md into .harness/skills/<name>/)"
             ))
             opts.highlighted = 0
             opts.focus()
@@ -129,15 +146,13 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
                 opts.add_option(Option(_format_skill_row(s, q), id=s["name"]))
 
         if glob:
-            opts.add_option(section_header("Global", "~/.harness/skills/ · ~/.claude/skills/",
-                                           first=not project))
+            note = "~/.harness/skills/ · ~/.claude/skills/"
+            if not state.global_skills:
+                note = "hidden from Jarvis — press g to turn global skills on"
+            opts.add_option(section_header("Global", note, first=not project,
+                                           note_style=None if state.global_skills else ui.WARN))
             for s in glob:
                 opts.add_option(Option(_format_skill_row(s, q), id=s["name"]))
-
-        if not state.global_skills:
-            gc = sk.global_count()
-            if gc:
-                opts.add_option(section_header("Global", f"{gc} hidden — press g to show"))
 
         opts.action_first()
         opts.focus()
@@ -145,7 +160,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
 
     def _refresh_title(self) -> None:
         scope = "project + global" if state.global_skills else "project"
-        count = len(sk.discover_skills())
+        count = len([r for r in self._rows.values() if r.get("active")])
         try:
             self.query_one("#modal_title", Static).update(
                 f"★  Skills   [{ui.FG_DIM}]{count} available · scope: {scope} · LLM auto-invokes[/]"
@@ -190,6 +205,10 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
     def action_focus_search(self) -> None:
         self.query_one("#skill_search", Input).focus()
 
+    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
+        if self._armed_remove and self._current_skill_name() != self._armed_remove:
+            self._armed_remove = None
+
     def action_cursor_down(self) -> None:
         self.query_one("#skill_list", OptionList).action_cursor_down()
 
@@ -214,6 +233,78 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         self._notify(
             "◎ global skills shown" if state.global_skills else "▣ project-only skills"
         )
+
+    def _selected_row(self) -> dict | None:
+        name = self._current_skill_name()
+        return self._rows.get(name) if name else None
+
+    def action_add_skill(self) -> None:
+        from .extension_modals import SkillInstallScreen
+
+        def after(result: dict | None) -> None:
+            sk.invalidate_cache()
+            self._populate()
+            if result and result.get("installed"):
+                names = ", ".join(i["name"] for i in result["installed"][:4])
+                self._notify(f"installed {names} → {result.get('scope', '')}")
+
+        self.app.push_screen(SkillInstallScreen(), after)
+
+    def action_remove_skill(self) -> None:
+        row = self._selected_row()
+        if not row:
+            return
+        if not row.get("managed"):
+            self._notify(f"{row['name']} lives in {row['source_dir']} (another tool's folder) — remove it there",
+                         error=True)
+            return
+        if self._armed_remove != row["name"]:
+            self._armed_remove = row["name"]
+            self._notify(f"press d again to remove {row['name']} ({row['scope']})", error=True)
+            return
+        self._armed_remove = None
+        res = si.remove_skill(row["name"], scope=row["scope"])
+        self._populate()
+        self._notify(res.get("message") or res.get("error", "could not remove"), error=not res.get("ok"))
+
+    def action_move_skill(self) -> None:
+        row = self._selected_row()
+        if not row:
+            return
+        res = si.move_skill(row["name"], "global" if row["scope"] == "project" else "project")
+        self._populate()
+        self._notify(res.get("message") or res.get("error", "could not move"), error=not res.get("ok"))
+
+    def action_update_skill(self) -> None:
+        row = self._selected_row()
+        if not row:
+            return
+        self._notify(f"updating {row['name']} from {row.get('origin') or 'its source'}…")
+        self._update_worker(row["name"])
+
+    @work(thread=True)
+    def _update_worker(self, name: str) -> None:
+        try:
+            res = si.update_skill(name)
+        except Exception as exc:
+            res = {"ok": False, "error": str(exc)}
+        try:
+            self.app.call_from_thread(self._updated, res)
+        except Exception:
+            pass
+
+    def _updated(self, res: dict) -> None:
+        self._populate()
+        if res.get("ok"):
+            names = ", ".join(i["name"] for i in res.get("installed", []))
+            self._notify(f"updated {names}")
+        else:
+            self._notify(res.get("error", "could not update"), error=True)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        if event.button.id == "skill_add":
+            self.action_add_skill()
 
     def action_import_to_project(self) -> None:
         name = self._current_skill_name()
@@ -276,11 +367,25 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
 
 
 def _format_skill_row(skill: dict, query: str = ""):
+    active = skill.get("active", True)
+    origin = skill.get("origin") or ""
+    if origin.startswith(("/", "~", ".")):
+        origin = origin.rstrip("/").rsplit("/", 1)[-1]  # a local folder: its name, not the whole path
+    if len(origin) > 26:
+        origin = origin[:25] + "…"
+    right = skill.get("scope", "")
+    if origin:
+        right += f" · from {origin}"
+    if not active:
+        right += " · hidden"
     return picker_row(
         skill.get("name", ""),
-        detail=skill.get("description", ""),
+        detail=(skill.get("description") or "").replace("\n", " "),
+        right=right,
         query=query,
         icon="✧",
-        icon_style=ui.ACCENT_3,
+        icon_style=ui.ACCENT_3 if active else ui.FG_DIM,
+        title_style=None if active else ui.FG_DIM,
+        detail_style=None if active else ui.FG_DIM,
         title_width=ROW_NAME_WIDTH,
     )

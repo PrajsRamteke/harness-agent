@@ -7,9 +7,12 @@ User interaction:
 * g           toggle global scope (project-only ↔ project + global)
 * i           import the highlighted global server into this project's .mcp.json
 * e           export the highlighted project server to your global MCP config
-* a           manually add MCP JSON (paste/type in input area)
+* a           add a server: paste a link / npx … / claude mcp add … / JSON / GitHub link / name
+* Enter       connect ↔ disconnect — or sign in when the server says "sign-in"
+* o           sign out (forget the saved login)      k  enter the keys a server needs
+* m           move between project ↔ global
 * r           re-scan all config files
-* d           delete a Jarvis-managed global server (refuses other tools' entries)
+* d           delete a server you added (project or global; press twice)
 * /           focus the filter input
 * Esc         close
 
@@ -18,14 +21,14 @@ Designed to make ``/mcp`` the only MCP command a user ever needs.
 
 from __future__ import annotations
 
-import json
 import threading
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import CenterMiddle, Vertical
+from textual.containers import CenterMiddle, Horizontal, Vertical
 from textual.timer import Timer
-from textual.widgets import Input, OptionList, Static, TextArea
+from textual.widgets import Button, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from rich.text import Text
@@ -39,13 +42,11 @@ from ..mcp.config import (
     get_config,
     import_server_to_project,
     export_server_to_global,
-    merge_json_into_project,
     reload_config,
     _project_config_path,
 )
-from ..mcp.registry import mcp_registry
+from ..mcp.registry import mcp_registry, needs_auth
 from ..mcp.sources import SOURCE_ICONS as _SOURCE_ICONS, format_endpoint as _endpoint_text
-from ..tools.mac.clipboard import clipboard_get
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
@@ -72,6 +73,8 @@ def _row_label(
         dot, color, word = "●", ui.OK, f"live · {tool_count} tools"
     elif status == "failed":
         dot, color, word = "✗", ui.ERR, "failed"
+    elif status == "auth":
+        dot, color, word = "◐", ui.WARN, "sign-in"
     elif status == "warn":
         dot, color, word = "▲", ui.WARN, (f"check · {tool_count} tools" if health.get("connected") else "check")
     else:
@@ -87,174 +90,8 @@ def _row_label(
         icon_style=f"bold {color}",
         title_style=f"bold {ui.FG}",
         title_width=18,
-        right_style=color if status in ("live", "failed", "warn", "connecting") or connecting else ui.FG_DIM,
+        right_style=color if status in ("live", "failed", "warn", "connecting", "auth") or connecting else ui.FG_DIM,
     )
-
-
-# ── manual add sub-modal ─────────────────────────────────────────────────
-
-_CLAUDE_EXAMPLE = json.dumps(
-    {
-        "mcpServers": {
-            "filesystem": {
-                "command": "npx",
-                "args": [
-                    "-y",
-                    "@modelcontextprotocol/server-filesystem",
-                    "/Users/you/projects",
-                ],
-            }
-        }
-    },
-    indent=2,
-)
-
-_JARVIS_EXAMPLE = json.dumps(
-    {
-        "servers": {
-            "filesystem": {
-                "type": "stdio",
-                "command": "npx",
-                "args": [
-                    "-y",
-                    "@modelcontextprotocol/server-filesystem",
-                    "/Users/you/projects",
-                ],
-            }
-        },
-        "auto_connect": ["filesystem"],
-    },
-    indent=2,
-)
-
-
-class ManualAddScreen(TuiModalScreen[dict | None]):
-    """Paste or type MCP JSON into the project ``.mcp.json``."""
-
-    DEFAULT_CSS = (
-        TUI_MODAL_CHROME_CSS
-        + """
-    ManualAddScreen #modal {
-        width: 86%;
-        max-width: 120;
-        max-height: 88%;
-    }
-    ManualAddScreen #import_help {
-        padding: 0 1;
-        color: {ui.FG_MUTE};
-    }
-    ManualAddScreen #import_examples {
-        padding: 0 1;
-        margin: 1 0;
-        color: {ui.FG_DIM};
-        max-height: 10;
-        overflow-y: auto;
-    }
-    ManualAddScreen TextArea {
-        height: 14;
-        margin: 0 0 1 0;
-    }
-    ManualAddScreen #import_status {
-        color: {ui.ERR};
-        padding: 0 1;
-        margin-top: 1;
-    }
-    ManualAddScreen #import_status.ok { color: {ui.OK}; }
-    """
-    )
-
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=True),
-        Binding("ctrl+s", "submit", "Submit", show=True),
-        Binding("p", "paste_clipboard", "Paste", show=True),
-    ]
-
-    def compose(self) -> ComposeResult:
-        project_file = _project_config_path()
-        with CenterMiddle():
-            with Vertical(id="modal"):
-                yield Static("▶  Add MCP Server", id="modal_title")
-                yield Static(
-                    Text.from_markup(
-                        f"[{ui.FG_MUTE}]Paste or edit JSON below — saved to[/]\n"
-                        f"[{ui.ACCENT}]{project_file}[/]"
-                    ),
-                    id="import_help",
-                )
-                yield Static(self._examples_text(), id="import_examples")
-                yield TextArea("", id="import_input", show_line_numbers=False)
-                yield Static("", id="import_status")
-                yield Static(
-                    f"[bold {ui.FG_MUTE}]ctrl+s[/] submit   [bold {ui.FG_MUTE}]p[/] paste clipboard   "
-                    f"[bold {ui.FG_MUTE}]esc[/] cancel",
-                    id="modal_hint",
-                )
-
-    @staticmethod
-    def _examples_text() -> Text:
-        return Text.assemble(
-            ("Claude Code\n", "bold"),
-            (_CLAUDE_EXAMPLE, "dim"),
-            ("\n\nJarvis / project .mcp.json\n", "bold"),
-            (_JARVIS_EXAMPLE, "dim"),
-        )
-
-    def on_mount(self) -> None:
-        enable_mouse()
-        self.query_one("#import_input", TextArea).focus()
-
-    def on_unmount(self) -> None:
-        disable_mouse()
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)
-
-    def action_paste_clipboard(self) -> None:
-        raw = clipboard_get()
-        if not raw.strip():
-            self._set_status("clipboard is empty", ok=False)
-            return
-        self.query_one("#import_input", TextArea).text = raw
-        self._set_status("pasted from clipboard — review and press ctrl+s", ok=True)
-
-    def action_submit(self) -> None:
-        raw = self.query_one("#import_input", TextArea).text.strip()
-        self._import_raw(raw)
-
-    def _import_raw(self, raw: str) -> None:
-        if not raw:
-            self._set_status("paste or type JSON first (or press p)", ok=False)
-            return
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as e:
-            self._set_status(f"invalid JSON: {e}", ok=False)
-            return
-
-        try:
-            result = merge_json_into_project(parsed)
-        except ValueError as e:
-            self._set_status(str(e), ok=False)
-            return
-
-        added = result.get("added", [])
-        if not added:
-            skipped = result.get("skipped", [])
-            if skipped:
-                self._set_status(
-                    f"no new servers — already in project: {', '.join(skipped[:5])}",
-                    ok=False,
-                )
-            else:
-                self._set_status("no servers found in that JSON", ok=False)
-            return
-
-        self.dismiss(result)
-
-    def _set_status(self, msg: str, ok: bool) -> None:
-        widget = self.query_one("#import_status", Static)
-        widget.update(Text(msg, style="bold green" if ok else "bold red"))
-        widget.set_class(ok, "ok")
 
 
 # ── main MCP modal ───────────────────────────────────────────────────────
@@ -293,6 +130,8 @@ class MCPModalScreen(TuiModalScreen[None]):
         min-height: 1;
     }
     MCPModalScreen Input { margin-bottom: 1; }
+    MCPModalScreen #mcp_buttons { height: 1; margin-top: 1; }
+    MCPModalScreen #mcp_buttons Button { margin: 0 1 0 0; }
     """
     )
 
@@ -306,6 +145,10 @@ class MCPModalScreen(TuiModalScreen[None]):
         Binding("a",      "manual_add",    "Add",    show=True),
         Binding("r",      "refresh",  "Refresh", show=True),
         Binding("d",      "delete",   "Delete", show=True),
+        Binding("o",      "sign_out", "Sign out", show=False),
+        Binding("m",      "move",     "Move",   show=False),
+        Binding("k",      "keys",     "Keys",   show=False),
+        Binding("c",      "copy_link", "Copy link", show=False),
         Binding("slash",  "focus_filter", "Filter", show=False),
         Binding("down",   "cursor_down",  show=False),
         Binding("up",     "cursor_up",    show=False),
@@ -313,8 +156,10 @@ class MCPModalScreen(TuiModalScreen[None]):
         Binding("pageup",   "page_up",    show=False),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, *, add: bool = False) -> None:
         super().__init__()
+        self._open_add = add
+        self._armed_delete: str | None = None
         self._filter: str = ""
         self._row_ids: list[str] = []   # parallel to OptionList rows
         self._connecting_names: set[str] = set()
@@ -332,11 +177,15 @@ class MCPModalScreen(TuiModalScreen[None]):
                 yield OptionList(id="mcp_list")
                 yield Static("", id="mcp_health")
                 yield Static("", id="mcp_status")
+                with Horizontal(id="mcp_buttons"):
+                    yield Button("Connect", id="mcp_primary", variant="primary", compact=True)
+                    yield Button("+ Add server", id="mcp_add", compact=True)
+                    yield Button("Keys…", id="mcp_keys", compact=True)
                 yield Static(
-                    f"[bold {ui.FG_MUTE}]space[/] toggle   [bold {ui.FG_MUTE}]g[/] global   "
-                    f"[bold {ui.FG_MUTE}]i[/] import   [bold {ui.FG_MUTE}]e[/] export   "
-                    f"[bold {ui.FG_MUTE}]a[/] add   [bold {ui.FG_MUTE}]r[/] refresh   "
-                    f"[bold {ui.FG_MUTE}]d[/] delete   [bold {ui.FG_MUTE}]esc[/] close",
+                    f"[bold {ui.FG_MUTE}]↵[/] connect / sign in   [bold {ui.FG_MUTE}]a[/] add   "
+                    f"[bold {ui.FG_MUTE}]d[/] delete   [bold {ui.FG_MUTE}]m[/] move   "
+                    f"[bold {ui.FG_MUTE}]o[/] sign out   [bold {ui.FG_MUTE}]k[/] keys   "
+                    f"[bold {ui.FG_MUTE}]g[/] global   [bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
                 )
 
@@ -352,16 +201,31 @@ class MCPModalScreen(TuiModalScreen[None]):
         self._refresh_rows()
         self.query_one("#mcp_list", OptionList).focus()
         self._refresh_health_detail()
+        subscribe = getattr(self.app, "mcp_subscribe", None)
+        if subscribe:
+            subscribe(self._registry_changed)
+        if self._open_add:
+            self.call_after_refresh(self.action_manual_add)
+
+    def _registry_changed(self) -> None:
+        if not self.is_mounted:
+            return
+        self._refresh_rows()
 
     def on_option_list_option_highlighted(
         self, event: OptionList.OptionHighlighted
     ) -> None:
         if event.option_list.id != "mcp_list":
             return
+        if self._armed_delete and self._selected_name() != self._armed_delete:
+            self._armed_delete = None
         self._refresh_health_detail()
 
     def on_unmount(self) -> None:
         disable_mouse()
+        unsubscribe = getattr(self.app, "mcp_unsubscribe", None)
+        if unsubscribe:
+            unsubscribe(self._registry_changed)
         self._stop_connect_spinner()
         if self._prev_scroll is not None:
             try:
@@ -429,6 +293,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             "failed": ui.ERR,
             "warn": ui.WARN,
             "connecting": ui.WARN,
+            "auth": ui.WARN,
         }.get(status, ui.FG_MUTE)
 
     def _header_health_bits(self, names: list[str]) -> Text:
@@ -438,6 +303,8 @@ class MCPModalScreen(TuiModalScreen[None]):
             parts.append((f"{counts['live']} live", "green"))
         if counts.get("connecting"):
             parts.append((f"{counts['connecting']} connecting", "yellow"))
+        if counts.get("auth"):
+            parts.append((f"{counts['auth']} sign-in", "yellow"))
         if counts.get("failed"):
             parts.append((f"{counts['failed']} failed", "red"))
         if counts.get("warn"):
@@ -461,6 +328,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             return
         if not name:
             widget.update("")
+            self._sync_buttons(None)
             return
         config = get_config()
         cfg = config.get_server(name)
@@ -469,11 +337,16 @@ class MCPModalScreen(TuiModalScreen[None]):
         )
         detail = health.get("detail") or health.get("summary", "")
         hint = ""
-        if health["status"] == "failed":
+        if health["status"] == "auth":
+            hint = " — press Enter to sign in"
+        elif health.get("needs_credentials"):
+            hint = " — press k to enter " + ", ".join(health["needs_credentials"])
+        elif health["status"] == "failed":
             hint = " — space to retry"
         elif health["status"] == "warn" and health.get("hints"):
             hint = " — fix hints then space to connect"
         widget.update(Text(detail + hint, style=self._health_color(health["status"])))
+        self._sync_buttons(name, health)
 
     def _refresh_rows(self, keep_highlight: bool = True) -> None:
         """Re-read config and re-render the option list."""
@@ -604,11 +477,157 @@ class MCPModalScreen(TuiModalScreen[None]):
         self._refresh_rows()
         self._set_status("config reloaded", ok=True)
 
+    def _sync_buttons(self, name: str | None, health: dict | None = None) -> None:
+        try:
+            primary = self.query_one("#mcp_primary", Button)
+            keys = self.query_one("#mcp_keys", Button)
+        except Exception:
+            return
+        if not name:
+            primary.display = False
+            keys.display = False
+            return
+        health = health or mcp_registry.get_server_health(name, get_config().get_server(name))
+        status = health.get("status")
+        primary.display = True
+        primary.label = (
+            "Authenticate" if status == "auth"
+            else "Disconnect" if health.get("connected")
+            else "Connect"
+        )
+        keys.display = bool(health.get("needs_credentials"))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        bid = event.button.id
+        if bid == "mcp_primary":
+            self.action_toggle()
+        elif bid == "mcp_add":
+            self.action_manual_add()
+        elif bid == "mcp_keys":
+            self.action_keys()
+
+    def action_authenticate(self) -> None:
+        name = self._selected_name()
+        if not name:
+            return
+        self._sign_in(name)
+
+    def _sign_in(self, name: str) -> None:
+        from .extension_modals import McpSignInScreen
+
+        def after(ok: bool | None) -> None:
+            self._refresh_rows()
+            if ok:
+                tools = len(mcp_registry.get_server_tools(name))
+                self._set_status(f"connected {name} — {tools} tools", ok=True)
+            elif mcp_registry.get_server_health(name).get("status") == "auth":
+                self._set_status(f"{name}: still waiting for sign-in — Enter to reopen", ok=None)
+
+        self.app.push_screen(McpSignInScreen(name), after)
+
+    def action_copy_link(self) -> None:
+        from ..mcp.auth import coordinator
+
+        name = self._selected_name()
+        req = coordinator.get(name or "")
+        if req is None or not req.url:
+            return
+        copier = getattr(self.app, "_copy_text", None)
+        if copier:
+            copier(req.url)
+            self._set_status("sign-in link copied", ok=True)
+
+    def action_sign_out(self) -> None:
+        name = self._selected_name()
+        if not name:
+            return
+        cfg = get_config().get_server(name) or {}
+        if not cfg.get("url"):
+            self._set_status(f"{name} is a local server — nothing to sign out of", ok=False)
+            return
+        mcp_registry.sign_out(name, cfg)
+        from ..mcp.scope import invalidate_mcp_prompt_cache
+        invalidate_mcp_prompt_cache()
+        self._refresh_rows()
+        self._set_status(f"signed out of {name} (saved login forgotten)", ok=True)
+
+    def action_keys(self) -> None:
+        name = self._selected_name()
+        if not name:
+            return
+        health = mcp_registry.get_server_health(name, get_config().get_server(name))
+        needed = list(health.get("needs_credentials") or [])
+        if not needed:
+            self._set_status(f"{name} isn't waiting for any keys", ok=False)
+            return
+        from .extension_modals import KeysScreen
+
+        def after(values: dict | None) -> None:
+            if not values:
+                return
+            self._connecting_names.add(name)
+            self._connect_status_msg = f"saving keys and connecting {name}…"
+            self._start_connect_spinner()
+            self._refresh_rows()
+            self._keys_worker(name, values)
+
+        self.app.push_screen(KeysScreen(name, needed), after)
+
+    @work(thread=True)
+    def _keys_worker(self, name: str, values: dict) -> None:
+        from ..mcp.install import set_credentials
+
+        try:
+            res = set_credentials(name, values)
+        except Exception as exc:
+            res = {"ok": False, "status": "failed", "error": str(exc)}
+        try:
+            self.app.call_from_thread(self._keys_done, name, res)
+        except Exception:
+            pass
+
+    def _keys_done(self, name: str, res: dict) -> None:
+        self._connecting_names.discard(name)
+        if not self._connecting_names:
+            self._stop_connect_spinner()
+        st = res.get("status")
+        if st == "connected":
+            self._set_status(f"connected {name} — {res.get('tool_count', 0)} tools", ok=True)
+        elif st == "auth_required":
+            self._set_status(f"{name}: keys saved — sign-in needed (Enter)", ok=None)
+        else:
+            self._set_status(f"{name}: {res.get('error') or res.get('message') or 'not connected'}", ok=False)
+        from ..mcp.scope import invalidate_mcp_prompt_cache
+        invalidate_mcp_prompt_cache()
+        self._refresh_rows()
+
+    def action_move(self) -> None:
+        name = self._selected_name()
+        if not name:
+            return
+        config = get_config()
+        scope = config.get_scope(name)
+        source = config.get_source(name)
+        if source not in ("project", "jarvis"):
+            self._set_status(f"{name} comes from {source or 'another tool'} — move it there", ok=False)
+            return
+        from ..mcp.install import move_mcp
+
+        res = move_mcp(name, "global" if scope == "project" else "project")
+        self._refresh_rows()
+        self._set_status(res.get("message") or res.get("error", "could not move"), ok=bool(res.get("ok")))
+
     def action_toggle(self) -> None:
         name = self._selected_name()
         if not name or name in self._connecting_names or self._scope_busy:
             return
         config = get_config()
+        if not mcp_registry.is_connected(name):
+            health = mcp_registry.get_server_health(name, config.get_server(name))
+            if health.get("status") == "auth":
+                self._sign_in(name)
+                return
         if mcp_registry.is_connected(name):
             err = mcp_registry.disconnect(name)
             if err:
@@ -647,6 +666,12 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._stop_connect_spinner()
             self._connect_status_msg = ""
 
+        if err and needs_auth(err):
+            self._set_status(f"{name} needs sign-in", ok=None)
+            invalidate_mcp_prompt_cache()
+            self._refresh_rows()
+            self._sign_in(name)
+            return
         if err:
             self._set_status(f"connect failed: {err}", ok=False)
         else:
@@ -829,53 +854,43 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._set_status("nothing to export", ok=False)
 
     def action_manual_add(self) -> None:
+        from .extension_modals import McpAddScreen
+
         def after(result: dict | None) -> None:
             if not result:
                 return
-            added = result.get("added", [])
-            skipped = result.get("skipped", [])
             reload_config()
             self._refresh_rows()
-            msg = f"added {len(added)} to project: {', '.join(added[:6])}"
-            if len(added) > 6:
-                msg += "…"
-            if skipped:
-                msg += f" ({len(skipped)} skipped)"
-            self._set_status(msg, ok=True)
+            servers = result.get("servers") or []
+            done = [r["name"] for r in servers if r.get("status") in ("connected", "added", "auth_required", "needs_credentials")]
+            if done:
+                self._set_status(f"added {', '.join(done[:5])}" + ("…" if len(done) > 5 else ""), ok=True)
+            from ..mcp.scope import invalidate_mcp_prompt_cache
+            invalidate_mcp_prompt_cache()
 
-        self.app.push_screen(ManualAddScreen(), after)
+        self.app.push_screen(McpAddScreen(), after)
 
     def action_delete(self) -> None:
         name = self._selected_name()
         if not name:
             return
         config = get_config()
-        scope = config.get_scope(name)
         source = config.get_source(name)
-        if scope == "project":
+        if source not in ("project", "jarvis"):
             self._set_status(
-                f"{name} is in {_project_config_path()}; edit that file directly",
-                ok=False,
+                f"{name} is provided by {source} — remove it in that tool, not Jarvis", ok=False,
             )
             return
-        if source and source != "jarvis":
-            self._set_status(
-                f"{name} is provided by {source} — remove it in that tool, not Jarvis",
-                ok=False,
-            )
+        if self._armed_delete != name:
+            self._armed_delete = name
+            self._set_status(f"press d again to remove {name} ({config.get_scope(name)})", ok=False)
             return
-        try:
-            if mcp_registry.is_connected(name):
-                mcp_registry.disconnect(name)
-            if config.remove_server(name):
-                config.save()
-                reload_config()
-                self._refresh_rows()
-                self._set_status(f"removed {name}", ok=True)
-            else:
-                self._set_status(f"{name} not found", ok=False)
-        except Exception as e:
-            self._set_status(f"delete failed: {e}", ok=False)
+        self._armed_delete = None
+        from ..mcp.install import remove_mcp
+
+        res = remove_mcp(name, scope=config.get_scope(name))
+        self._refresh_rows()
+        self._set_status(res.get("message") or res.get("error", "could not remove"), ok=bool(res.get("ok")))
 
     # ── filter input events ──────────────────────────────────────────────
 

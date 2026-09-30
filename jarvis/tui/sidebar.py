@@ -81,9 +81,52 @@ class SidebarBody(Widget):
 
     can_focus = False
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Clickable rows: logical line index → (kind, name, status). The index
+        # is the number of "\n" before the row, so a click maps back through
+        # the same wrapping the renderer used (see ``_hit_at``).
+        self._hits: dict[int, tuple[str, str, str]] = {}
+        self._last: Text | None = None
+
+    def _hit_at(self, y: int) -> tuple[str, str, str] | None:
+        text = self._last
+        if text is None or not self._hits:
+            return None
+        width = max(1, self.size.width)
+        console = self.app.console
+        row = 0
+        for idx, seg in enumerate(text.split("\n", allow_blank=True)):
+            height = max(1, len(seg.wrap(console, width))) if seg.plain else 1
+            if row <= y < row + height:
+                return self._hits.get(idx)
+            row += height
+        return None
+
+    def on_click(self, event) -> None:
+        hit = self._hit_at(event.y)
+        if hit is None:
+            return
+        kind, name, status = hit
+        event.stop()
+        app = self.app
+        if kind == "mcp":
+            app.mcp_sidebar_click(name, status)
+        elif kind == "mcp-add":
+            app.open_mcp_add()
+        elif kind == "skill-add":
+            app.open_skill_add()
+        elif kind == "skills":
+            app._open_skill_browser()
+
     def render(self) -> Text:
         app = self.app
         out = Text()
+        hits: dict[int, tuple[str, str, str]] = {}
+
+        def hit(kind: str, name: str = "", status: str = "") -> None:
+            """Register the row just started (after its ``\n``) as clickable."""
+            hits[out.plain.count("\n")] = (kind, name, status)
 
         def section(title: str, icon: str = "") -> None:
             if out.plain:
@@ -166,7 +209,8 @@ class SidebarBody(Widget):
                     out.append(" · ", style=ui.FG_DIM)
                 out.append(label, style=color)
 
-        # MCP
+        # MCP — always shown: the "+ add" row is the way in for anyone who
+        # doesn't know where servers are configured.
         try:
             from ..mcp.config import get_config
             from ..mcp.registry import mcp_registry
@@ -174,22 +218,49 @@ class SidebarBody(Widget):
             servers = get_config().list_servers()
         except Exception:
             servers = {}
-        if servers:
-            section("MCP", "◈")
-            for name, cfg in list(servers.items())[:8]:
-                try:
-                    h = mcp_registry.get_server_health(name)
-                    status = h.get("status", "idle")
-                except Exception:
-                    status = "idle"
-                color = {
-                    "live": ui.OK, "warn": ui.WARN, "failed": ui.ERR, "connecting": ui.ACCENT,
-                }.get(status, ui.FG_DIM)
-                out.append("\n")
-                out.append("● ", style=color)
-                out.append(name, style=ui.FG_MUTE)
-                if status in ("failed", "connecting"):
-                    out.append(f" {status}", style=ui.FG_DIM)
+        section("MCP", "◈")
+        names = list(servers.items())
+        for name, cfg in names[:8]:
+            try:
+                h = mcp_registry.get_server_health(name)
+                status = h.get("status", "idle")
+            except Exception:
+                status = "idle"
+            color = {
+                "live": ui.OK, "warn": ui.WARN, "failed": ui.ERR, "connecting": ui.ACCENT,
+                "auth": ui.WARN,
+            }.get(status, ui.FG_DIM)
+            out.append("\n")
+            hit("mcp", name, status)
+            out.append("◐ " if status == "auth" else "● ", style=color)
+            out.append(name, style=ui.FG_MUTE if status != "auth" else f"underline {ui.FG}")
+            if status == "auth":
+                out.append("  sign in", style=f"bold {ui.WARN}")
+            elif status in ("failed", "connecting"):
+                out.append(f" {status}", style=ui.FG_DIM)
+        if len(names) > 8:
+            out.append("\n")
+            hit("mcp")
+            out.append(f"+{len(names) - 8} more", style=ui.FG_DIM)
+        out.append("\n")
+        hit("mcp-add")
+        out.append("+ add MCP server", style=ui.ACCENT if not names else ui.FG_DIM)
+
+        # Skills
+        try:
+            from ..storage import skills as _sk
+
+            cached = getattr(_sk, "_cache", None) or []
+        except Exception:
+            cached = []
+        section("Skills", "★")
+        if cached:
+            out.append("\n")
+            hit("skills")
+            out.append(f"{len(cached)} available", style=ui.FG_MUTE)
+        out.append("\n")
+        hit("skill-add")
+        out.append("+ install skill", style=ui.ACCENT if not cached else ui.FG_DIM)
 
         # modified files
         con = getattr(app, "_tui_console", None)
@@ -235,6 +306,8 @@ class SidebarBody(Widget):
         if tools:
             section("Tools", "$")
             line(f"{tools} call{'s' if tools != 1 else ''} this session", ui.FG_DIM)
+        self._hits = hits
+        self._last = out
         return out
 
 

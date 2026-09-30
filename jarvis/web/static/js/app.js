@@ -15,6 +15,8 @@ import { initModals } from './modal.js';
 import { initPalette, runItem } from './palette.js';
 import { initPickers, openPickerByKind } from './pickers.js';
 import { initProviders } from './providers.js';
+import { initMcp } from './mcp.js';
+import { initSkills } from './skills.js';
 import { initPrompts } from './prompts.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initQuickbar } from './quickbar.js';
@@ -120,6 +122,8 @@ function boot() {
   initPalette({ onOpenPicker: openPickerByKind });
   initPickers();
   initProviders({ onOpenPicker: openPickerByKind });
+  initMcp();
+  initSkills();
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
   initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector });

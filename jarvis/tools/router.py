@@ -41,6 +41,24 @@ LESSON_RE = re.compile(r"\b(lesson|learned|remember how|same task)\b", re.I)
 SKILL_RE = re.compile(r"\b(skill|skills|sk\.md|skill\.md|reusable instr|my skills|available skills)\b", re.I)
 
 
+def _extensions_re() -> re.Pattern:
+    """Installing skills / MCP servers: the words, launchers, or "add linear"."""
+    from ..mcp.catalog import CATALOG
+
+    names = "|".join(re.escape(c["id"]) for c in CATALOG)
+    return re.compile(
+        r"\b(mcp|mcps|mcp[- ]server|modelcontextprotocol|\.mcp\.json|skills?|skill\.md|npx -y|uvx|claude mcp add|"
+        r"authenticate|sign[- ]?in to|oauth)\b"
+        rf"|\b(?:add|install|connect|enable|set ?up|hook up)\s+(?:the\s+)?(?:{names})\b"
+        r"|github\.com/[\w.-]+/[\w.-]+/(?:tree|blob)/[^\s]*skills?"
+        r"|skills\.sh/",
+        re.I,
+    )
+
+
+EXT_RE = _extensions_re()
+
+
 def _block_to_text(block) -> str:
     if isinstance(block, str):
         return block
@@ -170,6 +188,13 @@ def select_tools(messages: list[dict]) -> list[dict]:
         groups.append("memory")
     if LESSON_RE.search(text) or "lessons" in active:
         groups.append("lessons")
+
+    # Installing skills / MCP servers — when the user talks about adding one, or a
+    # server is waiting for its sign-in (so the agent can retry it afterwards).
+    from .extensions import sign_in_waiting
+
+    if EXT_RE.search(text) or "extensions" in active or sign_in_waiting():
+        groups.append("extensions")
 
     # MCP group — only when at least one MCP tool is registered (server connected).
     # Skills may mention mcp__* tool names even when disconnected; never expose

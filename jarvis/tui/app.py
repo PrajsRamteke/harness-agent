@@ -151,6 +151,8 @@ from .mixins.prompt_nav import PromptNavMixin  # noqa: E402
 from .mixins.loop import LoopMixin  # noqa: E402
 from .mixins.bg_jobs import BgJobsMixin  # noqa: E402
 from .mixins.enhance import EnhanceMixin  # noqa: E402
+from .mixins.mcp_auth import McpAuthMixin  # noqa: E402
+from .mcp_auth_bar import McpAuthBar  # noqa: E402
 from .enhance_button import EnhanceButton  # noqa: E402
 from .pet_widget import PetBubble, PetBuddy  # noqa: E402
 from .prompt_history import PromptHistory  # noqa: E402
@@ -188,7 +190,7 @@ _TIPS = (
 
 
 class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMixin,
-                BgJobsMixin, EnhanceMixin, FileRefPickerMixin, App):
+                BgJobsMixin, EnhanceMixin, McpAuthMixin, FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
 
@@ -216,6 +218,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         Binding("ctrl+shift+u", "copy_web_url", "Copy URL", show=False),
         Binding("ctrl+y", "copy_last_reply", "Copy reply", show=False),
         Binding("ctrl+g", "enhance_prompt", "Enhance prompt", show=False),
+        # Only live while the sign-in bar is showing (McpAuthMixin.check_action).
+        Binding("ctrl+o", "mcp_auth_start", "Sign in", show=False),
     ]
 
     def __init__(self):
@@ -256,6 +260,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._loop_init()
         self._bg_init()
         self._enhance_init()
+        self._mcp_auth_init()
         self._history = PromptHistory()
         self._turn_is_llm = False
         self._turn_cancelled = False
@@ -355,6 +360,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         with Vertical(id="dock"):
             yield Static("", id="queuebar", markup=True, shrink=False, classes="hidden")
             yield Static("", id="askbar", markup=True, shrink=False, classes="hidden")
+            yield McpAuthBar(id="mcp_auth")
             yield ActivityLine(id="activity", classes="-idle")
             with Vertical(id="popup", classes="hidden"):
                 yield Static("", id="popup_hint")
@@ -423,6 +429,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._pet_apply_visibility()
         self._load_sticky_pref()
         self._bg_attach()  # job notices + auto-wake (mixins/bg_jobs.py)
+        self._mcp_auth_attach()  # sign-in bar + sidebar follow MCP registry events
 
         self.query_one("#prompt", PromptArea).focus()
         self.call_after_refresh(self._render_welcome_intro)
@@ -433,6 +440,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
     def on_unmount(self) -> None:
         self._bg_detach()
+        self._mcp_auth_detach()
         try:
             from .. import file_changes
 
@@ -458,6 +466,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._pet_slow_tick()
         self._load_sticky_pref()
         self._sync_sticky_prompt()
+        self._mcp_auth_sync()
         self._refresh_sidebar()
 
     def _refresh_sidebar(self) -> None:
@@ -1028,7 +1037,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._set_status("ready")
         self._slow_refresh()
 
-    def _open_mcp_modal(self):
+    def _open_mcp_modal(self, add: bool = False):
         def after(_: object) -> None:
             from ..mcp.scope import invalidate_mcp_prompt_cache
             invalidate_mcp_prompt_cache()
@@ -1036,7 +1045,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             self._slow_refresh()
         from .mcp_modal import MCPModalScreen
 
-        self.push_screen(MCPModalScreen(), after)
+        self.push_screen(MCPModalScreen(add=add), after)
 
     def _open_agent_picker(self):
         def after(result: object) -> None:
@@ -1051,12 +1060,12 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
         self.push_screen(AgentPickerScreen(), after)
 
-    def _open_skill_browser(self):
+    def _open_skill_browser(self, add: bool = False):
         def after(_: object) -> None:
             self._set_status("ready")
         from .skill_modal import SkillBrowserScreen
 
-        self.push_screen(SkillBrowserScreen(), after)
+        self.push_screen(SkillBrowserScreen(add=add), after)
 
     def _open_command_manager(self):
         """Open the custom-command manager modal.

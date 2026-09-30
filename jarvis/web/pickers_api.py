@@ -126,30 +126,12 @@ def list_agents(*, include_global: bool | None = None) -> dict[str, Any]:
 
 
 def list_skills(*, include_global: bool | None = None, query: str = "") -> dict[str, Any]:
-    from ..storage import skills as sk
+    """Every installed skill (project + global) with where it lives; ``active`` says
+    whether the agent can see it under the current scope. ``include_global`` is
+    kept for older clients and ignored — the scope switch is ``skills_scope``."""
+    from ..storage import skill_install as si
 
-    if include_global is None:
-        include_global = state.global_skills
-    q = (query or "").strip().lower()
-    skills_raw = sk.discover_skills(force=True, include_global=include_global)
-    skills = []
-    for rec in sorted(skills_raw, key=lambda r: (r.get("scope") != "project", r.get("name", ""))):
-        name = rec.get("name") or ""
-        desc = rec.get("description") or ""
-        if q and q not in name.lower() and q not in desc.lower():
-            continue
-        skills.append({
-            "name": name,
-            "description": desc,
-            "scope": rec.get("scope") or "project",
-            "source_dir": rec.get("source_dir") or "",
-        })
-    hidden = sk.global_count() if not include_global else 0
-    return {
-        "skills": skills,
-        "global_skills": include_global,
-        "hidden_global_count": hidden,
-    }
+    return si.describe_installed(query)
 
 
 def get_skill(name: str) -> dict[str, Any] | None:
@@ -167,46 +149,9 @@ def get_skill(name: str) -> dict[str, Any] | None:
 
 
 def list_mcp_servers(*, query: str = "") -> dict[str, Any]:
-    from ..mcp.config import get_config
-    from ..mcp.registry import mcp_registry
+    from ..mcp.install import describe_servers
 
-    q = (query or "").strip().lower()
-    config = get_config()
-    servers_cfg = config.list_servers()
-    servers: list[dict[str, Any]] = []
-    names = sorted(servers_cfg.keys())
-    counts = mcp_registry.health_counts(names)
-
-    auto_connect_names = set(config.get_auto_connect())
-
-    for name in names:
-        if q and q not in name.lower():
-            continue
-        cfg = servers_cfg[name] or {}
-        health = mcp_registry.get_server_health(name, cfg)
-        transport = cfg.get("type") or ("sse" if cfg.get("url") else "stdio")
-        if transport == "stdio":
-            cmd = cfg.get("command") or ""
-            args = cfg.get("args") or []
-            endpoint = " ".join([cmd, *args]).strip() or cmd
-        else:
-            endpoint = str(cfg.get("url") or "")
-        servers.append({
-            "name": name,
-            "scope": config.get_scope(name),
-            "source": config.get_source(name),
-            "auto_connect": name in auto_connect_names,
-            "transport": transport,
-            "endpoint": endpoint,
-            "health": health,
-        })
-
-    return {
-        "servers": servers,
-        "global_mcp": state.global_mcp,
-        "counts": counts,
-        "project_config_path": str(config.project_config_path() or ""),
-    }
+    return describe_servers(query)
 
 
 def parse_model_body(data: dict[str, Any]) -> tuple[str, str]:

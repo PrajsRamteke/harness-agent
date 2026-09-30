@@ -96,9 +96,11 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
         cfg = get_config().list_servers().get(name)
         if not cfg:
             return {"ok": False, "error": f"unknown server '{name}'"}
+        from ..mcp.registry import needs_auth
+
         err = mcp_registry.connect(name, cfg)
         if err:
-            return {"ok": False, "error": err}
+            return {"ok": False, "error": err, "auth_required": needs_auth(err)}
         from ..mcp.scope import invalidate_mcp_prompt_cache
 
         invalidate_mcp_prompt_cache()

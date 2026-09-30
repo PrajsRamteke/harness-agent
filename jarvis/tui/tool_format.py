@@ -75,6 +75,12 @@ _TITLES = {
     "wait": "Wait",
     "check_permissions": "Permissions",
     "skill_load": "Skill",
+    "skill_install": "Install skill",
+    "skill_remove": "Remove skill",
+    "mcp_add": "Add MCP",
+    "mcp_list": "MCP",
+    "mcp_connect": "MCP",
+    "mcp_remove": "Remove MCP",
 }
 
 
@@ -105,7 +111,8 @@ _ICONS = {
     "clipboard_get": "⎘", "clipboard_set": "⎘",
     "notify": "!", "speck": "♪", "wait": "◷",
     "shortcut_run": "▶", "mac_control": "◐",
-    "skill_load": "✧",
+    "skill_load": "✧", "skill_install": "✧", "skill_remove": "✧",
+    "mcp_add": "◈", "mcp_list": "◈", "mcp_connect": "◈", "mcp_remove": "◈",
 }
 
 
@@ -302,6 +309,16 @@ def tool_args(name: str, raw_input: Any, width: int = 96) -> str:
         if isinstance(qs, list) and qs and isinstance(qs[0], dict):
             return c(qs[0].get("prompt") or "")
         return ""
+    if name == "skill_install":
+        bits = [str(d.get("source") or ""), f"({d.get('scope') or 'global'})"]
+        if d.get("skill"):
+            bits.insert(1, f"@{d['skill']}")
+        return c(" ".join(b for b in bits if b))
+    if name == "mcp_add":
+        what = d.get("source") or d.get("url") or " ".join([str(d.get("command") or "")] + [str(a) for a in d.get("args") or []])
+        return c(f"{d.get('name') + ' · ' if d.get('name') else ''}{what.strip()} ({d.get('scope') or 'global'})")
+    if name in ("mcp_connect", "mcp_remove", "skill_remove"):
+        return c(" ".join(x for x in (str(d.get("name") or ""), str(d.get("action") or "")) if x))
     if name in ("launch_app", "focus_app", "quit_app"):
         return c(d.get("name") or "")
     if name == "applescript":

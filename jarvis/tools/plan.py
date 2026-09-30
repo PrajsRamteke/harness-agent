@@ -38,6 +38,7 @@ PLAN_MODE_ALLOWED = frozenset({
     "memory_list", "lesson_search", "lesson_list",
     # skills (read/load — instructions only)
     "skill_list", "skill_load",
+    "mcp_list",
     # user interaction
     "ask_user_question",
     # the exit gate itself

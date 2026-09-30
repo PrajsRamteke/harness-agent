@@ -1,23 +1,22 @@
-/** Pickers: sessions, models, agents, skills, MCP servers.
+/** Pickers: sessions, models, agents.
  *
  * One dialog, one keyboard model (↑ ↓ Enter, Esc) — each kind only supplies
- * its rows and what picking a row does.
+ * its rows and what picking a row does. Providers, Skills and MCP servers are
+ * dialogs of their own (forms, add-by-link, sign-in) — `open` hands them off.
  */
 import { $, escapeHtml, showToast, debounce } from './utils.js';
 import { icon } from './icons.js';
 import { store } from './store.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
 import { runAction } from './actions.js';
-import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 import { openProviders } from './providers.js';
+import { openMcp } from './mcp.js';
+import { openSkills } from './skills.js';
 import {
   pickerAction,
   fetchSessions,
   fetchModels,
   fetchAgents,
-  fetchSkills,
-  fetchSkill,
-  fetchMcpServers,
 } from './api.js';
 
 let current = null; // { kind, spec, rows }
@@ -87,18 +86,6 @@ function renderFoot() {
   current.spec.bindFoot?.(foot);
 }
 
-function showDetail(html) {
-  const detail = $('picker-detail');
-  $('picker-list').hidden = true;
-  document.querySelector('#picker .search-row').hidden = true;
-  detail.hidden = false;
-  detail.innerHTML = html;
-  detail.scrollTop = 0;
-  detail.querySelector('.detail-back')?.addEventListener('click', hideDetail);
-  applyMarkdownLinks(detail);
-  detail.querySelector('.detail-back')?.focus();
-}
-
 function hideDetail() {
   $('picker-detail').hidden = true;
   $('picker-list').hidden = false;
@@ -111,6 +98,16 @@ function open(kind, arg = '') {
   if (kind === 'provider') {
     if (isModalOpen('picker')) closePicker();
     openProviders(arg);
+    return;
+  }
+  if (kind === 'mcp') {
+    if (isModalOpen('picker')) closePicker();
+    openMcp(arg);
+    return;
+  }
+  if (kind === 'skill') {
+    if (isModalOpen('picker')) closePicker();
+    openSkills();
     return;
   }
   const spec = SPECS[kind];
@@ -312,130 +309,10 @@ const agentSpec = {
   },
 };
 
-let skillsGlobal = false;
-
-const skillSpec = {
-  title: 'Skills',
-  sub: 'Jarvis loads a skill when a task matches it',
-  icon: 'book-open',
-  placeholder: 'Search skills',
-  init() { skillsGlobal = !!store.session.global_skills; },
-  async load(q) {
-    const data = await fetchSkills(skillsGlobal, q);
-    skillsGlobal = !!data.global_skills;
-    const rows = (data.skills || []).map((s) => ({
-      icon: 'book-open',
-      title: s.name,
-      sub: s.description || '',
-      wrap: true,
-      meta: `<span class="badge">${s.scope === 'global' ? 'Global' : 'Project'}</span>`,
-      pick: () => previewSkill(s.name),
-    }));
-    const hidden = data.hidden_global_count ? `${data.hidden_global_count} global skills are hidden — switch to Project + global.` : 'Add one under .harness/skills/<name>/SKILL.md.';
-    return { rows, empty: `<strong>No skills found</strong>${hidden}` };
-  },
-  chips: () => seg(SCOPES, String(skillsGlobal)),
-  bindChips(box) {
-    bindSeg(box, async (val) => {
-      skillsGlobal = val;
-      renderChips();
-      await pickerAction('skills_scope', { global_skills: val });
-      reload();
-    });
-  },
-};
-
-async function previewSkill(name) {
-  try {
-    const data = await fetchSkill(name);
-    showDetail(`
-      <button type="button" class="btn btn-quiet detail-back">${icon('arrow-left')}<span>Back to skills</span></button>
-      <div class="md">${renderMarkdown(data.content || '')}</div>`);
-  } catch {
-    showToast('Could not open that skill', true);
-  }
-}
-
-let mcpGlobal = false;
-
-function mcpBadge(h) {
-  const cls = { live: 'is-live', warn: 'is-warn', failed: 'is-bad' }[h.status] || '';
-  const label = {
-    live: `${h.tool_count || 0} tools`,
-    idle: 'Off',
-    connecting: 'Connecting',
-    failed: 'Failed',
-    warn: 'Check',
-  }[h.status] || h.status || 'Off';
-  return `<span class="badge ${cls}" title="${escapeHtml(h.detail || h.summary || '')}">${escapeHtml(label)}</span>`;
-}
-
-const mcpSpec = {
-  title: 'MCP servers',
-  sub: 'Tool servers Jarvis can call',
-  icon: 'plug',
-  placeholder: 'Search servers',
-  init() { mcpGlobal = !!store.session.global_mcp; },
-  async load(q) {
-    const data = await fetchMcpServers(q);
-    mcpGlobal = !!data.global_mcp;
-    renderChips();
-    const rows = (data.servers || []).map((s) => {
-      const h = s.health || {};
-      const live = !!h.connected;
-      return {
-        name: s.name,
-        live,
-        icon: live ? 'plug-zap' : 'plug',
-        title: s.name,
-        sub: h.detail || s.endpoint || s.transport || '',
-        meta: `${mcpBadge(h)}<button type="button" class="row-btn" data-mcp="${escapeHtml(s.name)}" data-live="${live}">${live ? 'Disconnect' : 'Connect'}</button>`,
-        pick: () => toggleMcp(s.name, live),
-      };
-    });
-    return { rows, empty: '<strong>No MCP servers configured</strong>Add them in .mcp.json or with /mcp in the terminal.' };
-  },
-  bindRows(list) {
-    list.querySelectorAll('[data-mcp]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleMcp(btn.dataset.mcp, btn.dataset.live === 'true', btn);
-      });
-    });
-  },
-  chips: () => seg([
-    { value: 'false', label: 'Project servers' },
-    { value: 'true', label: 'Include global' },
-  ], String(mcpGlobal)),
-  bindChips(box) {
-    bindSeg(box, async (val) => {
-      mcpGlobal = val;
-      renderChips();
-      const res = await pickerAction('mcp_scope', { global_mcp: val });
-      if (!res.ok) showToast(res.error || 'Could not change the scope', true);
-      reload();
-    });
-  },
-};
-
-async function toggleMcp(name, live, btn) {
-  const target = btn || $('picker-list').querySelector(`[data-mcp="${CSS.escape(name)}"]`);
-  if (target) {
-    target.disabled = true;
-    target.textContent = live ? 'Disconnecting' : 'Connecting';
-  }
-  const res = await pickerAction(live ? 'mcp_disconnect' : 'mcp_connect', { name });
-  if (res.ok) showToast(live ? `Disconnected ${name}` : `Connected ${name}`);
-  else showToast(res.error || `Could not ${live ? 'disconnect' : 'connect'} ${name}`, true);
-  reload();
-}
-
 const SPECS = {
   session: sessionSpec,
   model: modelSpec,
   agent: agentSpec,
-  skill: skillSpec,
-  mcp: mcpSpec,
 };
 
 export function openPickerByKind(kind, arg = '') {

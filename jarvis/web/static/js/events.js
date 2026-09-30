@@ -17,6 +17,8 @@ import { renderShellApproval, renderAskUser, renderTextInput, handlePromptResolv
 import { refreshRecent } from './sidebar.js';
 import { fetchState } from './api.js';
 import { refreshProviders } from './providers.js';
+import { handleMcpEvent } from './mcp.js';
+import { handleSkillsEvent } from './skills.js';
 import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
 
@@ -144,6 +146,15 @@ export function handleEvent(evt) {
       // A key or sign-in changed (this tab, another one, or the terminal's
       // ChatGPT callback): reload the list for the sidebar and dialog.
       refreshProviders();
+      break;
+
+    case 'mcp':
+      // A server connected, failed or needs its sign-in (this tab, another tab,
+      // the terminal, or the agent adding one): refresh the dialog, banner and dot.
+      handleMcpEvent(data);
+      break;
+    case 'skills':
+      handleSkillsEvent();
       break;
 
     default:

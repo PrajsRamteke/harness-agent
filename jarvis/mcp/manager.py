@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 from typing import Any
 
@@ -35,7 +36,14 @@ def handle_mcp_command(arg: str) -> Any:
     if not arg:
         return _usage_panel()
 
-    parts = shlex.split(arg)
+    head, _, rest = arg.strip().partition(" ")
+    cmd = head.lower()
+    if cmd in ("add", "register") and not _is_legacy_add(rest):
+        return _cmd_add_source(rest)
+    try:
+        parts = shlex.split(arg)
+    except ValueError as exc:
+        return Text.from_markup(f"[red]Couldn't read that:[/] {exc}")
     cmd = parts[0].lower()
     sub_args = parts[1:]
 
@@ -43,6 +51,14 @@ def handle_mcp_command(arg: str) -> Any:
         return _cmd_list()
     if cmd in ("add", "register"):
         return _cmd_add(sub_args)
+    if cmd in ("auth", "authenticate", "login", "signin", "sign-in"):
+        return _cmd_auth(sub_args)
+    if cmd == "paste":
+        return _cmd_paste(sub_args)
+    if cmd in ("signout", "logout", "sign-out"):
+        return _cmd_signout(sub_args)
+    if cmd in ("key", "keys", "creds", "credentials", "token"):
+        return _cmd_credentials(sub_args)
     if cmd in ("rm", "remove", "delete", "del"):
         return _cmd_remove(sub_args)
     if cmd in ("conn", "connect"):
@@ -121,9 +137,12 @@ def _usage_panel() -> Panel:
         ("/mcp global off",           "project-only — hide globals (default)"),
         ("/mcp connect <name>",       "start a configured server"),
         ("/mcp disconnect <name>",    "stop a running server"),
-        ("/mcp add <name> --command …", "register a stdio server in Jarvis global"),
-        ("/mcp add <name> --url …",   "register an SSE/HTTP server in Jarvis global"),
-        ("/mcp remove <name>",        "remove a Jarvis-managed global server"),
+        ("/mcp add <link|command|json|name>", "add a server: https://…, npx -y …, claude mcp add …, JSON, a GitHub link, or “linear”"),
+        ("  … --project | --global",   "where to add it (default: global)"),
+        ("/mcp auth <name>",          "sign in to a hosted server (opens the browser)"),
+        ("/mcp key <name>",           "enter the API key / token a server needs (hidden input)"),
+        ("/mcp remove <name>",        "remove a server you added (project or global)"),
+        ("/mcp add <name> --command …", "classic form: register a stdio server in Jarvis global"),
         ("/mcp reload",               "re-read every config file from disk"),
     ]
     for c, d in rows:
@@ -553,24 +572,16 @@ def _cmd_add(args: list[str]):
 
 
 def _cmd_remove(args: list[str]):
+    from .install import remove_mcp
+
     if not args:
-        return Text.from_markup("[red]Usage:[/] [cyan]/mcp remove <name>[/]")
-
-    name = args[0]
-    if mcp_registry.is_connected(name):
-        mcp_registry.disconnect(name)
-
-    config = get_config()
-    if not config.include_global():
-        config.load(include_global=True)
-    try:
-        removed = config.remove_server(name)
-    except ValueError as e:
-        return Text.from_markup(f"[yellow]{e}[/]")
-    if removed:
-        config.save()
-        return Text.from_markup(f"[green]✓[/] removed [bold]{name}[/]")
-    return Text.from_markup(f"[red]Server '{name}' not found.[/]")
+        return Text.from_markup("[red]Usage:[/] [cyan]/mcp remove <name> [--project|--global][/]")
+    scope = "project" if "--project" in args else ("global" if "--global" in args else None)
+    name = next((a for a in args if not a.startswith("--")), "")
+    res = remove_mcp(name, scope=scope)
+    if res.get("ok"):
+        return Text.from_markup(f"[green]✓[/] removed [bold]{name}[/] [dim]({res['scope']})[/]")
+    return Text.from_markup(f"[yellow]{res.get('error', 'not removed')}[/]")
 
 
 # ── /mcp connect / disconnect ────────────────────────────────────────────
@@ -600,6 +611,10 @@ def _cmd_connect(args: list[str]):
 
     error = mcp_registry.connect(name, server_cfg)
     if error:
+        from .registry import needs_auth
+
+        if needs_auth(error):
+            return _cmd_auth([name])
         return Text.from_markup(
             f"[red]✗ failed to connect[/] [bold]{name}[/]\n  [dim]{error}[/]"
         )
@@ -624,6 +639,155 @@ def _cmd_disconnect(args: list[str]):
     if error:
         return Text.from_markup(f"[red]{error}[/]")
     return Text.from_markup(f"[green]✓[/] [bold]{name}[/] disconnected")
+
+
+# ── /mcp add <anything> · auth · key ─────────────────────────────────────
+
+_ADD_FLAGS = re.compile(r"\s+(--project|--global|-p|-g|--no-connect|--replace)\b")
+
+
+def _is_legacy_add(rest: str) -> bool:
+    """The classic ``/mcp add <name> --command … | --url …`` form."""
+    toks = rest.split()
+    return len(toks) >= 2 and ("--command" in toks or "--url" in toks) and not rest.lstrip().startswith(("{", "claude", "npx", "uvx"))
+
+
+def _cmd_add_source(rest: str):
+    from .install import add_mcp
+
+    text = " " + (rest or "").strip()
+    scope = None
+    connect = True
+    replace = False
+    for m in _ADD_FLAGS.finditer(text):
+        flag = m.group(1)
+        if flag in ("--project", "-p"):
+            scope = "project"
+        elif flag in ("--global", "-g"):
+            scope = "global"
+        elif flag == "--no-connect":
+            connect = False
+        elif flag == "--replace":
+            replace = True
+    text = _ADD_FLAGS.sub("", text).strip()
+    if not text:
+        return Text.from_markup(
+            "[red]Usage:[/] [cyan]/mcp add <link | npx … | claude mcp add … | JSON | github link | name>[/] "
+            "[dim][--project|--global][/]\n[dim]e.g.[/] [cyan]/mcp add https://mcp.linear.app/mcp[/]  [cyan]/mcp add notion --project[/]"
+        )
+    res = add_mcp(text, scope=scope, connect=connect, replace=replace)
+    return _install_panel(res)
+
+
+def _install_panel(res: dict):
+    if not res.get("servers"):
+        return Text.from_markup(f"[red]✗[/] {res.get('error', 'nothing to add')}")
+    rows: list[Any] = []
+    for r in res["servers"]:
+        st = r.get("status")
+        nm = r.get("name")
+        sc = r.get("scope", "")
+        if st == "connected":
+            rows.append(Text.from_markup(f"[green]✓[/] [bold]{nm}[/] [dim]({sc})[/] connected — [green]{r.get('tool_count', 0)} tools[/]"))
+        elif st == "auth_required":
+            rows.append(Text.from_markup(f"[yellow]◐[/] [bold]{nm}[/] [dim]({sc})[/] added — needs sign-in: [cyan]/mcp auth {nm}[/]"))
+        elif st == "needs_credentials":
+            rows.append(Text.from_markup(
+                f"[yellow]◐[/] [bold]{nm}[/] [dim]({sc})[/] added — needs [bold]{', '.join(r.get('missing', []))}[/]: [cyan]/mcp key {nm}[/]"
+            ))
+        elif st in ("added", "exists"):
+            rows.append(Text.from_markup(f"[green]✓[/] [bold]{nm}[/] [dim]({sc})[/] {r.get('message', 'added')}"))
+        elif st == "denied":
+            rows.append(Text.from_markup(f"[red]✗[/] [bold]{nm}[/] {r.get('message', 'declined')}"))
+        else:
+            rows.append(Text.from_markup(f"[red]✗[/] [bold]{nm}[/] [dim]({sc})[/] {r.get('error', 'failed')}"))
+        if r.get("path"):
+            rows.append(Text.from_markup(f"  [dim]{r['path']}[/]"))
+        if r.get("scope_note"):
+            rows.append(Text.from_markup(f"  [yellow]{r['scope_note']}[/]"))
+        for n in r.get("notes") or []:
+            rows.append(Text.from_markup(f"  [dim]{n}[/]"))
+    return Group(*rows)
+
+
+def _cmd_auth(args: list[str]):
+    from .auth import coordinator
+
+    if not args:
+        pending = coordinator.pending()
+        if len(pending) == 1:
+            args = [pending[0]["name"]]
+        else:
+            return Text.from_markup("[red]Usage:[/] [cyan]/mcp auth <name>[/]")
+    name = args[0]
+    cfg = get_config().get_server(name)
+    if cfg is None:
+        return Text.from_markup(f"[red]Server '{name}' not found.[/] [dim]See[/] [cyan]/mcp list[/]")
+    res = mcp_registry.authenticate(name, cfg)
+    if res.get("connected"):
+        return Text.from_markup(f"[green]✓[/] [bold]{name}[/] connected — already signed in")
+    if not res.get("ok"):
+        return Text.from_markup(f"[red]✗[/] {res.get('error', 'could not start sign-in')}")
+    opened = coordinator.open_browser(name)
+    url = res.get("url", "")
+    lines = [
+        Text.from_markup(
+            f"[yellow]◐[/] Sign in to [bold]{name}[/] — "
+            + ("opened your browser." if opened else "open this link in a browser:")
+        ),
+        Text(url, style="cyan underline"),
+        Text.from_markup("[dim]Approve there; the tools appear on their own. On another device, copy the address it ends on and run[/] "
+                         f"[cyan]/mcp paste {name} <address>[/]"),
+    ]
+    return Group(*lines)
+
+
+def _cmd_paste(args: list[str]):
+    from .auth import coordinator
+
+    if len(args) < 2:
+        return Text.from_markup("[red]Usage:[/] [cyan]/mcp paste <name> <address the browser ended on>[/]")
+    res = coordinator.submit(args[0], args[1])
+    if res.get("ok"):
+        return Text.from_markup(f"[green]✓[/] got it — finishing sign-in to [bold]{args[0]}[/]…")
+    return Text.from_markup(f"[red]✗[/] {res.get('error', 'that did not work')}")
+
+
+def _cmd_signout(args: list[str]):
+    if not args:
+        return Text.from_markup("[red]Usage:[/] [cyan]/mcp signout <name>[/]")
+    name = args[0]
+    cfg = get_config().get_server(name) or {}
+    mcp_registry.sign_out(name, cfg)
+    return Text.from_markup(f"[green]✓[/] signed out of [bold]{name}[/] [dim](saved login forgotten)[/]")
+
+
+def _cmd_credentials(args: list[str]):
+    from ..console import console
+    from . import secrets as mcp_secrets
+    from .install import set_credentials
+
+    if not args:
+        return Text.from_markup("[red]Usage:[/] [cyan]/mcp key <name>[/]")
+    name = args[0]
+    cfg = get_config().get_server(name)
+    if cfg is None:
+        return Text.from_markup(f"[red]Server '{name}' not found.[/]")
+    missing = mcp_secrets.missing(cfg) or mcp_secrets.refs(cfg)
+    if not missing:
+        return Text.from_markup(f"[dim]{name} doesn't use any keys.[/]")
+    values: dict[str, str] = {}
+    for var in missing:
+        try:
+            val = console.input(f"[bold]{var}[/] (hidden): ", password=True)
+        except (EOFError, KeyboardInterrupt, RuntimeError):
+            break
+        if val and val.strip():
+            values[var] = val.strip()
+    if not values:
+        return Text.from_markup("[dim]nothing entered[/]")
+    res = set_credentials(name, values)
+    return _install_panel({"servers": [{**res, "name": name, "scope": ""}]})
 
 
 # ── /mcp reload ──────────────────────────────────────────────────────────

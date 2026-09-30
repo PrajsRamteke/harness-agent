@@ -300,6 +300,28 @@ export function fetchMcpServers(q = '') {
   return api(`/api/mcp${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 }
 
+// ─── Skills and MCP: add, sign in, remove (jarvis/web/extensions_api.py) ───
+/** Where a browser sign-in stands → `{ connected, status: pending|working|done|error|cancelled|none, url?, message?, expires_in? }`. */
+export const fetchMcpAuth = (name) => api(`/api/mcp/auth?name=${encodeURIComponent(name)}`);
+
+/** `path` is mcp/parse|add|remove|move|connect|disconnect|signout|credentials, mcp/auth/start|paste|cancel,
+ * skills/inspect|install|remove|move|update. Always resolves to `{ok, error?, …}` (never throws);
+ * the reply also carries the fresh `mcp` / `skills` list. */
+export async function extPost(path, data = {}) {
+  try {
+    const res = await fetch(`/api/${path}`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const body = await res.json().catch(() => null);
+    if (!body || typeof body !== 'object') return { ok: false, error: res.statusText || 'Invalid response' };
+    return body;
+  } catch {
+    return { ok: false, error: 'Jarvis is not reachable' };
+  }
+}
+
 // ─── Providers and login (jarvis/web/providers_api.py) ────────────────────
 export const fetchProviders = () => api('/api/providers');
 export const fetchOAuthStatus = (flow) => api(`/api/providers/oauth?flow=${encodeURIComponent(flow)}`);

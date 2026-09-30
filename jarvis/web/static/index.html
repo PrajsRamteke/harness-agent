@@ -44,6 +44,7 @@
   <link rel="stylesheet" href="/static/css/chat.css">
   <link rel="stylesheet" href="/static/css/composer.css">
   <link rel="stylesheet" href="/static/css/overlays.css">
+  <link rel="stylesheet" href="/static/css/extensions.css">
   <link rel="stylesheet" href="/static/css/inspector.css">
 </head>
 <body>
@@ -160,7 +161,7 @@
         </div>
         <div class="foot-actions">
           <button class="chip-btn" id="open-skills" type="button"><span data-icon="book-open"></span><span>Skills</span></button>
-          <button class="chip-btn" id="open-mcp" type="button"><span data-icon="plug"></span><span>MCP</span></button>
+          <button class="chip-btn" id="open-mcp" type="button" aria-label="MCP servers"><span data-icon="plug"></span><span>MCP</span><span class="attn-dot" id="mcp-dot" hidden aria-hidden="true"></span></button>
           <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme" title="Switch theme"><span data-icon="moon"></span></button>
           <button class="icon-btn" id="appearance-btn" type="button" aria-label="Appearance" title="Appearance"><span data-icon="palette"></span></button>
         </div>
@@ -218,6 +219,7 @@
         </button>
         <div class="dock-chips" id="dock-chips">
           <div class="chip-slot" id="wait-chip"></div>
+          <div class="chip-slot" id="mcp-chip"></div>
           <div class="chip-slot" id="changes-chip"></div>
           <div class="chip-slot" id="queue-chips"></div>
         </div>
@@ -369,6 +371,34 @@
         <button class="icon-btn" data-close="providers" type="button" aria-label="Close"><span data-icon="x"></span></button>
       </div>
       <div class="pv-body" id="providers-body"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="mcp" hidden>
+    <div class="modal-card glass-strong ext-card" role="dialog" aria-modal="true" aria-labelledby="mcp-title">
+      <div class="picker-head">
+        <span class="picker-icon"><span data-icon="plug"></span></span>
+        <div class="picker-titles">
+          <h2 id="mcp-title">MCP servers</h2>
+          <p id="mcp-sub">Tool servers Jarvis can call</p>
+        </div>
+        <button class="icon-btn" data-close="mcp" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="pv-body ex-body" id="mcp-body"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="skills" hidden>
+    <div class="modal-card glass-strong ext-card" role="dialog" aria-modal="true" aria-labelledby="skills-title">
+      <div class="picker-head">
+        <span class="picker-icon"><span data-icon="book-open"></span></span>
+        <div class="picker-titles">
+          <h2 id="skills-title">Skills</h2>
+          <p id="skills-sub">Jarvis loads a skill when a task matches it</p>
+        </div>
+        <button class="icon-btn" data-close="skills" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="pv-body ex-body" id="skills-body"></div>
     </div>
   </div>
 

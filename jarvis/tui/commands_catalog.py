@@ -26,7 +26,8 @@ COMMANDS = [
     # Lessons — modal handles list / search / add / delete / clear
     ("/lesson", "open the lesson modal (list · search · add · delete · clear)"),
     # Skills — modal browses; LLM auto-invokes by description
-    ("/skill", "open the skill browser modal"),
+    ("/skill", "open the skill browser — install from a link, remove, move project ↔ global"),
+    ("/skill add ", "install a skill: GitHub link · owner/repo · SKILL.md link · folder  [--project|--global]"),
     # Local commands — shell/file/git that run without LLM
     ("/local", "open the local commands modal (pick and run ls, pwd, cd, git, find, run, undo, diff)"),
     # Clipboard
@@ -45,7 +46,10 @@ COMMANDS = [
     # Scan
     ("/scan", "AI-powered deep scan: identity / docs / projects → memory"),
     # MCP — single modal for everything
-    ("/mcp", "MCP control panel — list, toggle, import JSON, manage scope"),
+    ("/mcp", "MCP control panel — add, connect, sign in, keys, scope"),
+    ("/mcp add ", "add a server: https://… · npx … · claude mcp add … · JSON · GitHub link · name  [--project|--global]"),
+    ("/mcp auth ", "sign in to a hosted MCP server (opens the browser)"),
+    ("/mcp key ", "enter the API key / token an MCP server needs (hidden)"),
     # Settings — modal handles get · set · reset · reload · edit · path
     ("/settings", "open the settings modal (view · edit · reset · reload)"),
     # Upgrade

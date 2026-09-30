@@ -260,6 +260,10 @@ On first launch, you'll pick how to authenticate:
 | `/agent new <name>` | Scaffold a new agent in `.harness/agents/<name>.md`             |
 | `/agent init`       | Scaffold a `.harness/` tree in the current project              |
 | `/skill`            | Open the skill browser (LLM auto-invokes skills by description) |
+| `/skill add <link>` | Install a skill from GitHub / a `SKILL.md` link / an archive (`--project` or `--global`) |
+| `/mcp`              | MCP control panel — add a server from a link, sign in, connect |
+| `/mcp add <link>`   | Add an MCP server: `https://…`, `npx -y …`, `claude mcp add …`, JSON, a GitHub link, or a name like `linear` |
+| `/mcp auth <name>`  | Sign in to a hosted MCP server in your browser |
 | `/verbose` / `F2`   | Toggle internal thinking and tool traces (shown by default)     |
 | `/cost`             | Show token usage + estimated USD cost                           |
 | `/clear`            | Reset the conversation                                          |
@@ -320,7 +324,32 @@ One active at a time, shown in the status bar. `/agent` opens the picker;
 
 **Skills** — `SKILL.md` packs with `name` + `description`. The LLM sees all
 discovered descriptions and decides when to load a skill itself via
-`/skill load <name>`. The `/skill` modal is a read-only browser.
+`/skill load <name>`.
+
+### Adding skills and MCP servers
+
+You don't have to edit any files. Do any of these — in the terminal or the web UI:
+
+- **Ask Jarvis.** "Add this skill: https://github.com/anthropics/skills/tree/main/skills/pdf",
+  "add the Linear MCP server to this project", or paste an `npx …` / `claude mcp add …`
+  line. Jarvis asks you to approve, installs it, and connects it.
+- **Use the dialogs.** `/skill` and `/mcp` (Skills and MCP in the web sidebar) have an
+  *Add* box: paste a link, pick **Project** (this folder only) or **Global** (every
+  project), done. Popular servers (Linear, Notion, Sentry, GitHub, …) are one click.
+- **Slash commands.** `/skill add <link> [--project|--global]`, `/mcp add <link> …`.
+
+Where things go: skills → `.harness/skills/<name>/` (project) or `~/.harness/skills/<name>/`
+(global); MCP servers → `.mcp.json` in the project, or `~/.config/harness-agent/mcp.json`
+(global). Skills from a GitHub repo need no `git`; a repo with several skills shows a list
+to choose from.
+
+**Signing in.** A hosted MCP server that wants a login shows an **Authenticate** button
+(above the prompt in the terminal, in the MCP dialog and a banner on the web). Click it,
+approve in your browser, and the tools appear on their own — no restart. Signing in from
+another device (a phone)? Paste the address it ends on. Servers that want an API key
+ask for it in a hidden box; keys are kept in `~/.config/harness-agent/mcp_secrets.json`
+(mode 600), never in `.mcp.json`. Opening Jarvis never starts a sign-in by itself, and a
+saved login refreshes silently.
 
 ---
 
@@ -364,7 +393,7 @@ harness/
 │   ├── tui/                # Textual TUI
 │   │   ├── app.py          # Terminal UI app
 │   │   ├── agent_modal.py  # Agent picker
-│   │   └── skill_modal.py  # Skill browser (read-only)
+│   │   └── skill_modal.py  # Skill browser + install from a link
 │   │
 │   ├── commands/           # Slash commands
 │   │   ├── dispatch.py

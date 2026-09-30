@@ -30,3 +30,47 @@ def _no_macos_permission_prompts(monkeypatch):
     shot = importlib.import_module("jarvis.tools.screenshot")
     monkeypatch.setattr(shot, "request_screen_recording", lambda: None)
     monkeypatch.setattr(shot, "_permission_requested", False)
+
+
+@pytest.fixture()
+def ext_env(tmp_path, monkeypatch):
+    """Skills / MCP installs against a scratch HOME + project folder.
+
+    Nothing reaches the real ``~/.config/harness-agent``, ``~/.harness``,
+    ``~/.claude`` … or the current project, and no config is saved to settings.
+    """
+    import pathlib
+    import types
+
+    import jarvis.mcp.auth as mcp_auth
+    import jarvis.mcp.config as mcp_config
+    import jarvis.mcp.secrets as mcp_secrets
+    import jarvis.storage.skill_install as skill_install
+    import jarvis.storage.skills as skills
+    from jarvis import state
+
+    home = tmp_path / "home"
+    proj = tmp_path / "proj"
+    home.mkdir()
+    proj.mkdir()
+    monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(mcp_config, "MCP_GLOBAL_CONFIG_FILE", home / ".config" / "harness-agent" / "mcp.json")
+    monkeypatch.setattr(
+        mcp_config, "_global_sources",
+        lambda: [("jarvis", mcp_config.MCP_GLOBAL_CONFIG_FILE, "")],
+    )
+    monkeypatch.setattr(mcp_secrets, "SECRETS_FILE", home / ".config" / "harness-agent" / "mcp_secrets.json")
+    monkeypatch.setattr(mcp_auth, "AUTH_DIR", home / ".config" / "harness-agent" / "mcp-auth")
+    monkeypatch.setattr(skill_install, "HARNESS_SKILLS_DIR", home / ".harness" / "skills")
+    monkeypatch.setattr(skills, "HARNESS_SKILLS_DIR", home / ".harness" / "skills")
+    monkeypatch.setattr(skills, "CONFIG_DIR", home / ".config" / "harness-agent")
+    monkeypatch.chdir(proj)
+    monkeypatch.setattr(state, "global_mcp", False)
+    monkeypatch.setattr(state, "global_skills", False)
+    monkeypatch.setattr(state, "save_mcp_config", lambda: None)
+    monkeypatch.setattr(state, "save_skills_config", lambda: None)
+    monkeypatch.setattr(mcp_config, "_config", None)
+    skills.invalidate_cache()
+    yield types.SimpleNamespace(home=home, proj=proj)
+    monkeypatch.setattr(mcp_config, "_config", None)
+    skills.invalidate_cache()

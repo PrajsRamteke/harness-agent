@@ -289,6 +289,11 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/mcp":
             self._send_json(200, list_mcp_servers(query=self._query_str(qs, "q")))
             return
+        if path == "/api/mcp/auth":
+            from .extensions_api import mcp_auth_status
+
+            self._send_json(200, mcp_auth_status(self._query_str(qs, "name")))
+            return
         if path == "/api/tool-output":
             from .state_api import tool_output_text
 
@@ -372,9 +377,39 @@ class WebHandler(BaseHTTPRequestHandler):
             self.bridge.emit("state", fields)
         self._send_json(200, body)
 
+    def _handle_extensions_post(self, path: str, data: dict[str, Any]) -> None:
+        """Add / sign in to / remove skills and MCP servers (``extensions_api``)."""
+        from . import extensions_api as ext
+
+        try:
+            if path.startswith("/api/skills/"):
+                result = ext.run_skills(path, data)
+                fresh = {"skills": ext.skills_state()}
+                changed = "skills"
+            else:
+                result = ext.run_mcp(path, data)
+                fresh = {"mcp": ext.mcp_state()}
+                changed = "mcp"
+        except Exception as exc:  # never leave the page hanging on a 500
+            self._send_json(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            return
+        body = dict(result) if isinstance(result, dict) else {"ok": False, "error": "invalid response"}
+        body.update(fresh)
+        body.update(ext.scope_flags())
+        if path not in ("/api/mcp/parse", "/api/skills/inspect"):
+            # Other open pages reload their lists now.
+            self.bridge.emit(changed, {"event": path.rsplit("/", 1)[-1], "name": str(data.get("name") or "")})
+        self._send_json(200, body)
+
     def _handle_api_post(self, path: str, data: dict[str, Any]) -> None:
         if path.startswith("/api/providers/"):
             self._handle_providers_post(path, data)
+            return
+
+        from .extensions_api import handles as _ext_handles
+
+        if _ext_handles(path):
+            self._handle_extensions_post(path, data)
             return
 
         if path == "/api/action":

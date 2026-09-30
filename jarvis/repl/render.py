@@ -112,6 +112,8 @@ _SERIAL_TOOLS = {
     "resolve_context", "read_bundle",
     "ask_user_question",
     "exit_plan_mode",
+    # installing skills / MCP servers — config files, sign-in state, approval prompts
+    "skill_install", "skill_remove", "mcp_add", "mcp_list", "mcp_connect", "mcp_remove",
     # JSON-backed storage — file-level read/write races when run in parallel
     "memory_save", "memory_delete",
     "lesson_save", "lesson_delete",

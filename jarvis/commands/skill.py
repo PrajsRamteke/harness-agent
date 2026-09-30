@@ -7,7 +7,13 @@ Syntax:
     /skill refresh          → force re-scan for new/changed skills
     /skill load <name>      → show full skill content for <name>
     /skill global on|off    → toggle global skill visibility (persisted)
+    /skill add <link>       → install from GitHub / SKILL.md / archive / folder
+                              [--project|--global] [--skill name] [--all] [--overwrite]
+    /skill inspect <link>   → list what a link contains
+    /skill remove <name> · move <name> project|global · update <name>
 """
+import re
+
 from ..console import console, Panel, Markdown
 from ..storage import skills as sk
 from .. import state
@@ -59,6 +65,10 @@ def handle_skill(cmd: str, arg: str):
     parts = arg.split(maxsplit=1)
     sub = parts[0].lower() if parts else ""
     rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("add", "install", "remove", "rm", "uninstall", "move", "update", "inspect", "preview"):
+        _handle_manage(sub, rest)
+        return True, None
 
     if sub == "" or sub == "list":
         # List all skills
@@ -130,3 +140,75 @@ def handle_skill(cmd: str, arg: str):
         return True, None
 
     return True, None
+
+
+# ── add / remove / move / update ─────────────────────────────────────────────
+
+def _split_flags(rest: str) -> tuple[str, dict]:
+    """Pull ``--project|--global|--skill x|--all|--overwrite`` out of the text."""
+    opts: dict = {"scope": None, "skill": None, "all": False, "overwrite": False}
+    text = " " + rest.strip() + " "
+    m = re.search(r"\s--skill[= ]\s*([\w.-]+)", text)
+    if m:
+        opts["skill"] = m.group(1)
+        text = text.replace(m.group(0), " ", 1)
+    for flag, key, val in (("--project", "scope", "project"), ("-p", "scope", "project"),
+                           ("--global", "scope", "global"), ("-g", "scope", "global"),
+                           ("--all", "all", True), ("--overwrite", "overwrite", True)):
+        pat = re.compile(rf"\s{re.escape(flag)}(?=\s)")
+        if pat.search(text):
+            opts[key] = val
+            text = pat.sub(" ", text)
+    return text.strip(), opts
+
+
+def _handle_manage(sub: str, rest: str) -> None:
+    from ..storage import skill_install as si
+
+    text, opts = _split_flags(rest)
+    if sub in ("inspect", "preview"):
+        res = si.inspect_source(text)
+        if not res.get("ok"):
+            console.print(f"[red]✗[/] {res.get('error')}")
+            return
+        console.print(f"[bold cyan]{res['label']}[/] — {len(res['skills'])} skill(s):")
+        for s in res["skills"]:
+            mark = f" [dim](installed: {s['installed']})[/]" if s.get("installed") else ""
+            console.print(f"  [cyan]{s['name']}[/]{mark}  [dim]{s['description'][:100]}[/]")
+        return
+    if sub in ("add", "install"):
+        if not text:
+            console.print("[red]Usage:[/] [cyan]/skill add <github link | owner/repo | SKILL.md link | folder>[/] "
+                          "[dim][--project|--global] [--skill name] [--all][/]")
+            return
+        res = si.install_skills(text, scope=opts["scope"] or "global",
+                                names=[opts["skill"]] if opts["skill"] else None,
+                                install_all=opts["all"], overwrite=opts["overwrite"])
+        if res.get("needs_choice"):
+            console.print(f"[yellow]{res['label']} has {len(res['skills'])} skills.[/] Pick one with [cyan]--skill <name>[/] or take all with [cyan]--all[/]:")
+            for s in res["skills"]:
+                console.print(f"  [cyan]{s['name']}[/]  [dim]{s['description'][:100]}[/]")
+            return
+        if not res.get("ok"):
+            console.print(f"[red]✗[/] {res.get('error')}")
+            return
+        for i in res["installed"]:
+            console.print(f"[green]✓[/] installed [bold]{i['name']}[/] [dim]({i['scope']}) {i['path']}[/]")
+        for s in res.get("skipped", []):
+            console.print(f"[yellow]–[/] skipped {s['name']}: {s['reason']}")
+        if res.get("scope_note"):
+            console.print(f"[yellow]{res['scope_note']}[/]")
+        return
+    if sub in ("remove", "rm", "uninstall"):
+        res = si.remove_skill(text, scope=opts["scope"])
+        console.print(f"[green]✓[/] {res['message']}" if res.get("ok") else f"[red]✗[/] {res.get('error')}")
+        return
+    if sub == "move":
+        name, _, to = text.partition(" ")
+        to = (to or ("project" if opts["scope"] == "project" else "global")).strip()
+        res = si.move_skill(name, to)
+        console.print(f"[green]✓[/] {res['message']}" if res.get("ok") else f"[red]✗[/] {res.get('error')}")
+        return
+    if sub == "update":
+        res = si.update_skill(text)
+        console.print(f"[green]✓[/] {res['message']}" if res.get("ok") else f"[red]✗[/] {res.get('error')}")

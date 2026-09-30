@@ -131,6 +131,9 @@ def _parse_frontmatter(content: str) -> dict:
             # Strip quotes if present
             if val_part and val_part[0] in ('"', "'") and val_part[-1] == val_part[0]:
                 val_part = val_part[1:-1]
+            # `description: >` / `|` — the text follows on the next lines
+            if val_part in (">", "|", ">-", "|-", ">+", "|+"):
+                val_part = ""
             current_val_lines = [val_part] if val_part else []
         elif current_key and line.strip():
             # Continuation of multi-line value (indented)

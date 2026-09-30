@@ -99,6 +99,17 @@ def start_web_server(
 
     file_changes.subscribe(push_change)
     server.change_listener = push_change  # type: ignore[attr-defined]
+
+    def push_mcp(event: str, name: str) -> None:
+        # A server connected / failed / needs its sign-in — from a tool call, the
+        # terminal, or a browser sign-in finishing on its own.
+        if bridge.has_subscribers():
+            bridge.emit("mcp", {"event": event, "name": name})
+
+    from ..mcp.registry import mcp_registry
+
+    mcp_registry.add_listener(push_mcp)
+    server.mcp_listener = push_mcp  # type: ignore[attr-defined]
     urls = _local_urls(bound_port, bridge.token)
     return server, urls, bound_port
 
@@ -115,6 +126,11 @@ def stop_web_server(server: _JarvisHTTPServer | None, bridge: WebBridge | None) 
     listener = getattr(server, "change_listener", None)
     if listener is not None:
         file_changes.unsubscribe(listener)
+    mcp_listener = getattr(server, "mcp_listener", None)
+    if mcp_listener is not None:
+        from ..mcp.registry import mcp_registry
+
+        mcp_registry.remove_listener(mcp_listener)
     server.shutdown()      # waits for serve_forever's loop (≤ poll interval)
     server.server_close()
 

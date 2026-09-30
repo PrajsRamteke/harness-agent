@@ -21,6 +21,9 @@ from ..loop import schedule_wakeup
 from .memory import memory_save, memory_list, memory_delete, MEMORY_TOOLS
 from .lessons import lesson_save, lesson_search, lesson_list, lesson_delete, LESSON_TOOLS
 from .skills import skill_list, skill_load, SKILL_TOOLS
+from .extensions import (
+    EXTENSION_TOOLS, skill_install, skill_remove, mcp_add, mcp_list, mcp_connect, mcp_remove,
+)
 from .ask_user import ask_user_question
 from .plan import exit_plan_mode, PLAN_TOOLS, PLAN_MODE_ALLOWED
 from .schemas_core import (
@@ -33,7 +36,7 @@ from .schemas_mac import MAC_TOOLS
 # when servers connect. Import is deferred to avoid circular imports.
 MCP_TOOLS: list[dict] = []
 TOOLS = (CORE_TOOLS + BACKGROUND_TOOLS + VISION_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS
-         + LESSON_TOOLS + SKILL_TOOLS + OCR_TOOLS + LOOP_TOOLS + MCP_TOOLS)
+         + LESSON_TOOLS + SKILL_TOOLS + EXTENSION_TOOLS + OCR_TOOLS + LOOP_TOOLS + MCP_TOOLS)
 TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
     "background": BACKGROUND_TOOLS,
@@ -45,6 +48,7 @@ TOOL_GROUPS: dict[str, list[dict]] = {
     "memory": MEMORY_TOOLS,
     "lessons": LESSON_TOOLS,
     "skills": SKILL_TOOLS,
+    "extensions": EXTENSION_TOOLS,
     "ocr": OCR_TOOLS,
     "mcp": MCP_TOOLS,
     "plan": PLAN_TOOLS,
@@ -88,6 +92,9 @@ FUNC = {
     "lesson_list": lesson_list, "lesson_delete": lesson_delete,
     # skills (project-base reusable instructions / SKILL.md)
     "skill_list": skill_list, "skill_load": skill_load,
+    # installing skills / MCP servers for the user
+    "skill_install": skill_install, "skill_remove": skill_remove,
+    "mcp_add": mcp_add, "mcp_list": mcp_list, "mcp_connect": mcp_connect, "mcp_remove": mcp_remove,
     # background jobs
     "run_bg": run_bg, "bg_output": bg_output, "bg_kill": bg_kill,
     # vision

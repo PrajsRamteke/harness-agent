@@ -41,7 +41,9 @@ def apply_mcp_scope_change(
             continue
         if on_connect_start:
             on_connect_start(name)
-        err = mcp_registry.connect(name, cfg)
+        # Never start a browser sign-in just because a scope switched on.
+        with mcp_registry.startup_connect():
+            err = mcp_registry.connect(name, cfg)
         if on_connect_done:
             on_connect_done(name, err)
         if err:
