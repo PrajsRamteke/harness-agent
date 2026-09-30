@@ -13,7 +13,7 @@ import {
   invalidateSnapshot,
 } from './chat.js';
 import { setBusy, setQueue, setStatusLabel } from './status.js';
-import { renderShellApproval, renderAskUser, renderTextInput, handlePromptResolved } from './prompts.js';
+import { renderShellApproval, renderAskUser, renderTextInput, handlePromptResolved, syncPrompts } from './prompts.js';
 import { refreshRecent } from './sidebar.js';
 import { fetchState } from './api.js';
 import { refreshProviders } from './providers.js';
@@ -41,6 +41,8 @@ export function handleEvent(evt) {
       loadChanges(data.changes, data.session_id);
       loadActivity(data.messages);
       setJobs(data.jobs);
+      // Only the snapshot a connection opens with lists them (jarvis/web/handler.py).
+      if (Array.isArray(data.prompts)) syncPrompts(data.prompts);
       if (prevSession && prevSession !== data.session_id) refreshRecent();
       break;
     }

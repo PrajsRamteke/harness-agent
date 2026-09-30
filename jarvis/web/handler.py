@@ -199,15 +199,14 @@ class WebHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         snap = self._snapshot()
-        hello = json.dumps({"type": "snapshot", "data": snap, "ts": 0}, ensure_ascii=False)
-        self.wfile.write(f"data: {hello}\n\n".encode("utf-8"))
-        for evt in self.bridge.pending_events():
-            line = json.dumps(evt, ensure_ascii=False)
-            self.wfile.write(f"data: {line}\n\n".encode("utf-8"))
-        self.wfile.flush()
-
         sub = self.bridge.subscribe()
         try:
+            # Read after subscribing: a prompt asked from here on is on the
+            # queue, one asked before is in this list — none falls in between.
+            snap["prompts"] = self.bridge.pending_events()
+            hello = json.dumps({"type": "snapshot", "data": snap, "ts": 0}, ensure_ascii=False)
+            self.wfile.write(f"data: {hello}\n\n".encode("utf-8"))
+            self.wfile.flush()
             while True:
                 try:
                     line = sub.get(timeout=_HEARTBEAT_SECS)
@@ -230,8 +229,8 @@ class WebHandler(BaseHTTPRequestHandler):
     def _poll_events(self, qs: dict[str, list[str]]) -> None:
         """Long-poll transport — for tunnels that hold SSE back until it ends.
 
-        No ``cursor``: the snapshot (+ pending prompts) and the cursor to
-        continue from. With ``cursor``: events after it, waiting up to 20 s.
+        No ``cursor``: the snapshot (with the pending prompts) and the cursor
+        to continue from. With ``cursor``: events after it, waiting up to 20 s.
         """
         client_id = self._query_str(qs, "cid")[:64]
         raw = self._query_str(qs, "cursor").strip()
@@ -239,7 +238,9 @@ class WebHandler(BaseHTTPRequestHandler):
             self.bridge.touch_poller(client_id)
             snap = self._snapshot()
             cursor = self.bridge.latest_seq()
-            events = [{"type": "snapshot", "data": snap, "ts": 0}, *self.bridge.pending_events()]
+            # After the cursor, like the SSE stream's subscribe.
+            snap["prompts"] = self.bridge.pending_events()
+            events = [{"type": "snapshot", "data": snap, "ts": 0}]
             body = json.dumps({"cursor": cursor, "events": events}, ensure_ascii=False)
         else:
             try:

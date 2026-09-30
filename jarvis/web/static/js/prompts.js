@@ -91,7 +91,7 @@ async function answer(result) {
     finish();
   } catch (err) {
     if (err?.status === 404) {
-      showToast('Already answered in the terminal');
+      showToast('Already answered elsewhere');
       finish();
       return;
     }
@@ -260,6 +260,23 @@ export function renderTextInput(data) {
 
 export function handlePromptResolved(id) {
   if (store.activePrompt?.id === id && !answering) finish();
+}
+
+const RENDER = { shell_approval: renderShellApproval, ask_user: renderAskUser, text_input: renderTextInput };
+
+/**
+ * A (re)connect's snapshot lists the prompts still waiting. `prompt_resolved`
+ * only reaches pages that are connected, so a phone that slept through an
+ * answer given elsewhere would otherwise keep showing a dead prompt.
+ */
+export function syncPrompts(pending) {
+  const waiting = pending.filter((evt) => RENDER[evt?.type] && evt.data?.id);
+  const current = store.activePrompt;
+  if (current && !answering && !waiting.some((evt) => evt.data.id === current.id)) finish();
+  for (const evt of waiting) {
+    // Already showing: a repaint would drop a half-answered question.
+    if (evt.data.id !== store.activePrompt?.id) RENDER[evt.type](evt.data);
+  }
 }
 
 export function initPrompts() {

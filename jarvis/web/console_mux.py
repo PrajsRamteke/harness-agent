@@ -83,9 +83,6 @@ class WebMuxConsole:
         self._stream_kind = None
         self._stream_buffer = ""
 
-    def _web_connected(self) -> bool:
-        return self._bridge.has_subscribers()
-
     def __getattr__(self, name: str) -> Any:
         return getattr(self._primary, name)
 
@@ -274,33 +271,25 @@ class WebMuxConsole:
         tui_call: Callable[[], Any],
         web_cancel: Callable[[Any], None],
     ) -> Any:
-        """Show the same prompt on TUI and web; whichever answers first wins."""
-        if not self._web_connected():
-            return tui_call()
+        """Show the same prompt on TUI and web; whichever answers first wins.
 
+        Registered with the bridge even while no page is connected: a phone
+        that was asleep when the prompt was asked gets it when it reconnects.
+        """
         prompt_id = self._bridge.new_prompt(kind, web_payload)
-        web_answer: list[Any] = []
-        web_finished = threading.Event()
 
         def wait_web() -> None:
-            try:
-                answer = self._bridge.wait_prompt(prompt_id, timeout=3600.0)
-                web_answer.append(answer)
-                if answer is not None:
-                    web_cancel(answer)
-            finally:
-                web_finished.set()
+            answer = self._bridge.wait_prompt(prompt_id, timeout=3600.0)
+            if answer is not None:
+                web_cancel(answer)
 
         threading.Thread(target=wait_web, daemon=True).start()
         try:
-            result = tui_call()
-            if not web_finished.is_set() or (web_answer and web_answer[0] is None):
-                self._bridge.dismiss_prompt(prompt_id)
-            return result
-        except EOFError:
-            if not web_finished.is_set():
-                self._bridge.dismiss_prompt(prompt_id)
-            raise
+            return tui_call()
+        finally:
+            # Answered in the terminal, cancelled (Esc / Stop) or failed: close
+            # it on every page. A no-op when a page answered it.
+            self._bridge.dismiss_prompt(prompt_id)
 
     def prompt_shell_approval(self, cmd: str) -> str:
         return _norm_shell_result(
