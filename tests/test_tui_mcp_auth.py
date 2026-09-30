@@ -538,3 +538,38 @@ def test_relay_thread_never_blocks_emitters(env):
             assert time.monotonic() - t0 < 0.5
 
     _run(run())
+
+
+def test_agent_mcp_add_asks_for_a_missing_key_with_a_hidden_input(env, monkeypatch):
+    """mcp_add(github) → the token is asked for in a masked box, stored, never in the config."""
+    import jarvis.mcp.install as install
+    from jarvis.mcp.secrets import get_secret
+    from jarvis.tools import extensions
+    from jarvis.tui.text_input_modal import TextInputScreen
+
+    monkeypatch.setattr(install.mcp_registry, "connect", lambda name, cfg, **kw: None)
+    monkeypatch.setattr(install.mcp_registry, "get_server_tools", lambda name: [])
+    out: list[str] = []
+
+    async def run():
+        app = env.app_cls()
+        async with app.run_test(size=(160, 46)) as pilot:
+            await pilot.pause(0.4)
+            t = threading.Thread(
+                target=lambda: out.append(extensions.mcp_add("github", scope="project")), daemon=True
+            )
+            t.start()
+            await pilot.pause(1.2)
+            assert isinstance(app.screen, TextInputScreen)
+            assert app.screen.query_one("#text_input").password is True
+            for ch in "ghp_hidden":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause(1.2)
+            t.join(timeout=5)
+
+    _run(run())
+    assert get_secret("GITHUB_PERSONAL_ACCESS_TOKEN") == "ghp_hidden"
+    cfg = (env.project / ".mcp.json").read_text()
+    assert "ghp_hidden" not in cfg and "${GITHUB_PERSONAL_ACCESS_TOKEN}" in cfg
+    assert out and "connected" in out[0]

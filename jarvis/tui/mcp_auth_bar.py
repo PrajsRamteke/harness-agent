@@ -111,7 +111,11 @@ class McpAuthBar(Horizontal):
         self._name, self._extra, self._waiting = name, extra, waiting
         self.remove_class("hidden")
         go = self.query_one("#mcp_auth_go", Button)
-        go.label = "Open again  ⌃O" if waiting else "Authenticate  ⌃O"
+        label = "Open again  ⌃O" if waiting else "Authenticate  ⌃O"
+        if str(go.label) != label:
+            go.label = label
+            go.styles.width = len(label) + 4  # + padding
+            go.refresh(layout=True)
         go.set_class(waiting, "-quiet")
         go.set_class(not waiting, "-primary")
         self.query_one("#mcp_auth_copy", Button).set_class(not has_link, "-off")

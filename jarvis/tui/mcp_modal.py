@@ -43,7 +43,6 @@ from ..mcp.config import (
     import_server_to_project,
     export_server_to_global,
     reload_config,
-    _project_config_path,
 )
 from ..mcp.registry import mcp_registry, needs_auth
 from ..mcp.sources import SOURCE_ICONS as _SOURCE_ICONS, format_endpoint as _endpoint_text
@@ -382,7 +381,7 @@ class MCPModalScreen(TuiModalScreen[None]):
                 (f"{len(servers)} servers", "dim"),
                 self._header_health_bits(sorted(servers.keys())),
                 ("  ", ""),
-                ("(press g to load Claude Code / OpenCode / Cursor / …)", "dim"),
+                ("(g: also load Claude / Cursor / …)", "dim"),
             )
         self.query_one("#mcp_header", Static).update(scope_text)
 
@@ -490,11 +489,16 @@ class MCPModalScreen(TuiModalScreen[None]):
         health = health or mcp_registry.get_server_health(name, get_config().get_server(name))
         status = health.get("status")
         primary.display = True
-        primary.label = (
+        label = (
             "Authenticate" if status == "auth"
             else "Disconnect" if health.get("connected")
             else "Connect"
         )
+        if str(primary.label) != label:
+            primary.label = label
+            # A Button keeps its old width when only the label changes.
+            primary.styles.width = len(label) + 2
+            primary.refresh(layout=True)
         keys.display = bool(health.get("needs_credentials"))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

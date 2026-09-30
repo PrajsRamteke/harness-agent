@@ -328,3 +328,14 @@ def test_callback_page_for_unknown_state(ext_env, monkeypatch):
         assert httpx.get(uri.replace("/callback", "/elsewhere"), timeout=5).status_code == 404
     finally:
         coordinator.stop_listener()
+
+
+def test_authenticate_right_after_a_link_expires_starts_a_fresh_one(demo, monkeypatch):
+    base = demo("oauth")
+    cfg = {"type": "http", "url": f"{base}/mcp"}
+    first = mcp_registry.authenticate("stale", cfg)
+    assert first["ok"]
+    coordinator.cancel("stale")  # what expiry does: the waiting connect is still winding down
+    second = mcp_registry.authenticate("stale", cfg)
+    assert second["ok"] and second["url"] != first["url"], second
+    mcp_registry.disconnect("stale")

@@ -94,7 +94,7 @@ function previewHtml() {
   const usable = p.skills.filter((s) => s.usable);
   const all = usable.length > 0 && usable.every((s) => selected.has(s.name));
   return `<div class="ex-sk-head">
-      <span><strong>${escapeHtml(p.label)}</strong> · ${plural(p.skills.length, 'skill')}</span>
+      <span class="ex-sk-title"><strong>${escapeHtml(tildify(p.label))}</strong> · ${plural(p.skills.length, 'skill')}</span>
       ${usable.length > 1 ? `<button type="button" class="link-btn" data-act="select-all">${all ? 'Select none' : 'Select all'}</button>` : ''}
     </div>
     <div class="ex-sk-list">${p.skills.map(skillCheck).join('')}</div>`;
@@ -116,7 +116,7 @@ function skillRow(s, i) {
       <span class="pv-text">
         <span class="pv-title"><span class="ex-name">${escapeHtml(s.name)}</span><span class="badge">${s.scope === 'project' ? 'Project' : 'Global'}</span>${s.active ? '' : '<span class="badge is-warn" title="Global skills are switched off">Hidden</span>'}</span>
         <span class="ex-skill-desc">${escapeHtml(s.description || '')}</span>
-        ${s.origin ? `<span class="ex-skill-from">from ${escapeHtml(s.origin)}</span>` : ''}
+        ${s.origin ? `<span class="ex-skill-from" title="${escapeHtml(s.origin)}">from ${escapeHtml(tildify(s.origin))}</span>` : ''}
         ${notes[s.name]?.text ? `<span class="ex-skill-note${notes[s.name].error ? ' is-error' : ''}">${escapeHtml(notes[s.name].text)}</span>` : ''}
       </span>
     </button>
@@ -201,10 +201,13 @@ function renderDetail() {
   built = false;
   const v = view;
   const s = data?.skills?.find((x) => x.name === v.name);
+  // The header's name / description are shown above; the reader shows the instructions.
+  const text = String(v.content || '').replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, '').trim();
   body.innerHTML = `
     <button type="button" class="btn btn-quiet detail-back" data-act="back">${icon('arrow-left')}<span>Back to skills</span></button>
     <div class="ex-detail-head"><strong class="ex-name">${escapeHtml(v.name)}</strong>${s ? `<span class="badge">${s.scope === 'project' ? 'Project' : 'Global'}</span>` : ''}</div>
-    ${v.loading ? `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(3)}</div>` : v.error ? msg(v.error, 'error') : `<div class="md ex-md">${renderMarkdown(v.content || '')}</div>`}`;
+    ${s?.description ? `<p class="ex-detail-desc">${escapeHtml(s.description)}</p>` : ''}
+    ${v.loading ? `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(3)}</div>` : v.error ? msg(v.error, 'error') : `<div class="md ex-md">${renderMarkdown(text)}</div>`}`;
   applyMarkdownLinks(body);
   body.scrollTop = 0;
   body.querySelector('.detail-back')?.focus({ preventScroll: true });

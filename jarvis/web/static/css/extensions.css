@@ -66,6 +66,7 @@
 .ex-src-input::placeholder { font: 14px/1.5 var(--font-ui); color: var(--text-3); }
 
 .ex-add-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.ex-add-row > span { display: contents; }
 .ex-add-btn { min-height: 38px; padding: 0 16px; font-size: 13.5px; }
 .ex-add-btn .spinner { border-top-color: currentColor; }
 .ex-path { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-3); overflow-wrap: anywhere; }
@@ -133,11 +134,10 @@
 .pv-mark[data-tone="amber"] { --tone-rgb: 251, 191, 36; }
 :root[data-theme="light"] .pv-mark[data-tone="amber"] { --tone-rgb: 180, 83, 9; }
 
-.ex-row .pv-title { display: flex; align-items: center; gap: 8px; }
+.ex-row .pv-title, .ex-skill .pv-title { display: flex; align-items: center; gap: 8px; }
 .ex-row .badge, .ex-skill .badge { padding: 1px 8px; font-size: 11px; }
 .ex-row.is-auth, .ex-row.is-key, .ex-row.is-warn { border-color: var(--warn-line); }
 .ex-row.is-failed { border-color: var(--danger-line); }
-.ex-row.is-live .pv-mark::after { display: block; }
 .ex-row.just-added { animation: rise 0.32s var(--ease), ex-glow 1.6s ease-out; }
 @keyframes ex-glow {
   0% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.45); }
@@ -155,7 +155,7 @@
 .ex-st.is-connecting { color: var(--accent); }
 .ex-st.is-connecting .ex-dot { background: var(--accent); animation: breathe 1.2s ease-in-out infinite; }
 
-.pv-side .row-btn { display: inline-flex; align-items: center; gap: 6px; }
+.pv-side .row-btn:not(.is-icon) { display: inline-flex; align-items: center; gap: 6px; }
 .pv-side .row-btn .ic { width: 13px; height: 13px; }
 .pv-side .row-btn .spinner { width: 12px; height: 12px; }
 .row-btn.is-primary { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
@@ -282,6 +282,8 @@
 /* ─── Skills ───────────────────────────────────────────────────────────── */
 .ex-sk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--text-2); }
 .ex-sk-head strong { color: var(--text); font-weight: 600; }
+.ex-sk-title { min-width: 0; overflow-wrap: anywhere; }
+.ex-sk-head .link-btn { flex-shrink: 0; white-space: nowrap; }
 .ex-sk-list { display: flex; flex-direction: column; gap: 6px; max-height: min(340px, 44dvh); overflow-y: auto; overscroll-behavior: contain; padding: 2px; }
 .ex-sk {
   position: relative;
@@ -356,11 +358,12 @@
 .ex-skill-main:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus); }
 .ex-skill-main .pv-text { gap: 2px; }
 .ex-skill.is-inactive .ex-skill-main { opacity: 0.6; }
-.ex-skill-from { font-size: 11.5px; color: var(--text-3); }
+.ex-skill-from { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-3); }
 .ex-skill-note { font-size: 12px; color: var(--ok); }
 .ex-skill-note.is-error { color: var(--danger); }
 .ex-skill.is-busy { opacity: 0.7; }
-.ex-detail-head { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px; font-size: 15px; }
+.ex-detail-head { display: flex; align-items: center; gap: 8px; margin: 2px 0 2px; font-size: 15px; }
+.ex-detail-desc { margin: 0 0 6px; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
 .ex-md { font-size: 14px; }
 .ex-body > .detail-back { align-self: flex-start; margin-bottom: -4px; }
 

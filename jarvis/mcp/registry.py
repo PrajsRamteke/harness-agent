@@ -671,13 +671,20 @@ class MCPRegistry:
             interactive = not getattr(self._tls, "quiet", False)
         config = mcp_secrets.expand(config)
         transport_type = config.get("type", "stdio")
-        with self._lock:
-            if server_name in self._servers and self._servers[server_name].connected:
-                return f"Server '{server_name}' is already connected"
-            if server_name in self._pending:
+        # A sign-in that just expired / was cancelled is still winding down for a
+        # moment — wait for it to clear instead of answering "already connecting".
+        settle_until = time.monotonic() + 3.0
+        while True:
+            with self._lock:
+                if server_name in self._servers and self._servers[server_name].connected:
+                    return f"Server '{server_name}' is already connected"
+                if server_name not in self._pending:
+                    break
                 if auth_coordinator.is_pending(server_name):
                     return AUTH_REQUIRED_MSG
+            if time.monotonic() > settle_until:
                 return f"Server '{server_name}' is already connecting"
+            time.sleep(0.05)
 
         if transport_type in ("http", "sse"):
             return self._connect_remote(server_name, config, interactive)

@@ -381,14 +381,15 @@ class WebHandler(BaseHTTPRequestHandler):
         """Add / sign in to / remove skills and MCP servers (``extensions_api``)."""
         from . import extensions_api as ext
 
+        dry_run = path in ("/api/mcp/parse", "/api/skills/inspect")  # reads only: no fresh list, no event
         try:
             if path.startswith("/api/skills/"):
                 result = ext.run_skills(path, data)
-                fresh = {"skills": ext.skills_state()}
+                fresh = {} if dry_run else {"skills": ext.skills_state()}
                 changed = "skills"
             else:
                 result = ext.run_mcp(path, data)
-                fresh = {"mcp": ext.mcp_state()}
+                fresh = {} if dry_run else {"mcp": ext.mcp_state()}
                 changed = "mcp"
         except Exception as exc:  # never leave the page hanging on a 500
             self._send_json(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
@@ -396,7 +397,7 @@ class WebHandler(BaseHTTPRequestHandler):
         body = dict(result) if isinstance(result, dict) else {"ok": False, "error": "invalid response"}
         body.update(fresh)
         body.update(ext.scope_flags())
-        if path not in ("/api/mcp/parse", "/api/skills/inspect"):
+        if not dry_run:
             # Other open pages reload their lists now.
             self.bridge.emit(changed, {"event": path.rsplit("/", 1)[-1], "name": str(data.get("name") or "")})
         self._send_json(200, body)
