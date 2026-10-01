@@ -409,6 +409,11 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/mcp":
             self._send_json(200, list_mcp_servers(query=self._query_str(qs, "q")))
             return
+        if path == "/api/commands":
+            from .commands_api import list_commands as list_custom_commands
+
+            self._send_json(200, list_custom_commands())
+            return
         if path == "/api/mcp/auth":
             from .extensions_api import mcp_auth_status
 
@@ -533,6 +538,22 @@ class WebHandler(BaseHTTPRequestHandler):
             self.bridge.emit(changed, {"event": path.rsplit("/", 1)[-1], "name": str(data.get("name") or "")})
         self._send_json(200, body)
 
+    def _handle_commands_post(self, path: str, data: dict[str, Any]) -> None:
+        """Create / edit / delete / copy custom slash commands (``commands_api``)."""
+        from . import commands_api
+
+        try:
+            result = commands_api.run(path, data)
+        except Exception as exc:  # never leave the page hanging on a 500
+            self._send_json(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            return
+        body = dict(result) if isinstance(result, dict) else {"ok": False, "error": "invalid response"}
+        body["list"] = commands_api.list_commands()
+        if body.get("ok"):
+            # Other open pages reload their slash menu and dialog now.
+            self.bridge.emit("commands", {"event": path.rsplit("/", 1)[-1], "name": str(body.get("name") or "")})
+        self._send_json(200, body)
+
     def _handle_prompt(self, data: dict[str, Any]) -> None:
         """``POST /api/prompt`` ``{text, attachments?: [upload ids]}``."""
         from .. import media
@@ -567,6 +588,12 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if _ext_handles(path):
             self._handle_extensions_post(path, data)
+            return
+
+        from .commands_api import handles as _commands_handles
+
+        if _commands_handles(path):
+            self._handle_commands_post(path, data)
             return
 
         if path == "/api/action":

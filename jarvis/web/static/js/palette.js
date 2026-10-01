@@ -2,7 +2,7 @@
 import { $, escapeHtml, isMac } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
-import { CATALOG, matchItem, rankItems } from './catalog.js';
+import { allItems, matchItem, rankItems, wantCustomItems } from './catalog.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
 import { newChat, toggleSetting } from './actions.js';
 import { toggleTheme, resolvedTheme, openAppearance, THEME_LABEL } from './theme.js';
@@ -35,7 +35,7 @@ function itemMeta(item) {
 function render() {
   const list = $('palette-list');
   const q = ($('palette-input')?.value || '').trim().toLowerCase();
-  visible = rankItems(CATALOG.filter((it) => matchItem(it, q)), q);
+  visible = rankItems(allItems().filter((it) => matchItem(it, q)), q);
 
   if (!visible.length) {
     list.innerHTML = `<div class="list-empty"><strong>No command matches “${escapeHtml(q)}”</strong>Press Enter to send it to Jarvis as a message.</div>`;
@@ -121,6 +121,7 @@ function pick(idx) {
 let openingTimer = 0;
 
 export function openPalette() {
+  wantCustomItems();
   const input = $('palette-input');
   const list = $('palette-list');
   input.value = '';

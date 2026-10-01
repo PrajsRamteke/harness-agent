@@ -18,6 +18,7 @@ import { initPickers, openPickerByKind } from './pickers.js';
 import { initProviders } from './providers.js';
 import { initMcp } from './mcp.js';
 import { initSkills } from './skills.js';
+import { initCommands } from './commands.js';
 import { initPrompts } from './prompts.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initQuickbar } from './quickbar.js';
@@ -128,6 +129,7 @@ function boot() {
   initProviders({ onOpenPicker: openPickerByKind });
   initMcp();
   initSkills();
+  initCommands();
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
   initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector });

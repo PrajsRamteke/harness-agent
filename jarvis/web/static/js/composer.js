@@ -5,7 +5,7 @@ import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, 
 import { icon } from './icons.js';
 import { store, subscribe, patchStore } from './store.js';
 import { sendPrompt, cancelTurn, enhancePrompt } from './api.js';
-import { CATALOG, LOCAL_PICKERS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchItem, rankItems } from './catalog.js';
+import { CATALOG, LOCAL_PICKERS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchItem, rankItems, getCustomItems, wantCustomItems, commandPickerArg } from './catalog.js';
 import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
 import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
@@ -107,6 +107,14 @@ export async function submitPrompt(text) {
       showToast(`${tray.failed === 1 ? 'A file' : `${tray.failed} files`} didn’t upload. Retry or remove ${tray.failed === 1 ? 'it' : 'them'} first.`, true);
       return;
     }
+  }
+
+  // /command new|edit … opens the web editor instead of a dialog in the terminal.
+  const commandArg = withFiles ? null : commandPickerArg(value);
+  if (commandArg !== null && openPicker) {
+    if (text === undefined && el) setPromptValue('');
+    openPicker('command', commandArg);
+    return;
   }
 
   const [head, ...rest] = value.split(/\s+/);
@@ -379,11 +387,17 @@ function updateSlash() {
     closeSlash();
     return;
   }
-  // Commands that start with what was typed win; fall back to a looser match.
-  const withCmd = CATALOG.filter((it) => it.cmd);
+  if (menu.hidden) wantCustomItems(); // opening: pick up commands made in the terminal
+  // The user's own commands come first. Commands that start with what was
+  // typed win; fall back to a looser match.
+  const builtins = CATALOG.filter((it) => it.cmd);
+  const mine = getCustomItems();
+  const withCmd = [...mine, ...builtins];
   const prefix = withCmd.filter((it) => it.cmd.slice(1).toLowerCase().startsWith(q));
-  const items = prefix.length ? prefix : withCmd.filter((it) => matchItem(it, q));
-  slashItems = rankItems(items, q).slice(0, 9);
+  const items = q
+    ? rankItems(prefix.length ? prefix : withCmd.filter((it) => matchItem(it, q)), q)
+    : [...mine.slice(0, 4), ...builtins]; // bare "/": a few of yours, then the built-ins
+  slashItems = items.slice(0, 12);
   if (!slashItems.length) {
     closeSlash();
     return;
@@ -391,13 +405,22 @@ function updateSlash() {
   slashCursor = Math.min(slashCursor, slashItems.length - 1);
   // Rows cascade in only as the menu opens, not on every keystroke.
   menu.classList.toggle('is-opening', menu.hidden);
-  menu.innerHTML = slashItems.map((it, i) => `
-    <button type="button" class="slash-item${i === slashCursor ? ' is-cursor' : ''}" role="option" data-i="${i}" aria-selected="${i === slashCursor}" style="--i:${i}">
+  const both = slashItems.some((it) => it.custom) && slashItems.some((it) => !it.custom);
+  menu.innerHTML = slashItems.map((it, i) => {
+    const head = both && (i === 0 || !!slashItems[i - 1].custom !== !!it.custom)
+      ? `<div class="slash-group" role="presentation">${it.custom ? 'Your commands' : 'Built-in'}</div>`
+      : '';
+    const tag = it.custom
+      ? `<span class="slash-tag is-mine">${it.scope === 'project' ? 'project' : 'global'}</span>`
+      : it.picker ? '<span class="slash-tag">opens here</span>' : it.laptop ? '<span class="slash-tag">on computer</span>' : '';
+    return `${head}
+    <button type="button" class="slash-item${it.custom ? ' is-custom' : ''}${i === slashCursor ? ' is-cursor' : ''}" role="option" data-i="${i}" aria-selected="${i === slashCursor}" style="--i:${i}">
       ${icon(it.icon)}
-      <span class="slash-cmd">${escapeHtml(it.cmd.trim())}</span>
+      <span class="slash-cmd">${escapeHtml(it.cmd.trim())}${it.hint ? ` <span class="slash-hint">${escapeHtml(it.hint)}</span>` : ''}</span>
       <span class="slash-desc">${escapeHtml(it.desc)}</span>
-      ${it.picker ? '<span class="slash-tag">opens here</span>' : it.laptop ? '<span class="slash-tag">on computer</span>' : ''}
-    </button>`).join('');
+      ${tag}
+    </button>`;
+  }).join('');
   menu.hidden = false;
   menu.querySelectorAll('.slash-item').forEach((btn) => {
     btn.addEventListener('mousedown', (e) => e.preventDefault());

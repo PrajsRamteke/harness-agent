@@ -293,12 +293,61 @@ class WebRemoteMixin:
         if started_now:
             self._set_status("web remote on")
 
+    def _web_local_url(self) -> str:
+        """The loopback link (token included) — the one for this computer's browser."""
+        for url in self._web_urls or []:
+            if "127.0.0.1" in url or "localhost" in url:
+                return url
+        return self._web_primary_url
+
+    def action_open_web_browser(self) -> None:
+        """Composer 🌐 button: start the remote if needed, open it in the browser here."""
+        started_now = False
+        if self._web_bridge is None:
+            if not self._start_web_remote(self._tui_console):
+                return
+            started_now = True
+        url = self._web_local_url()
+        if not url:
+            return
+        if started_now:
+            esc = _rich_escape(url)
+            self._tui_console.print(
+                f"[{ui.FG_DIM}]🌐 web remote on[/]  [link={esc}]{esc}[/link]  "
+                f"[{ui.FG_DIM}]· opened in your browser[/]"
+            )
+
+        def failed() -> None:
+            copied = self._copy_web_url(show_status=False)
+            self.notify(
+                "Couldn't open a browser — link copied, paste it into one"
+                if copied else "Couldn't open a browser — /web shows the link",
+                severity="warning", timeout=5,
+            )
+
+        def open_it() -> None:
+            import webbrowser
+
+            try:
+                ok = bool(webbrowser.open(url))
+            except Exception:
+                ok = False
+            if not ok:
+                self._on_ui_thread(failed)
+
+        # webbrowser.open can block for a moment (it runs `open` / xdg-open).
+        threading.Thread(target=open_it, daemon=True, name="jarvis-web-open").start()
+        if not started_now:  # the first time, the transcript notice says it
+            self._set_status("🌐 opening the web remote in your browser")
+
     def _handle_web_command(self, text: str) -> None:
-        """``/web`` · ``/web qr`` · ``/web show|hide`` · ``/web copy`` · ``/web stop``."""
+        """``/web`` · ``/web qr`` · ``/web open`` · ``/web show|hide`` · ``/web copy`` · ``/web stop``."""
         parts = (text or "").strip().split()
         sub = parts[1].lower() if len(parts) > 1 else ""
         running = self._web_bridge is not None
-        if sub in ("", "qr", "open", "start", "on", "link", "url"):
+        if sub in ("open", "browser"):
+            self.action_open_web_browser()
+        elif sub in ("", "qr", "start", "on", "link", "url"):
             self._open_web_modal()
         elif sub in ("anywhere", "tunnel", "public", "remote", "internet"):
             if self._start_tunnel() == "error":
@@ -330,7 +379,7 @@ class WebRemoteMixin:
         else:
             self._tui_console.print(
                 f"[{ui.FG_DIM}]/web · /web qr — QR + link (starts the remote)  ·  "
-                f"/web anywhere — public link for any network · /web local  ·  "
+                f"/web open — open it in this computer's browser  ·  /web anywhere — public link for any network · /web local  ·  "
                 f"/web hide · /web show — corner QR  ·  /web copy  ·  /web stop[/]"
             )
 
@@ -363,7 +412,13 @@ class WebRemoteMixin:
         )
 
     def _render_web_bar(self) -> None:
-        """Sync the corner QR and the footer item with the remote's state."""
+        """Sync the corner QR, the composer's 🌐 button and the footer item with the remote's state."""
+        from ..web_button import WebButton
+
+        try:
+            self.query_one("#web_button", WebButton).set_live(bool(self._web_primary_url))
+        except Exception:
+            pass
         try:
             qr = self.query_one("#web_qr_overlay", WebRemoteQR)
         except Exception:

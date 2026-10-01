@@ -160,6 +160,91 @@ def test_footer_shows_the_remote_address_without_the_token(web_app):
     asyncio.run(run())
 
 
+def test_composer_web_button_starts_the_remote_and_opens_the_browser(web_app, monkeypatch):
+    """🌐 web next to the prompt: one click starts the remote and opens this
+    computer's browser on the loopback link (token included); later clicks
+    just open it again."""
+    import threading
+    import webbrowser
+
+    from jarvis.tui.web_button import WebButton
+
+    opened: list[str] = []
+    landed = threading.Event()
+
+    def fake_open(url, *a, **k):
+        opened.append(url)
+        landed.set()
+        return True
+
+    monkeypatch.setattr(webbrowser, "open", fake_open)
+
+    async def run() -> None:
+        app = web_app()
+        async with app.run_test(size=(140, 44)) as pilot:
+            await pilot.pause(0.3)
+            btn = app.query_one("#web_button", WebButton)
+            assert app._web_bridge is None and not btn.live
+            assert not btn.has_class("hidden")  # always there, even with an empty prompt
+            assert "web" in btn.render().plain
+
+            await pilot.click("#web_button")
+            await asyncio.to_thread(landed.wait, 3)
+            assert app._web_bridge is not None and btn.live
+            port = app._web_server.server_address[1]
+            assert opened == [f"http://127.0.0.1:{port}/?token={app._web_bridge.token}"]
+            assert _get(opened[0]) == 200  # the link really opens the page
+            assert "opened in your browser" in app.query_one("#transcript").plain_text()
+
+            landed.clear()
+            server = app._web_server
+            await pilot.click("#web_button")
+            await asyncio.to_thread(landed.wait, 3)
+            assert app._web_server is server  # same remote, not restarted
+            assert len(opened) == 2 and opened[1] == opened[0]
+
+            app._stop_web_remote()
+            await pilot.pause(0.3)
+            assert not btn.live
+
+    asyncio.run(run())
+
+
+def test_web_button_copies_the_link_when_no_browser_opens(web_app, monkeypatch):
+    import webbrowser
+
+    monkeypatch.setattr(webbrowser, "open", lambda url, *a, **k: False)
+    copied: list[str] = []
+
+    async def run() -> None:
+        app = web_app()
+        monkeypatch.setattr(app, "_copy_to_system_clipboard", lambda text: copied.append(text) or True)
+        async with app.run_test(size=(140, 44)) as pilot:
+            await pilot.pause(0.3)
+            app._handle_web_command("/web open")
+            for _ in range(60):
+                if copied:
+                    break
+                await pilot.pause(0.05)
+            assert copied and app._web_bridge.token in copied[0]
+            app._stop_web_remote()
+            await pilot.pause(0.3)
+
+    asyncio.run(run())
+
+
+def test_web_button_is_just_the_globe_when_narrow(web_app):
+    from jarvis.tui.web_button import WebButton
+
+    async def run() -> None:
+        app = web_app()
+        async with app.run_test(size=(60, 30)) as pilot:
+            await pilot.pause(0.3)
+            assert app.query_one("#web_button", WebButton).render().plain == "🌐"
+
+    asyncio.run(run())
+
+
 def test_web_stop_frees_the_port_and_unwraps_the_console(web_app):
     from jarvis import console as console_mod
     from jarvis.tui.console_shim import TUIConsole

@@ -87,6 +87,15 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
         sk.invalidate_cache()
         return {"ok": True, "global_skills": include}
 
+    if action == "commands_scope":
+        include = bool(data.get("global_commands"))
+        state.global_commands = include
+        state.save_commands_config()
+        from ..storage import commands as cc
+
+        cc.invalidate_cache()
+        return {"ok": True, "global_commands": include}
+
     if action == "mcp_connect":
         from ..mcp.config import get_config, reload_config
         from ..mcp.registry import mcp_registry

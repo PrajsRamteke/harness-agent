@@ -142,6 +142,7 @@ from .mixins.enhance import EnhanceMixin  # noqa: E402
 from .mixins.mcp_auth import McpAuthMixin  # noqa: E402
 from .mcp_auth_bar import McpAuthBar  # noqa: E402
 from .enhance_button import EnhanceButton  # noqa: E402
+from .web_button import WebButton  # noqa: E402
 from .pet_widget import PetBubble, PetBuddy  # noqa: E402
 from .prompt_history import PromptHistory  # noqa: E402
 from .sidebar import Sidebar  # noqa: E402
@@ -171,6 +172,7 @@ _TIPS = (
     "Tip: /model switches models · /theme changes colors",
     "Tip: !git status runs a shell command without the model",
     "Tip: ⌃G (or ✦ enhance) fixes spelling & grammar before you send",
+    "Tip: click 🌐 web (right of the prompt) to open this session in your browser",
 )
 
 
@@ -336,6 +338,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                     soft_wrap=True,
                 )
                 yield EnhanceButton(id="enhance", classes="hidden")
+                yield WebButton(id="web_button")
                 yield PetBuddy(id="pet")
             with Horizontal(id="footer"):
                 yield FooterBar(id="footer_left", classes="-left")

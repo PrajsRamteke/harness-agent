@@ -371,13 +371,17 @@ def write_command(
     *,
     scope: str = "project",
     existing_path: str | None = None,
+    argument_hint: str | None = None,
 ) -> tuple[bool, str]:
     """Create or update a command file with explicit content.
 
-    Used by the TUI editor modal. When *existing_path* is given the file is
-    updated in place (same directory — works for project AND global copies);
-    a changed name renames the file. Otherwise a new file is created in the
-    directory implied by *scope*. Returns (success, path_or_message).
+    Used by the TUI editor modal and the web's /command dialog. When
+    *existing_path* is given the file is updated in place (same directory —
+    works for project AND global copies); a changed name renames the file.
+    Otherwise a new file is created in the directory implied by *scope*.
+    *argument_hint* ``None`` keeps the file's current hint (the TUI editor
+    doesn't show it); a string replaces it ("" removes it).
+    Returns (success, path_or_message).
     """
     name_l = name.strip().lstrip("/").lower()
     if not _NAME_RE.match(name_l):
@@ -405,6 +409,8 @@ def write_command(
     else:
         target_dir = _find_project_root() / PROJECT_COMMANDS_DIRNAME
 
+    if argument_hint is not None:
+        hint = " ".join(str(argument_hint).split())
     target = target_dir / f"{name_l}.md"
     renaming = old is not None and old.name != target.name
     if (old is None or renaming) and target.exists():
@@ -446,8 +452,8 @@ def delete_command(name: str) -> tuple[bool, str]:
     return True, rec["path"]
 
 
-def _is_reserved(name: str) -> bool:
-    """True when /<name> collides with a built-in slash command."""
+def reserved_names() -> set[str]:
+    """Names of built-in slash commands — a custom command can't take one."""
     try:
         from ..tui.commands_catalog import COMMANDS, UNLISTED_BUILTINS
         builtins = {c.strip().lstrip("/").split()[0] for c, _ in COMMANDS}
@@ -459,7 +465,22 @@ def _is_reserved(name: str) -> bool:
         "command", "commands", "skill", "skills", "agent", "agents",
         "quit", "retry", "paste", "multi", "scan", "mcp", "upgrade",
     }
-    return name in builtins
+    return builtins
+
+
+def _is_reserved(name: str) -> bool:
+    """True when /<name> collides with a built-in slash command."""
+    return name in reserved_names()
+
+
+def placeholders_in(body: str) -> list[str]:
+    """The placeholders a template uses, in order: ``["$ARGUMENTS", "$1"]``."""
+    seen: list[str] = []
+    for m in _PLACEHOLDER_RE.finditer(body or ""):
+        tok = "$" + m.group(1)
+        if tok not in seen:
+            seen.append(tok)
+    return seen
 
 
 # ── scope transfer (import / export) ──────────────────────────────────────

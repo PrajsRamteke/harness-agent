@@ -61,6 +61,7 @@ COMMANDS = [
     ("/verbose", "toggle trace — thinking + tool output previews (⌃T)"),
     ("/sidebar", "toggle the session sidebar (⌃B)"),
     ("/web", "open this session in a browser — QR + link (starts the web remote)"),
+    ("/web open", "open this session in this computer's browser (starts the web remote)"),
     ("/web anywhere", "public HTTPS link — use Jarvis from any network (Cloudflare / ngrok tunnel)"),
     ("/web hide", "hide the corner QR code (/web show brings it back)"),
     ("/web stop", "stop the web remote"),

@@ -30,6 +30,8 @@
 }
 
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.side-head-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.side-head-actions .icon-btn { width: 34px; height: 34px; }
 .brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .brand-text strong {
   font-family: var(--font-display);
@@ -275,7 +277,7 @@
 .usage-lbl { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 
 .foot-actions { display: flex; gap: 6px; align-items: center; }
-.foot-actions .chip-btn { flex: 1; justify-content: center; }
+.foot-actions .chip-btn { flex: 1 1 auto; justify-content: center; padding: 0 10px; }
 
 .scrim { display: none; }
 

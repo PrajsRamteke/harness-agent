@@ -19,6 +19,7 @@ import { fetchState } from './api.js';
 import { refreshProviders } from './providers.js';
 import { handleMcpEvent } from './mcp.js';
 import { handleSkillsEvent } from './skills.js';
+import { handleCommandsEvent } from './commands.js';
 import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
 
@@ -155,6 +156,10 @@ export function handleEvent(evt) {
       break;
     case 'skills':
       handleSkillsEvent();
+      break;
+    case 'commands':
+      // A command was made, edited or removed (this tab or another): reload the slash menu.
+      handleCommandsEvent();
       break;
 
     default:

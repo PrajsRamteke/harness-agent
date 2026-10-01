@@ -298,6 +298,9 @@ export function fetchSkills(includeGlobal, q = '') {
 
 export const fetchSkill = (name) => api(`/api/skills/${encodeURIComponent(name)}`);
 
+/** Custom slash commands (`/api/commands`): the slash menu, palette and /command dialog. */
+export const fetchCommands = () => api('/api/commands');
+
 export function fetchMcpServers(q = '') {
   return api(`/api/mcp${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 }
