@@ -7,7 +7,8 @@ from ..constants import (
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, MODEL_SOURCE_LABELS,
     OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
     HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS, OPENCODE_ZEN_MODEL_IDS,
-    OPENCODE_ZEN_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
+    OPENCODE_ZEN_MODELS, OPENCODE_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
+    is_catalog_provider, provider_label,
     models_for, is_harness_agent_model, normalize_model_for_provider,
     model_belongs_to_provider,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
@@ -214,7 +215,7 @@ def resolve_model_arg(arg: str) -> tuple[str, str] | None:
     return None
 
 
-_OPENCODE_MODEL_IDS = {m for m, _ in models_for(PROVIDER_OPENCODE)}
+_OPENCODE_MODEL_IDS = {m for m, _ in OPENCODE_MODELS}
 _OPENCODE_ZEN_MODEL_IDS = set(OPENCODE_ZEN_MODEL_IDS)
 _HARNESS_AGENT_MODEL_IDS = set(HARNESS_AGENT_MODEL_IDS)
 _KIMCHI_MODEL_IDS = set(KIMCHI_MODEL_IDS)
@@ -246,6 +247,8 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
         target_provider = PROVIDER_OPENCODE_ZEN
     if source == PROVIDER_KIMCHI:
         target_provider = PROVIDER_KIMCHI
+    elif is_catalog_provider(source):
+        target_provider = source
     elif source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
         target_provider = PROVIDER_ANTHROPIC
     elif source == PROVIDER_OPENAI_CODEX_AUTH:
@@ -310,7 +313,7 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
 
     state.MODEL = chosen
     save_last_model()
-    src_label = MODEL_SOURCE_LABELS.get(source) or PROVIDER_LABELS.get(state.provider, state.provider)
+    src_label = MODEL_SOURCE_LABELS.get(source) or provider_label(state.provider)
     console.print(f"[green]✓ model switched to[/] [cyan]{state.MODEL}[/] "
                   f"[dim]({src_label})[/]")
     header_panel()
@@ -388,8 +391,20 @@ def _handle_model(arg: str):
 
 
 def _handle_auth():
-    lines = [f"provider: [bold cyan]{PROVIDER_LABELS.get(state.provider, state.provider)}[/]"]
-    if state.provider == PROVIDER_OPENROUTER:
+    lines = [f"provider: [bold cyan]{provider_label(state.provider)}[/]"]
+    if is_catalog_provider(state.provider):
+        from ..auth import catalog_keys
+
+        source, value = catalog_keys.key_source(state.provider)
+        lines.append("auth: [bold]API key[/] [dim](provider from models.dev)[/]")
+        if source == "env":
+            lines.append(f"source: env {catalog_keys.env_var_for(state.provider)}")
+        elif source == "file":
+            lines.append(f"source: {catalog_keys._file()}")
+        if value:
+            lines.append(f"key: …{value[-6:]}")
+        lines.append(f"model: [cyan]{state.MODEL}[/]")
+    elif state.provider == PROVIDER_OPENROUTER:
         has_env = bool(os.getenv("OPENROUTER_API_KEY"))
         lines.append("auth: [bold]API key[/]")
         lines.append("source: " + ("env OPENROUTER_API_KEY" if has_env else f"{OPENROUTER_KEY_FILE}"))
@@ -449,7 +464,7 @@ def apply_key_change(provider: str, *, removed: bool = False) -> str:
 
     Returns a short note for the caller to show ("" when nothing changed).
     """
-    label = PROVIDER_LABELS.get(provider, provider)
+    label = provider_label(provider)
     if provider == PROVIDER_ANTHROPIC:
         in_use = state.provider == provider and state.auth_mode == AUTH_API_KEY
     elif provider == PROVIDER_OPENCODE_ZEN:
@@ -480,6 +495,10 @@ def apply_key_change(provider: str, *, removed: bool = False) -> str:
             from ..auth.client import _build_kimchi_client
 
             state.client = _build_kimchi_client()
+        elif is_catalog_provider(provider):
+            from ..auth.client import _build_catalog_client
+
+            state.client = _build_catalog_client(provider)
         else:  # OpenRouter, or Anthropic on its API key
             state.client = _build_client_from_mode(state.auth_mode, interactive=False)
     except Exception as e:
@@ -505,6 +524,11 @@ def _prompt_provider_key_if_needed(
             from ..auth.kimchi import has_kimchi_key, prompt_for_kimchi_key
             if not has_kimchi_key():
                 prompt_for_kimchi_key()
+        elif is_catalog_provider(target):
+            from ..auth.catalog_keys import has_key
+            from ..auth.client import prompt_for_catalog_key
+            if not has_key(target) and not prompt_for_catalog_key(target):
+                raise EOFError
     except (EOFError, KeyboardInterrupt):
         console.print("[dim]provider switch cancelled[/]")
         _revert_provider_switch(prev_provider)
@@ -514,6 +538,15 @@ def _prompt_provider_key_if_needed(
         _revert_provider_switch(prev_provider)
         return False
     return True
+
+
+def _catalog_provider_known(provider: str) -> bool:
+    try:
+        from ..auth import models_dev
+
+        return models_dev.get_provider(provider) is not None
+    except Exception:
+        return False
 
 
 def _usable_anthropic_auth_mode(preferred: str = "") -> str | None:
@@ -545,7 +578,8 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             "  [cyan]2[/]  OpenRouter         [dim](free & paid)[/]\n"
             "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
             "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n"
-            "  [cyan]5[/]  Kimchi             [dim](Kimi, MiniMax, Nemotron)[/]\n\n"
+            "  [cyan]5[/]  Kimchi             [dim](Kimi, MiniMax, Nemotron)[/]\n"
+            "  [dim]…or any provider id from models.dev, e.g.[/] [cyan]deepseek[/] [dim](/key lists them all)[/]\n\n"
             "usage: [dim]/provider <name>[/]",
             title="◎ provider", border_style="cyan",
         ))
@@ -561,14 +595,21 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         elif sel in ("3", "opencode", "oc"):           target = PROVIDER_OPENCODE
         elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
         elif sel in ("5", "kimchi", "k"):              target = PROVIDER_KIMCHI
+        elif sel:                                      target = sel
         else: return
-    if target not in (
+    builtin = (
         PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
         PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI,
-    ):
-        console.print(f"[red]unknown provider: {target}[/]"); return
+    )
+    if target not in builtin:
+        # A provider from models.dev: "md:deepseek", or just "deepseek".
+        from ..auth import models_dev
+
+        target = models_dev.provider_id(target) or target
+    if target not in builtin and not (is_catalog_provider(target) and _catalog_provider_known(target)):
+        console.print(f"[red]unknown provider: {target}[/] [dim]— /key lists every provider[/]"); return
     if target == state.provider:
-        console.print(f"[dim]already on {PROVIDER_LABELS[target]}[/]"); return
+        console.print(f"[dim]already on {provider_label(target)}[/]"); return
 
     prev_provider = state.provider
     state.provider = target
@@ -597,6 +638,8 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
     elif target == PROVIDER_KIMCHI:
         if state.MODEL not in _KIMCHI_MODEL_IDS:
             state.MODEL = KIMCHI_DEFAULT_MODEL
+    elif is_catalog_provider(target):
+        state.MODEL = normalize_model_for_provider(state.MODEL, target)
     else:
         state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_ANTHROPIC)
         # Use whichever Anthropic credential exists now — a stale auth_mode
@@ -606,7 +649,7 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             state.auth_mode = mode
             _secure_write(AUTH_MODE_FILE, mode)
 
-    if target in (PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_KIMCHI):
+    if target in (PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_KIMCHI) or is_catalog_provider(target):
         if not _prompt_provider_key_if_needed(
             target, prev_provider, skip_key_prompt=skip_key_prompt,
         ):
@@ -630,13 +673,16 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         elif target == PROVIDER_KIMCHI:
             from ..auth.client import _build_kimchi_client
             state.client = _build_kimchi_client()
+        elif is_catalog_provider(target):
+            from ..auth.client import _build_catalog_client
+            state.client = _build_catalog_client(target)
         else:
             state.client = _build_client_from_mode(
                 PROVIDER_OPENROUTER if target == PROVIDER_OPENROUTER else state.auth_mode
             )
         if target != PROVIDER_OPENCODE_ZEN:
             state.harness_agent_free = False
-        console.print(f"[green]✓ switched to[/] [bold cyan]{PROVIDER_LABELS[target]}[/] "
+        console.print(f"[green]✓ switched to[/] [bold cyan]{provider_label(target)}[/] "
                       f"[dim](model: {state.MODEL})[/]")
         header_panel()
         save_last_model()

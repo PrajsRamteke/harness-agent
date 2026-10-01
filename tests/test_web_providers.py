@@ -441,3 +441,108 @@ def test_provider_command_opens_in_the_browser_not_on_the_computer():
         assert f"'{cmd}': 'provider'" in catalog
     html = (STATIC / "index.html").read_text()
     assert 'id="providers"' in html and 'id="providers-card"' in html
+
+
+# ─── Providers from models.dev ──────────────────────────────────────────
+
+
+@pytest.fixture
+def catalog(keys, monkeypatch):
+    from jarvis.auth import models_dev
+
+    for var in ("DEEPSEEK_API_KEY", "LMSTUDIO_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    raw = {
+        "deepseek": {
+            "id": "deepseek", "name": "DeepSeek", "npm": "@ai-sdk/openai-compatible",
+            "api": "https://api.deepseek.com", "env": ["DEEPSEEK_API_KEY"],
+            "doc": "https://platform.deepseek.com",
+            "models": {"deepseek-chat": {
+                "id": "deepseek-chat", "name": "DeepSeek Chat", "tool_call": True,
+                "modalities": {"input": ["text"], "output": ["text"]},
+                "limit": {"context": 128000, "output": 8192}, "cost": {"input": 0.3, "output": 1.2},
+            }},
+        },
+        "lmstudio": {
+            "id": "lmstudio", "name": "LMStudio", "npm": "@ai-sdk/openai-compatible",
+            "api": "http://127.0.0.1:1234/v1", "env": ["LMSTUDIO_API_KEY"],
+            "models": {"local": {"id": "local", "tool_call": True,
+                                 "modalities": {"input": ["text"], "output": ["text"]}}},
+        },
+    }
+    models_dev.store(models_dev.trim(raw))
+    return models_dev
+
+
+def test_catalog_providers_are_listed_after_the_built_ins(catalog):
+    rows = pv.list_providers()["providers"]
+    ids = [r["id"] for r in rows]
+    assert ids[: len(pv.CARDS)] == [c.id for c in pv.CARDS]
+    deep = next(r for r in rows if r["id"] == "md:deepseek")
+    assert deep["catalog"] and deep["kind"] == "key" and not deep["connected"]
+    assert deep["env_var"] == "DEEPSEEK_API_KEY"
+    assert deep["link"] == "https://platform.deepseek.com"
+    assert deep["checked"] is True
+    local = next(r for r in rows if r["id"] == "md:lmstudio")
+    assert local["local"] and local["checked"] is False
+
+
+def test_saving_a_catalog_key_verifies_then_stores_it(catalog, monkeypatch):
+    from jarvis.auth import catalog_keys
+
+    seen = []
+    monkeypatch.setattr(pv, "verify_key", lambda cid, key, **k: seen.append((cid, key)) or "ok")
+    run = Recorder()
+    res = pv.save_key("md:deepseek", "export DEEPSEEK_API_KEY=sk-deep-abcdef123456", use=True, run_action=run)
+    assert res["ok"] and res["verified"]
+    assert seen == [("md:deepseek", "sk-deep-abcdef123456")]
+    assert catalog_keys.get_key("md:deepseek") == "sk-deep-abcdef123456"
+    assert run.calls == [("provider_key_saved", {"id": "md:deepseek", "use": True, "replaced": False})]
+    row = next(r for r in pv.list_providers()["providers"] if r["id"] == "md:deepseek")
+    assert row["connected"] and row["hint"] == "…3456"
+
+
+def test_a_refused_catalog_key_is_never_saved(catalog, monkeypatch):
+    from jarvis.auth import catalog_keys
+
+    monkeypatch.setattr(pv, "verify_key", lambda *a, **k: "rejected")
+    res = pv.save_key("md:deepseek", "sk-deep-abcdef123456", use=True, run_action=Recorder())
+    assert not res["ok"] and res["rejected"]
+    assert not catalog_keys.has_key("md:deepseek")
+
+
+def test_catalog_key_can_reference_an_env_var(catalog, monkeypatch):
+    from jarvis.auth import catalog_keys
+
+    monkeypatch.setattr(pv, "verify_key", lambda *a, **k: pytest.fail("a reference is not sent anywhere"))
+    assert not pv.save_key("md:deepseek", "$MY_DEEPSEEK", use=False, run_action=Recorder())["ok"]
+    monkeypatch.setenv("MY_DEEPSEEK", "sk-from-env-123456")
+    assert pv.save_key("md:deepseek", "$MY_DEEPSEEK", use=False, run_action=Recorder())["ok"]
+    assert catalog_keys.get_key("md:deepseek") == "sk-from-env-123456"
+    row = next(r for r in pv.list_providers()["providers"] if r["id"] == "md:deepseek")
+    assert row["hint"] == "$MY_DEEPSEEK"
+
+
+def test_catalog_check_request_uses_the_providers_base_url(catalog):
+    url, headers = pv._check_request("md:deepseek", "k")
+    assert url == "https://api.deepseek.com/models" and headers["Authorization"] == "Bearer k"
+    assert pv._check_request("md:lmstudio", "k") is None  # local: nothing to ask
+
+
+def test_use_and_remove_a_catalog_provider(catalog, monkeypatch):
+    from jarvis.auth import catalog_keys
+
+    catalog_keys.save("md:deepseek", "sk-deep-abcdef123456")
+    picked = []
+
+    def fake_apply(model, source=""):
+        picked.append((model, source))
+        state.provider = source
+
+    monkeypatch.setattr("jarvis.commands.control._apply_model_selection", fake_apply)
+    res = pv.use_card("md:deepseek")
+    assert res["ok"] and picked == [("deepseek-chat", "md:deepseek")]
+
+    monkeypatch.setattr("jarvis.commands.control.apply_key_change", lambda p, removed=False: "")
+    assert pv.remove_key("md:deepseek")["ok"]
+    assert not catalog_keys.has_key("md:deepseek")

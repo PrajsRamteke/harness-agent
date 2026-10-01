@@ -21,16 +21,16 @@ from . import theme as ui
 
 _MODE_OPTIONS = [
     ("oauth", "Auth (OAuth)",     "Anthropic / OpenAI Codex — subscription sign-in"),
-    ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode, Kimchi, Codex — enter API key"),
+    ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode, Kimchi + 200 more via models.dev"),
 ]
 
 
 def _connection_summary() -> str:
     """``Anthropic · OpenRouter`` — which sources are set up right now."""
     try:
-        from ..constants.providers import MODEL_SOURCE_LABELS, connected_model_sources
+        from ..constants.providers import MODEL_SOURCE_LABELS, connected_model_sources, provider_label
 
-        labels = [MODEL_SOURCE_LABELS.get(s, s) for s in connected_model_sources()]
+        labels = [MODEL_SOURCE_LABELS.get(s) or provider_label(s) for s in connected_model_sources()]
         return " · ".join(labels)
     except Exception:
         return ""

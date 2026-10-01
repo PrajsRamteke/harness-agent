@@ -23,6 +23,13 @@ _WELCOME_ART_STACKED_WIDTH = 62  # stacked HARNESS column is 60 cols
 _WELCOME_ART_COMPACT_MIN_WIDTH = 44
 
 
+def _provider_text(provider: str) -> str:
+    """Built-in ids as before; a models.dev provider by its name."""
+    from ..constants.providers import is_catalog_provider, provider_label
+
+    return provider_label(provider) if is_catalog_provider(provider) else str(provider)
+
+
 def _current_git_branch(cwd) -> str | None:
     """Return the current git branch for ``cwd`` (or None if not a repo).
 
@@ -278,7 +285,7 @@ def header_panel(compact: bool = False):
         f"pin {pinned_flag}",
         f"msgs {len(state.messages)}",
         f"[{c['fg_dim']}]{cwd_text}[/]",
-        f"provider [{c['fg_dim']}]{state.provider}[/]",
+        f"provider [{c['fg_dim']}]{_provider_text(state.provider)}[/]",
         f"auth [{c['fg_dim']}]{state.auth_mode if state.provider == 'anthropic' else 'api_key'}[/]",
     ])
     console.print(Panel(flags, border_style=c['border'], padding=(0, 1)))

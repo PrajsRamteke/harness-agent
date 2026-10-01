@@ -17,6 +17,7 @@ from ..constants import (
     PROVIDER_OPENCODE_ZEN,
     model_option_id,
     parse_model_option_id,
+    provider_label,
 )
 from .. import state
 from ..storage.sessions import db_count_sessions, db_list_sessions
@@ -72,7 +73,7 @@ def list_models(*, query: str = "") -> dict[str, Any]:
     q = (query or "").strip().lower()
     models: list[dict[str, Any]] = []
     for src, model_id, desc in model_picker_rows():
-        label = MODEL_SOURCE_LABELS.get(src, src)
+        label = MODEL_SOURCE_LABELS.get(src) or provider_label(src)
         if src == PROVIDER_HARNESS_AGENT:
             label = "Harness Agent"
         if q and q not in model_id.lower() and q not in desc.lower() and q not in label.lower():

@@ -36,6 +36,8 @@ python -m pytest tests/ -q
 - `CLAUDE_MODEL` — override default model (default: `sonnet-4-6`)
 - `HARNESS_MODEL_CATALOG_TTL` — seconds a fetched free-model catalog stays fresh (default: 21600 / 6h)
 - `HARNESS_OPENROUTER_HIDE_NO_TOOLS` — set to `1` to drop free OpenRouter models that can't call tools (listed by default, labelled `no tool use`)
+- `HARNESS_MODELS_DEV` — set to `0` to turn off the models.dev catalog (no fetch, no extra providers or models)
+- `<PROVIDER>_API_KEY` as named by models.dev (`DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY` …) — connects that models.dev provider; `HARNESS_PROVIDER=md:<id>` pins one
 - `HARNESS_MAX_PARALLEL_TOOLS` — max concurrent tool workers (default/cap: 64)
 - `HARNESS_BUNDLE_MAX_CHARS` — max chars in resolve_context/read_bundle output (default: 120000)
 - `HARNESS_BUNDLE_PER_FILE_MAX` — per-file cap inside a bundle (default: 20000)
@@ -55,7 +57,7 @@ python -m pytest tests/ -q
 
 | Subpackage | Role |
 |---|---|
-| `auth/` | Auth orchestration: API key (`api_key.py`), OAuth PKCE (`oauth_flow.py`, `pkce.py`), OpenRouter (`openrouter.py`), OpenCode (`opencode.py`), unified client factory (`client.py`) |
+| `auth/` | Auth orchestration: API key (`api_key.py`), OAuth PKCE (`oauth_flow.py`, `pkce.py`), OpenRouter (`openrouter.py`), OpenCode (`opencode.py`), unified client factory (`client.py`), models.dev catalog providers (`models_dev.py`, keys in `catalog_keys.py`) |
 | `tools/` | All tool implementations + schema routing |
 | `tools/router.py` | **Dynamic tool selection** — regex-scans recent messages to include only likely-needed tool groups; core always included, specialized groups (web, mac, ocr, memory, skills, mcp) conditionally added |
 | `tools/schemas_core.py` / `schemas_mac.py` | JSON schema definitions for tool groups |
@@ -95,6 +97,62 @@ runtime**, not hard-coded:
   `codex_default_model()`, and `normalize_model_for_provider` never keeps a
   refused Codex model. Seeds in `constants/providers.py` are used only while
   the cache is cold and are never appended to a live list.
+- `auth/models_dev.py` — **every provider and model on [models.dev](https://models.dev)**
+  (MIT licence, (c) models.dev — github.com/sst/models.dev; the same data
+  OpenCode uses). There is no per-provider endpoint: `api.json` is the whole
+  database (~5 MB, ~500 KB gzipped), fetched on a worker with `If-None-Match`
+  (unchanged → 304, no body), trimmed by `trim()` to the fields used here
+  (~0.9 MB) and cached as `model_catalog/models_dev.json` (`SCHEMA` bump =
+  old cache ignored). Reads are memoised on the file's mtime. Two uses:
+  - **Catalog providers** `md:<models.dev id>` (~200): any provider whose
+    entry gives a base URL (`api`, or `KNOWN_BASE_URLS` for SDK-only ones
+    like OpenAI / Groq / Google / Mistral / xAI) and speaks OpenAI
+    chat-completions (→ `OpenCodeClient`) or Anthropic messages (→ Anthropic
+    SDK, `api` minus `/v1`). Per model: `wire` (`chat` | `responses`; OpenAI's
+    own pro/codex models and gateway models whose override npm is
+    `@ai-sdk/openai` go to `/responses`; Anthropic/Google overrides and
+    per-model base URLs are dropped), deprecated / non-text models dropped,
+    tool-less ones labelled `no tool use` and sorted last (newest usable
+    first). `client.py:_build_catalog_client` passes per-model hints to
+    `OpenCodeClient(model_hints=…)`: `reasoning_content` is echoed only for
+    `interleaved.field == reasoning_content` models (strict APIs — Mistral,
+    Groq, OpenAI — reject the field), `reasoning_effort` only for reasoning
+    models, `max_tokens` clamped to the model's output limit, OpenAI gets
+    `max_completion_tokens`. Built-ins pass no hints, so their requests are
+    unchanged. Catalog models **never** enter `MODEL_INFO` / `PRICING` (keyed
+    by id alone — another provider may share it): use `model_pricing(model,
+    provider)`, `model_supports_images(model, provider)`,
+    `model_belongs_to_provider` (strict for catalog providers). Skipped:
+    built-ins under another name (`NATIVE_IDS`, kimchi), `SKIP_IDS` (Copilot
+    / GitLab need a token exchange), anything needing cloud auth (Bedrock,
+    Azure, Vertex …). `${VAR}` in a base URL is filled from the env (missing
+    → not connected, the dialogs say which var).
+  - **Built-in enrichment**: `_native_extras()` appends models.dev's newer
+    models to OpenRouter (all paid models), Anthropic API, OpenCode Go and
+    Zen (keyed), registered via `register_dynamic_model()`; the curated rows
+    always come first and are never changed. `native_responses_models()`
+    tells the Go / Zen clients which of those go to `/responses`.
+
+  Keys: `auth/catalog_keys.py` → `~/.config/harness-agent/provider_keys.json`
+  (`{"md:<id>": key}`, created 600). The provider's models.dev env var wins
+  (read-only, like built-ins) — **except** a var several catalog providers
+  read (`MINIMAX_API_KEY` = 4 MiniMax endpoints) or a generic one
+  (`GITHUB_TOKEN`): those never auto-connect; the user saves the one they
+  mean, and a saved `$VAR` is a reference, expanded at use. Catalog keys are
+  deliberately **not** in `_has_usable_provider_credentials` (an unrelated
+  `OPENAI_API_KEY` must not move a first run off the free tier).
+  `HARNESS_MODELS_DEV=0` disables it all. UI: `/key` lists built-ins, then
+  connected models.dev providers, then the rest (search with `/`;
+  `KeyModalScreen(focus=pid, add=True)` opens straight on one); `/model`
+  shows connected ones as groups and, while searching, `+ <Provider>` rows
+  (`CONNECT_ID`) that open `/key` for it and come back to the picker;
+  `/provider <id>` takes a bare models.dev id. Web: catalog providers are
+  `Card(catalog=True)` rows (`card_for()`), connected ones in *API keys*, the
+  rest in a searchable *More providers* group (filtered in place via
+  `hidden`; popular ones first); keys are checked with `GET {base}/models`.
+  Tests: `tests/test_models_dev.py`; **`conftest.py` gives every test an
+  empty catalog, a private keys file and no models.dev network** — seed one
+  with `models_dev.store(models_dev.trim(raw))`.
 - `auth/catalog_cache.py` — stale-while-revalidate disk cache under
   `~/.config/harness-agent/model_catalog/`.
 

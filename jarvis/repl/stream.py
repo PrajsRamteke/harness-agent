@@ -27,7 +27,8 @@ except ImportError:  # pragma: no cover
 from ..console import console, APIStatusError, RateLimitError, HarnessAPIError
 from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
-from ..constants.providers import model_supports_images
+from anthropic import Anthropic
+from ..constants.providers import model_supports_images, is_catalog_provider, provider_label
 from ..constants import (
     PROVIDER_ANTHROPIC, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
@@ -298,6 +299,36 @@ def _stop_on_rate_limit(detail: str = "") -> None:
     )
 
 
+def _report_catalog_error(code: int, err: Exception) -> None:
+    """A provider from models.dev refused the request: say what to do, stop."""
+    from rich.markup import escape
+
+    name = provider_label(state.provider)
+    detail = escape(str(err))[:300]
+    if code == 401:
+        msg = (f"[red]Auth error — Provider: {name} (API key)[/]\n"
+               f"[yellow]{name} rejected the key. Replace it with /key — no restart needed.[/]")
+        reason = "auth error"
+    elif code == 402:
+        msg = (f"[red]Payment required — Provider: {name}[/]\n"
+               "[yellow]The account has no credit for this model. Top it up, "
+               "or pick another model with /model.[/]")
+        reason = "payment required"
+    elif code == 403:
+        msg = (f"[red]{name} refused '{escape(state.MODEL)}' for this key.[/]\n"
+               "[yellow]Your plan may not include it — pick another with /model.[/]")
+        reason = "model not permitted"
+    else:
+        msg = (f"[red]{name}: model '{escape(state.MODEL)}' not found.[/]\n"
+               "[yellow]models.dev may list it before the provider serves it — "
+               "pick another with /model, or /model refresh.[/]")
+        reason = "model not found"
+    console.print(msg)
+    if detail:
+        console.print(f"[dim]{detail}[/]")
+    raise HarnessAPIError(reason)
+
+
 def _block_dict(block: Any) -> dict:
     if isinstance(block, dict):
         return block
@@ -564,7 +595,9 @@ def call_claude_stream():
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
     messages = prune_tool_images(trim_messages(state.messages),
                                  vision=model_supports_images(state.MODEL))
-    if state.provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER):
+    if state.provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER) or (
+        is_catalog_provider(state.provider) and isinstance(state.client, Anthropic)
+    ):
         # History may hold another provider's replies (switched mid-session).
         messages = anthropic_wire_messages(messages)
     kwargs: Dict[str, Any] = dict(
@@ -647,6 +680,8 @@ def call_claude_stream():
             _stop_on_rate_limit(str(e))
             raise
         except APIStatusError as e:
+            if is_catalog_provider(state.provider) and e.status_code in (401, 402, 403, 404):
+                _report_catalog_error(e.status_code, e)  # Anthropic-style catalog provider
             if e.status_code == 401:
                 if state.provider == "openrouter":
                     console.print(
@@ -820,4 +855,11 @@ def call_claude_stream():
                     "model, or /provider to switch provider.[/]"
                 )
                 raise HarnessAPIError("model not available")
+            code = getattr(e, "status_code", None)
+            if is_catalog_provider(state.provider) and code in (401, 402, 403, 404):
+                _report_catalog_error(code, e)
+            if is_catalog_provider(state.provider) and code is not None and code >= 500 and attempt < len(delays):
+                report_turn_phase(f"Server {code} — retrying soon…")
+                console.print(f"[yellow]server {code}, retry...[/]")
+                time.sleep(delays[attempt]); continue
             raise

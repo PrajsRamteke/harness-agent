@@ -27,8 +27,24 @@ def _fmt_tokens(n: int) -> str:
 _CTX_CACHE: dict[str, int | None] = {}
 
 
+def _catalog_context(model: str) -> int | None:
+    """Context window models.dev lists for ``model`` on the active provider."""
+    try:
+        from ..auth import models_dev
+
+        m = models_dev.find_model(model, state.provider or "")
+    except Exception:
+        return None
+    return (m.context or None) if m is not None else None
+
+
 def context_window(model: str) -> int | None:
     """Best-known context window for ``model`` (None when unknown)."""
+    # The active provider's own listing wins (memoised in models_dev); the
+    # same id can carry a different window on another provider.
+    found = _catalog_context(model)
+    if found:
+        return found
     if model in _CTX_CACHE:
         return _CTX_CACHE[model]
     ctx: int | None = None
@@ -164,9 +180,9 @@ class SidebarBody(Widget):
             line(f"↑ {_fmt_tokens(int(state.total_in or 0))}  ↓ {_fmt_tokens(int(state.total_out or 0))}",
                  ui.FG_DIM)
         try:
-            from ..constants import PRICING
+            from ..constants import model_pricing
 
-            price = PRICING.get(state.MODEL)
+            price = model_pricing(state.MODEL, state.provider)
             if price and (price[0] or price[1]) and total:
                 from ..repl.stats import estimated_cost
 
@@ -178,9 +194,9 @@ class SidebarBody(Widget):
         line(state.MODEL, ui.FG)
         bits = []
         try:
-            from ..constants.providers import PROVIDER_LABELS
+            from ..constants.providers import PROVIDER_LABELS, provider_label  # noqa: F401
 
-            bits.append(PROVIDER_LABELS.get(state.provider, str(state.provider or "")))
+            bits.append(provider_label(str(state.provider or "")))
         except Exception:
             pass
         if state.think_mode:

@@ -481,7 +481,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
     def _welcome_info(self) -> dict:
         import pathlib
         from ..constants import VERSION
-        from ..constants.providers import PROVIDER_LABELS
+        from ..constants.providers import PROVIDER_LABELS, provider_label  # noqa: F401
 
         cwd = pathlib.Path.cwd()
         try:
@@ -525,7 +525,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         return {
             "version": VERSION,
             "model": state.MODEL,
-            "provider": PROVIDER_LABELS.get(state.provider, state.provider or ""),
+            "provider": provider_label(state.provider or ""),
             "cwd": cwd_s,
             "branch": self._git_branch,
             "context": ctx,
@@ -629,13 +629,13 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         Clickable: agent → agents, model → models, provider → setup hub,
         think → effort, tokens → sidebar, pin → pins, ``?`` → shortcuts.
         """
-        from ..constants.providers import PROVIDER_LABELS
+        from ..constants.providers import PROVIDER_LABELS, provider_label  # noqa: F401
 
         left: list[tuple[int, str]] = [
             (0, _agent_badge_markup(), "open_agents"),
             (0, f"[{ui.FG}]{_rich_escape(state.MODEL.rsplit('/', 1)[-1])}[/]", "open_models"),
         ]
-        prov = PROVIDER_LABELS.get(state.provider, state.provider or "")
+        prov = provider_label(state.provider or "")
         if prov:
             left.append((5, f"[{ui.FG_DIM}]{_rich_escape(prov)}[/]", "open_providers"))
         if state.plan_mode:
@@ -661,9 +661,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         if total:
             right.append((3, f"[{ui.FG_MUTE}]{_fmt_tokens(total)}[/] [{ui.FG_DIM}]tokens[/]", "toggle_sidebar"))
         try:
-            from ..constants import PRICING
+            from ..constants import model_pricing
 
-            price = PRICING.get(state.MODEL)
+            price = model_pricing(state.MODEL, state.provider)
             if price and (price[0] or price[1]) and total:
                 from ..repl.stats import estimated_cost
 
@@ -960,12 +960,32 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         def after(option_id: str | None):
             if not option_id:
                 return
+            if option_id.startswith(CONNECT_ID):
+                self._connect_provider_from_picker(option_id[len(CONNECT_ID):])
+                return
             from ..constants.providers import parse_model_option_id
             source, model_id = parse_model_option_id(option_id)
             self._apply_model_selection_worker(model_id, source=source)
-        from .model_modal import ModelPickerScreen
+        from .model_modal import ModelPickerScreen, CONNECT_ID
 
         self.push_screen(ModelPickerScreen(), after)
+
+    def _connect_provider_from_picker(self, provider: str) -> None:
+        """A "+ Connect <provider>" row in /model: ask for its key, then come
+        back to the picker so the new models can be chosen right away."""
+        from .key_modal import KeyModalScreen
+
+        def after(_: object) -> None:
+            self._set_status("ready")
+            try:
+                from ..constants.providers import catalog_connected_providers
+
+                if provider and provider in catalog_connected_providers():
+                    self._open_model_picker()
+            except Exception:
+                pass
+
+        self.push_screen(KeyModalScreen(focus=provider, add=bool(provider)), after)
 
     def _open_think_picker(self):
         def after(effort: str | None):

@@ -16,7 +16,7 @@ import threading
 import time
 import contextlib
 from dataclasses import dataclass, field
-from typing import Any, Generator, Optional
+from typing import Any, Callable, Generator, Optional
 
 from .http_timeout import harness_http_timeout, http_read_timeout_seconds
 from ..utils.tool_images import data_url, split_tool_result
@@ -819,29 +819,43 @@ class _OpenCodeMessages:
             oai_messages.append({"role": "system", "content": sys_text})
         oai_messages.extend(_anthropic_messages_to_openai(messages))
 
-        # DeepSeek, Kimi (Moonshot), and other thinking-mode providers require
-        # `reasoning_content` on EVERY assistant message in the conversation.
-        # Kimi (Moonshot) specifically requires NON-EMPTY `reasoning_content`
-        # on assistant messages that have tool_calls — empty string `""` is
-        # treated as missing.  Some models enable thinking by default at the
-        # API level regardless of whether we request it, so this guard runs
-        # unconditionally.  Without this, the API returns 400:
-        #   "thinking is enabled but reasoning_content is missing in assistant
-        #    tool call message at index N"
-        for msg in oai_messages:
-            if msg["role"] == "assistant" and "reasoning_content" not in msg:
-                # Must be non-empty for tool-call messages (Kimi K2.6).
-                msg["reasoning_content"] = " " if msg.get("tool_calls") else ""
+        hint = owner.model_hint(model) if owner is not None else None
+        if hint is None or hint.get("reasoning_field") == "reasoning_content":
+            # DeepSeek, Kimi (Moonshot), and other thinking-mode providers require
+            # `reasoning_content` on EVERY assistant message in the conversation.
+            # Kimi (Moonshot) specifically requires NON-EMPTY `reasoning_content`
+            # on assistant messages that have tool_calls — empty string `""` is
+            # treated as missing.  Some models enable thinking by default at the
+            # API level regardless of whether we request it, so this guard runs
+            # unconditionally.  Without this, the API returns 400:
+            #   "thinking is enabled but reasoning_content is missing in assistant
+            #    tool call message at index N"
+            for msg in oai_messages:
+                if msg["role"] == "assistant" and "reasoning_content" not in msg:
+                    # Must be non-empty for tool-call messages (Kimi K2.6).
+                    msg["reasoning_content"] = " " if msg.get("tool_calls") else ""
+        else:
+            # A catalog model that doesn't take reasoning back: strict APIs
+            # (Mistral, Groq, OpenAI) reject the unknown message field.
+            for msg in oai_messages:
+                msg.pop("reasoning_content", None)
 
+        if hint is not None and hint.get("max_output"):
+            max_tokens = min(max_tokens, int(hint["max_output"]))
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": oai_messages,
-            "max_tokens": max_tokens,
+            (owner.max_tokens_param if owner is not None else "max_tokens"): max_tokens,
             "stream": True,
         }
         # Pass thinking/reasoning mode using values accepted by OpenCode Go/Zen:
-        # xhigh, high, medium, low, minimal, none.
-        reasoning_options = _opencode_reasoning_options(model, thinking)
+        # xhigh, high, medium, low, minimal, none. A catalog model that isn't a
+        # reasoning model gets none (reasoning_effort would be refused).
+        reasoning_options = (
+            _opencode_reasoning_options(model, thinking)
+            if hint is None or hint.get("reasoning")
+            else {}
+        )
         if reasoning_options:
             kwargs.update(reasoning_options)
 
@@ -916,6 +930,8 @@ class OpenCodeClient:
         request_id_prefix: str = "msg_",
         gate_tools: list[dict] | None = None,
         responses_models: set[str] | None = None,
+        model_hints: Callable[[str], dict | None] | None = None,
+        max_tokens_param: str = "max_tokens",
     ):
         self._request_id_header = request_id_header
         self._request_id_prefix = request_id_prefix
@@ -923,6 +939,13 @@ class OpenCodeClient:
         # Free-tier models served only on the Responses API (/responses) rather
         # than /chat/completions — see _zen_wire.RESPONSES_API_MODELS.
         self.responses_models: set[str] = set(responses_models or ())
+        # Per-model facts for providers from models.dev (see client.py
+        # _build_catalog_client): {"reasoning", "reasoning_field",
+        # "max_output", "wire"}. None for every other provider, which keeps
+        # the long-standing OpenCode / Kimchi request shape unchanged.
+        self._model_hints = model_hints
+        # OpenAI's own API wants max_completion_tokens; gateways take max_tokens.
+        self.max_tokens_param = max_tokens_param
         # Tool schemas that must accompany every request even when the caller
         # supplied none. Used by the free Harness Agent tier, whose gateway
         # only accepts requests carrying tools named "bash"+"read".
@@ -938,7 +961,20 @@ class OpenCodeClient:
 
     def api_format(self, model: str) -> str:
         """Return ``"responses"`` for models served on /responses, else ``"chat"``."""
-        return "responses" if model in self.responses_models else "chat"
+        if model in self.responses_models:
+            return "responses"
+        hint = self.model_hint(model)
+        if hint is not None and hint.get("wire") == "responses":
+            return "responses"
+        return "chat"
+
+    def model_hint(self, model: str) -> dict | None:
+        if self._model_hints is None:
+            return None
+        try:
+            return self._model_hints(model)
+        except Exception:
+            return None
 
     def next_request_headers(self) -> dict[str, str] | None:
         if not self._request_id_header:

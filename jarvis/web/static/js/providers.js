@@ -29,9 +29,19 @@ const TONES = {
 
 const GROUPS = [
   { kind: 'oauth', title: 'Subscriptions', sub: 'Use a plan you already pay for' },
-  { kind: 'key', title: 'API keys', sub: 'Paste a key from the provider’s site' },
+  // Built-in key providers, plus models.dev ones once they have a key.
+  { kind: 'key', title: 'API keys', sub: 'Paste a key from the provider’s site', only: (p) => !p.catalog || p.connected },
+  // Every other provider models.dev lists: searchable, popular ones shown first.
+  { kind: 'key', more: true, title: 'More providers', sub: 'From models.dev — add a key to use one', only: (p) => p.catalog && !p.connected },
   { kind: 'free', title: 'Free', sub: 'Works without an account' },
 ];
+
+/** Shown in "More providers" before anything is typed (when present). */
+const POPULAR = [
+  'md:openai', 'md:google', 'md:groq', 'md:deepseek', 'md:mistral', 'md:xai',
+  'md:togetherai', 'md:fireworks-ai', 'md:moonshotai', 'md:zai', 'md:cerebras', 'md:deepinfra',
+];
+const MORE_Q = 'pv-more-q';
 
 const OAUTH_COPY = {
   anthropic: {
@@ -51,9 +61,6 @@ const OAUTH_COPY = {
     missing: 'Paste the address of the last sign-in page.',
   },
 };
-
-/** Keys the server checks with the provider before saving (verify_key). */
-const CHECKED = new Set(['anthropic_api', 'openrouter', 'kimchi']);
 
 let data = null; // last /api/providers response
 let loadError = false;
@@ -151,6 +158,7 @@ function statusLine(row) {
   if (!row.connected || row.kind === 'free') return row.blurb;
   if (row.kind === 'oauth') return 'Signed in';
   if (row.source === 'env') return `From ${row.env_var} on your computer`;
+  if (row.hint?.startsWith('$')) return `Uses ${row.hint} on your computer`;
   return row.hint ? `Key ${row.hint} saved on your computer` : 'Key saved on your computer';
 }
 
@@ -174,16 +182,24 @@ function keyForm(row, replace) {
   const busy = busyId === row.id;
   const hint = [
     row.key_prefix ? `Starts with <code>${escapeHtml(row.key_prefix)}</code>.` : '',
-    CHECKED.has(row.id) ? `Jarvis checks it with ${escapeHtml(row.label)} before saving.` : 'Saved only on your computer.',
+    row.local ? 'A local server: any value works if it doesn’t check keys.' : '',
+    row.checked ? `Jarvis checks it with ${escapeHtml(row.label)} before saving.` : 'Saved only on your computer.',
+    row.catalog && row.env_var ? `Or type <code>$${escapeHtml(row.env_var)}</code> to use that variable on your computer.` : '',
   ].filter(Boolean).join(' ');
+  const needs = row.needs?.length
+    ? `<p class="pv-note">${icon('terminal')}<span>Also set <code>${row.needs.map(escapeHtml).join('</code>, <code>')}</code> on the computer running Jarvis — the provider’s address needs it.</span></p>`
+    : '';
   const paste = `<strong>${replace ? 'Paste the new key' : 'Paste it here'}</strong>
     ${field(id, { placeholder: row.key_prefix ? `${row.key_prefix}…` : 'Paste your key', secret: true, label: `${row.label} API key` })}
     <span class="pv-hint">${hint}</span>`;
+  const getKey = row.link
+    ? `<strong>Get a key</strong>
+          <a class="pv-link" href="${escapeHtml(row.link)}" target="_blank" rel="noopener noreferrer"><span>${escapeHtml(hostOf(row.link))}</span>${icon('external-link')}</a>`
+    : `<strong>Get a key</strong><span class="pv-hint">From your ${escapeHtml(row.label)} account.</span>`;
   const steps = replace
     ? `<div class="pv-steps is-single">${step('', paste)}</div>`
-    : `<div class="pv-steps">
-        ${step(1, `<strong>Get a key</strong>
-          <a class="pv-link" href="${escapeHtml(row.link)}" target="_blank" rel="noopener noreferrer"><span>${escapeHtml(hostOf(row.link))}</span>${icon('external-link')}</a>`)}
+    : `${needs}<div class="pv-steps">
+        ${step(1, getKey)}
         ${step(2, paste)}
       </div>`;
   let actions;
@@ -306,7 +322,8 @@ function quickOutHtml() {
       <button type="button" class="btn btn-primary btn-sm" data-act="quick-save" data-id="${found}"${quickBusy ? ' disabled' : ''}>${quickBusy ? spin('Checking') : `<span>Connect</span>${icon('arrow-right')}`}</button>`;
   }
   if (key.length < 16) return '<span class="pv-hint">That’s too short for a key. Copy the whole thing.</span>';
-  const ids = (data?.providers || []).filter((p) => p.kind === 'key' && !p.key_prefix && p.source !== 'env').map((p) => p.id);
+  // Built-in providers only — "More providers" below has 200 to search.
+  const ids = (data?.providers || []).filter((p) => p.kind === 'key' && !p.catalog && !p.key_prefix && p.source !== 'env').map((p) => p.id);
   return `<span class="pv-hint">Which provider is it for?</span>${quickChoices(ids)}`;
 }
 
@@ -320,14 +337,37 @@ function quickChoices(ids) {
 
 // ─── Render ───────────────────────────────────────────────────────────────
 
+/** Changes when a row is added, removed or moves group (connecting a
+ * models.dev provider moves it up into "API keys"): then rebuild. */
+function sigOf(rows) {
+  return rows.map((p) => (p.catalog && p.connected ? `${p.id}*` : p.id)).join(',');
+}
+
+function groupRows(g) {
+  return data.providers.filter((p) => p.kind === g.kind && (!g.only || g.only(p)));
+}
+
 function build(body) {
   let i = 0;
   const groups = GROUPS.map((g) => {
-    const rows = data.providers.filter((p) => p.kind === g.kind);
+    const rows = groupRows(g);
     if (!rows.length) return '';
+    // Only the rows the filter shows get staggered; 200 hidden ones would
+    // push the visible ones' entrance seconds back.
+    const html = rows.map((r) => rowHtml(r, g.more ? 0 : i++)).join('');
+    if (g.more) {
+      return `<section class="pv-group is-more" aria-label="${escapeHtml(g.title)}">
+        <div class="pv-group-head"><h3>${escapeHtml(g.title)}</h3><span>${escapeHtml(g.sub)}</span></div>
+        <div class="pv-more-search">
+          ${field(MORE_Q, { placeholder: `Search ${rows.length} providers`, label: 'Search providers', lead: 'search' })}
+        </div>
+        ${html}
+        <p class="pv-more-foot" id="pv-more-foot"></p>
+      </section>`;
+    }
     return `<section class="pv-group" aria-label="${escapeHtml(g.title)}">
       <div class="pv-group-head"><h3>${escapeHtml(g.title)}</h3><span>${escapeHtml(g.sub)}</span></div>
-      ${rows.map((r) => rowHtml(r, i++)).join('')}
+      ${html}
     </section>`;
   }).join('');
   body.innerHTML = `
@@ -336,9 +376,37 @@ function build(body) {
       ${field('pv-quick', { placeholder: 'Paste any API key', secret: true, label: 'Paste any API key', lead: 'key-round' })}
       <div class="pv-quick-out" id="pv-quick-out" aria-live="polite">${quickOutHtml()}</div>
     </div>
-    <div class="pv-groups is-entering" data-sig="${data.providers.map((p) => p.id).join(',')}">${groups}</div>
-    <p class="pv-foot">${icon('lock')}<span>Keys and sign-ins stay on the computer running Jarvis (<code>~/.config/harness-agent</code>). This browser never keeps them.</span></p>`;
+    <div class="pv-groups is-entering" data-sig="${escapeHtml(sigOf(data.providers))}">${groups}</div>
+    <p class="pv-foot">${icon('lock')}<span>Keys and sign-ins stay on the computer running Jarvis (<code>~/.config/harness-agent</code>). This browser never keeps them. Provider list from <a href="https://models.dev" target="_blank" rel="noopener noreferrer">models.dev</a>.</span></p>`;
   setTimeout(() => body.querySelector('.pv-groups')?.classList.remove('is-entering'), 700);
+}
+
+/** Show the "More providers" rows the search matches (popular ones when it's
+ * empty). Toggles `hidden` in place — no rebuild, so typing stays smooth. */
+function filterMore() {
+  const group = $('providers-body')?.querySelector('.pv-group.is-more');
+  if (!group) return;
+  const words = String(drafts[MORE_Q] || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = data.providers.filter((p) => p.catalog && !p.connected);
+  const popular = new Set(POPULAR.filter((id) => rows.some((r) => r.id === id)));
+  let shown = 0;
+  let total = 0;
+  for (const row of rows) {
+    const el = group.querySelector(`.pv-row[data-id="${CSS.escape(row.id)}"]`);
+    if (!el) continue;
+    total += 1;
+    const hay = `${row.label} ${row.id.slice(3)} ${row.env_var || ''}`.toLowerCase();
+    const hit = words.length ? words.every((w) => hay.includes(w)) : popular.has(row.id) || (!popular.size && shown < 12);
+    const show = hit || row.id === openId;
+    el.hidden = !show;
+    if (show) shown += 1;
+  }
+  const foot = $('pv-more-foot');
+  if (foot) {
+    foot.textContent = words.length
+      ? (shown ? `${shown} of ${total} providers` : `No provider matches “${drafts[MORE_Q].trim()}”`)
+      : `Popular providers · type to search all ${total}`;
+  }
 }
 
 /** Swap `el`'s markup only when it changed (typing isn't reset for nothing). */
@@ -371,7 +439,7 @@ function render() {
   const sel = focusId ? [focused.selectionStart, focused.selectionEnd] : null;
 
   const groups = body.querySelector('.pv-groups');
-  if (!groups || groups.dataset.sig !== data.providers.map((p) => p.id).join(',')) {
+  if (!groups || groups.dataset.sig !== sigOf(data.providers)) {
     build(body);
   } else {
     patch($('pv-now'), nowHtml());
@@ -392,6 +460,8 @@ function render() {
       patch(el.querySelector('.pv-panel'), panelHtml(row));
     }
   }
+
+  filterMore();
 
   if (focusId && document.activeElement !== $(focusId)) {
     const el = $(focusId);
@@ -717,6 +787,10 @@ function handleInput(e) {
   const el = e.target;
   if (!el.classList?.contains('pv-input')) return;
   drafts[el.id] = el.value;
+  if (el.id === MORE_Q) {
+    filterMore();
+    return;
+  }
   afterInput(el.id, e.inputType === 'insertFromPaste');
 }
 
@@ -724,6 +798,12 @@ function handleKey(e) {
   const el = e.target;
   if (e.key !== 'Enter' || e.isComposing || !el.classList?.contains('pv-input')) return;
   e.preventDefault();
+  if (el.id === MORE_Q) {
+    // Enter opens the first provider the search shows.
+    const first = $('providers-body')?.querySelector('.pv-group.is-more .pv-row:not([hidden])');
+    if (first && openId !== first.dataset.id) toggleRow(first.dataset.id);
+    return;
+  }
   if (el.id === 'pv-quick') {
     const found = detectKey(cleanKey(el.value));
     if (found && found !== 'anthropic') quickSave(found);

@@ -22,6 +22,30 @@ def _isolated_pet(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_models_dev(tmp_path, monkeypatch):
+    """The models.dev catalog (``jarvis/auth/models_dev.py``) adds a provider
+    for every key in the environment. Without this, a developer's real cache
+    plus an OPENAI_API_KEY in their shell would change what every picker test
+    sees. Each test starts with an empty catalog, its own keys file and no
+    network; tests that need a catalog seed one with ``models_dev.store``."""
+    from jarvis.auth import models_dev
+    from jarvis.constants import paths
+
+    monkeypatch.setattr(models_dev, "CACHE_FILE", tmp_path / "models_dev.json")
+    monkeypatch.setattr(paths, "PROVIDER_KEYS_FILE", tmp_path / "provider_keys.json")
+
+    def _offline(*_a, **_k):
+        raise OSError("network disabled in tests (models.dev)")
+
+    monkeypatch.setattr(models_dev, "_http_get", _offline)
+    models_dev._memo.update(mtime=None, path=None, providers={}, native={}, meta={})
+    models_dev._memo.pop("shared", None)
+    yield
+    models_dev._memo.update(mtime=None, path=None, providers={}, native={}, meta={})
+    models_dev._memo.pop("shared", None)
+
+
+@pytest.fixture(autouse=True)
 def _no_macos_permission_prompts(monkeypatch):
     """Never let a test pop the macOS Screen Recording prompt or open System
     Settings on the developer's machine."""

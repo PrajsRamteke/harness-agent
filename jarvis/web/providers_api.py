@@ -59,6 +59,7 @@ class Card:
     source: str    # model-picker source "Use" switches to
     mark: str      # short monogram for the row's tile
     link: str = ""  # where to get a key
+    catalog: bool = False  # a provider from models.dev (id "md:<id>")
 
 
 CARDS: tuple[Card, ...] = (
@@ -80,6 +81,44 @@ CARDS: tuple[Card, ...] = (
          PROVIDER_HARNESS_AGENT, "H"),
 )
 CARD_BY_ID = {c.id: c for c in CARDS}
+
+# Keys the server checks with the provider before saving (verify_key).
+CHECKED_CARDS = frozenset({"anthropic_api", "openrouter", "kimchi"})
+
+
+def _monogram(name: str) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", name)
+    if len(words) >= 2:
+        return (words[0][0] + words[1][0]).upper()
+    return (words[0][:2] if words else "?").title()
+
+
+def _catalog_card(pid: str) -> Card | None:
+    from ..auth import models_dev
+
+    prov = models_dev.get_provider(pid)
+    if prov is None:
+        return None
+    n = len(prov.models)
+    return Card(pid, "key", prov.name, f"{n} model{'s' if n != 1 else ''} · models.dev",
+                pid, _monogram(prov.name), prov.doc, catalog=True)
+
+
+def card_for(card_id: str) -> Card | None:
+    """A built-in card, or one for a models.dev provider (``md:<id>``)."""
+    card = CARD_BY_ID.get(card_id)
+    if card is None and card_id.startswith("md:"):
+        card = _catalog_card(card_id)
+    return card
+
+
+def _catalog_key_status(pid: str, sources: dict | None = None) -> tuple[str, str]:
+    from ..auth import catalog_keys
+
+    source, value = (sources or {}).get(pid) or catalog_keys.key_source(pid)
+    if source == "file" and catalog_keys.is_reference(catalog_keys.saved_value(pid)):
+        return source, catalog_keys.saved_value(pid)  # "$VAR" is safe to show
+    return source, _tail(value) if value else ""
 
 
 def _ok(message: str = "", **extra: Any) -> dict[str, Any]:
@@ -133,7 +172,7 @@ def active_card_id() -> str:
     return provider or ""
 
 
-def card_row(card: Card, active: str | None = None) -> dict[str, Any]:
+def card_row(card: Card, active: str | None = None, *, sources: dict | None = None) -> dict[str, Any]:
     active = active_card_id() if active is None else active
     row: dict[str, Any] = {
         "id": card.id,
@@ -146,12 +185,32 @@ def card_row(card: Card, active: str | None = None) -> dict[str, Any]:
         "hint": "",
         "env_var": "",
         "key_prefix": "",
+        "catalog": card.catalog,
+        "checked": card.id in CHECKED_CARDS,
     }
     if card.kind == "free":
         row.update(connected=True, source="free")
     elif card.kind == "oauth":
         signed_in = _signed_in(card.id)
         row.update(connected=signed_in, source="oauth" if signed_in else "none")
+    elif card.catalog:
+        from ..auth import catalog_keys, models_dev
+
+        prov = models_dev.get_provider(card.id)
+        source, hint = _catalog_key_status(card.id, sources)
+        missing = models_dev.missing_vars(prov) if prov else []
+        env_var = catalog_keys.env_var_for(card.id) if source == "env" else (
+            prov.key_vars[0] if prov and prov.key_vars else ""
+        )
+        row.update(
+            connected=source != "none" and not missing,
+            source=source,
+            hint=hint,
+            env_var=env_var,
+            local=bool(prov and prov.local),
+            needs=missing,
+            checked=not (prov and prov.local),
+        )
     else:
         spec = api_key_spec(card.id) or {}
         source, hint = key_status(spec) if spec else ("none", "")
@@ -165,10 +224,26 @@ def card_row(card: Card, active: str | None = None) -> dict[str, Any]:
     return row
 
 
+def _catalog_cards() -> list[Card]:
+    try:
+        from ..auth import models_dev
+
+        pids = sorted(models_dev.providers(), key=lambda p: models_dev.providers()[p].name.lower())
+    except Exception:
+        return []
+    return [c for c in (_catalog_card(pid) for pid in pids) if c is not None]
+
+
 def list_providers() -> dict[str, Any]:
     active = active_card_id()
-    rows = [card_row(c, active) for c in CARDS]
-    current = CARD_BY_ID.get(active)
+    catalog = _catalog_cards()
+    sources = None
+    if catalog:
+        from ..auth import catalog_keys
+
+        sources = catalog_keys.all_sources()  # the keys file once, not once per row
+    rows = [card_row(c, active, sources=sources) for c in (*CARDS, *catalog)]
+    current = card_for(active) if active else None
     return {
         "providers": rows,
         "active": active,
@@ -205,11 +280,21 @@ def detect_key(key: str) -> str:
 
 def check_key_format(card_id: str, key: str) -> dict[str, Any] | None:
     """An error response when ``key`` can't be a ``card_id`` key, else None."""
-    card = CARD_BY_ID[card_id]
+    card = card_for(card_id)
+    if card is None:
+        return _err("Unknown provider")
     if not key:
         return _err("Paste a key first.")
     if any(ch.isspace() for ch in key):
         return _err("That looks like more than one line. Paste just the key.")
+    if card.catalog:
+        from ..auth import catalog_keys, models_dev
+
+        if catalog_keys.is_reference(key):
+            return None  # "$VAR": use an env var on the Jarvis computer
+        prov = models_dev.get_provider(card_id)
+        if prov is not None and prov.local:
+            return None  # local servers often take any value
     if len(key) < 16:
         return _err("That key looks too short. Copy the whole thing.")
     detected = detect_key(key)
@@ -238,6 +323,18 @@ def _check_request(card_id: str, key: str) -> tuple[str, dict[str, str]] | None:
         return f"{KIMCHI_BASE_URL}/models", {
             "Authorization": f"Bearer {key}", "User-Agent": KIMCHI_USER_AGENT,
         }
+    if card_id.startswith("md:"):
+        from ..auth import models_dev
+
+        prov = models_dev.get_provider(card_id)
+        base = models_dev.base_url(prov) if prov is not None else None
+        if not base or prov.local:
+            return None
+        if prov.wire == models_dev.WIRE_ANTHROPIC:
+            return f"{base.rstrip('/')}/v1/models", {"x-api-key": key, "anthropic-version": "2023-06-01"}
+        # Most OpenAI-style APIs answer /models; one that doesn't (404) is
+        # "unknown", never a refusal.
+        return f"{base.rstrip('/')}/models", {"Authorization": f"Bearer {key}"}
     # OpenCode serves /models to anyone, so there's no cheap check.
     return None
 
@@ -270,7 +367,9 @@ def save_key(
 
     HTTP handler thread. A key the provider refuses is never written.
     """
-    card = CARD_BY_ID.get(card_id)
+    card = card_for(card_id)
+    if card is not None and card.catalog:
+        return _save_catalog_key(card, raw, use=use, run_action=run_action)
     spec = api_key_spec(card_id)
     if card is None or card.kind != "key" or spec is None:
         return _err("Unknown provider")
@@ -299,12 +398,48 @@ def save_key(
     return result
 
 
+def _save_catalog_key(card: Card, raw: str, *, use: bool, run_action: Callable) -> dict[str, Any]:
+    """``save_key`` for a models.dev provider: same checks, its own key store."""
+    from ..auth import catalog_keys
+
+    key = clean_key(raw)
+    bad = check_key_format(card.id, key)
+    if bad:
+        return bad
+    source, _hint = catalog_keys.key_source(card.id)
+    if source == "env":
+        var = catalog_keys.env_var_for(card.id)
+        return _err(
+            f"{var} is set on your computer, so Jarvis uses that key. "
+            "Change it there, or unset it to save one here."
+        )
+    if catalog_keys.is_reference(key):
+        if not catalog_keys._expand(key):
+            return _err(f"{key} isn't set on the computer running Jarvis.")
+        verdict = "unknown"
+    else:
+        verdict = verify_key(card.id, key)
+    if verdict == "rejected":
+        return _err(f"{card.label} didn't accept this key. Check that you copied all of it.", rejected=True)
+    replaced = source == "file"
+    try:
+        catalog_keys.save(card.id, key)
+    except (OSError, ValueError) as exc:
+        return _err(f"Couldn't save the key: {exc}")
+    result = run_action("provider_key_saved", {"id": card.id, "use": bool(use), "replaced": replaced})
+    if result.get("ok"):
+        result["verified"] = verdict == "ok"
+    return result
+
+
 # ─── Main-thread mutations (via bridge.request_action) ────────────────────
 
 
 def _default_model(source: str) -> str:
     from ..constants import providers as p
 
+    if p.is_catalog_provider(source):
+        return p.normalize_model_for_provider("", source)
     if source == PROVIDER_OPENROUTER:
         return p.openrouter_default_model()
     if source == PROVIDER_OPENAI_CODEX_AUTH:
@@ -336,7 +471,7 @@ def model_for_source(source: str) -> str:
 
 
 def use_card(card_id: str) -> dict[str, Any]:
-    card = CARD_BY_ID.get(card_id)
+    card = card_for(card_id)
     if card is None:
         return _err("Unknown provider")
     row = card_row(card)
@@ -364,12 +499,14 @@ def _fall_back_to_free() -> None:
 
 
 def apply_saved_key(card_id: str, use: bool, replaced: bool = False) -> dict[str, Any]:
-    card = CARD_BY_ID[card_id]
-    spec = api_key_spec(card_id) or {}
+    card = card_for(card_id)
+    if card is None:
+        return _err("Unknown provider")
+    provider = card.id if card.catalog else (api_key_spec(card_id) or {}).get("provider", "")
     from ..commands.control import apply_key_change
 
     was_active = active_card_id() == card_id
-    apply_key_change(spec.get("provider", ""))  # rebuilds the client if it's the live one
+    apply_key_change(provider)  # rebuilds the client if it's the live one
     done = f"Saved the new {card.label} key" if replaced else f"{card.label} connected"
     if use and not was_active:
         res = use_card(card_id)
@@ -382,7 +519,21 @@ def apply_saved_key(card_id: str, use: bool, replaced: bool = False) -> dict[str
 
 
 def remove_key(card_id: str) -> dict[str, Any]:
-    card = CARD_BY_ID.get(card_id)
+    card = card_for(card_id)
+    if card is not None and card.catalog:
+        from ..auth import catalog_keys
+
+        source, _value = catalog_keys.key_source(card.id)
+        if source == "env":
+            var = catalog_keys.env_var_for(card.id)
+            return _err(f"This key comes from {var} on your computer. Remove it there.")
+        if not catalog_keys.delete(card.id):
+            return _ok(f"No {card.label} key saved")
+        from ..commands.control import apply_key_change
+
+        note = apply_key_change(card.id, removed=True)
+        fallback = " · switched to Harness Agent (free)" if note.startswith("switched") else ""
+        return _ok(f"Removed the {card.label} key{fallback}")
     spec = api_key_spec(card_id)
     if card is None or spec is None:
         return _err("Unknown provider")

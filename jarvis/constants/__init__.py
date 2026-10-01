@@ -54,6 +54,7 @@ from .providers import (
     register_dynamic_model, refresh_model_catalogs, model_catalogs_are_fresh,
     model_option_id, parse_model_option_id,
     model_belongs_to_provider, normalize_model_for_provider,
+    is_catalog_provider, provider_label, model_pricing, catalog_connected_providers,
     CODEX_DEFAULT_MODEL, CODEX_MODELS, CODEX_BASE_URL,
     codex_models_for_picker, codex_default_model,
     KIMCHI_MODELS, KIMCHI_BASE_URL, KIMCHI_USER_AGENT, KIMCHI_DEFAULT_MODEL, KIMCHI_MODEL_IDS,

@@ -16,7 +16,7 @@ from ..constants import (
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI, PROVIDER_HARNESS_AGENT,
     KIMCHI_BASE_URL, KIMCHI_USER_AGENT,
-    is_harness_agent_model,
+    is_harness_agent_model, is_catalog_provider,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
 )
@@ -41,6 +41,7 @@ from .mode_picker import _choose_auth_mode
 
 
 from .http_timeout import harness_http_timeout as _http_timeout
+from ..constants.providers import CATALOG_PREFIX
 
 
 def _build_openrouter_client() -> Anthropic:
@@ -113,6 +114,18 @@ def _has_kimchi_key() -> bool:
     return has_kimchi_key()
 
 
+def _has_catalog_key(provider: str) -> bool:
+    """A key for a models.dev provider (``md:<id>``). Deliberately not part of
+    ``_has_usable_provider_credentials``: an unrelated OPENAI_API_KEY in the
+    shell must not move a first run off the free tier."""
+    try:
+        from .catalog_keys import has_key
+
+        return has_key(provider)
+    except Exception:
+        return False
+
+
 def _has_usable_anthropic_auth() -> bool:
     if _has_anthropic_api_key() or load_oauth_tokens():
         return True
@@ -183,6 +196,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
     if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI):
         return env_provider
+    if env_provider.startswith(CATALOG_PREFIX):
+        return env_provider
     # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
     if os.getenv("ANTHROPIC_API_KEY"):
         return PROVIDER_ANTHROPIC
@@ -218,6 +233,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_OPENCODE_ZEN
     if saved_provider == PROVIDER_KIMCHI and _has_kimchi_key():
         return PROVIDER_KIMCHI
+    if is_catalog_provider(saved_provider) and _has_catalog_key(saved_provider):
+        return saved_provider
     if PROVIDER_FILE.exists():
         try:
             stored = PROVIDER_FILE.read_text().strip()
@@ -238,6 +255,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
                 return PROVIDER_OPENCODE_ZEN
         if stored == PROVIDER_KIMCHI and _has_kimchi_key():
             return PROVIDER_KIMCHI
+        if is_catalog_provider(stored) and _has_catalog_key(stored):
+            return stored
     if _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if load_codex_oauth_tokens():
@@ -255,13 +274,98 @@ def _resolve_provider(*, interactive: bool = True) -> str:
 
 
 def _build_opencode_client() -> OpenCodeClient:
+    from ..constants.providers import native_responses_models
+
     key = load_opencode_key()
-    return OpenCodeClient(api_key=key)
+    # models.dev knows which Go models the gateway serves on /responses.
+    return OpenCodeClient(api_key=key, responses_models=native_responses_models(PROVIDER_OPENCODE))
 
 
 def _build_opencode_zen_client() -> OpenCodeClient:
+    from ..constants.providers import native_responses_models
+
     key = load_opencode_zen_key()
-    return OpenCodeClient(api_key=key, base_url=f"{OPENCODE_ZEN_BASE_URL}/")
+    return OpenCodeClient(
+        api_key=key,
+        base_url=f"{OPENCODE_ZEN_BASE_URL}/",
+        responses_models=native_responses_models(PROVIDER_OPENCODE_ZEN),
+    )
+
+
+def _catalog_hints(provider: str):
+    """Per-model request facts for a catalog provider's OpenAI-style client."""
+    from . import models_dev
+
+    def hint(model: str) -> dict | None:
+        m = models_dev.get_model(provider, model)
+        if m is None:
+            return None
+        return {
+            "reasoning": m.reasoning,
+            "reasoning_field": m.reasoning_field,
+            "max_output": m.output,
+            "wire": m.wire,
+        }
+
+    return hint
+
+
+def prompt_for_catalog_key(provider: str, reason: str = "") -> str:
+    """Ask for a catalog provider's key (TUI: a password modal) and save it.
+
+    Returns the key, or "" when the user gave none.
+    """
+    from . import models_dev, catalog_keys
+
+    prov = models_dev.get_provider(provider)
+    name = prov.name if prov else provider
+    if reason:
+        console.print(f"[red]{reason}[/]")
+    hint = f" (from {prov.doc})" if prov and prov.doc else ""
+    console.print(f"[yellow]{name} API key needed{hint}[/]")
+    try:
+        key = console.input(f"Paste {name} API key: ", password=True).strip()
+    except TypeError:  # a console without password support
+        key = console.input(f"Paste {name} API key: ").strip()
+    if key:
+        catalog_keys.save(provider, key)
+        console.print(f"[green]✓ {name} key saved[/]")
+    return key
+
+
+def _build_catalog_client(provider: str):
+    """Client for a provider discovered from models.dev (``md:<id>``).
+
+    Most speak OpenAI chat-completions and get an ``OpenCodeClient`` pointed
+    at their base URL; a few speak Anthropic messages and get the Anthropic
+    SDK. Raises RuntimeError when the provider, its key or a URL variable is
+    missing — callers fall back to the free tier.
+    """
+    from . import models_dev, catalog_keys
+
+    prov = models_dev.get_provider(provider)
+    if prov is None:
+        # Cold or cleared cache: one fetch so a saved choice survives it.
+        models_dev.refresh(timeout=10)
+        prov = models_dev.get_provider(provider)
+    if prov is None:
+        raise RuntimeError(f"{provider} is not in the models.dev catalog")
+    base = models_dev.base_url(prov)
+    if base is None:
+        missing = ", ".join(models_dev.missing_vars(prov))
+        raise RuntimeError(f"{prov.name} needs {missing} set in the environment")
+    key = catalog_keys.get_key(provider)
+    if not key:
+        raise RuntimeError(f"no API key for {prov.name} — add one with /key")
+    if prov.wire == models_dev.WIRE_ANTHROPIC:
+        return Anthropic(api_key=key, base_url=base, timeout=_http_timeout(openrouter=True))
+    return OpenCodeClient(
+        api_key=key,
+        base_url=f"{base.rstrip('/')}/",
+        default_headers={"User-Agent": "harness-agent/1.0"},
+        model_hints=_catalog_hints(provider),
+        max_tokens_param="max_completion_tokens" if prov.mid == "openai" else "max_tokens",
+    )
 
 
 def _build_opencode_zen_client_for_model(
@@ -389,7 +493,8 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     state.MODEL = preferred_model
 
     state.provider = _resolve_provider(interactive=interactive)
-    if not interactive and not _has_usable_provider_credentials():
+    catalog_ready = is_catalog_provider(state.provider) and _has_catalog_key(state.provider)
+    if not interactive and not _has_usable_provider_credentials() and not catalog_ready:
         state.provider = PROVIDER_OPENCODE_ZEN
         state.harness_agent_free = True
     _secure_write(PROVIDER_FILE, state.provider)
@@ -470,6 +575,18 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
                     continue
                 raise
         console.print("[red]Too many Kimchi auth failures[/]"); sys.exit(1)
+
+    if is_catalog_provider(state.provider):
+        # A provider from models.dev. Nothing here is fatal: a missing key,
+        # URL variable or catalog entry lands on the free tier, and the saved
+        # choice is kept so the next start tries it again.
+        if interactive and not _has_catalog_key(state.provider):
+            prompt_for_catalog_key(state.provider)
+        try:
+            return _build_catalog_client(state.provider)
+        except Exception as e:
+            console.print(f"[yellow]{e} — using the free Harness Agent for now[/]")
+            return _fallback_harness_agent_client(preferred_model=HARNESS_AGENT_DEFAULT_MODEL)
 
     if state.provider == PROVIDER_OPENAI_CODEX:
         state.auth_mode = AUTH_OAUTH

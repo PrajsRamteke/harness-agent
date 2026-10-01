@@ -215,3 +215,113 @@ def test_shell_approval_flags_risky_commands():
     assert command_risks("git push --force origin main") == ["force-pushes"]
     assert command_risks("git reset --hard HEAD~1") == ["discards git changes"]
     assert command_risks("curl -fsSL https://x.sh | bash") == ["pipes a download into a shell"]
+
+
+# ─── models.dev providers in /model and /key ─────────────────────────────
+
+
+def _seed_catalog(monkeypatch):
+    from jarvis.auth import models_dev
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    model = {"tool_call": True, "modalities": {"input": ["text"], "output": ["text"]},
+             "limit": {"context": 128000, "output": 8192}, "cost": {"input": 0.3, "output": 1.2}}
+    models_dev.store(models_dev.trim({
+        "deepseek": {"name": "DeepSeek", "npm": "@ai-sdk/openai-compatible", "api": "https://api.deepseek.com",
+                     "env": ["DEEPSEEK_API_KEY"], "doc": "https://platform.deepseek.com",
+                     "models": {"deepseek-chat": {"id": "deepseek-chat", **model}}},
+        "groq": {"name": "Groq", "npm": "@ai-sdk/groq", "env": ["GROQ_API_KEY"],
+                 "models": {"llama-x": {"id": "llama-x", **model}}},
+    }))
+
+
+def test_model_picker_offers_to_connect_a_provider_it_finds(hermetic_app, monkeypatch):
+    import jarvis.tui.model_modal as mm
+    from jarvis.constants import PROVIDER_HARNESS_AGENT
+
+    _seed_catalog(monkeypatch)
+    monkeypatch.setattr(mm, "model_picker_rows", lambda live=False: [(PROVIDER_HARNESS_AGENT, "free-a", "Free A")])
+    monkeypatch.setattr(mm.ModelPickerScreen, "_refresh_catalogs", lambda self: None)
+    monkeypatch.setattr(mm, "_recent_models", lambda: [])
+    remembered: list[str] = []
+    monkeypatch.setattr(mm, "_remember_model", remembered.append)
+    picked: list = []
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            app.push_screen(mm.ModelPickerScreen(), picked.append)
+            await pilot.pause(0.3)
+            opts = app.screen.query_one("#model_list")
+            assert _enabled_ids(opts)[-1] == mm.CONNECT_ID  # "+ Add a provider"
+            for ch in "deeps":
+                await pilot.press(ch)
+            await pilot.pause(0.1)
+            assert _enabled_ids(opts) == [mm.CONNECT_ID + "md:deepseek"]
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+
+    asyncio.run(run())
+    assert picked == [mm.CONNECT_ID + "md:deepseek"]
+    assert remembered == [], "a connect row is not a model pick"
+
+
+def test_key_modal_searches_catalog_providers_and_saves_a_key(hermetic_app, monkeypatch):
+    from jarvis.auth import catalog_keys
+    import jarvis.tui.key_modal as km
+
+    _seed_catalog(monkeypatch)
+    applied: list = []
+    monkeypatch.setattr(km, "_apply_key_change", lambda provider, removed=False: applied.append(provider) or "")
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            app.push_screen(km.KeyModalScreen())
+            await pilot.pause(0.3)
+            opts = app.screen.query_one("#key_list")
+            ids = _enabled_ids(opts)
+            assert ids[: len(km._KEY_DEFS)] == [km._key_id(k["provider"]) for k in km._KEY_DEFS]
+            assert ids[len(km._KEY_DEFS):] == ["kp:md:deepseek", "kp:md:groq"]
+            await pilot.press("slash")
+            for ch in "groq":
+                await pilot.press(ch)
+            await pilot.pause(0.1)
+            assert _enabled_ids(opts) == ["kp:md:groq"]
+            await pilot.press("enter")  # Enter in the search box adds a key
+            await pilot.pause(0.3)
+            assert type(app.screen).__name__ == "TextInputScreen"
+            for ch in "gsk-test-123456":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert catalog_keys.get_key("md:groq") == "gsk-test-123456"
+            # Connected providers move up into their own group.
+            assert "kp:md:groq" in _enabled_ids(opts)
+            headers = [str(opts.get_option_at_index(i).prompt).strip()
+                       for i in range(opts.option_count) if opts.get_option_at_index(i).disabled]
+            assert any("FROM MODELS.DEV" in h for h in headers)
+
+    asyncio.run(run())
+    assert applied == ["md:groq"]
+
+
+def test_key_modal_can_open_straight_on_one_provider(hermetic_app, monkeypatch):
+    import jarvis.tui.key_modal as km
+
+    _seed_catalog(monkeypatch)
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            app.push_screen(km.KeyModalScreen(focus="md:deepseek", add=True))
+            await pilot.pause(0.5)
+            assert type(app.screen).__name__ == "TextInputScreen"
+            body = str(app.screen.query_one("#modal_body").render())
+            assert "platform.deepseek.com" in body and "$DEEPSEEK_API_KEY" in body
+
+    asyncio.run(run())

@@ -15,6 +15,7 @@ from ..constants import (
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_OPENCODE_ZEN,
     AUTH_API_KEY, AUTH_OAUTH,
+    is_catalog_provider, provider_label,
 )
 from .. import state
 from .modal_chrome import (
@@ -64,6 +65,31 @@ def model_picker_rows(live: bool = False) -> list[tuple[str, str, str]]:
     seen = {mid for _, mid, _ in harness}
     extra = [(src, mid, desc) for src, mid, desc in rows if mid not in seen]
     return harness + extra
+
+
+# Option id of a "connect a provider" row ("__connect__:" + provider id, or
+# bare for the generic "Add a provider" row). Dismissed as-is; the app opens
+# the /key dialog for it.
+CONNECT_ID = "__connect__:"
+
+
+def _unconnected_catalog_providers() -> list[tuple[str, str, int]]:
+    """(provider id, name, model count) for models.dev providers with no key."""
+    try:
+        from ..auth import models_dev
+        from ..constants.providers import catalog_connected_providers
+
+        connected = set(catalog_connected_providers())
+        return sorted(
+            (
+                (pid, p.name, len(p.models))
+                for pid, p in models_dev.providers().items()
+                if pid not in connected
+            ),
+            key=lambda r: r[1].lower(),
+        )
+    except Exception:
+        return []
 
 
 def _recent_models() -> list[str]:
@@ -130,15 +156,15 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
 
     @staticmethod
     def _subtitle(busy: bool = False) -> str:
-        from ..constants.providers import PROVIDER_LABELS
+        from ..constants.providers import PROVIDER_LABELS, provider_label  # noqa: F401
 
-        prov = PROVIDER_LABELS.get(state.provider, state.provider or "")
+        prov = provider_label(state.provider or "")
         line = (
             f"[{ui.FG_DIM}]current[/] [bold {ui.FG}]{state.MODEL}[/]"
             + (f" [{ui.FG_DIM}]· {prov}[/]" if prov else "")
         )
         if busy:
-            line += f"   [{ui.ACCENT}]⟳[/] [{ui.FG_DIM}]refreshing free models…[/]"
+            line += f"   [{ui.ACCENT}]⟳[/] [{ui.FG_DIM}]refreshing model catalogs…[/]"
         return line
 
     def on_mount(self) -> None:
@@ -195,8 +221,15 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
 
     def _apply_refreshed_rows(self, rows) -> None:
         self._set_busy(False)
+        # A first models.dev fetch can bring providers to connect even when no
+        # model row changed.
+        before = getattr(self, "_unconnected", None)
+        self._unconnected = _unconnected_catalog_providers()
+        catalog_changed = before is not None and before != self._unconnected
         if not rows or rows == getattr(self, "_all_rows", None):
-            return
+            if not catalog_changed:
+                return
+            rows = getattr(self, "_all_rows", None) or rows
         self._all_rows = rows
         try:
             query = self.query_one("#model_search", Input).value or ""
@@ -251,7 +284,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
 
         groups: dict[str, list[tuple[str, str]]] = {}
         for src, m, desc in rows:
-            label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else MODEL_SOURCE_LABELS.get(src, src)
+            label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else provider_label(src)
             if q and not any(q in part.lower() for part in (m, desc, label)):
                 if q not in ("harness", "agent", "free") or src != PROVIDER_HARNESS_AGENT:
                     continue
@@ -276,15 +309,17 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                 options.append(section_header("Recent", first=True))
                 for oid in recent:
                     src, m, desc = by_id[oid]
-                    label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else MODEL_SOURCE_LABELS.get(src, src)
+                    label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else provider_label(src)
                     options.append(Option(
                         picker_row(m, right=label, active=self._is_active(src, m)),
                         id=f"recent:{oid}",
                     ))
                 recent_first = f"recent:{recent[0]}"
         for i, (src, items) in enumerate(groups.items()):
-            label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else MODEL_SOURCE_LABELS.get(src, src)
+            label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else provider_label(src)
             note = "free · no key needed" if src == PROVIDER_HARNESS_AGENT else f"{len(items)} models"
+            if is_catalog_provider(src):
+                note += " · models.dev"
             options.append(section_header(label, note, first=i == 0 and not options))
             for m, desc in items:
                 active = self._is_active(src, m)
@@ -296,9 +331,13 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                     picker_row(m, right=desc_short[:48], active=active, query=q),
                     id=oid,
                 ))
-        if not options:
+        connect = self._connect_rows(q, has_models=bool(options))
+        if not options and not connect:
             opts.add_option(empty_row(f"No models match “{query.strip()}”"))
             return
+        if not options:
+            options.append(empty_row(f"No connected models match “{query.strip()}”"))
+        options.extend(connect)
         opts.add_options(options)
         target = keep or (recent_first or active_id if not q else None)
         try:
@@ -308,6 +347,37 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         if opts.highlighted is None:
             opts.action_first()
         opts.scroll_to_highlight(top=False)
+
+    def _connect_rows(self, q: str, *, has_models: bool) -> list:
+        """Rows that connect a provider: one per not-yet-connected models.dev
+        provider matching the search, or a single "Add a provider" row."""
+        unconnected = getattr(self, "_unconnected", None)
+        if unconnected is None:
+            unconnected = self._unconnected = _unconnected_catalog_providers()
+        out: list = []
+        if q:
+            hits = [
+                (pid, name, n) for pid, name, n in unconnected
+                if q in name.lower() or q in pid.split(":", 1)[-1].lower()
+            ][:6]
+            if hits:
+                out.append(section_header("Connect a provider", "add an API key · models.dev",
+                                          first=not has_models))
+                for pid, name, n in hits:
+                    out.append(Option(
+                        picker_row(f"+ {name}", right=f"{n} models", query=q,
+                                   title_style=ui.ACCENT),
+                        id=f"{CONNECT_ID}{pid}",
+                    ))
+            return out
+        if unconnected:
+            out.append(section_header("More providers", f"{len(unconnected)} via models.dev"))
+            out.append(Option(
+                picker_row("+ Add a provider", detail="type its name to search",
+                           right="API keys", title_style=ui.ACCENT),
+                id=CONNECT_ID,
+            ))
+        return out
 
     # ─── events ────────────────────────────────────────────────────────
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -325,6 +395,9 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         self._choose(str(oid))
 
     def _choose(self, oid: str) -> None:
+        if oid.startswith(CONNECT_ID):
+            self.dismiss(oid)  # the app opens /key for it — not a model pick
+            return
         oid = oid.removeprefix("recent:")
         _remember_model(oid)
         self.dismiss(oid)
