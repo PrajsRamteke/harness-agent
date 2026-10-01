@@ -69,55 +69,156 @@
 }
 .list-section:first-child { padding-top: 4px; }
 
-/* Model list: each provider header folds its models away (pickers.js). The
-   headers stick while you scroll, so a long group can be closed from anywhere. */
-.list-section.ls-group { display: flex; align-items: center; gap: 8px; }
-.ls-label { font-weight: 600; }
-.ls-count { font-weight: 500; color: var(--text-3); font-variant-numeric: tabular-nums; }
-.list-section.is-toggle {
-  --sticky-bg: rgba(14, 14, 14, 0.97);
+/* ─── Model list: one drawer per provider (pickers.js renderRows) ─────────
+   A drawer is a header you click and the models hanging off a rail beneath
+   it. Drawers sit in one continuous list split by hairlines (no boxes); the
+   header sticks while its models scroll past, so it can be closed from
+   anywhere. A dot on the rail marks the model in use. */
+.mdrawer { position: relative; }
+.mdrawer + .mdrawer { border-top: 1px solid var(--line); }
+.mdrawer-head {
+  --head-bg: rgba(14, 14, 14, 0.97);
   position: sticky;
-  top: -8px;               /* the list's own padding */
+  top: -8px;                /* the list's own padding */
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   width: 100%;
-  min-height: 42px;
-  margin: 2px 0 0;
-  padding: 7px 10px 7px 12px;
+  min-height: 52px;
+  margin: 2px 0;
+  padding: 9px 12px;
   border: none;
   border-radius: 12px;
-  background: var(--sticky-bg);
-  color: var(--text-2);
+  background: var(--head-bg);
+  color: var(--text);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s;
 }
-:root[data-theme="light"] .list-section.is-toggle { --sticky-bg: rgba(255, 255, 255, 0.97); }
-:root[data-theme="light"][data-variant="soft"] .list-section.is-toggle { --sticky-bg: rgba(255, 254, 250, 0.97); }
-:root[data-theme="dim"] .list-section.is-toggle { --sticky-bg: rgba(44, 45, 52, 0.98); }
-.list-section.is-toggle:first-child { margin-top: 0; padding-top: 7px; }
-.list-section.is-toggle:hover { background: linear-gradient(var(--card-hover), var(--card-hover)), var(--sticky-bg); color: var(--text); }
-.list-section.is-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-.list-section.is-toggle:not(.is-open) { color: var(--text-3); }
-.ls-live { margin-left: 2px; }
-.ls-chev {
+:root[data-theme="light"] .mdrawer-head { --head-bg: rgba(255, 255, 255, 0.97); }
+:root[data-theme="light"][data-variant="soft"] .mdrawer-head { --head-bg: rgba(255, 254, 250, 0.97); }
+:root[data-theme="dim"] .mdrawer-head { --head-bg: rgba(44, 45, 52, 0.98); }
+.mdrawer-head:hover:not(:disabled) { background: linear-gradient(var(--card-hover), var(--card-hover)), var(--head-bg); }
+.mdrawer-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.mdrawer-head:disabled { cursor: default; }
+.mdrawer-mono {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--tile);
+  border: 1px solid var(--line-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: color 0.2s, border-color 0.2s;
+}
+.mdrawer.has-active .mdrawer-mono { color: var(--accent); border-color: var(--accent-line); }
+.mdrawer-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.mdrawer-sum {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-left: auto;
   flex-shrink: 0;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--text-2);
-  transition: transform 0.32s var(--spring), color 0.15s, border-color 0.15s;
+  font-size: 12.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.ls-chev .ic { width: 14px; height: 14px; }
-/* Open: the arrow points up (fold it away); folded: down (show it). */
-.list-section.is-open .ls-chev { transform: rotate(180deg); }
-.list-section.is-toggle:hover .ls-chev { color: var(--accent); border-color: var(--accent-line); }
-.list-row.is-unfolding { animation: rise 0.3s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 18ms); }
-.picker-chip-note { align-self: center; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.mdrawer-live { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-weight: 500; }
+.mdrawer-live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.16);
+}
+.mdrawer-chev {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: var(--text-3);
+  transition: transform 0.32s var(--ease), color 0.15s;
+}
+.mdrawer-chev .ic { width: 16px; height: 16px; }
+/* Open: the arrow points up (close it); closed: down (open it). */
+.mdrawer.is-open .mdrawer-chev { transform: rotate(180deg); }
+.mdrawer-head:hover .mdrawer-chev { color: var(--text); }
+
+/* The rail runs from under the monogram (12px pad + 14px = its centre) down
+   the drawer; rows start under the provider's name. */
+.mdrawer-body { position: relative; padding: 0 0 8px 40px; }
+.mdrawer-body::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 18px;
+  left: 25.5px;
+  width: 1px;
+  background: var(--line-2);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 0.4s var(--ease);
+}
+.mdrawer.is-open .mdrawer-body::before { transform: scaleY(1); transition-delay: 0.05s; }
+.mdrawer-body .list-row { position: relative; min-height: 46px; padding: 7px 10px 7px 12px; }
+.lr-node {
+  position: absolute;
+  top: 50%;
+  left: -18px;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: var(--line-2);
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity 0.15s, transform 0.2s var(--ease), background 0.15s;
+}
+.list-row.has-node.is-cursor .lr-node { opacity: 1; transform: none; }
+.list-row.has-node.is-current .lr-node {
+  opacity: 1;
+  transform: none;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
+}
+/* The rail dot and the "In use" tag already mark it. */
+.list-row.has-node.is-current .lr-title::after { display: none; }
+/* Searching: every drawer is open and the headers are plain titles. */
+.mdrawer.is-static .mdrawer-head { min-height: 44px; }
+
+.search-extra:empty { display: none; }
+.search-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 11px 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.search-fold:hover { background: var(--card-hover); color: var(--text); border-color: var(--line-2); }
+.search-fold .ic { width: 14px; height: 14px; }
+@media (max-width: 560px) {
+  /* Phones: the arrow alone, so the search field keeps its room. */
+  .search-fold { width: 32px; padding: 0; justify-content: center; }
+  .search-fold span { display: none; }
+  .mdrawer-head { min-height: 54px; }
+}
 
 .list-row {
   display: flex;

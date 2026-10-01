@@ -25,28 +25,15 @@ let loadSeq = 0;
 
 // ─── Shell ────────────────────────────────────────────────────────────────
 
-/** A section that can fold (the model list's providers): a button with an up / down chevron. */
-function groupHeaderHtml(row) {
-  const count = `${row.count} model${row.count === 1 ? '' : 's'}`;
-  if (!row.toggle) {
-    return `<div class="list-section ls-group" role="presentation"><span class="ls-label">${escapeHtml(row.section)}</span><span class="ls-count">${count}</span></div>`;
-  }
-  const action = row.open ? 'Hide' : 'Show';
-  return `
-    <button type="button" class="list-section ls-group is-toggle${row.open ? ' is-open' : ''}" data-group="${escapeHtml(row.group)}" aria-expanded="${row.open}" title="${action} ${escapeHtml(row.section)} models">
-      <span class="ls-label">${escapeHtml(row.section)}</span>
-      <span class="ls-count">${count}</span>
-      ${!row.open && row.hasActive ? '<span class="badge is-live ls-live">In use</span>' : ''}
-      <span class="ls-chev" aria-hidden="true">${icon('chevron-down')}</span>
-    </button>`;
-}
-
 function rowHtml(row, idx) {
-  if (row.section && row.group) return groupHeaderHtml(row);
   if (row.section) return `<div class="list-section" role="presentation">${escapeHtml(row.section)}</div>`;
+  // `node`: rows that hang off a drawer's rail (models) show a dot on it instead of an icon tile.
+  const lead = row.node
+    ? '<span class="lr-node" aria-hidden="true"></span>'
+    : `<span class="lr-icon">${row.emoji ? escapeHtml(row.emoji) : icon(row.icon || 'circle')}</span>`;
   return `
-    <div class="list-row${row.current ? ' is-current' : ''}" role="option" data-idx="${idx}" aria-selected="false"${row.disabled ? ' aria-disabled="true"' : ''}${row.groupOf ? ` data-group-of="${escapeHtml(row.groupOf)}"` : ''}>
-      <span class="lr-icon">${row.emoji ? escapeHtml(row.emoji) : icon(row.icon || 'circle')}</span>
+    <div class="list-row${row.current ? ' is-current' : ''}${row.node ? ' has-node' : ''}" role="option" data-idx="${idx}" aria-selected="false"${row.disabled ? ' aria-disabled="true"' : ''}>
+      ${lead}
       <span class="lr-body">
         <span class="lr-title">${escapeHtml(row.title)}</span>
         ${row.sub ? `<span class="lr-sub${row.wrap ? ' lr-sub-wrap' : ''}">${escapeHtml(row.sub)}</span>` : ''}
@@ -55,27 +42,24 @@ function rowHtml(row, idx) {
     </div>`;
 }
 
-/** `keep`: re-render in place (a group folded / unfolded) — same scroll, cursor near `focusGroup`. */
-function paintRows(rows, emptyHtml, { keep = false, focusGroup = '' } = {}) {
+/** Rows the keyboard can reach (not inside a closed drawer) — same rule as listNav. */
+function reachableRows(list) {
+  return [...list.querySelectorAll('.list-row:not([aria-disabled="true"])')]
+    .filter((el) => !el.closest('.mdrawer:not(.is-open)'));
+}
+
+function paintRows(rows, emptyHtml) {
   const list = $('picker-list');
-  const top = list.scrollTop;
   current.rows = rows;
-  // Folded groups still count as content: their headers are what you click.
   if (!rows.some((r) => !r.section || r.group)) {
     list.innerHTML = `<div class="list-empty">${emptyHtml}</div>`;
     return;
   }
-  list.innerHTML = rows.map(rowHtml).join('');
-  const pickable = rows.filter((r) => !r.section && !r.disabled);
-  if (keep) {
-    list.scrollTop = top;
-    const first = pickable.findIndex((r) => r.groupOf === focusGroup);
-    nav.setCursor(Math.max(0, first), false);
-  } else {
-    const cur = pickable.findIndex((r) => r.current);
-    nav.reset(0);
-    if (cur > 0) nav.setCursor(cur);
-  }
+  // A kind may lay its rows out itself (the model list's provider drawers).
+  list.innerHTML = current.spec.renderRows ? current.spec.renderRows(rows) : rows.map(rowHtml).join('');
+  const cur = reachableRows(list).findIndex((el) => el.classList.contains('is-current'));
+  nav.reset(0);
+  if (cur > 0) nav.setCursor(cur);
   current.spec.bindRows?.(list);
 }
 
@@ -105,6 +89,12 @@ function renderChips() {
   const box = $('picker-chips');
   box.innerHTML = current.spec.chips ? current.spec.chips() : '';
   current.spec.bindChips?.(box);
+  // Small controls at the end of the search bar (the model list's "Collapse all").
+  const extra = $('picker-search-extra');
+  if (extra) {
+    extra.innerHTML = current.spec.searchExtra ? current.spec.searchExtra() : '';
+    current.spec.bindSearchExtra?.(extra);
+  }
 }
 
 function renderFoot() {
@@ -272,6 +262,19 @@ function saveClosedGroups(set) {
   storageSet(CLOSED_GROUPS_KEY, JSON.stringify([...set]));
 }
 
+/** "Anthropic API" → "A", "Harness Agent" → "H", "md:deepseek"-style labels too. */
+function monogram(label) {
+  const word = String(label || '?').trim().replace(/^[^a-z0-9]+/i, '');
+  return (word[0] || '?').toUpperCase();
+}
+
+/** Header text: how many models, and "In use" while a closed drawer holds the current one. */
+function drawerSummary(row) {
+  const count = `${row.count} model${row.count === 1 ? '' : 's'}`;
+  const live = row.hasActive && row.toggle && !row.open ? '<span class="mdrawer-live">In use</span>' : '';
+  return `${live}<span class="mdrawer-count">${count}</span>`;
+}
+
 /** "Nemotron 3 Ultra — 1M ctx, free" → "Nemotron 3 Ultra — 1M ctx", "Big Model Free" → "Big Model"
  * (the Free tag says it). */
 function freeLess(desc) {
@@ -283,7 +286,7 @@ const modelSpec = {
   title: 'Models',
   sub: 'Used for the next message',
   icon: 'cpu',
-  placeholder: 'Search models · “free” or “vision” to filter',
+  placeholder: 'Search models, or type “free” or “vision”',
   data: null,
   query: '',
   init() {
@@ -322,15 +325,12 @@ const modelSpec = {
     // Keep the image slot when any row has one, so Free tags and image marks line up in columns.
     const imageSlot = (this.data?.models || []).some((m) => m.images);
     for (const g of groups) {
-      const open = !closed.has(g.source);
       rows.push({
-        section: g.label, group: g.source, count: g.models.length, open, toggle: foldable,
-        hasActive: g.models.some((m) => m.active),
+        section: g.label, group: g.source, count: g.models.length, open: !closed.has(g.source),
+        toggle: foldable, hasActive: g.models.some((m) => m.active),
       });
-      if (!open) continue;
-      for (const m of g.models) {
-        this.pushRow(rows, m, imageSlot);
-      }
+      // Every model is rendered, folded or not, so a drawer can slide open.
+      for (const m of g.models) this.pushRow(rows, m, imageSlot);
     }
     return { rows, empty: '<strong>No models match</strong>Try a provider name such as “anthropic”, or add a provider below.' };
   },
@@ -344,15 +344,43 @@ const modelSpec = {
       m.active ? '<span class="badge is-live">In use</span>' : '',
     ].join('');
     rows.push({
-      icon: m.active ? 'circle-check' : 'cpu',
+      node: true,
       title: m.model_id,
       // The Free tag says it now; drop the trailing "free" from the description.
       sub: m.free ? freeLess(m.description) : m.description || '',
       current: m.active,
       meta: tags ? `<span class="lr-tags">${tags}</span>` : '',
-      groupOf: m.source,
       pick: () => (m.active ? closePicker() : pickAndClose('model_select', { option_id: m.id }, `Model: ${m.model_id}`)),
     });
+  },
+  /** One drawer per provider: a header that opens and closes it, and its models on a rail. */
+  renderRows(rows) {
+    let html = '';
+    let inDrawer = false;
+    const close = () => {
+      if (inDrawer) html += '</div></div></div></section>';
+      inDrawer = false;
+    };
+    rows.forEach((row, idx) => {
+      if (!row.section) {
+        html += rowHtml(row, idx);
+        return;
+      }
+      close();
+      const id = `mdrawer-${idx}`;
+      html += `
+        <section class="mdrawer${row.open ? ' is-open' : ''}${row.toggle ? '' : ' is-static'}${row.hasActive ? ' has-active' : ''}" data-drawer="${escapeHtml(row.group)}">
+          <button type="button" class="mdrawer-head" data-group="${escapeHtml(row.group)}" aria-expanded="${row.open}" aria-controls="${id}"${row.toggle ? '' : ' disabled'}>
+            <span class="mdrawer-mono" aria-hidden="true">${escapeHtml(monogram(row.section))}</span>
+            <span class="mdrawer-name">${escapeHtml(row.section)}</span>
+            <span class="mdrawer-sum">${drawerSummary(row)}</span>
+            ${row.toggle ? `<span class="mdrawer-chev" aria-hidden="true">${icon('chevron-down')}</span>` : ''}
+          </button>
+          <div class="fold" id="${id}"><div class="fold-inner"><div class="mdrawer-body" role="group" aria-label="${escapeHtml(row.section)} models">`;
+      inDrawer = true;
+    });
+    close();
+    return html;
   },
   toggleGroup(source) {
     const closed = closedGroups();
@@ -360,45 +388,47 @@ const modelSpec = {
     if (opening) closed.delete(source);
     else closed.add(source);
     saveClosedGroups(closed);
-    this.repaint(source, opening);
+    this.applyOpen();
   },
   setAllGroups(open) {
     saveClosedGroups(open ? new Set() : new Set(this.groups().map((g) => g.source)));
-    this.repaint('', open);
+    this.applyOpen();
   },
-  repaint(source, opening) {
-    const { rows, empty } = this.build();
-    paintRows(rows, empty, { keep: true, focusGroup: source });
-    renderChips();
+  /** Open / close drawers in place (the fold animates); no re-render, no scroll jump. */
+  applyOpen() {
     const list = $('picker-list');
-    if (source) list.querySelector(`[data-group="${CSS.escape(source)}"]`)?.focus({ preventScroll: true });
-    if (opening) {
-      // The models that just came back slide in, one after another.
-      const shown = source ? list.querySelectorAll(`[data-group-of="${CSS.escape(source)}"]`) : list.querySelectorAll('.list-row');
-      shown.forEach((el, i) => {
-        if (i > 24) return;
-        el.classList.add('is-unfolding');
-        el.style.setProperty('--i', String(i));
-        setTimeout(() => el.classList.remove('is-unfolding'), 420 + i * 18);
-      });
+    const closed = closedGroups();
+    for (const row of current?.rows || []) {
+      if (!row.section) continue;
+      row.open = !closed.has(row.group);
+      const drawer = list.querySelector(`[data-drawer="${CSS.escape(row.group)}"]`);
+      if (!drawer) continue;
+      drawer.classList.toggle('is-open', row.open);
+      const head = drawer.querySelector('.mdrawer-head');
+      head.setAttribute('aria-expanded', String(row.open));
+      head.querySelector('.mdrawer-sum').innerHTML = drawerSummary(row);
     }
+    // Keep the keyboard cursor on something still visible.
+    const reach = reachableRows(list);
+    const at = reach.findIndex((el) => el.classList.contains('is-cursor'));
+    if (at === -1 && reach.length) nav.setCursor(0, false);
+    else nav.paint(false);
+    renderChips();
   },
   bindRows(list) {
     list.querySelectorAll('[data-group]').forEach((btn) => {
       btn.addEventListener('click', () => this.toggleGroup(btn.dataset.group));
     });
   },
-  chips() {
+  searchExtra() {
     const groups = this.groups();
     if (this.query || groups.length < 2) return '';
     const closed = closedGroups();
     const anyOpen = groups.some((g) => !closed.has(g.source));
-    return `<button type="button" class="chip-btn" data-fold="${anyOpen ? 'close' : 'open'}">
-        ${icon(anyOpen ? 'chevron-up' : 'chevron-down')}<span>${anyOpen ? 'Collapse all' : 'Expand all'}</span>
-      </button>
-      <span class="picker-chip-note">${groups.length} providers · ${(this.data?.models || []).length} models</span>`;
+    const label = anyOpen ? 'Collapse all' : 'Expand all';
+    return `<button type="button" class="search-fold" data-fold="${anyOpen ? 'close' : 'open'}" title="${label} providers" aria-label="${label} providers">${icon(anyOpen ? 'chevron-up' : 'chevron-down')}<span>${label}</span></button>`;
   },
-  bindChips(box) {
+  bindSearchExtra(box) {
     box.querySelector('[data-fold]')?.addEventListener('click', (e) => {
       this.setAllGroups(e.currentTarget.dataset.fold === 'open');
     });
