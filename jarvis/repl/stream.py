@@ -38,6 +38,7 @@ from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refre
 from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
+from ..media import materialize_uploads
 from .trim import anthropic_wire_messages, prune_tool_images, trim_messages
 from .render import assistant_model_label
 from .stream_display import RichAssistantStreamDisplay
@@ -612,8 +613,10 @@ def _call_claude_stream():
     tools = select_tools(state.messages)
     if state.show_internal and not getattr(console, "renders_tool_rows", False):
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
-    messages = prune_tool_images(trim_messages(state.messages),
-                                 vision=model_supports_images(state.MODEL))
+    vision = model_supports_images(state.MODEL)
+    messages = prune_tool_images(trim_messages(state.messages), vision=vision)
+    # Web attachments are references in history; the newest become real images now.
+    messages = materialize_uploads(messages, vision=vision)
     if state.provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER) or (
         is_catalog_provider(state.provider) and isinstance(state.client, Anthropic)
     ):

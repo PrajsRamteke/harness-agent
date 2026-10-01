@@ -769,8 +769,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
     # ─── prompt stash (FIFO queue above the composer) ────────────────
     @staticmethod
     def _stash_preview(msg, max_len: int = 56) -> str:
-        text = msg[0] if isinstance(msg, tuple) else msg
-        preview = (text or "").replace("\n", " ").strip()
+        from ..media import queue_label
+
+        preview = queue_label(msg).replace("\n", " ").strip()
         if len(preview) > max_len:
             preview = preview[: max_len - 1] + "…"
         return _rich_escape(preview)
@@ -798,11 +799,17 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         bar.update(Text.from_markup("\n".join(rows)))
         self._sync_web_queue()
 
-    def _stash_prompt(self, text: str) -> None:
-        """Queue a prompt while the agent is busy (FIFO; shown in #queuebar)."""
+    def _stash_prompt(self, text: str, *, files: list[str] | None = None) -> None:
+        """Queue a prompt while the agent is busy (FIFO; shown in #queuebar).
+
+        ``files``: upload ids from the web remote (``jarvis/media.py``).
+        """
         from ..prompt_attachments import snapshot_registry
 
-        state.prompt_queue.append((text, snapshot_registry()))
+        if files:
+            state.prompt_queue.append((text, snapshot_registry(), list(files)))
+        else:
+            state.prompt_queue.append((text, snapshot_registry()))
         self._refresh_queue_bar()
 
     # ─── attachments ─────────────────────────────────────────────────
@@ -1464,7 +1471,12 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         """Move the newest queued prompt back into the composer (↑ while busy)."""
         if not state.prompt_queue:
             return False
-        item = state.prompt_queue.pop()
+        item = state.prompt_queue[-1]
+        if isinstance(item, tuple) and len(item) > 2 and item[2]:
+            # Its files live on the web side; the terminal can't re-attach them.
+            self._set_status("the last queued message has web attachments — it stays queued")
+            return False
+        state.prompt_queue.pop()
         text = item[0] if isinstance(item, tuple) else str(item)
         prompt = self.query_one("#prompt", PromptArea)
         self._popup_suppressed_for = text
@@ -1476,7 +1488,16 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         return True
 
     def _begin_turn(self, inp: str, *, echo: bool = True, display: str | None = None,
-                    badge: str = "") -> None:
+                    badge: str = "", attachments: list[str] | None = None) -> None:
+        """Start a turn. ``attachments``: upload ids sent from the web remote."""
+        files: list[dict] = []
+        if attachments:
+            from .. import media
+
+            files = [m for m in (media.get(i) for i in attachments) if m]
+            line = media.summary_line(files, limit=4) or "📎 attached files are no longer on this computer"
+            shown = display or inp
+            display = f"{shown}\n{line}" if shown.strip() else line
         state.cancel_requested.clear()
         self._turn_cancelled = False
         self._turn_is_llm = False
@@ -1497,10 +1518,12 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                                      badge=badge))
         transcript.follow()
         if self._web_bridge is not None:
-            self._web_bridge.emit(
-                "message",
-                {"role": "you", "text": inp, "title": "you"},
-            )
+            event = {"role": "you", "text": inp, "title": "you"}
+            if files:
+                from ..media import public
+
+                event["attachments"] = [public(m) for m in files]
+            self._web_bridge.emit("message", event)
         self._busy = True
         self._turn_t0 = time.monotonic()
         self._pet_turn_started()
@@ -1516,7 +1539,10 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._start_activity_pulse()
         self._set_placeholder(_BUSY_PLACEHOLDER)
         self._sync_web_busy()
-        self._run_turn(inp, self._turn_id)
+        if attachments:  # _run_turn warns about (and skips) any that were removed
+            self._run_turn(inp, self._turn_id, list(attachments))
+        else:
+            self._run_turn(inp, self._turn_id)
 
     # ─── session picker ──────────────────────────────────────────────
     def _open_session_picker(self):
@@ -1568,7 +1594,13 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             role = msg.get("role", "")
             content = msg.get("content", "")
             if role == "user":
-                text = self._content_text(content).strip()
+                from ..media import attachments_in, summary_line
+
+                shown, files = attachments_in(content)
+                if files:  # sent from the web with attachments: names, not paths
+                    text = f"{shown}\n{summary_line(files, limit=4)}".strip()
+                else:
+                    text = self._content_text(content).strip()
                 if text:
                     blocks.append(UserBlock(text))
                 continue
@@ -1632,8 +1664,13 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._refresh_activity_widgets()
 
     @work(thread=True, exclusive=True)
-    def _run_turn(self, inp: str, turn_id: int | None = None) -> None:
-        """Mirror of jarvis.main._send_and_loop, adapted for the TUI."""
+    def _run_turn(self, inp: str, turn_id: int | None = None,
+                  attachments: list[str] | None = None) -> None:
+        """Mirror of jarvis.main._send_and_loop, adapted for the TUI.
+
+        ``attachments``: upload ids (web remote) — they join the user message
+        as a file note + image references (``jarvis/media.py``).
+        """
         from ..commands.dispatch import handle_slash
         from ..repl.stream import call_claude_stream
         from ..repl.render import (
@@ -1656,13 +1693,13 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._tui_console.reset_stream_ui()
 
         try:
-            if inp.startswith("/"):
+            if inp.startswith("/") and not attachments:
                 head = inp.split(maxsplit=1)[0]
                 if head[1:] in state.aliases:
                     rest = inp[len(head):]
                     inp = state.aliases[head[1:]] + rest
 
-            if inp.startswith("!"):
+            if inp.startswith("!") and not attachments:
                 cmd = inp[1:].strip()
                 if cmd:
                     from ..tools.shell import run_bash
@@ -1678,7 +1715,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                         self._tui_console.print(self._shell_output_text(out))
                 return
 
-            if inp.startswith("/"):
+            if inp.startswith("/") and not attachments:
                 result, should_send, inp = handle_slash(inp)
                 if result == "exit":
                     self.call_from_thread(self.exit)
@@ -1717,12 +1754,29 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                 return
 
             self._turn_is_llm = True
-            user_msg = {"role": "user", "content": inp}
+            content: str | list = inp
+            title = inp
+            if attachments:
+                from .. import media
+
+                files = [m for m in (media.get(i) for i in attachments) if m]
+                if len(files) < len(attachments):
+                    self._tui_console.print(
+                        f"[{ui.WARN}]⚠ {len(attachments) - len(files)} attached file(s) "
+                        "were removed before sending[/]"
+                    )
+                if files:
+                    content = media.user_content(inp, files)
+                    title = inp or media.summary_line(files)
+                elif not inp.strip():
+                    self._turn_is_llm = False  # nothing left to send
+                    return
+            user_msg = {"role": "user", "content": content}
             state.messages.append(user_msg)
             state.web_tool_used_this_turn = False
             if state.current_session_id:
                 db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
-                db_set_title_if_empty(state.current_session_id, inp)
+                db_set_title_if_empty(state.current_session_id, title)
 
             empty_retries = 0
             while True:
@@ -1852,6 +1906,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
         if state.prompt_queue:
             item = state.prompt_queue.pop(0)
+            web_files: list[str] = []
             if isinstance(item, tuple):
                 next_prompt = item[0]
                 if len(item) > 1 and isinstance(item[1], tuple):
@@ -1860,10 +1915,16 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                     attachments, llm_paths = item[1], None
                 from ..prompt_attachments import restore_registry
                 restore_registry(attachments, llm_paths)
+                if len(item) > 2 and isinstance(item[2], list):
+                    web_files = item[2]
             else:
                 next_prompt = item
             next_prompt = next_prompt.strip()
             self._refresh_queue_bar()
+
+            if web_files:
+                self._begin_turn(next_prompt, attachments=web_files)
+                return
 
             if next_prompt.startswith("/"):
                 head = next_prompt.split(maxsplit=1)[0]

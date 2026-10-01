@@ -9,6 +9,7 @@ import { toggleTheme, resolvedTheme, openAppearance, THEME_LABEL } from './theme
 import { submitPrompt, fillPrompt } from './composer.js';
 import { openShortcuts } from './shortcuts.js';
 import { openInspector } from './inspector.js';
+import { openFilePicker } from './media.js';
 
 let visible = [];
 let nav = null;
@@ -89,6 +90,10 @@ export async function runItem(item) {
   }
   if (item.action === 'inspector-changes' || item.action === 'inspector-activity') {
     openInspector(item.action.slice('inspector-'.length));
+    return;
+  }
+  if (item.action === 'attach') {
+    openFilePicker();
     return;
   }
   if (item.fill) {

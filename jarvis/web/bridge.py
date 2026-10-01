@@ -53,7 +53,8 @@ class WebBridge:
         self.token = secrets.token_urlsafe(18)
         # Host of the public tunnel link, while one runs ("Anywhere" mode).
         self.public_host = ""
-        self._on_submit: Callable[[str], None] | None = None
+        # (text, upload ids) — ids are already checked by the handler.
+        self._on_submit: Callable[[str, list[str]], None] | None = None
         self._on_cancel: Callable[[], None] | None = None
         self._on_settings: Callable[[dict[str, Any], Callable[[dict[str, Any]], None]], None] | None = None
         self._on_action: Callable[[str, dict[str, Any], Callable[[dict[str, Any]], None]], None] | None = None
@@ -61,7 +62,7 @@ class WebBridge:
     def set_handlers(
         self,
         *,
-        on_submit: Callable[[str], None] | None = None,
+        on_submit: Callable[[str, list[str]], None] | None = None,
         on_cancel: Callable[[], None] | None = None,
         on_settings: Callable[[dict[str, Any], Callable[[dict[str, Any]], None]], None] | None = None,
         on_action: Callable[[str, dict[str, Any], Callable[[dict[str, Any]], None]], None] | None = None,
@@ -71,13 +72,14 @@ class WebBridge:
         self._on_settings = on_settings
         self._on_action = on_action
 
-    def submit_prompt(self, text: str) -> bool:
+    def submit_prompt(self, text: str, attachments: list[str] | None = None) -> bool:
         text = (text or "").strip()
-        if not text:
+        files = [str(a) for a in (attachments or []) if a]
+        if not text and not files:
             return False
         if self._on_submit is None:
             return False
-        self._on_submit(text)
+        self._on_submit(text, files)
         return True
 
     def cancel_turn(self) -> bool:

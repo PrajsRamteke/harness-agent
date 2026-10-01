@@ -45,7 +45,9 @@ class WebRemoteMixin:
 
         bridge = WebBridge()
         bridge.set_handlers(
-            on_submit=lambda text: self.call_from_thread(lambda: self._handle_web_submit(text)),
+            on_submit=lambda text, files=None: self.call_from_thread(
+                lambda: self._handle_web_submit(text, files)
+            ),
             on_cancel=lambda: self.call_from_thread(self._handle_web_cancel),
             on_settings=lambda data, done: self.call_from_thread(
                 lambda: self._complete_web_settings(data, done)
@@ -396,24 +398,25 @@ class WebRemoteMixin:
         bridge = self._web_bridge
         if bridge is None:
             return
-        items: list[str] = []
-        for msg in state.prompt_queue:
-            if isinstance(msg, tuple):
-                items.append(str(msg[0]).strip())
-            else:
-                items.append(str(msg).strip())
+        from ...media import queue_label
+
+        items = [queue_label(msg) for msg in state.prompt_queue]
         bridge.emit("queue", {"items": [i for i in items if i]})
 
-    def _handle_web_submit(self, text: str) -> None:
+    def _handle_web_submit(self, text: str, files: list[str] | None = None) -> None:
         text = (text or "").strip()
-        if not text:
+        files = list(files or [])
+        if not text and not files:
             return
         # Before the busy check, same as the composer: queued, it would reach
         # the slash dispatcher as "unknown: /loop".
-        if self._try_loop_command(text):
+        if not files and self._try_loop_command(text):
             return
         if self._busy:
-            self._stash_prompt(text)
+            self._stash_prompt(text, files=files)
+            return
+        if files:  # web attachments (the handler refuses them on commands)
+            self._begin_turn(text, attachments=files)
             return
         if self._is_web_modal_command(text):
             if self._web_bridge is not None:

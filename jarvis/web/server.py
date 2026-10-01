@@ -110,6 +110,10 @@ def start_web_server(
 
     mcp_registry.add_listener(push_mcp)
     server.mcp_listener = push_mcp  # type: ignore[attr-defined]
+    # Old attachments (never sent: a day; sent: HARNESS_UPLOAD_KEEP_DAYS).
+    from .. import media
+
+    media.prune_in_background()
     urls = _local_urls(bound_port, bridge.token)
     return server, urls, bound_port
 

@@ -6,6 +6,7 @@ import ipaddress
 import json
 import mimetypes
 import queue
+import re
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -118,9 +119,19 @@ class WebHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+    def _send_json(self, status: int, payload: dict[str, Any], *, close: bool = False) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self._send_bytes(status, body, "application/json; charset=utf-8")
+        if not close:
+            self._send_bytes(status, body, "application/json; charset=utf-8")
+            return
+        # Answering before the request body was read: the socket can't be reused.
+        self.close_connection = True
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)
@@ -187,6 +198,115 @@ class WebHandler(BaseHTTPRequestHandler):
         ext = file_path.suffix.lower()
         mime = _MIME.get(ext) or mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
         self._send_bytes(200, file_path.read_bytes(), mime)
+
+    # ─── Media: uploads from the page, files served back by id ───────────
+    _UPLOAD_READ_TIMEOUT = 60.0  # a phone that drops mid-upload must not pin a thread
+
+    def _handle_upload(self) -> None:
+        """``POST /api/upload`` — raw file body; name in ``X-File-Name`` (URL-encoded)."""
+        from .. import media
+
+        raw_len = self.headers.get("Content-Length")
+        if raw_len is None:
+            self._send_json(411, {"ok": False, "code": "length_required",
+                                  "error": "The upload had no size. Try again."}, close=True)
+            return
+        try:
+            length = int(raw_len)
+        except ValueError:
+            self._send_json(400, {"ok": False, "code": "bad_length", "error": "The upload had an invalid size."}, close=True)
+            return
+        name = urllib.parse.unquote(self.headers.get("X-File-Name") or "")
+        ctype = self.headers.get("Content-Type") or ""
+        previous = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(self._UPLOAD_READ_TIMEOUT)
+            record = media.save_upload(self.rfile, length, name, ctype)
+        except media.UploadError as exc:
+            # Refused before the body was read (too large / empty): close the socket.
+            unread = exc.code in ("too_large", "empty", "interrupted")
+            self._send_json(exc.status, {"ok": False, "code": exc.code, "error": str(exc)}, close=unread)
+            return
+        except Exception as exc:  # never leave the page waiting on a 500 with no body
+            self._send_json(500, {"ok": False, "code": "failed",
+                                  "error": f"The upload failed on the computer ({type(exc).__name__})."}, close=True)
+            return
+        finally:
+            try:
+                self.connection.settimeout(previous)
+            except OSError:
+                pass
+        self._send_json(200, {"ok": True, "file": record})
+
+    def _serve_media(self, uid: str, qs: dict[str, list[str]]) -> None:
+        """``GET /api/media/<id>[?v=thumb|view][&dl=1]`` — byte ranges for video seeking."""
+        from .. import media
+
+        try:
+            found = media.media_file(uid, self._query_str(qs, "v"))
+        except Exception:
+            found = None
+        if found is None:
+            self._send_json(404, {"error": "This file is no longer on the computer."})
+            return
+        path, mime, name = found
+        try:
+            size = path.stat().st_size
+            fh = open(path, "rb")
+        except OSError:
+            self._send_json(404, {"error": "This file is no longer on the computer."})
+            return
+        with fh:
+            start, end, status = 0, size - 1, 200
+            rng = (self.headers.get("Range") or "").strip()
+            m = re.fullmatch(r"bytes=(\d*)-(\d*)", rng) if rng else None
+            if m and (m.group(1) or m.group(2)) and size:
+                if m.group(1):
+                    start = int(m.group(1))
+                    end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+                else:  # suffix range: the last N bytes
+                    start = max(0, size - int(m.group(2)))
+                if start > end or start >= size:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                status = 206
+            length = end - start + 1 if size else 0
+            disposition = "attachment" if self._query_str(qs, "dl") == "1" else "inline"
+            ascii_name = re.sub(r'[^\x20-\x7e]|["\\]', "_", name) or "file"
+            self.send_response(status)
+            self.send_header("Content-Type", mime or "application/octet-stream")
+            self.send_header("Content-Length", str(length))
+            self.send_header("Accept-Ranges", "bytes")
+            if status == 206:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.send_header("Content-Disposition",
+                             f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{urllib.parse.quote(name)}")
+            # Ids never point at different bytes, so the browser may keep them.
+            self.send_header("Cache-Control", "private, max-age=86400")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            # Uploaded files are shown, never run (an SVG or HTML can't script this page).
+            # Chrome won't render PDFs in a sandbox, and its viewer is isolated anyway.
+            csp = "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+            if not mime.startswith("application/pdf"):
+                csp += "; sandbox"
+            self.send_header("Content-Security-Policy", csp)
+            self.end_headers()
+            if self.command == "HEAD":
+                return
+            fh.seek(start)
+            remaining = length
+            try:
+                while remaining > 0:
+                    chunk = fh.read(min(1 << 16, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass  # the viewer closed or seeked elsewhere
 
     def _stream_events(self) -> None:
         self.send_response(200)
@@ -413,6 +533,31 @@ class WebHandler(BaseHTTPRequestHandler):
             self.bridge.emit(changed, {"event": path.rsplit("/", 1)[-1], "name": str(data.get("name") or "")})
         self._send_json(200, body)
 
+    def _handle_prompt(self, data: dict[str, Any]) -> None:
+        """``POST /api/prompt`` ``{text, attachments?: [upload ids]}``."""
+        from .. import media
+
+        text = str(data.get("text") or "").strip()
+        wanted = data.get("attachments") or []
+        if not text and not wanted:
+            self._send_json(400, {"error": "empty prompt"})
+            return
+        files: list[dict[str, Any]] = []
+        if wanted:
+            if text.startswith(("/", "!")):
+                self._send_json(400, {"ok": False, "code": "command_with_files",
+                                      "error": "Commands can’t carry attachments. Remove the files, or write a message."})
+                return
+            try:
+                files = media.resolve(wanted)
+            except media.UploadError as exc:
+                self._send_json(exc.status, {"ok": False, "code": exc.code, "error": str(exc)})
+                return
+        ok = self.bridge.submit_prompt(text, [m["id"] for m in files])
+        if ok and files:
+            media.mark_sent(files)
+        self._send_json(200 if ok else 503, {"ok": ok})
+
     def _handle_api_post(self, path: str, data: dict[str, Any]) -> None:
         if path.startswith("/api/providers/"):
             self._handle_providers_post(path, data)
@@ -447,12 +592,13 @@ class WebHandler(BaseHTTPRequestHandler):
             return self._send_json(200, body)
 
         if path == "/api/prompt":
-            text = str(data.get("text") or "").strip()
-            if not text:
-                self._send_json(400, {"error": "empty prompt"})
-                return
-            ok = self.bridge.submit_prompt(text)
-            self._send_json(200 if ok else 503, {"ok": ok})
+            self._handle_prompt(data)
+            return
+
+        if path == "/api/upload/remove":
+            from .. import media
+
+            self._send_json(200, {"ok": media.remove(str(data.get("id") or ""))})
             return
 
         if path == "/api/cancel":
@@ -535,6 +681,10 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, self._snapshot())
             return
 
+        if path.startswith("/api/media/"):
+            self._serve_media(path[len("/api/media/"):], qs)
+            return
+
         if path.startswith("/api/"):
             self._handle_api_get(path, qs)
             return
@@ -546,7 +696,11 @@ class WebHandler(BaseHTTPRequestHandler):
         path, _qs = self._parse_query()
 
         if not self._authorized():
-            self._send_json(401, {"error": "unauthorized"})
+            self._send_json(401, {"error": "unauthorized"}, close=path == "/api/upload")
+            return
+
+        if path == "/api/upload":  # raw file body, not JSON
+            self._handle_upload()
             return
 
         data = self._read_json()

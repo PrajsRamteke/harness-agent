@@ -15,6 +15,7 @@ import { fetchToolOutput } from './api.js';
 import { openModal } from './modal.js';
 import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 import { openChange } from './changes.js';
+import { renderFiles, renderToolImages } from './media.js';
 
 const chat = () => $('chat');
 const scroller = () => $('chat-scroll');
@@ -227,10 +228,20 @@ function copyAction(getText) {
   });
 }
 
-function appendUser(text) {
+function appendUser(text, files = []) {
   removeTyping();
   const row = document.createElement('div');
   row.className = 'turn-you';
+  if (files.length) {
+    // Photos and files sit above the text, like a message with attachments.
+    row.classList.add('has-files');
+    row.appendChild(renderFiles(files));
+    if (!text) {
+      markNew(row);
+      chat().appendChild(row);
+      return;
+    }
+  }
   const bubble = document.createElement('div');
   const isCommand = /^[/!]\S/.test(text) && !text.includes('\n');
   bubble.className = `bubble-you${isCommand ? ' is-command' : ''}`;
@@ -391,6 +402,7 @@ function toolKindIcon(name) {
 }
 
 function paintTool(row, data) {
+  if (Array.isArray(data.images) && data.images.length) row._images = data.images;
   const id = String(data.id || row.dataset.id || '');
   if (id) row.dataset.id = id;
   const status = data.status || row.dataset.status || 'running';
@@ -425,6 +437,11 @@ function paintTool(row, data) {
     </button>
     ${hasOut ? `<div class="fold"><div class="fold-inner"><div class="tool-out">${escapeHtml(summary)}</div>${hasFull && row.dataset.id ? `<button type="button" class="tool-full" data-full="${escapeHtml(row.dataset.id)}" title="${escapeHtml(fullLabel)}">${icon('maximize-2')}<span>Full output${row.dataset.fullChars ? ` · ${escapeHtml(fmtChars(row.dataset.fullChars))}` : ''}</span></button>` : ''}</div></div>` : ''}`;
   row.title = args ? `${title} ${args}` : title;
+  if (row._images?.length) {
+    // Screenshots the tool took: visible without opening the row.
+    row.querySelector('.tool-head').after(renderToolImages(row._images));
+    row.classList.add('has-media');
+  }
   if (hasOut) {
     row.querySelector('.tool-head').addEventListener('click', () => {
       const open = row.classList.toggle('is-open');
@@ -653,7 +670,7 @@ function appendEntry(entry) {
   const text = String(entry.text ?? '').trim();
   switch (role) {
     case 'you':
-      if (text) appendUser(text);
+      if (text || entry.attachments?.length) appendUser(text, entry.attachments || []);
       break;
     case 'assistant':
       if (text) appendAssistant(text, entry.title);
@@ -672,11 +689,12 @@ function appendEntry(entry) {
   }
 }
 
-/** A committed message from the session (live). */
-export function appendMessage(role, text, title) {
+/** A committed message from the session (live). `attachments`: files sent with a prompt. */
+export function appendMessage(role, text, title, attachments) {
   const r = normalizeRole(role);
   const value = String(text ?? '').trim();
-  if (!value) return;
+  const files = r === 'you' && Array.isArray(attachments) ? attachments : [];
+  if (!value && !files.length) return;
 
   if (live && ((r === 'assistant' && live.kind === 'assistant') || (r === 'thinking' && live.kind === 'thinking'))) {
     finalizeLive(value);
@@ -684,7 +702,7 @@ export function appendMessage(role, text, title) {
     return;
   }
   if (r === 'you') finalizeLive();
-  appendEntry({ role: r, text: value, title });
+  appendEntry({ role: r, text: value, title, attachments: files });
   if (r !== 'thinking') noteUnseen();
   afterAppend({ scroll: true });
   if (r === 'you') scrollToBottom(true);

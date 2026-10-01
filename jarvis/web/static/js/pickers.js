@@ -31,7 +31,9 @@ function rowHtml(row, idx) {
     <div class="list-row${row.current ? ' is-current' : ''}" role="option" data-idx="${idx}" aria-selected="false"${row.disabled ? ' aria-disabled="true"' : ''}>
       <span class="lr-icon">${row.emoji ? escapeHtml(row.emoji) : icon(row.icon || 'circle')}</span>
       <span class="lr-body">
-        <span class="lr-title">${escapeHtml(row.title)}</span>
+        ${row.titleMark
+    ? `<span class="lr-title-line"><span class="lr-title">${escapeHtml(row.title)}</span>${row.titleMark}</span>`
+    : `<span class="lr-title">${escapeHtml(row.title)}</span>`}
         ${row.sub ? `<span class="lr-sub${row.wrap ? ' lr-sub-wrap' : ''}">${escapeHtml(row.sub)}</span>` : ''}
       </span>
       ${row.meta || ''}
@@ -118,7 +120,8 @@ function open(kind, arg = '') {
   $('picker-sub').textContent = spec.sub;
   $('picker-icon').innerHTML = icon(spec.icon);
   const search = $('picker-search');
-  search.value = '';
+  // A picker that searches can open pre-filtered (the tray's "pick one that sees images").
+  search.value = spec.searchArg && arg ? arg : '';
   search.placeholder = spec.placeholder || 'Search';
   hideDetail();
   renderChips();
@@ -229,10 +232,11 @@ const sessionSpec = {
 };
 
 const modelSpec = {
+  searchArg: true,
   title: 'Models',
   sub: 'Used for the next message',
   icon: 'cpu',
-  placeholder: 'Search models or providers',
+  placeholder: 'Search models or providers (“vision” for image models)',
   async load(q) {
     const data = await fetchModels(q);
     const rows = [];
@@ -242,9 +246,14 @@ const modelSpec = {
         group = m.source_label;
         rows.push({ section: group });
       }
+      // Models that can see images get the image mark (attachments reach them as pictures).
+      const sees = m.images
+        ? `<span class="lr-cap" title="Can see images: attached photos and screenshots reach it as pictures" aria-label="Can see images">${icon('image')}</span>`
+        : '';
       rows.push({
         icon: m.active ? 'circle-check' : 'cpu',
         title: m.model_id,
+        titleMark: sees,
         sub: m.description || '',
         current: m.active,
         meta: m.active ? '<span class="badge is-live">In use</span>' : '',

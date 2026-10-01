@@ -92,7 +92,8 @@ def _tool_results(messages: list[dict]) -> dict[str, tuple[str, bool]]:
     return results
 
 
-def _tool_entry(block: dict, results: dict[str, tuple[str, bool]]) -> dict[str, Any]:
+def _tool_entry(block: dict, results: dict[str, tuple[str, bool]],
+                raw_outputs: dict[str, str] | None = None) -> dict[str, Any]:
     from .console_mux import tool_row_fields
 
     tid = str(block.get("id") or "")
@@ -117,7 +118,27 @@ def _tool_entry(block: dict, results: dict[str, tuple[str, bool]]) -> dict[str, 
     if done and fields.get("has_full"):
         entry["has_full"] = True
         entry["full_chars"] = int(fields.get("output_chars") or 0)
+    # Screenshots: the transcript's tool_result holds base64 only; the raw
+    # output (with the image's path) is still in this run's tool history.
+    raw = (raw_outputs or {}).get(tid)
+    if raw:
+        from ..media import images_in_output
+
+        images = images_in_output(raw)
+        if images:
+            entry["images"] = images
     return entry
+
+
+def _raw_image_outputs() -> dict[str, str]:
+    """tool id → raw output, for recent tool calls that attached an image."""
+    from .. import state
+
+    return {
+        str(e.get("id")): str(e.get("content") or "")
+        for e in list(state.tool_output_history)
+        if e.get("id") and "[[jarvis:image " in str(e.get("content") or "")
+    }
 
 
 def tool_output_text(tool_id: str) -> dict[str, Any] | None:
@@ -203,16 +224,22 @@ def snapshot_messages() -> list[dict[str, Any]]:
     thinking is included only while the trace is on.
     """
     from .. import state
+    from ..media import attachments_in
 
     out: list[dict[str, Any]] = []
     trace = bool(state.show_internal)
     results = _tool_results(state.messages)
+    raw_outputs = _raw_image_outputs()
 
     for msg in state.messages:
         role = msg.get("role") or ""
         content = msg.get("content")
 
         if role == "user":
+            shown, files = attachments_in(content)
+            if files:
+                out.append({"role": "you", "text": shown, "title": "You", "attachments": files})
+                continue
             text = _content_text(content)
             if text:
                 out.append({"role": "you", "text": text, "title": "You"})
@@ -236,7 +263,7 @@ def snapshot_messages() -> list[dict[str, Any]]:
                     if t:
                         out.append({"role": "assistant", "text": t, "title": "Jarvis"})
                 elif btype == "tool_use":
-                    out.append(_tool_entry(block, results))
+                    out.append(_tool_entry(block, results, raw_outputs))
             continue
 
         text = _content_text(content) if not isinstance(content, str) else content.strip()
@@ -296,6 +323,17 @@ def jobs_fields() -> list[dict[str, Any]]:
     return out
 
 
+def _model_sees_images() -> bool:
+    """Can the current model see attached images (the tray warns when it can't)."""
+    from .. import state
+    from ..constants.providers import model_supports_images
+
+    try:
+        return bool(model_supports_images(state.MODEL))
+    except Exception:
+        return True  # unknown: don't warn
+
+
 def state_fields(*, busy: bool = False, session_title: str | None = None) -> dict[str, Any]:
     """Everything the web UI shows about the session, except the transcript.
 
@@ -303,13 +341,9 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
     ``session_title`` to skip the database read when it is already known.
     """
     from .. import state
+    from ..media import queue_label
 
-    queue_items: list[str] = []
-    for item in list(state.prompt_queue):
-        if isinstance(item, tuple):
-            queue_items.append(str(item[0]).strip())
-        else:
-            queue_items.append(str(item).strip())
+    queue_items = [queue_label(item) for item in list(state.prompt_queue)]
 
     return {
         "message_count": len(state.messages),
@@ -323,6 +357,7 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "busy": busy,
         "queue": [q for q in queue_items if q],
         "model": state.MODEL,
+        "vision": _model_sees_images(),
         "session_id": state.current_session_id,
         "agent": state.active_agent_name or "",
         "provider": state.provider,
@@ -339,11 +374,12 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
 
 
 def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
-    from .. import file_changes
+    from .. import file_changes, media
 
     snap = state_fields(busy=busy)
     snap["messages"] = snapshot_messages()
     snap["changes"] = file_changes.summaries()
+    snap["upload_limits"] = {"max_mb": media.MAX_FILE_MB, "max_files": media.MAX_FILES}
     return snap
 
 

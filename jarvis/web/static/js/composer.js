@@ -1,6 +1,6 @@
 /** Message composer: send / stop / queue, slash-command menu, prompt history,
- * per-device draft, quoting, one-click enhance. Every send is a new message —
- * nothing already sent is ever edited. */
+ * per-device draft, quoting, one-click enhance, attachments (media.js).
+ * Every send is a new message — nothing already sent is ever edited. */
 import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, haptic, isMac, EASE, SPRING } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe, patchStore } from './store.js';
@@ -8,6 +8,7 @@ import { sendPrompt, cancelTurn, enhancePrompt } from './api.js';
 import { CATALOG, LOCAL_PICKERS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchItem, rankItems } from './catalog.js';
 import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
+import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
 
 const HISTORY_KEY = 'jarvis-prompt-history';
 const HISTORY_MAX = 50;
@@ -82,42 +83,88 @@ function remember(text) {
 
 export async function submitPrompt(text) {
   const el = prompt();
+  const fromBox = text === undefined;
   const value = String(text ?? el?.value ?? '').trim();
-  if (!value || sending) return;
-  if (enhancing && text === undefined) {
+  // Attachments ride with what's typed in the box (not with starters / slash picks).
+  const tray = fromBox ? trayStatus() : null;
+  const withFiles = !!tray?.count;
+  if ((!value && !withFiles) || sending) return;
+  if (enhancing && fromBox) {
     showToast('Still enhancing — one moment');
     return;
+  }
+  if (withFiles) {
+    if (/^[/!]/.test(value)) {
+      showToast('Commands can’t carry attachments. Remove the files, or write a message.', true);
+      return;
+    }
+    if (tray.uploading) {
+      showToast(`Still uploading ${tray.uploading === 1 ? 'a file' : `${tray.uploading} files`}. It sends once they finish.`);
+      waitForUploadsThenSend();
+      return;
+    }
+    if (tray.failed) {
+      showToast(`${tray.failed === 1 ? 'A file' : `${tray.failed} files`} didn’t upload. Retry or remove ${tray.failed === 1 ? 'it' : 'them'} first.`, true);
+      return;
+    }
   }
 
   const [head, ...rest] = value.split(/\s+/);
   const withArg = rest.length && LOCAL_PICKERS_WITH_ARG.has(head.toLowerCase());
   const pickerKind = LOCAL_PICKERS[value.toLowerCase()] || (withArg ? LOCAL_PICKERS[head.toLowerCase()] : '');
-  if (pickerKind && openPicker) {
+  if (pickerKind && openPicker && !withFiles) {
     if (text === undefined && el) setPromptValue('');
     openPicker(pickerKind, withArg ? rest.join(' ') : '');
     return;
   }
 
   const wasBusy = store.busy;
+  const files = withFiles ? tray.ready : [];
   sending = true;
+  if (files.length) lockTray(true);
   syncSendButton();
-  if (text === undefined && el) setPromptValue('');
+  if (fromBox && el) setPromptValue('');
   closeSlash();
   launchSend();
   try {
-    await sendPrompt(value);
-    remember(value);
+    await sendPrompt(value, files.map((f) => f.id));
+    if (files.length) clearTray();
+    if (value) remember(value);
     if (LAPTOP_COMMANDS.has(value)) showToast('Opened in the terminal on your computer');
     // /loop isn't queued: it starts now and its first run waits for this turn.
     else if (wasBusy && !/^\/loop(\s|$)/.test(value)) showToast('Queued — sends when Jarvis is free');
     scrollToBottom(true);
   } catch (err) {
-    if (text === undefined && el && !el.value) setPromptValue(value);
-    showToast(err?.status === 503 ? 'Jarvis is not ready yet — try again' : 'Message not sent — check the connection', true);
+    if (files.length) lockTray(false);  // the files stay in the tray for another try
+    if (fromBox && el && !el.value) setPromptValue(value);
+    const why = err?.status === 503 ? 'Jarvis is not ready yet. Try again.'
+      : err?.payload?.error || (err?.status ? `Message not sent (${err.message || `error ${err.status}`})` : 'Message not sent. Check the connection.');
+    showToast(why, true);
   } finally {
     sending = false;
     syncSendButton();
   }
+}
+
+/** Send pressed while files are still uploading: send the moment they're done
+ * (cancelled when one fails, the tray empties, or the text is cleared). */
+let pendingSend = null;
+function waitForUploadsThenSend() {
+  if (pendingSend) return;
+  $('composer')?.classList.add('is-waiting-send');
+  pendingSend = onTrayChange((st) => {
+    if (st.uploading) return;
+    stopWaitingToSend();
+    if (st.failed || !st.count) return;
+    submitPrompt();
+  });
+  syncSendButton();
+}
+function stopWaitingToSend() {
+  pendingSend?.();
+  pendingSend = null;
+  $('composer')?.classList.remove('is-waiting-send');
+  syncSendButton();
 }
 
 export async function stopTurn() {
@@ -135,16 +182,24 @@ function syncSendButton() {
   const btn = $('send');
   const el = prompt();
   if (!btn || !el) return;
+  const tray = trayStatus();
   const hasText = !!el.value.trim();
-  const stop = store.busy && !hasText;
+  const hasContent = hasText || tray.count > 0;
+  const stop = store.busy && !hasContent;
+  const waiting = !!pendingSend;
   btn.classList.toggle('is-stop', stop);
-  btn.disabled = sending || enhancing || !store.connected || (!hasText && !store.busy);
-  const label = stop ? 'Stop' : store.busy ? 'Queue message' : 'Send';
+  btn.classList.toggle('is-uploading', !stop && tray.uploading > 0);
+  btn.disabled = sending || enhancing || !store.connected || tray.locked || (!hasContent && !store.busy);
+  const label = stop ? 'Stop'
+    : waiting ? 'Sends when the uploads finish'
+      : tray.uploading ? `Uploading ${tray.uploading === 1 ? 'a file' : `${tray.uploading} files`}…`
+        : store.busy ? 'Queue message' : 'Send';
   btn.setAttribute('aria-label', label);
   btn.title = stop ? 'Stop (Esc)' : label;
   el.placeholder = store.busy
     ? 'Jarvis is working. Type to queue a follow-up'
-    : 'Message Jarvis, or type / for commands';
+    : tray.count ? 'Add a message, or just send the files'
+      : 'Message Jarvis, or type / for commands';
 }
 
 function onSendClick(e) {
@@ -431,6 +486,12 @@ function onKeyDown(e) {
     e.preventDefault();
     return;
   }
+  if (e.key === 'Escape' && pendingSend) {
+    e.preventDefault();
+    stopWaitingToSend();
+    showToast('Won’t send automatically. Press Enter when the uploads finish.');
+    return;
+  }
 
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
     e.preventDefault();
@@ -479,6 +540,7 @@ export function initComposer({ onCatalogItem, onOpenPicker } = {}) {
 
   subscribe(syncSendButton);
   subscribe(syncEnhanceButton);
+  onTrayChange(syncSendButton);
   window.addEventListener('resize', autoResizePrompt);
   autoResizePrompt();
   syncSendButton();

@@ -8,6 +8,8 @@ export const store = {
   connected: false,
   session: {
     model: '',
+    /** The current model can see images (attachments reach it as pictures). */
+    vision: true,
     agent: '',
     session_id: '',
     session_title: '',
@@ -77,6 +79,7 @@ const SESSION_KEYS = Object.keys(store.session);
 export function loadSnapshot(data) {
   if (!data || typeof data !== 'object') return;
   if (data.remote_url) store.remoteUrl = data.remote_url;
+  if (data.upload_limits) store.uploadLimits = data.upload_limits;
   const patch = {};
   for (const key of SESSION_KEYS) {
     if (key in data && data[key] !== undefined && data[key] !== null) patch[key] = data[key];

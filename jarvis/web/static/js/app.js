@@ -6,6 +6,7 @@ import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
 import { handleEvent } from './events.js';
 import { initChat, invalidateSnapshot } from './chat.js';
 import { initComposer, fillPrompt, submitPrompt, insertQuote, enhanceMessage } from './composer.js';
+import { initMedia, openFilePicker } from './media.js';
 import { initStatus, setConnected } from './status.js';
 import { initSidebar } from './sidebar.js';
 import { initInspector, toggleInspector } from './inspector.js';
@@ -117,6 +118,7 @@ function boot() {
   initQr();
   initStatus();
   initComposer({ onCatalogItem: runItem, onOpenPicker: openPickerByKind });
+  initMedia({ onOpenPicker: openPickerByKind });
   initSidebar({ onOpenPicker: openPickerByKind });
   initInspector();
   initChanges();
@@ -155,7 +157,7 @@ function boot() {
     $('prompt')?.focus();
   });
 
-  window.jarvisRemote = { store, submitPrompt, transport: transportMode };
+  window.jarvisRemote = { store, submitPrompt, attach: openFilePicker, transport: transportMode };
 }
 
 if (document.readyState === 'loading') {

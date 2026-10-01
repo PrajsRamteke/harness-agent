@@ -37,6 +37,15 @@ def tool_row_fields(name: str, tool_input: Any, output: Any = None) -> dict[str,
             fields["summary_error"] = bool(is_err)
     except Exception:
         fields.setdefault("title", name or "tool")
+    if output is not None:
+        try:
+            from ..media import images_in_output
+
+            images = images_in_output(str(output or ""))
+        except Exception:
+            images = []
+        if images:  # screenshots the tool attached for the model — the page shows them too
+            fields["images"] = images
     return fields
 
 

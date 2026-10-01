@@ -75,7 +75,7 @@ export function handleEvent(evt) {
       break;
 
     case 'message':
-      appendMessage(data.role || 'assistant', data.text, data.title);
+      appendMessage(data.role || 'assistant', data.text, data.title, data.attachments);
       break;
 
     case 'log':

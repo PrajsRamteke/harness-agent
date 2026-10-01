@@ -248,7 +248,9 @@ export function transportMode() {
   return mode;
 }
 
-export const sendPrompt = (text) => api('/api/prompt', 'POST', { text });
+/** `attachments`: ids of files already uploaded (media.js) — the server checks they still exist. */
+export const sendPrompt = (text, attachments = []) =>
+  api('/api/prompt', 'POST', attachments.length ? { text, attachments } : { text });
 export const cancelTurn = () => api('/api/cancel', 'POST', {});
 /** Fix spelling / grammar with the current model → `{ ok, text, changed }` or `{ ok: false, error }`. */
 export const enhancePrompt = (text) => api('/api/enhance', 'POST', { text });
