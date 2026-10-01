@@ -2,6 +2,7 @@
 conversion and context pruning."""
 import base64
 import importlib
+import os
 import pathlib
 import shutil
 import struct
@@ -141,8 +142,51 @@ def test_url_mode_normalizes_and_clamps(tmp_path, monkeypatch):
     assert shot.normalize_url(str(page)).startswith("file://")
 
 
+def _fake_exe(path: pathlib.Path) -> pathlib.Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_find_chrome_prefers_headless_shell(tmp_path, monkeypatch):
+    # Full Chrome leaves a Dock icon per headless run on macOS; the shell doesn't.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("HARNESS_CHROME", raising=False)
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
+    monkeypatch.setattr(shot.shutil, "which", lambda name: None)
+    cache = tmp_path / "Library" / "Caches" / "ms-playwright"
+    _fake_exe(cache / "chromium_headless_shell-999" / "chrome-headless-shell-mac-arm64" / "chrome-headless-shell")
+    newest = _fake_exe(cache / "chromium_headless_shell-1217" / "chrome-headless-shell-mac-arm64"
+                       / "chrome-headless-shell")
+    assert shot.find_chrome() == str(newest)
+
+    chrome = _fake_exe(tmp_path / "my-chrome")
+    monkeypatch.setenv("HARNESS_CHROME", str(chrome))
+    assert shot.find_chrome() == str(chrome)  # an explicit choice still wins
+
+
+def test_find_headless_shell_in_playwright_browsers_path_and_puppeteer(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(shot.shutil, "which", lambda name: None)
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
+    assert shot.find_headless_shell() is None
+    pup = _fake_exe(tmp_path / ".cache" / "puppeteer" / "chrome-headless-shell" / "mac_arm-131.0.6778.85"
+                    / "chrome-headless-shell-mac-arm64" / "chrome-headless-shell")
+    assert shot.find_headless_shell() == str(pup)
+    custom = tmp_path / "browsers"
+    old = _fake_exe(custom / "chromium_headless_shell-1148" / "chrome-linux" / "headless_shell")
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(custom))
+    assert shot.find_headless_shell() == str(old)
+
+
 @pytest.mark.skipif(not shot.find_chrome(), reason="needs Chrome/Chromium")
-def test_real_headless_chrome_render(tmp_path):
+def test_real_headless_chrome_render(tmp_path, monkeypatch):
+    # Look for chrome-headless-shell in the real browser caches (read only), so a
+    # test run doesn't leave a Chrome icon in the macOS Dock.
+    real_home = os.environ.get("JARVIS_REAL_HOME")
+    if real_home:
+        monkeypatch.setenv("HOME", real_home)
     page = tmp_path / "p.html"
     page.write_text("<body style='background:#123'><h1 style='color:white'>Hello</h1></body>")
     out = shot.screenshot(url=str(page), width=640, height=400)

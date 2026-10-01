@@ -45,6 +45,13 @@ _CHROME_APPS = (
     "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 )
 _CHROME_BINS = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "msedge")
+# chrome-headless-shell is a plain executable, not an app bundle, so macOS never
+# gives it a Dock tile. Full Chrome run with --headless still registers as an app
+# for a moment, and every run leaves another Chrome icon in the Dock's
+# "recent apps" section. Found in Playwright / Puppeteer caches, newest first.
+_PLAYWRIGHT_SHELLS = ("chromium_headless_shell-*/*/chrome-headless-shell",
+                      "chromium_headless_shell-*/*/headless_shell")
+_PUPPETEER_SHELL = "chrome-headless-shell/*/*/chrome-headless-shell"
 _NATIVE = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 _IMAGE_EXTS = _NATIVE | {".heic", ".tif", ".tiff", ".bmp"}
 
@@ -304,10 +311,35 @@ def _linux_capture(out: pathlib.Path) -> str | None:
             "or ImageMagick). screenshot(url=…) and screenshot(path=…) still work.")
 
 
+def _version_key(path: pathlib.Path) -> tuple[int, ...]:
+    return tuple(int(n) for n in re.findall(r"\d+", str(path)))
+
+
+def find_headless_shell() -> str | None:
+    found = shutil.which("chrome-headless-shell")
+    if found:
+        return found
+    home = pathlib.Path.home()
+    playwright = [home / "Library" / "Caches" / "ms-playwright", home / ".cache" / "ms-playwright"]
+    pw = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if pw and pw != "0":
+        playwright.insert(0, pathlib.Path(pw).expanduser())
+    searches = [(root, pattern) for root in playwright for pattern in _PLAYWRIGHT_SHELLS]
+    searches.append((home / ".cache" / "puppeteer", _PUPPETEER_SHELL))
+    for root, pattern in searches:
+        hits = [p for p in root.glob(pattern) if p.is_file() and os.access(p, os.X_OK)]
+        if hits:
+            return str(max(hits, key=_version_key))
+    return None
+
+
 def find_chrome() -> str | None:
     env = os.environ.get("HARNESS_CHROME", "").strip()
     if env and os.path.exists(env):
         return env
+    shell = find_headless_shell()
+    if shell:
+        return shell
     for p in _CHROME_APPS:
         if os.path.exists(p):
             return p

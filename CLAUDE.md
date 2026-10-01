@@ -49,7 +49,7 @@ python -m pytest tests/ -q
 - `HARNESS_HTTP_CONNECT_TIMEOUT` — connection timeout (default: 30)
 - `HARNESS_STREAM_REPLY` — set to `0` to disable live streaming of assistant text
 - `HARNESS_MOUSE` — set to `0` to run the TUI without mouse capture (native terminal selection)
-- `HARNESS_CHROME` — Chrome/Chromium binary for `screenshot(url=…)` (auto-detected otherwise)
+- `HARNESS_CHROME` — Chrome/Chromium binary for `screenshot(url=…)`. Auto-detected otherwise, preferring `chrome-headless-shell` (PATH, Playwright or Puppeteer cache) over full Chrome: on macOS every full-Chrome headless run leaves a Chrome icon in the Dock's recent apps
 
 ## Architecture
 

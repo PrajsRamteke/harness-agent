@@ -214,6 +214,35 @@ def test_deleted_session_forgets_its_changes(proj):
     assert left == 0
 
 
+def test_db_delete_session_is_instant_and_clears_everything(proj):
+    """It used to call forget_session (a second connection) inside its own
+    write transaction, so every delete sat out sqlite's 5 s busy timeout."""
+    import time
+
+    from jarvis.storage import sessions
+
+    sessions.db_init()
+    sid = sessions.db_create_session("m")
+    sessions.db_append_message(sid, 0, {"role": "user", "content": "hi"})
+    state.current_session_id = sid
+    f = write(proj, "app.py", "a\n")
+    edit(f, "b\n")
+    fc.flush()
+
+    t = time.perf_counter()
+    assert sessions.db_delete_session(sid) is True
+    assert time.perf_counter() - t < 1.0
+    assert sessions.db_load_session(sid) is None
+    conn = sessions.db_conn()
+    try:
+        for table in ("messages", "session_file_changes"):
+            left = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE session_id = ?", (sid,)).fetchone()[0]
+            assert left == 0, table
+    finally:
+        conn.close()
+    assert sessions.db_delete_session(sid) is False
+
+
 def test_listeners_hear_about_each_change(proj):
     heard = []
     fc.subscribe(heard.append)

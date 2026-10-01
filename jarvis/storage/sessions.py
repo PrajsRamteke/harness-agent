@@ -115,14 +115,25 @@ def db_load_session(session_id: int) -> Optional[List[Dict]]:
 
 
 def db_delete_session(session_id: int) -> bool:
-    with db_conn() as c:
-        cur = c.execute("DELETE FROM sessions WHERE id=?", (session_id,))
-        c.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
-        c.execute("DELETE FROM session_file_changes WHERE session_id=?", (session_id,))
-        try:
-            from .. import file_changes
+    c = db_conn()
+    try:
+        with c:
+            cur = c.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+            c.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
+            try:
+                c.execute("DELETE FROM session_file_changes WHERE session_id=?", (session_id,))
+            except sqlite3.OperationalError:
+                pass  # table not created yet — no file changes ever recorded
+        deleted = cur.rowcount > 0
+    finally:
+        c.close()
+    # Only after the commit: forget_session opens its own connection, and doing
+    # that inside the transaction above blocked on our own write lock for
+    # sqlite's 5 s busy timeout — every /session delete froze the UI.
+    try:
+        from .. import file_changes
 
-            file_changes.forget_session(session_id)
-        except Exception:
-            pass
-        return cur.rowcount > 0
+        file_changes.forget_session(session_id)
+    except Exception:
+        pass
+    return deleted

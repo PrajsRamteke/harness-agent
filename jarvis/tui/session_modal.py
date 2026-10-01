@@ -27,7 +27,7 @@ from . import theme as ui
 class SessionPickerScreen(TuiModalScreen[int | None]):
     """Saved conversations, newest first, grouped by day.
 
-    Type to search titles, ↵ resume, ``d`` twice deletes. Returns the
+    Type to search titles, ↵ resume, ``^d`` twice deletes. Returns the
     selected session id, or None if cancelled.
     """
 
@@ -245,6 +245,12 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         sid = self._current_id()
         if sid is None:
             return
+        if sid == state.current_session_id:
+            # Same rule as the web remote: the live chat keeps writing to this
+            # id, so deleting it would orphan every message that follows.
+            self.app.notify("Can't delete the session you're in — start /new first",
+                            severity="warning", timeout=3)
+            return
         if self._pending_delete != sid:
             self._pending_delete = sid
             self._render_rows(keep=str(sid))
@@ -252,8 +258,15 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         self._pending_delete = None
         opts = self.query_one("#session_list", OptionList)
         idx = opts.highlighted or 0
-        db_delete_session(sid)
+        try:
+            deleted = db_delete_session(sid)
+        except Exception as e:
+            self._render_rows(keep=str(sid))
+            self.app.notify(f"Couldn't delete session #{sid}: {e}", severity="error", timeout=4)
+            return
         self._rows = [r for r in self._rows if r["id"] != sid]
+        if deleted:
+            self._offset = max(0, self._offset - 1)  # later DB rows shift up by one
         self._render_rows()
         try:
             enabled = [i for i in range(opts.option_count) if not opts.get_option_at_index(i).disabled]

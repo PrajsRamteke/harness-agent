@@ -122,6 +122,41 @@ def test_session_picker_groups_search_and_two_step_delete(hermetic_app, monkeypa
     asyncio.run(run())
 
 
+def test_session_picker_refuses_to_delete_the_active_session(hermetic_app, monkeypatch):
+    import jarvis.tui.session_modal as sm
+    from jarvis import state
+
+    now = time.time()
+    data = [
+        {"id": 3, "title": "current chat", "model": "m1", "updated_at": now - 60, "msg_count": 4},
+        {"id": 2, "title": "older chat", "model": "m2", "updated_at": now - 120, "msg_count": 9},
+    ]
+    deleted: list[int] = []
+    monkeypatch.setattr(sm, "db_list_sessions", lambda limit=60, offset=0: data[offset:offset + limit])
+    monkeypatch.setattr(sm, "db_count_sessions", lambda: len(data))
+    monkeypatch.setattr(sm, "db_delete_session", lambda sid: deleted.append(sid) or True)
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            monkeypatch.setattr(state, "current_session_id", 3)
+            app.push_screen(sm.SessionPickerScreen())
+            await pilot.pause(0.3)
+            screen = app.screen
+            assert screen._current_id() == 3
+            await pilot.press("ctrl+d", "ctrl+d")
+            await pilot.pause(0.1)
+            assert deleted == [] and screen._pending_delete is None
+            # Another row still deletes, and the list moves on to what's left.
+            await pilot.press("down", "ctrl+d", "ctrl+d")
+            await pilot.pause(0.1)
+            assert deleted == [2]
+            assert _enabled_ids(screen.query_one("#session_list")) == ["3"]
+
+    asyncio.run(run())
+
+
 def test_palette_groups_when_browsing_and_flattens_when_searching(hermetic_app):
     from jarvis.tui.palette_modal import CommandPaletteScreen
 
