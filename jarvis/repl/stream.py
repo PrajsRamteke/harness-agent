@@ -28,7 +28,10 @@ from ..console import console, APIStatusError, RateLimitError, HarnessAPIError
 from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
 from anthropic import Anthropic
-from ..constants.providers import model_supports_images, is_catalog_provider, provider_label
+from ..constants.providers import (
+    claude_thinking_kwargs, claude_uses_adaptive_thinking, is_catalog_provider, model_supports_images,
+    provider_label,
+)
 from ..constants import (
     PROVIDER_ANTHROPIC, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
@@ -627,7 +630,10 @@ def _call_claude_stream():
         messages=messages,
         tools=tools,
     )
-    if state.think_mode:
+    if state.provider == PROVIDER_ANTHROPIC and claude_uses_adaptive_thinking(state.MODEL):
+        # Claude 5: adaptive thinking + effort; budget_tokens is a 400 there.
+        kwargs.update(claude_thinking_kwargs(state.think_mode, state.think_effort))
+    elif state.think_mode:
         kwargs["thinking"] = {
             "type": "enabled",
             "budget_tokens": THINKING_BUDGET_TOKENS,

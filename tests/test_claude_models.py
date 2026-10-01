@@ -1,7 +1,7 @@
 """Claude 5 family model registration tests.
 
-Covers the current Anthropic lineup: Opus 5.5, Fable 5.1, Mythos 5.1, Opus 5,
-Sonnet 5 — and asserts the retired 4.x entries are gone.
+Covers the current Anthropic lineup: Opus 5.5, Sonnet 5.5, Fable 5.1, Mythos 5.1,
+Opus 5, Sonnet 5 — and asserts the retired 4.x entries are gone.
 """
 from jarvis.auth.anthropic_models import anthropic_auth_models_for_picker
 from jarvis.constants.providers import (
@@ -18,6 +18,7 @@ from jarvis.constants.providers import (
 # Newest first — must match MODELS / ANTHROPIC_AUTH_MODEL_IDS ordering.
 EXPECTED = [
     ("claude-opus-5-5", (4.0, 20.0)),
+    ("claude-sonnet-5-5", (2.0, 10.0)),
     ("claude-fable-5-1", (10.0, 50.0)),
     ("claude-mythos-5-1", (10.0, 50.0)),
     ("claude-opus-5", (5.0, 25.0)),
@@ -74,3 +75,76 @@ def test_auth_picker_orders_newest_first_without_live_ids():
     rows = anthropic_auth_models_for_picker()
     assert rows[0][0] == "claude-opus-5-5"
     state.anthropic_model_ids = None
+
+
+def test_sonnet_5_5_sees_images():
+    from jarvis.constants.providers import model_supports_images
+
+    assert model_supports_images("claude-sonnet-5-5", PROVIDER_ANTHROPIC)
+
+
+# ─── Thinking: Claude 5 takes adaptive thinking + effort, never budget_tokens ──
+
+
+def test_claude5_thinking_request_shape():
+    from jarvis.constants.providers import claude_thinking_kwargs, claude_uses_adaptive_thinking
+
+    for model_id, _ in EXPECTED:
+        assert claude_uses_adaptive_thinking(model_id), model_id
+    assert not claude_uses_adaptive_thinking("claude-haiku-4-5")
+    assert not claude_uses_adaptive_thinking("anthropic/claude-sonnet-5-5")  # OpenRouter id
+
+    on = claude_thinking_kwargs(True, "xhigh")
+    assert on == {"thinking": {"type": "adaptive", "display": "summarized"},
+                  "output_config": {"effort": "xhigh"}}
+    assert claude_thinking_kwargs(True, "minimal")["output_config"] == {"effort": "low"}
+    # Off: no "disabled" (a 400 on Opus 5.5 / Sonnet 5.5) — the lowest effort instead.
+    for off in (claude_thinking_kwargs(False, "high"), claude_thinking_kwargs(True, "none")):
+        assert off == {"output_config": {"effort": "low"}}
+
+
+def test_stream_sends_adaptive_thinking_to_claude5(monkeypatch):
+    from types import SimpleNamespace
+
+    import jarvis.repl.stream as stream
+    from jarvis import state
+
+    sent: list[dict] = []
+
+    class _Ctx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get_final_message(self):
+            return SimpleNamespace(usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+                                   content=[], stop_reason="end_turn")
+
+    class _Messages:
+        def stream(self, **kwargs):
+            sent.append(kwargs)
+            return _Ctx()
+
+    monkeypatch.setattr(stream, "build_system", lambda: "sys")
+    monkeypatch.setattr(stream, "select_tools", lambda msgs: [])
+    monkeypatch.setattr(stream, "_heal_message_history", lambda: None)
+    monkeypatch.setattr(stream, "report_turn_phase", lambda *a, **k: None)
+    monkeypatch.setattr(state, "messages", [{"role": "user", "content": "hi"}])
+    monkeypatch.setattr(state, "stream_reply_live", False)
+    monkeypatch.setattr(state, "show_internal", False)
+    monkeypatch.setattr(state, "provider", PROVIDER_ANTHROPIC)
+    monkeypatch.setattr(state, "client", SimpleNamespace(messages=_Messages()))
+    monkeypatch.setattr(state, "think_mode", True)
+    monkeypatch.setattr(state, "think_effort", "medium")
+
+    monkeypatch.setattr(state, "MODEL", "claude-sonnet-5-5")
+    stream._call_claude_stream()
+    assert sent[-1]["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert sent[-1]["output_config"] == {"effort": "medium"}
+
+    # Older / other models keep the budget form.
+    monkeypatch.setattr(state, "MODEL", "claude-haiku-4-5")
+    stream._call_claude_stream()
+    assert sent[-1]["thinking"]["type"] == "enabled" and "output_config" not in sent[-1]

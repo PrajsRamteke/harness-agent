@@ -208,11 +208,15 @@ def picker_row(
     icon: str = "",
     icon_style: str | None = None,
     title_width: int = 0,
+    tags: "Text | None" = None,
+    tags_width: int = 0,
 ):
-    """One list row: ``● title  detail ·········· right``.
+    """One list row: ``● title  detail ·········· right  tags``.
 
     ``right`` is right-aligned; title/detail truncate with an ellipsis so a
-    row never wraps. Matches of ``query`` are accented.
+    row never wraps. Matches of ``query`` are accented. ``tags`` (styled text,
+    e.g. the model picker's ``free ◩``) sit in a fixed ``tags_width`` column
+    so they line up from row to row.
     """
     from rich.table import Table
     from rich.text import Text
@@ -233,7 +237,13 @@ def picker_row(
     grid.add_column(no_wrap=True, justify="right")
     right_text = Text(f"  {right}" if right else "", style=right_style or _theme.FG_DIM,
                       no_wrap=True)
-    grid.add_row(Text(marker, style=marker_style), left, right_text)
+    if tags_width:
+        if not right_text.plain:
+            right_text = Text(" ", no_wrap=True)  # an empty cell stops the grid from expanding
+        grid.add_column(width=tags_width, no_wrap=True)
+        grid.add_row(Text(marker, style=marker_style), left, right_text, tags or Text(""))
+    else:
+        grid.add_row(Text(marker, style=marker_style), left, right_text)
     return grid
 
 

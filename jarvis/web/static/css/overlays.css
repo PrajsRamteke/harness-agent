@@ -69,6 +69,56 @@
 }
 .list-section:first-child { padding-top: 4px; }
 
+/* Model list: each provider header folds its models away (pickers.js). The
+   headers stick while you scroll, so a long group can be closed from anywhere. */
+.list-section.ls-group { display: flex; align-items: center; gap: 8px; }
+.ls-label { font-weight: 600; }
+.ls-count { font-weight: 500; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.list-section.is-toggle {
+  --sticky-bg: rgba(14, 14, 14, 0.97);
+  position: sticky;
+  top: -8px;               /* the list's own padding */
+  z-index: 1;
+  width: 100%;
+  min-height: 42px;
+  margin: 2px 0 0;
+  padding: 7px 10px 7px 12px;
+  border: none;
+  border-radius: 12px;
+  background: var(--sticky-bg);
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+:root[data-theme="light"] .list-section.is-toggle { --sticky-bg: rgba(255, 255, 255, 0.97); }
+:root[data-theme="light"][data-variant="soft"] .list-section.is-toggle { --sticky-bg: rgba(255, 254, 250, 0.97); }
+:root[data-theme="dim"] .list-section.is-toggle { --sticky-bg: rgba(44, 45, 52, 0.98); }
+.list-section.is-toggle:first-child { margin-top: 0; padding-top: 7px; }
+.list-section.is-toggle:hover { background: linear-gradient(var(--card-hover), var(--card-hover)), var(--sticky-bg); color: var(--text); }
+.list-section.is-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.list-section.is-toggle:not(.is-open) { color: var(--text-3); }
+.ls-live { margin-left: 2px; }
+.ls-chev {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text-2);
+  transition: transform 0.32s var(--spring), color 0.15s, border-color 0.15s;
+}
+.ls-chev .ic { width: 14px; height: 14px; }
+/* Open: the arrow points up (fold it away); folded: down (show it). */
+.list-section.is-open .ls-chev { transform: rotate(180deg); }
+.list-section.is-toggle:hover .ls-chev { color: var(--accent); border-color: var(--accent-line); }
+.list-row.is-unfolding { animation: rise 0.3s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 18ms); }
+.picker-chip-note { align-self: center; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
 .list-row {
   display: flex;
   align-items: center;

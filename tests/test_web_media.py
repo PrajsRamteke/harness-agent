@@ -540,3 +540,36 @@ def test_state_says_whether_the_current_model_sees_images(monkeypatch):
     assert state_api.state_fields()["vision"] is False
     monkeypatch.setattr(providers, "model_supports_images", lambda mid, provider=None: True)
     assert state_api.state_fields()["vision"] is True
+
+
+def test_model_list_marks_free_models(monkeypatch):
+    from jarvis.auth import openrouter_catalog, zen_catalog
+    from jarvis.constants import providers
+    from jarvis.web import pickers_api
+
+    monkeypatch.setattr(pickers_api, "model_picker_rows", lambda: [
+        ("harness_agent", "mimo-v2.5-free", "MiMo"),
+        ("openrouter", "qwen/qwen3.8-27b:free", "Qwen — free"),
+        ("openrouter", "openrouter/zero-cost", "listed as $0 by the catalog"),
+        ("openrouter", "anthropic/claude-sonnet-5", "paid"),
+        ("opencode_zen", "big-pickle", "Big Pickle"),
+        ("opencode_zen", "claude-opus-5", "paid on Zen"),
+        ("anthropic", "claude-sonnet-5", "your plan"),
+    ])
+    monkeypatch.setattr(providers, "model_supports_images", lambda mid, provider=None: False)
+    monkeypatch.setattr(openrouter_catalog, "cached_free_models",
+                        lambda: [openrouter_catalog.FreeModel(id="openrouter/zero-cost", label="x")])
+    monkeypatch.setattr(zen_catalog, "cached_free_models", lambda: [("big-pickle", "Big Pickle")])
+    rows = {r["model_id"] + "@" + r["source"]: r["free"] for r in pickers_api.list_models()["models"]}
+    assert rows == {
+        "mimo-v2.5-free@harness_agent": True,
+        "qwen/qwen3.8-27b:free@openrouter": True,
+        "openrouter/zero-cost@openrouter": True,
+        "anthropic/claude-sonnet-5@openrouter": False,
+        "big-pickle@opencode_zen": True,
+        "claude-opus-5@opencode_zen": False,
+        "claude-sonnet-5@anthropic": False,
+    }
+    # Searching "free" lists only the free ones.
+    free = [r["model_id"] for r in pickers_api.list_models(query="free")["models"]]
+    assert free == ["mimo-v2.5-free", "qwen/qwen3.8-27b:free", "openrouter/zero-cost", "big-pickle"]

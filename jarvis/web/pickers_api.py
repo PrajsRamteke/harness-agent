@@ -69,36 +69,31 @@ def list_sessions(*, limit: int = 50, offset: int = 0) -> dict[str, Any]:
     }
 
 
-# Searching one of these lists only the models that can see images.
-_VISION_WORDS = {"image", "images", "vision", "photo", "photos", "picture", "pictures"}
-
-
-def _sees_images(model_id: str, source: str) -> bool:
-    """Same answer the request path uses (``repl/stream.py``), so the badge
-    matches what the model really gets. Rows built by ``model_picker_rows``
-    have already registered the vision support of discovered models."""
-    from ..constants.providers import model_supports_images
-
-    try:
-        return bool(model_supports_images(model_id, source))
-    except Exception:
-        return False
-
-
 def list_models(*, query: str = "") -> dict[str, Any]:
+    # Tags shared with the terminal /model picker (constants/providers.py).
+    from ..constants.providers import (
+        VISION_SEARCH_WORDS, free_model_ids, model_is_free, model_sees_images,
+    )
+
     q = (query or "").strip().lower()
-    vision_only = q in _VISION_WORDS
+    vision_only = q in VISION_SEARCH_WORDS
+    free_only = q == "free"
+    free_ids = free_model_ids()
     models: list[dict[str, Any]] = []
     for src, model_id, desc in model_picker_rows():
         label = MODEL_SOURCE_LABELS.get(src) or provider_label(src)
         if src == PROVIDER_HARNESS_AGENT:
             label = "Harness Agent"
-        images = _sees_images(model_id, src)
+        images = model_sees_images(model_id, src)
+        free = model_is_free(model_id, src, free_ids)
         if vision_only:
             if not images:
                 continue
+        elif free_only:
+            if not free:
+                continue
         elif q and q not in model_id.lower() and q not in desc.lower() and q not in label.lower():
-            if q not in ("harness", "agent", "free"):
+            if q not in ("harness", "agent"):
                 continue
         models.append({
             "id": model_option_id(src, model_id),
@@ -108,6 +103,7 @@ def list_models(*, query: str = "") -> dict[str, Any]:
             "description": desc,
             "active": _model_is_active(src, model_id),
             "images": images,
+            "free": free,
         })
     return {
         "models": models,

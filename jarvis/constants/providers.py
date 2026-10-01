@@ -19,6 +19,7 @@ models.dev catalog (jarvis/auth/models_dev.py, ids "md:<id>"); see the
 
 import os
 from dataclasses import dataclass
+from typing import Any
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
 PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "kimchi")
@@ -99,6 +100,7 @@ MODELS: list[ModelSpec] = [
     # ── Anthropic (direct API) — Claude 5 family ──────────────────────────────
     # Newest first. Pricing: platform.claude.com/docs/en/about-claude/pricing
     ModelSpec("claude-opus-5-5",   "Opus 5.5 — latest, agentic coding & knowledge work", PROVIDER_ANTHROPIC,  4.0, 20.0, supports_images=True),
+    ModelSpec("claude-sonnet-5-5", "Sonnet 5.5 — latest Sonnet, fast everyday coding",   PROVIDER_ANTHROPIC,  2.0, 10.0, supports_images=True),
     ModelSpec("claude-fable-5-1",  "Fable 5.1 — top reasoning, long-horizon",            PROVIDER_ANTHROPIC, 10.0, 50.0, supports_images=True),
     ModelSpec("claude-mythos-5-1", "Mythos 5.1 — Fable 5.1 tier (invite-only)",          PROVIDER_ANTHROPIC, 10.0, 50.0, supports_images=True),
     ModelSpec("claude-opus-5",     "Opus 5 — high capability",                           PROVIDER_ANTHROPIC,  5.0, 25.0, supports_images=True),
@@ -199,6 +201,61 @@ def model_supports_images(model_id: str, provider: str | None = None) -> bool:
             m = None
         return bool(m and m.images)
     return model_id in IMAGE_SUPPORTING_MODELS
+
+
+def free_model_ids() -> dict[str, set[str]]:
+    """Ids the free-tier catalogs list right now (on-disk caches, no network)."""
+    out: dict[str, set[str]] = {}
+    try:
+        from ..auth.openrouter_catalog import cached_free_models
+
+        out[PROVIDER_OPENROUTER] = {m.id for m in cached_free_models()}
+    except Exception:
+        pass
+    try:
+        from ..auth.zen_catalog import cached_free_models as zen_free
+
+        out[PROVIDER_OPENCODE_ZEN] = {mid for mid, _label in zen_free()}
+    except Exception:
+        pass
+    return out
+
+
+def model_is_free(model_id: str, source: str, free_ids: dict[str, set[str]] | None = None) -> bool:
+    """$0 to use — the /model "free" tag (TUI and web). Only claimed when a
+    catalog says so: an unknown price is never "free". ``free_ids`` is
+    ``free_model_ids()``, passed in when tagging a whole list."""
+    if free_ids is None:
+        free_ids = free_model_ids()
+    if source == PROVIDER_HARNESS_AGENT:
+        return True  # the free tier: no key, no cost
+    if source == PROVIDER_OPENROUTER:
+        # Every $0 model on openrouter.ai/api/v1/models (auth/openrouter_catalog);
+        # ":free" is OpenRouter's own suffix for them.
+        return (model_id in free_ids.get(source, ()) or model_id.endswith(":free")
+                or model_id == "openrouter/free")
+    if source == PROVIDER_OPENCODE_ZEN:
+        return model_id in free_ids.get(source, ()) or model_id.endswith("-free")
+    if is_catalog_provider(source):
+        try:
+            found = _catalog().get_model(source, model_id)
+        except Exception:
+            found = None
+        return bool(found and found.free)  # models.dev lists both prices as 0
+    return False
+
+
+def model_sees_images(model_id: str, source: str) -> bool:
+    """The /model image tag: same answer the request path uses (``model_supports_images``).
+    Rows from ``all_model_picker_rows`` have already registered discovered models."""
+    try:
+        return bool(model_supports_images(model_id, source))
+    except Exception:
+        return False
+
+
+# Searching one of these in /model lists only the models that can see images.
+VISION_SEARCH_WORDS = frozenset({"image", "images", "vision", "photo", "photos", "picture", "pictures"})
 
 
 def register_dynamic_model(
@@ -340,11 +397,42 @@ ANTHROPIC_MODELS = [
 # at runtime when OAuth connects successfully.
 ANTHROPIC_AUTH_MODEL_IDS = (
     "claude-opus-5-5",
+    "claude-sonnet-5-5",
     "claude-fable-5-1",
     "claude-mythos-5-1",
     "claude-opus-5",
     "claude-sonnet-5",
 )
+# Claude 5 models (and Opus 4.7 / 4.8) take adaptive thinking + an effort level
+# only: ``{"type": "enabled", "budget_tokens": N}`` is a 400 on all of them, and
+# thinking can't be switched off on Opus 5.5 / Sonnet 5.5 / Fable / Mythos.
+_ADAPTIVE_THINKING_PREFIXES = (
+    "claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-mythos-5",
+    "claude-opus-4-7", "claude-opus-4-8",
+)
+# Jarvis effort → API effort (the API has no "minimal").
+_CLAUDE_EFFORT = {"xhigh": "xhigh", "high": "high", "medium": "medium", "low": "low", "minimal": "low"}
+
+
+def claude_uses_adaptive_thinking(model_id: str) -> bool:
+    return (model_id or "").lower().startswith(_ADAPTIVE_THINKING_PREFIXES)
+
+
+def claude_thinking_kwargs(think_mode: bool, effort: str) -> dict[str, Any]:
+    """Request fields for thinking on a Claude 5 model (Anthropic API / OAuth).
+
+    On: adaptive thinking (summaries shown, so the transcript has something to
+    show) at the chosen effort. Off: the lowest effort — the closest these
+    models allow, since ``{"type": "disabled"}`` is refused on several of them.
+    """
+    if think_mode and effort != "none":
+        return {
+            "thinking": {"type": "adaptive", "display": "summarized"},
+            "output_config": {"effort": _CLAUDE_EFFORT.get(effort, "high")},
+        }
+    return {"output_config": {"effort": "low"}}
+
+
 OPENROUTER_FREE_MODELS = [
     (mid, info[0])
     for mid, info in MODEL_INFO.items()

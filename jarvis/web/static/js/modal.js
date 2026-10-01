@@ -156,5 +156,6 @@ export function listNav(listEl, onPick) {
     return false;
   }
 
-  return { reset, move, handleKey, paint, setCursor(i) { cursor = i; paint(); } };
+  /** `scroll: false` moves the cursor without scrolling the list (re-renders that keep the view). */
+  return { reset, move, handleKey, paint, setCursor(i, scroll = true) { cursor = i; paint(scroll); } };
 }

@@ -1,6 +1,9 @@
 """Modal model picker — replaces console.input-based /model flow in the TUI."""
 from __future__ import annotations
 
+import re
+
+from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -16,6 +19,9 @@ from ..constants import (
     PROVIDER_OPENCODE_ZEN,
     AUTH_API_KEY, AUTH_OAUTH,
     is_catalog_provider, provider_label,
+)
+from ..constants.providers import (
+    VISION_SEARCH_WORDS, free_model_ids, model_is_free, model_sees_images,
 )
 from .. import state
 from .modal_chrome import (
@@ -65,6 +71,58 @@ def model_picker_rows(live: bool = False) -> list[tuple[str, str, str]]:
     seen = {mid for _, mid, _ in harness}
     extra = [(src, mid, desc) for src, mid, desc in rows if mid not in seen]
     return harness + extra
+
+
+# ─── Tags: free to use · can see images (same rules as the web picker) ─────
+
+IMAGE_MARK = "◩"
+_FREE_TAIL = re.compile(r"(?:,\s*|\s+[—–-]\s+|\s+|^)free\s*$", re.IGNORECASE)
+
+
+def _free_less(desc: str) -> str:
+    """"1M ctx, free" → "1M ctx", "Big Model Free" → "Big Model" — the tag says it now."""
+    return _FREE_TAIL.sub("", desc or "").strip()
+
+
+def _image_color() -> str:
+    """Sky blue, darker on a light palette (as on the web)."""
+    bg = (ui.BG_0 or "#000000").lstrip("#")
+    try:
+        r, g, b = (int(bg[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return "#38bdf8"
+    return "#0284c7" if (0.299 * r + 0.587 * g + 0.114 * b) > 150 else "#38bdf8"
+
+
+def _source_label(src: str) -> str:
+    """Group / row label for a model source ("Anthropic API", not "anthropic_api")."""
+    if src == PROVIDER_HARNESS_AGENT:
+        return "Harness Agent"
+    return MODEL_SOURCE_LABELS.get(src) or provider_label(src)
+
+
+_FREE_TAG = "  free"
+_IMAGE_TAG = f"  {IMAGE_MARK}"
+
+
+def tags_width(free_slot: bool, image_slot: bool) -> int:
+    """Width of the tag column: room for each tag some row in the list has."""
+    return (len(_FREE_TAG) if free_slot else 0) + (len(_IMAGE_TAG) if image_slot else 0)
+
+
+def model_tags(*, free: bool, images: bool, free_slot: bool = False) -> Text:
+    """``  free  ◩`` for a model row's tag column (``picker_row(tags=…)``).
+
+    A free slot stays blank on rows without it, so the image marks line up too.
+    """
+    out = Text(no_wrap=True)
+    if free:
+        out.append(_FREE_TAG, style=f"bold {ui.OK}")
+    elif free_slot:
+        out.append(" " * len(_FREE_TAG))
+    if images:
+        out.append(_IMAGE_TAG, style=f"bold {_image_color()}")
+    return out
 
 
 # Option id of a "connect a provider" row ("__connect__:" + provider id, or
@@ -150,7 +208,9 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                 yield OptionList(id="model_list")
                 yield Static(
                     hint_line(("↑↓", "navigate"), ("↵", "select"),
-                              ("type", "to search"), ("esc", "close")),
+                              ("type", "to search"), ("esc", "close"))
+                    + f"   [bold {ui.OK}]free[/] [{ui.FG_DIM}]no cost[/]"
+                    + f"   [bold {_image_color()}]{IMAGE_MARK}[/] [{ui.FG_DIM}]sees images[/]",
                     id="modal_hint",
                 )
 
@@ -282,13 +342,26 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             seen = {mid for _, mid, _ in rows}
             rows = [r for r in harness if r[1] not in seen] + rows
 
+        free_ids = free_model_ids()
+        tags = {(src, m): (model_is_free(m, src, free_ids), model_sees_images(m, src))
+                for src, m, _d in rows}
         groups: dict[str, list[tuple[str, str]]] = {}
         for src, m, desc in rows:
-            label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else provider_label(src)
-            if q and not any(q in part.lower() for part in (m, desc, label)):
-                if q not in ("harness", "agent", "free") or src != PROVIDER_HARNESS_AGENT:
+            label = _source_label(src)
+            free, images = tags[(src, m)]
+            if q == "free":  # "free" / "vision" list only the tagged models
+                if not free:
+                    continue
+            elif q in VISION_SEARCH_WORDS:
+                if not images:
+                    continue
+            elif q and not any(q in part.lower() for part in (m, desc, label)):
+                if q not in ("harness", "agent") or src != PROVIDER_HARNESS_AGENT:
                     continue
             groups.setdefault(src, []).append((m, desc))
+        shown = [tags[(src, m)] for src, items in groups.items() for m, _d in items]
+        free_slot = any(f for f, _i in shown)
+        tag_w = tags_width(free_slot, any(i for _f, i in shown))
 
         options = []
         active_id: str | None = None
@@ -309,14 +382,17 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                 options.append(section_header("Recent", first=True))
                 for oid in recent:
                     src, m, desc = by_id[oid]
-                    label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else provider_label(src)
+                    label = _source_label(src)
+                    free, images = tags[(src, m)]
                     options.append(Option(
-                        picker_row(m, right=label, active=self._is_active(src, m)),
+                        picker_row(m, right=label, active=self._is_active(src, m),
+                                   tags=model_tags(free=free, images=images, free_slot=free_slot),
+                                   tags_width=tag_w),
                         id=f"recent:{oid}",
                     ))
                 recent_first = f"recent:{recent[0]}"
         for i, (src, items) in enumerate(groups.items()):
-            label = "Harness Agent" if src == PROVIDER_HARNESS_AGENT else provider_label(src)
+            label = _source_label(src)
             note = "free · no key needed" if src == PROVIDER_HARNESS_AGENT else f"{len(items)} models"
             if is_catalog_provider(src):
                 note += " · models.dev"
@@ -327,8 +403,13 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                 if active:
                     active_id = oid
                 desc_short = desc.split(" — ", 1)[-1] if " — " in desc else desc
+                free, images = tags[(src, m)]
+                if free:
+                    desc_short = _free_less(desc_short)
                 options.append(Option(
-                    picker_row(m, right=desc_short[:48], active=active, query=q),
+                    picker_row(m, right=desc_short[:48], active=active, query=q,
+                               tags=model_tags(free=free, images=images, free_slot=free_slot),
+                               tags_width=tag_w),
                     id=oid,
                 ))
         connect = self._connect_rows(q, has_models=bool(options))

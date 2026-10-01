@@ -146,21 +146,34 @@
 .att-note-btn .ic { width: 14px; height: 14px; color: rgb(56, 189, 248); }
 :root[data-theme="light"] .att-note-btn .ic { color: rgb(2, 132, 199); }
 
-/* "Can see images" mark, right after the model name in the picker (pickers.js). */
-.lr-title-line { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.lr-title-line .lr-title { min-width: 0; }
+/* Model picker tags on the right of a row: Free · can see images · In use (pickers.js). */
+.lr-tags { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .lr-cap {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
   color: rgb(56, 189, 248);
   background: rgba(56, 189, 248, 0.1);
   box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.24);
 }
 .lr-cap .ic { width: 12px; height: 12px; stroke-width: 2.2; }
+.lr-cap.is-empty { visibility: hidden; }
+/* "Free" next to models that cost nothing to use. */
+.lr-free {
+  flex-shrink: 0;
+  padding: 1px 9px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: rgb(52, 211, 153);
+  background: rgba(52, 211, 153, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.28);
+}
+:root[data-theme="light"] .lr-free { color: rgb(4, 120, 87); background: rgba(5, 150, 105, 0.08); box-shadow: inset 0 0 0 1px rgba(5, 150, 105, 0.25); }
 :root[data-theme="light"] .lr-cap { color: rgb(2, 132, 199); background: rgba(2, 132, 199, 0.08); box-shadow: inset 0 0 0 1px rgba(2, 132, 199, 0.22); }
 
 @media (max-width: 560px) {
