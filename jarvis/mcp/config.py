@@ -14,6 +14,11 @@ Two scopes:
     - OpenCode   : ``~/.config/opencode/opencode.json`` (``mcp`` key)
     - OpenCode   : ``~/.config/opencode/mcp.json``
     - Cursor     : ``~/.cursor/mcp.json``
+    - Codex      : ``~/.codex/config.toml``           (``[mcp_servers.*]``, ``$CODEX_HOME``)
+    - Gemini CLI : ``~/.gemini/settings.json``        (``mcpServers`` key)
+    - Antigravity: ``~/.gemini/antigravity/mcp_config.json``
+    - Kiro       : ``~/.kiro/settings/mcp.json``
+    - Copilot CLI: ``~/.copilot/mcp-config.json``
     - Windsurf   : ``~/.codeium/windsurf/mcp_config.json``
     - VS Code    : ``~/.vscode/mcp.json``
 
@@ -28,8 +33,17 @@ tools' configs are read-only (edit them with their own UIs).
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 from typing import Any
+
+try:  # Python 3.11+
+    import tomllib as _toml
+except ImportError:  # pragma: no cover — 3.10 without tomli just skips Codex
+    try:
+        import tomli as _toml  # type: ignore[no-redef]
+    except ImportError:
+        _toml = None
 
 
 MCP_GLOBAL_CONFIG_FILE = pathlib.Path.home() / ".config" / "harness-agent" / "mcp.json"
@@ -52,6 +66,7 @@ def _project_config_path() -> pathlib.Path:
 
 def _global_sources() -> list[tuple[str, pathlib.Path, str]]:
     home = pathlib.Path.home()
+    codex_home = pathlib.Path(os.environ.get("CODEX_HOME") or home / ".codex")
     return [
         ("jarvis",       MCP_GLOBAL_CONFIG_FILE,                       ""),
         ("claude",       home / ".claude.json",                        ""),
@@ -59,6 +74,11 @@ def _global_sources() -> list[tuple[str, pathlib.Path, str]]:
         ("opencode",     home / ".config" / "opencode" / "opencode.json", "mcp"),
         ("opencode",     home / ".config" / "opencode" / "mcp.json",   ""),
         ("cursor",       home / ".cursor" / "mcp.json",                ""),
+        ("codex",        codex_home / "config.toml",                   "mcp_servers"),
+        ("gemini",       home / ".gemini" / "settings.json",           ""),
+        ("antigravity",  home / ".gemini" / "antigravity" / "mcp_config.json", ""),
+        ("kiro",         home / ".kiro" / "settings" / "mcp.json",     ""),
+        ("copilot",      home / ".copilot" / "mcp-config.json",        ""),
         ("windsurf",     home / ".codeium" / "windsurf" / "mcp_config.json", ""),
         ("vscode",       home / ".vscode" / "mcp.json",                ""),
     ]
@@ -78,11 +98,15 @@ def _normalize_claude_code_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
     * ``type`` may be ``"local"`` (treated as stdio) or ``"remote"`` (streamable
       http — falls back to sse on its own when the server only speaks that)
     * ``enabled: false`` skips the entry entirely
+    * the URL may be ``url``, ``httpUrl`` (Gemini CLI) or ``serverUrl``
+      (Windsurf / Antigravity)
     """
     if not isinstance(cfg, dict):
         return None
     if cfg.get("enabled") is False:
         return None
+    if not cfg.get("url") and (cfg.get("httpUrl") or cfg.get("serverUrl")):
+        cfg = {**cfg, "url": cfg.get("httpUrl") or cfg.get("serverUrl")}
 
     declared_type = str(cfg.get("type", "")).lower()
     entry: dict[str, Any] = {}
@@ -122,8 +146,18 @@ def _normalize_claude_code_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
     if is_sse and has_url:
         entry["type"] = "sse" if declared_type == "sse" else guess_remote_type(str(cfg["url"]))
         entry["url"] = str(cfg["url"])
+        headers: dict[str, str] = {}
         if isinstance(cfg.get("headers"), dict):
-            entry["headers"] = dict(cfg["headers"])
+            headers.update(cfg["headers"])
+        # Codex: http_headers, env_http_headers {header: ENV_VAR}, bearer_token_env_var
+        if isinstance(cfg.get("http_headers"), dict):
+            headers.update({str(k): str(v) for k, v in cfg["http_headers"].items()})
+        if isinstance(cfg.get("env_http_headers"), dict):
+            headers.update({str(k): "${%s}" % v for k, v in cfg["env_http_headers"].items()})
+        if cfg.get("bearer_token_env_var"):
+            headers.setdefault("Authorization", "Bearer ${%s}" % cfg["bearer_token_env_var"])
+        if headers:
+            entry["headers"] = headers
         if cfg.get("oauth") is False:
             entry["oauth"] = False
         return entry
@@ -202,6 +236,15 @@ def _parse_config_file(
     """Parse one config file. Returns ``(servers, auto_connect)`` — empty on miss."""
     if not path.exists():
         return {}, []
+    if path.suffix == ".toml":
+        # Codex: a [mcp_servers.<name>] table per server, same fields as mcpServers.
+        if _toml is None:
+            return {}, []
+        try:
+            servers = _descend(_toml.loads(path.read_text(encoding="utf-8")), pointer)
+        except (ValueError, OSError):
+            return {}, []
+        return _extract_servers({"mcpServers": servers} if isinstance(servers, dict) else None)
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
@@ -238,6 +281,8 @@ class MCPConfig:
         self._global_auto: list[str] = []
         # Per-source breakdown for /mcp paths
         self._global_source_files: list[tuple[str, pathlib.Path, bool, int]] = []
+        # name → other global sources that define it too (shadowed)
+        self._also: dict[str, list[str]] = {}
         # Whether the most recent load included globals
         self._include_global: bool = False
 
@@ -287,6 +332,7 @@ class MCPConfig:
         self._global_servers = {}
         self._global_auto = []
         self._global_source_files = []
+        self._also = {}
 
         if include_global:
             sources = _global_sources()
@@ -299,6 +345,9 @@ class MCPConfig:
                 count = 0
                 for name, entry in servers.items():
                     if name in self._project_servers or name in self._global_servers:
+                        also = self._also.setdefault(name, [])
+                        if label not in also:
+                            also.append(label)
                         continue
                     entry["_source"] = label
                     self._global_servers[name] = entry
@@ -368,6 +417,11 @@ class MCPConfig:
         if name in self._global_servers:
             return "global"
         return None
+
+    def get_also(self, name: str) -> list[str]:
+        """Other sources that define ``name`` too (shadowed by the one in use)."""
+        own = self.get_source(name)
+        return [s for s in self._also.get(name, []) if s != own]
 
     def get_source(self, name: str) -> str | None:
         """Per-server source label (``'project'``, ``'jarvis'``, ``'claude'``, …)."""
@@ -536,6 +590,19 @@ def collect_global_servers() -> tuple[dict[str, dict[str, Any]], list[str]]:
             if n in servers and n not in auto:
                 auto.append(n)
     return servers, auto
+
+
+def global_source_summary() -> tuple[int, list[str]]:
+    """``(server count, tools)`` across every global source, whether or not the
+    global scope is on — so a project-only view can say what turning it on adds."""
+    names: set[str] = set()
+    tools: list[str] = []
+    for label, file_path, pointer in _global_sources():
+        file_servers, _auto = _parse_config_file(file_path, pointer)
+        if file_servers and label not in tools:
+            tools.append(label)
+        names.update(file_servers)
+    return len(names), tools
 
 
 def save_project_mcp_file(

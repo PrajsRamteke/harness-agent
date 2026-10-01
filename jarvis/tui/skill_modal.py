@@ -34,6 +34,7 @@ from .modal_chrome import (
 )
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
+from ..utils.origins import tool_icon, tool_tag, tools_in
 
 
 class SkillBrowserScreen(TuiModalScreen[str | None]):
@@ -83,7 +84,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
             with Vertical(id="modal"):
                 yield Static("★  Skills", id="modal_title")
                 yield Static("", id="modal_status")
-                yield Input(placeholder="search name or description…", id="skill_search")
+                yield Input(placeholder="search name, description or tool (claude, cursor…)", id="skill_search")
                 yield OptionList(id="skill_list")
                 with Horizontal(id="skill_buttons"):
                     yield Button("+ Install skill", id="skill_add", variant="primary", compact=True)
@@ -140,15 +141,14 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
         glob = [s for s in skills if s.get("scope") == "global"]
 
         if project:
-            opts.add_option(section_header("Project", ".harness/skills/ · .skills/ · .claude/skills/",
-                                           first=True))
+            opts.add_option(section_header("Project", " · ".join(tools_in(project)), first=True))
             for s in project:
                 opts.add_option(Option(_format_skill_row(s, q), id=s["name"]))
 
         if glob:
-            note = "~/.harness/skills/ · ~/.claude/skills/"
+            note = " · ".join(tools_in(glob))
             if not state.global_skills:
-                note = "hidden from Jarvis — press g to turn global skills on"
+                note += " — hidden from Jarvis: press g to turn global skills on"
             opts.add_option(section_header("Global", note, first=not project,
                                            note_style=None if state.global_skills else ui.WARN))
             for s in glob:
@@ -373,7 +373,8 @@ def _format_skill_row(skill: dict, query: str = ""):
         origin = origin.rstrip("/").rsplit("/", 1)[-1]  # a local folder: its name, not the whole path
     if len(origin) > 26:
         origin = origin[:25] + "…"
-    right = skill.get("scope", "")
+    tool = skill.get("tool") or "jarvis"
+    right = f"{tool_icon(tool)} {tool_tag(tool, skill.get('also') or ())}"
     if origin:
         right += f" · from {origin}"
     if not active:

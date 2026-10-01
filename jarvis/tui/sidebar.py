@@ -231,9 +231,11 @@ class SidebarBody(Widget):
             from ..mcp.config import get_config
             from ..mcp.registry import mcp_registry
 
-            servers = get_config().list_servers()
+            mcp_config = get_config()
+            servers = mcp_config.list_servers()
+            source_of = getattr(mcp_config, "get_source", None)
         except Exception:
-            servers = {}
+            servers, source_of = {}, None
         section("MCP", "◈")
         names = list(servers.items())
         for name, cfg in names[:8]:
@@ -254,6 +256,9 @@ class SidebarBody(Widget):
                 out.append("  sign in", style=f"bold {ui.WARN}")
             elif status in ("failed", "connecting"):
                 out.append(f" {status}", style=ui.FG_DIM)
+            elif source_of is not None:
+                # where it comes from: project / jarvis / claude / cursor …
+                out.append(f"  {source_of(name) or ''}", style=ui.FG_DIM)
         if len(names) > 8:
             out.append("\n")
             hit("mcp")

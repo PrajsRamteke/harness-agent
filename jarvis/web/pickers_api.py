@@ -100,6 +100,7 @@ def list_models(*, query: str = "") -> dict[str, Any]:
 
 def list_agents(*, include_global: bool | None = None) -> dict[str, Any]:
     from ..storage import agents as ag
+    from ..utils.origins import other_tools, tool_label
 
     if include_global is None:
         include_global = state.global_agents
@@ -108,12 +109,16 @@ def list_agents(*, include_global: bool | None = None) -> dict[str, Any]:
     agents = []
     for rec in sorted(agents_raw, key=lambda r: (r.get("scope") != "project", r.get("name", ""))):
         name = rec.get("name") or ""
+        tool = rec.get("tool") or "jarvis"
         agents.append({
             "name": name,
             "description": rec.get("description") or "",
             "icon": rec.get("icon") or "",
             "scope": rec.get("scope") or "project",
             "source_tag": rec.get("source_tag") or "",
+            "tool": tool,                       # claude, cursor … (utils/origins.py)
+            "tool_label": tool_label(tool),
+            "also_labels": [tool_label(t) for t in other_tools(tool, rec.get("also") or ())],
             "active": name == active,
         })
     hidden = ag.global_count() if not include_global else 0

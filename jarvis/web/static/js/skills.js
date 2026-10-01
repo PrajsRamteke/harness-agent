@@ -6,7 +6,7 @@
  * rather than an all-or-nothing install. Project / Global picks where they go.
  * Server side: jarvis/web/extensions_api.py → jarvis/storage/skill_install.py.
  */
-import { $, escapeHtml, showToast, haptic, debounce } from './utils.js';
+import { $, escapeHtml, showToast, haptic, debounce, originBadge } from './utils.js';
 import { icon } from './icons.js';
 import { loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
@@ -107,6 +107,12 @@ function installBtnHtml() {
   return `<button type="button" class="btn btn-primary ex-add-btn" data-act="install"${n && !add.installing && !add.result ? '' : ' disabled'}>${add.installing ? spin(label) : `${icon('download')}<span>${label}</span>`}</button>`;
 }
 
+// Where it comes from: "Project" for this folder's skills, then the tool (Claude Code, Cursor …).
+function skillBadges(s) {
+  const where = s.scope === 'project' ? 'Project' : 'Global';
+  return `${s.scope === 'project' ? '<span class="badge">Project</span>' : ''}${originBadge(s.tool_label, s.also_labels, `${where} · ${tildify(s.source_dir || '')}`)}`;
+}
+
 function skillRow(s, i) {
   const b = busy[s.name];
   const why = s.active ? '' : ' — Jarvis can’t see it while global skills are hidden';
@@ -114,7 +120,7 @@ function skillRow(s, i) {
     <button type="button" class="ex-skill-main" data-act="view" data-name="${escapeHtml(s.name)}" aria-label="Read ${escapeHtml(s.name)}${escapeHtml(why)}">
       ${mark(s.name, s.scope === 'project' ? 'accent' : 'indigo')}
       <span class="pv-text">
-        <span class="pv-title"><span class="ex-name">${escapeHtml(s.name)}</span><span class="badge">${s.scope === 'project' ? 'Project' : 'Global'}</span>${s.active ? '' : '<span class="badge is-warn" title="Global skills are switched off">Hidden</span>'}</span>
+        <span class="pv-title"><span class="ex-name">${escapeHtml(s.name)}</span>${skillBadges(s)}${s.active ? '' : '<span class="badge is-warn" title="Global skills are switched off">Hidden</span>'}</span>
         <span class="ex-skill-desc">${escapeHtml(s.description || '')}</span>
         ${s.origin ? `<span class="ex-skill-from" title="${escapeHtml(s.origin)}">from ${escapeHtml(tildify(s.origin))}</span>` : ''}
         ${notes[s.name]?.text ? `<span class="ex-skill-note${notes[s.name].error ? ' is-error' : ''}">${escapeHtml(notes[s.name].text)}</span>` : ''}
@@ -205,7 +211,7 @@ function renderDetail() {
   const text = String(v.content || '').replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, '').trim();
   body.innerHTML = `
     <button type="button" class="btn btn-quiet detail-back" data-act="back">${icon('arrow-left')}<span>Back to skills</span></button>
-    <div class="ex-detail-head"><strong class="ex-name">${escapeHtml(v.name)}</strong>${s ? `<span class="badge">${s.scope === 'project' ? 'Project' : 'Global'}</span>` : ''}</div>
+    <div class="ex-detail-head"><strong class="ex-name">${escapeHtml(v.name)}</strong>${s ? skillBadges(s) : ''}</div>
     ${s?.description ? `<p class="ex-detail-desc">${escapeHtml(s.description)}</p>` : ''}
     ${v.loading ? `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(3)}</div>` : v.error ? msg(v.error, 'error') : `<div class="md ex-md">${renderMarkdown(text)}</div>`}`;
   applyMarkdownLinks(body);

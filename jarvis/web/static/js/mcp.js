@@ -14,7 +14,7 @@
  * and the page then watches until the server is live. On another device the
  * last page won't load — its address can be pasted instead.
  */
-import { $, escapeHtml, showToast, haptic, debounce, copyText } from './utils.js';
+import { $, escapeHtml, showToast, haptic, debounce, copyText, originBadge } from './utils.js';
 import { icon } from './icons.js';
 import { store, loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
@@ -93,7 +93,7 @@ function statusText(s, st) {
   }
 }
 
-const scopeLabel = (s) => (s.scope === 'project' ? 'Project' : s.source === 'jarvis' || !s.source ? 'Global' : s.source_label || 'Global');
+const scopeLabel = (s) => (s.scope === 'project' ? 'Project' : s.source_label || 'Global');
 
 function serverByName(name) {
   return data?.servers?.find((s) => s.name === name) || null;
@@ -118,7 +118,7 @@ function headHtml(s) {
   const st = statusOf(s);
   return `${mark(s.name, TONE[st], { on: st === 'live' })}
     <span class="pv-text">
-      <span class="pv-title"><span class="ex-name">${escapeHtml(s.name)}</span><span class="badge ex-scope" title="${escapeHtml(s.source_label || '')}">${escapeHtml(scopeLabel(s))}</span></span>
+      <span class="pv-title"><span class="ex-name">${escapeHtml(s.name)}</span>${originBadge(scopeLabel(s), s.also_labels, s.scope === 'project' ? 'Project · .mcp.json' : `Global · ${s.source_label || ''} config`)}</span>
       <span class="pv-sub ex-st is-${st}"><i class="ex-dot" aria-hidden="true"></i>${escapeHtml(statusText(s, st))}</span>
     </span>
     <span class="pv-chev">${icon('chevron-down')}</span>`;

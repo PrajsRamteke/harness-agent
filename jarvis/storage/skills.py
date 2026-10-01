@@ -5,9 +5,13 @@ Follows the OpenCode.ai skill convention:
 - OpenCode-compat: .opencode/skills/<name>/SKILL.md
 - Claude-compat: .claude/skills/<name>/SKILL.md
 - Agent-compat: .agents/skills/<name>/SKILL.md
-- Global: ~/.config/harness-agent/skills/<name>/SKILL.md
-- Global: ~/.config/opencode/skills/<name>/SKILL.md
-- Global: ~/.claude/skills/<name>/SKILL.md
+- Cursor / Codex / Gemini / Kiro: .cursor/skills, .codex/skills, .gemini/skills, .kiro/skills
+- Global: ~/.harness/skills, ~/.config/harness-agent/skills (Jarvis), then every
+  other tool's user folder — see ``global_skill_dirs()``
+
+Every record carries ``tool`` (claude, cursor, … — see utils/origins.py) and
+``also``: other tools that have a skill of the same name (shadowed by it — the
+same skill is often installed into several tools at once).
 
 By default, only project-level skills are discovered. Set
 `include_global=True` (or state.global_skills) to also include
@@ -36,6 +40,7 @@ from typing import Dict, List, Optional, Tuple
 
 from ..constants import CONFIG_DIR, HARNESS_SKILLS_DIR, PROJECT_SKILLS_DIRNAME
 from .. import state
+from ..utils.origins import note_duplicate, tool_for_path
 
 # Directories to scan for skills, in priority order (first-found wins for dupes)
 SKILL_DIRS = [
@@ -48,7 +53,30 @@ SKILL_DIRS = [
     ".claude/skills",
     # Agent compatibility
     ".agents/skills",
+    # Other tools' project folders
+    ".cursor/skills",
+    ".codex/skills",
+    ".gemini/skills",
+    ".kiro/skills",
 ]
+
+
+def global_skill_dirs() -> list[pathlib.Path]:
+    """Every global skill folder, in priority order (first wins for dupes)."""
+    home = pathlib.Path.home()
+    codex_home = pathlib.Path(os.environ.get("CODEX_HOME") or home / ".codex")
+    return [
+        HARNESS_SKILLS_DIR,                      # ~/.harness/skills (canonical)
+        CONFIG_DIR / "skills",                   # ~/.config/harness-agent/skills (legacy)
+        home / ".config" / "opencode" / "skills",
+        home / ".claude" / "skills",
+        home / ".agents" / "skills",             # shared: `npx skills`, Codex
+        codex_home / "skills",
+        home / ".cursor" / "skills",
+        home / ".gemini" / "skills",
+        home / ".kiro" / "skills",
+        home / ".copilot" / "skills",
+    ]
 
 # ── cache ──────────────────────────────────────────────────────────────────────
 _cache: list[dict] = []
@@ -179,7 +207,7 @@ def _validate_skill(name: str, description: str) -> bool:
 def _scan_one_skill_dir(skill_dir: pathlib.Path, scope: str = "project") -> list[dict]:
     """Scan a single skill directory (e.g. .skills/) for SKILL.md files.
 
-    Returns list of {name, description, path, source_dir, scope} dicts.
+    Returns list of {name, description, path, source_dir, scope, tool} dicts.
     `scope` is "project" for project-local skills, "global" for user-wide ones.
     """
     skills = []
@@ -217,6 +245,7 @@ def _scan_one_skill_dir(skill_dir: pathlib.Path, scope: str = "project") -> list
                 "path": str(skill_md),
                 "source_dir": str(skill_dir),
                 "scope": scope,
+                "tool": tool_for_path(skill_dir),
             })
     except PermissionError:
         pass
@@ -232,7 +261,8 @@ def discover_skills(force: bool = False, include_global: bool | None = None) -> 
         include_global: If True, include skills from global config dirs.
             If None, read from ``state.global_skills`` (defaults to False).
 
-    Returns deduplicated list of {name, description, path, source_dir, scope} dicts.
+    Returns deduplicated list of {name, description, path, source_dir, scope, tool,
+    also} dicts.
     Only reads frontmatter (name + description), never full content.
     """
     global _cache, _cache_ts, _cache_key
@@ -247,26 +277,24 @@ def discover_skills(force: bool = False, include_global: bool | None = None) -> 
 
     all_skills: dict[str, dict] = {}  # name -> skill dict
 
+    def add(skill: dict) -> None:
+        if skill["name"] in all_skills:
+            note_duplicate(all_skills[skill["name"]], skill)
+        else:
+            skill["also"] = []
+            all_skills[skill["name"]] = skill
+
     # 1. Project-level skills — walk up from CWD (always included)
     root = _find_project_root()
     for skill_dir_name in SKILL_DIRS:
-        skill_dir = root / skill_dir_name
-        for skill in _scan_one_skill_dir(skill_dir, scope="project"):
-            if skill["name"] not in all_skills:
-                all_skills[skill["name"]] = skill
+        for skill in _scan_one_skill_dir(root / skill_dir_name, scope="project"):
+            add(skill)
 
     # 2. Global skills — only when include_global=True
     if include_global:
-        global_dirs = [
-            ("global", HARNESS_SKILLS_DIR),                       # ~/.harness/skills (canonical)
-            ("global", CONFIG_DIR / "skills"),                    # ~/.config/harness-agent/skills (legacy)
-            ("global", pathlib.Path.home() / ".config" / "opencode" / "skills"),
-            ("global", pathlib.Path.home() / ".claude" / "skills"),
-        ]
-        for scope_label, gdir in global_dirs:
+        for gdir in global_skill_dirs():
             for skill in _scan_one_skill_dir(gdir, scope="global"):
-                if skill["name"] not in all_skills:
-                    all_skills[skill["name"]] = skill
+                add(skill)
 
     result = list(all_skills.values())
     _cache = result

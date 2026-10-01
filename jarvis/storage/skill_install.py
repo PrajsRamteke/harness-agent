@@ -34,6 +34,7 @@ from typing import Any
 
 from .. import state
 from ..constants import HARNESS_SKILLS_DIR, PROJECT_SKILLS_DIRNAME
+from ..utils.origins import other_tools, tool_label
 from . import skills as sk
 
 SCOPES = ("project", "global")
@@ -711,7 +712,8 @@ def describe_installed(query: str = "") -> dict[str, Any]:
     rows = []
     visible_global = bool(getattr(state, "global_skills", False))
     for rec in sorted(sk.discover_skills(force=True, include_global=True), key=lambda r: (r.get("scope") != "project", r["name"])):
-        if q and q not in rec["name"] and q not in rec["description"].lower():
+        tools = " ".join([rec.get("tool") or "jarvis", *(rec.get("also") or ())])
+        if q and q not in rec["name"] and q not in rec["description"].lower() and q not in tools:
             continue
         folder = _managed_path(rec)
         origin = ""
@@ -720,10 +722,16 @@ def describe_installed(query: str = "") -> dict[str, Any]:
                 origin = json.loads((folder / PROVENANCE_FILE).read_text(encoding="utf-8")).get("source", "")
             except (OSError, ValueError):
                 origin = ""
+        tool = rec.get("tool") or "jarvis"
+        also = other_tools(tool, rec.get("also") or ())
         rows.append({
             "name": rec["name"],
             "description": rec["description"],
             "scope": rec["scope"],
+            "tool": tool,                       # claude, cursor, codex … (utils/origins.py)
+            "tool_label": tool_label(tool),
+            "also": also,                       # other tools with a skill of this name
+            "also_labels": [tool_label(t) for t in also],
             "source_dir": rec["source_dir"],
             "managed": folder is not None,
             "origin": origin,

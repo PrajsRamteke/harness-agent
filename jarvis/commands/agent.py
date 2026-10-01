@@ -28,6 +28,7 @@ from ..constants import (
 )
 from ..storage import agents as ag
 from .. import state
+from ..utils.origins import tool_tag
 
 
 # Session-level: which scope does `/agent new` write to. Not persisted —
@@ -48,7 +49,8 @@ def _render_agents(rows: list[dict]) -> None:
     lines = []
     for r in rows:
         marker = " [bold green]●[/]" if r["name"] == active else "  "
-        tag = " [dim][global][/]" if r.get("scope") == "global" else ""
+        where = tool_tag(r.get("tool") or "jarvis", r.get("also") or ())
+        tag = f" [dim]\\[{'global · ' if r.get('scope') == 'global' else ''}{where}][/]"
         icon = (r.get("icon") or "").strip()
         icon_disp = f"{icon} " if icon else ""
         lines.append(f"{marker} [bold cyan]{icon_disp}{r['name']}[/]{tag}  [dim]{r['description']}[/]")

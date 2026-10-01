@@ -12,6 +12,14 @@ export function escapeHtml(s) {
     .replace(/'/g, '&#39;');
 }
 
+/** Badge naming the tool an agent / skill / MCP server comes from ("Claude Code"),
+ * "+2" when other tools have one of the same name; `scope` + those go in the tooltip. */
+export function originBadge(label, also = [], scope = '') {
+  const others = (also || []).filter(Boolean);
+  const title = [scope, others.length ? `Also in ${others.join(', ')}` : ''].filter(Boolean).join(' · ');
+  return `<span class="badge ex-origin"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(label || '')}${others.length ? ` +${others.length}` : ''}</span>`;
+}
+
 export function showToast(msg, isError = false) {
   const stack = $('toasts');
   if (!stack || !msg) return;

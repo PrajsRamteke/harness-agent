@@ -46,6 +46,7 @@ from ..mcp.config import (
 )
 from ..mcp.registry import mcp_registry, needs_auth
 from ..mcp.sources import SOURCE_ICONS as _SOURCE_ICONS, format_endpoint as _endpoint_text
+from ..utils.origins import tool_tag
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
@@ -61,6 +62,7 @@ def _row_label(
     connecting: bool = False,
     spinner: str = "⠋",
     health: dict | None = None,
+    also: list[str] | None = None,
 ):
     health = health or mcp_registry.get_server_health(name, cfg, connecting=connecting)
     status = health.get("status", "idle")
@@ -80,7 +82,8 @@ def _row_label(
         dot, color, word = "○", ui.FG_DIM, "idle"
     src_icon = _SOURCE_ICONS.get(source, "•")
     transport = cfg.get("type", "stdio")
-    meta = f"{src_icon} {scope} · {transport}" + (" · auto" if is_auto else "")
+    # Where it comes from (claude, cursor, codex …), "+2" when other tools define it too.
+    meta = f"{src_icon} {tool_tag(source, also or ())} · {transport}" + (" · auto" if is_auto else "")
     return picker_row(
         name,
         detail=_endpoint_text(cfg),
@@ -347,6 +350,23 @@ class MCPModalScreen(TuiModalScreen[None]):
         widget.update(Text(detail + hint, style=self._health_color(health["status"])))
         self._sync_buttons(name, health)
 
+    def _global_hint(self) -> str:
+        """What `g` would add, read once per dialog (it parses every tool's config)."""
+        if getattr(self, "_global_hint_text", None) is None:
+            try:
+                from ..mcp.config import global_source_summary
+
+                count, tools = global_source_summary()
+            except Exception:
+                count, tools = 0, []
+            if count:
+                self._global_hint_text = (
+                    f"(g: also load {count} server{'s' if count != 1 else ''} from {' · '.join(tools)})"
+                )
+            else:
+                self._global_hint_text = "(g: also load Claude / Cursor / Codex / …)"
+        return self._global_hint_text
+
     def _refresh_rows(self, keep_highlight: bool = True) -> None:
         """Re-read config and re-render the option list."""
         config = get_config()
@@ -381,7 +401,7 @@ class MCPModalScreen(TuiModalScreen[None]):
                 (f"{len(servers)} servers", "dim"),
                 self._header_health_bits(sorted(servers.keys())),
                 ("  ", ""),
-                ("(g: also load Claude / Cursor / …)", "dim"),
+                (self._global_hint(), "dim"),
             )
         self.query_one("#mcp_header", Static).update(scope_text)
 
@@ -432,6 +452,7 @@ class MCPModalScreen(TuiModalScreen[None]):
                         connecting=is_connecting,
                         spinner=spinner,
                         health=health,
+                        also=config.get_also(name),
                     ),
                     id=row_id,
                 )
@@ -744,6 +765,7 @@ class MCPModalScreen(TuiModalScreen[None]):
 
         state.global_mcp = not state.global_mcp
         state.save_mcp_config()
+        self._global_hint_text = None  # re-read: servers may have been added since
 
         from ..mcp.scope import apply_mcp_scope_change
 

@@ -11,12 +11,18 @@ Project-local (always scanned; first-found wins by name):
     <cwd>/.opencode/agents/<name>.md         (OpenCode compat)
     <cwd>/.agents/<name>.md                  (legacy compat)
     <cwd>/.cursor/agents/<name>.md           (Cursor compat)
+    <cwd>/.gemini/agents/<name>.md           (Gemini CLI compat)
 
 Global (opt-in via state.global_agents → settings.json `agent.global`):
     ~/.harness/agents/<name>.md              (canonical)
     ~/.config/harness-agent/agents/<name>.md (legacy fallback)
     ~/.claude/agents/<name>.md
-    ~/.config/opencode/agents/<name>.md
+    ~/.cursor/agents/<name>.md
+    ~/.gemini/agents/<name>.md
+    ~/.config/opencode/agents/<name>.md  (and the older agent/)
+
+Every record carries ``tool`` (claude, cursor, … — see utils/origins.py) and
+``also``: other tools that have an agent of the same name (shadowed by it).
 
 Required frontmatter:
     ---
@@ -44,6 +50,7 @@ from ..constants import (
     PROJECT_AGENTS_DIRNAME,
 )
 from .. import state
+from ..utils.origins import note_duplicate, tool_for_path
 
 
 # Directories under the project root to scan (in priority order — first wins).
@@ -53,6 +60,7 @@ PROJECT_AGENT_DIRS = [
     ".opencode/agents",
     ".agents",
     ".cursor/agents",
+    ".gemini/agents",
 ]
 
 # Source labels used for the modal/scope display.
@@ -201,6 +209,7 @@ def _scan_agent_dir(agent_dir: pathlib.Path, scope: str, source_tag: str) -> lis
                 "source_dir": str(agent_dir),
                 "source_tag": source_tag,
                 "scope": scope,
+                "tool": tool_for_path(agent_dir),
                 "_body": body,
             })
     except PermissionError:
@@ -234,6 +243,20 @@ def _seed_default_agents() -> None:
 _seeded = False
 
 
+def global_agent_dirs() -> list[tuple[str, pathlib.Path]]:
+    """``(display tag, folder)`` for every global agent folder, first wins."""
+    home = pathlib.Path.home()
+    return [
+        ("~/.harness/agents", HARNESS_AGENTS_DIR),
+        ("~/.config/harness-agent/agents", CONFIG_DIR / "agents"),
+        ("~/.claude/agents", home / ".claude" / "agents"),
+        ("~/.cursor/agents", home / ".cursor" / "agents"),
+        ("~/.gemini/agents", home / ".gemini" / "agents"),
+        ("~/.config/opencode/agents", home / ".config" / "opencode" / "agents"),
+        ("~/.config/opencode/agent", home / ".config" / "opencode" / "agent"),
+    ]
+
+
 def discover_agents(force: bool = False, include_global: bool | None = None) -> list[dict]:
     """Discover available agents (project + optional global).
 
@@ -242,7 +265,8 @@ def discover_agents(force: bool = False, include_global: bool | None = None) -> 
         include_global: if None, read from ``state.global_agents``.
 
     Returns: list of dicts with keys
-        name, description, icon, color, model, path, source_dir, source_tag, scope, _body
+        name, description, icon, color, model, path, source_dir, source_tag, scope,
+        tool, also, _body
     Body content is included since agent definitions are typically short
     (a few KB) and the active agent's body is injected into the system prompt
     every turn — caching it here avoids re-reading the file on each API call.
@@ -263,24 +287,25 @@ def discover_agents(force: bool = False, include_global: bool | None = None) -> 
 
     found: dict[str, dict] = {}
 
+    def add(agent: dict) -> None:
+        if agent["name"] in found:
+            note_duplicate(found[agent["name"]], agent)
+        else:
+            agent["also"] = []
+            found[agent["name"]] = agent
+
     # 1. Project-level dirs (always scanned).
     root = _find_project_root()
     for rel in PROJECT_AGENT_DIRS:
         d = root / rel
         for agent in _scan_agent_dir(d, scope=SCOPE_PROJECT, source_tag=rel):
-            found.setdefault(agent["name"], agent)
+            add(agent)
 
     # 2. Global dirs (opt-in).
     if include_global:
-        global_dirs = [
-            ("~/.harness/agents", HARNESS_AGENTS_DIR),
-            ("~/.config/harness-agent/agents", CONFIG_DIR / "agents"),
-            ("~/.claude/agents", pathlib.Path.home() / ".claude" / "agents"),
-            ("~/.config/opencode/agents", pathlib.Path.home() / ".config" / "opencode" / "agents"),
-        ]
-        for tag, gdir in global_dirs:
+        for tag, gdir in global_agent_dirs():
             for agent in _scan_agent_dir(gdir, scope=SCOPE_GLOBAL, source_tag=tag):
-                found.setdefault(agent["name"], agent)
+                add(agent)
 
     result = list(found.values())
     _cache = result

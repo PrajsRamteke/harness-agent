@@ -817,6 +817,7 @@ def describe_servers(query: str = "") -> dict[str, Any]:
             "scope": config.get_scope(name),
             "source": source,
             "source_label": SOURCE_LABELS.get(source, source),
+            "also_labels": [SOURCE_LABELS.get(s, s) for s in config.get_also(name)],
             "removable": source in ("project", "jarvis"),
             "auto_connect": name in auto,
             "transport": (state_obj.transport if state_obj and state_obj.transport else transport),

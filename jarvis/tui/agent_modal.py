@@ -3,7 +3,11 @@
 User interaction:
 
 * ↑/↓        navigate the agent list
-* Enter      activate the highlighted agent (or pick "default" to deactivate)
+* Enter      activate the highlighted agent (or pick "default" to deactivate);
+             on a hidden global agent it turns global agents on first
+
+Each row is tagged with the tool it comes from (jarvis, claude, cursor, …),
+``+N`` when other tools have an agent of the same name.
 * i          import the highlighted global agent into this project
 * x          export the highlighted project agent to your global config
 * o          deactivate — base system prompt only
@@ -43,9 +47,11 @@ from .modal_chrome import (
 )
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
+from ..utils.origins import tool_icon, tool_tag, tools_in
 
 
 _OFF_ID = "__off__"
+_HIDDEN = "hidden::"   # option-id prefix: a global agent while global agents are off
 
 
 # ── new-agent sub-modal ──────────────────────────────────────────────────
@@ -203,7 +209,12 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         ))
 
         agents = ag.discover_agents(force=True)
-        if not agents:
+        hidden: list[dict] = []
+        if not state.global_agents:
+            shown = {a["name"] for a in agents}
+            hidden = [a for a in ag.discover_agents(force=True, include_global=True)
+                      if a["name"] not in shown]
+        if not agents and not hidden:
             opts.add_option(empty_row(
                 "No agents yet — press n to create one, or drop files in .harness/agents/"
             ))
@@ -216,20 +227,21 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         glob = [a for a in agents if a.get("scope") == "global"]
 
         if project:
-            opts.add_option(section_header("Project", ".harness/agents/ · .claude/agents/"))
+            opts.add_option(section_header("Project", " · ".join(tools_in(project))))
             for a in project:
                 opts.add_option(Option(_format_agent_row(a, active), id=a["name"]))
 
         if glob:
-            opts.add_option(section_header("Global", "~/.harness/agents/ · ~/.claude/agents/"))
+            opts.add_option(section_header("Global", " · ".join(tools_in(glob))))
             for a in glob:
                 opts.add_option(Option(_format_agent_row(a, active), id=a["name"]))
 
-        if not state.global_agents:
-            gc = ag.global_count()
-            if gc:
-                opts.add_option(section_header(
-                    "Global", f"{gc} hidden — press g to show"))
+        if hidden:
+            opts.add_option(section_header(
+                "Global", f"{' · '.join(tools_in(hidden))} — off: ↵ or g turns global agents on",
+                note_style=ui.WARN))
+            for a in hidden:
+                opts.add_option(Option(_format_agent_row(a, active, hidden=True), id=_HIDDEN + a["name"]))
 
         self._highlight_active()
         opts.focus()
@@ -275,7 +287,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         oid = getattr(opt, "id", None)
         if not oid or oid == _OFF_ID:
             return None
-        return oid
+        return oid.removeprefix(_HIDDEN)
 
     # ── bindings ───────────────────────────────────────────────────────────
 
@@ -287,6 +299,13 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         if not oid:
             self.dismiss(None)
             return
+        if oid.startswith(_HIDDEN):
+            # One step instead of "press g, find it again, press Enter".
+            oid = oid.removeprefix(_HIDDEN)
+            state.global_agents = True
+            state.save_agent_config()
+            ag.invalidate_cache()
+            self.app.notify("Global agents turned on", timeout=3)
         rec = ag.find_agent(oid)
         if rec is None:
             self.dismiss(None)
@@ -428,17 +447,24 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
             pass
 
 
-def _format_agent_row(agent: dict, active_name: str):
+def _format_agent_row(agent: dict, active_name: str, *, hidden: bool = False):
     is_active = agent["name"] == active_name
     icon = (agent.get("icon") or "").strip() or "·"
     color = (agent.get("color") or "").strip() or ui.ACCENT
+    tool = agent.get("tool") or "jarvis"
+    right = f"{tool_icon(tool)} {tool_tag(tool, agent.get('also') or ())}"
+    if agent.get("model"):
+        right = f"{agent['model']} · {right}"
+    if hidden:
+        right += " · off"
     return picker_row(
         agent["name"],
         detail=agent.get("description", ""),
         active=is_active,
         icon=icon,
-        icon_style=color,
-        title_style=f"bold {color}" if is_active else color,
+        icon_style=ui.FG_DIM if hidden else color,
+        title_style=ui.FG_DIM if hidden else (f"bold {color}" if is_active else color),
+        detail_style=ui.FG_DIM if hidden else None,
         title_width=ROW_NAME_WIDTH,
-        right=agent.get("model") or "",
+        right=right,
     )

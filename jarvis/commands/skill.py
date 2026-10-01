@@ -17,6 +17,7 @@ import re
 from ..console import console, Panel, Markdown
 from ..storage import skills as sk
 from .. import state
+from ..utils.origins import tool_tag
 
 
 def _render_skills(rows, title):
@@ -30,7 +31,8 @@ def _render_skills(rows, title):
         return
     lines = []
     for r in rows:
-        tag = f" [dim][global][/]" if r.get("scope") == "global" else ""
+        where = tool_tag(r.get("tool") or "jarvis", r.get("also") or ())
+        tag = f" [dim]\\[{'global · ' if r.get('scope') == 'global' else ''}{where}][/]"
         lines.append(f"[bold cyan]{r['name']}[/]{tag}  [dim]{r['description']}[/]")
         lines.append(f"  [dim]▣ {r['source_dir']}[/]")
         lines.append("")

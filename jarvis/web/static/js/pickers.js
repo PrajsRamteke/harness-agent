@@ -4,7 +4,7 @@
  * its rows and what picking a row does. Providers, Skills and MCP servers are
  * dialogs of their own (forms, add-by-link, sign-in) — `open` hands them off.
  */
-import { $, escapeHtml, showToast, debounce } from './utils.js';
+import { $, escapeHtml, showToast, debounce, originBadge } from './utils.js';
 import { icon } from './icons.js';
 import { store } from './store.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
@@ -291,7 +291,7 @@ const agentSpec = {
         title: a.name,
         sub: a.description || '',
         current: a.active,
-        meta: `<span class="badge">${a.scope === 'global' ? 'Global' : 'Project'}</span>`,
+        meta: originBadge(a.tool_label, a.also_labels, `${a.scope === 'global' ? 'Global' : 'Project'} · ${a.source_tag || ''}`),
         pick: () => pickAndClose('agent_select', { name: a.name }, `Agent: ${a.name}`),
       });
     }

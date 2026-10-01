@@ -5,27 +5,13 @@ both the CLI manager (``mcp/manager.py``) and the TUI modal
 (``tui/mcp_modal.py``). Keeping them here avoids the two copies drifting apart.
 """
 
-SOURCE_ICONS = {
-    "project":  "▣",
-    "jarvis":   "✦",
-    "claude":   "◆",
-    "opencode": "◇",
-    "cursor":   "⌘",
-    "windsurf": "≈",
-    "vscode":   "⬡",
-}
+from ..utils.origins import TOOLS
 
-SOURCE_LABELS = {
-    "project":  "Project",
-    "jarvis":   "Jarvis",
-    "claude":   "Claude Code",
-    "opencode": "OpenCode",
-    "cursor":   "Cursor",
-    "windsurf": "Windsurf",
-    "vscode":   "VS Code",
-}
-
-SOURCE_ORDER = ["jarvis", "claude", "opencode", "cursor", "windsurf", "vscode"]
+# Source ids are the shared tool ids (utils/origins.py) — the same tags the
+# agent and skill lists show.
+SOURCE_ICONS = {tool: icon for tool, (_label, icon) in TOOLS.items()}
+SOURCE_LABELS = {tool: label for tool, (label, _icon) in TOOLS.items()}
+SOURCE_ORDER = [t for t in TOOLS if t not in ("project", "agents")]
 
 
 def format_endpoint(cfg: dict, max_len: int = 64) -> str:
