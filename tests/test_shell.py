@@ -9,15 +9,15 @@ from jarvis.tools.shell import _is_safe_readonly_command, run_bash
 def test_run_bash_serializes_parallel_calls():
     order: list[str] = []
 
-    def fake_run(cmd, **kwargs):
+    def fake_run(cmd, timeout, env):
         order.append(f"start:{cmd}")
         import time
         time.sleep(0.03)
         order.append(f"end:{cmd}")
-        return type("R", (), {"stdout": "ok\n", "stderr": "", "returncode": 0})()
+        return 0, "ok\n", ""
 
     with patch.object(state, "auto_approve", True):
-        with patch("jarvis.tools.shell.subprocess.run", side_effect=fake_run):
+        with patch("jarvis.tools.shell._run_process", side_effect=fake_run):
             t1 = threading.Thread(target=lambda: run_bash("echo one"))
             t2 = threading.Thread(target=lambda: run_bash("echo two"))
             t1.start()
@@ -49,10 +49,8 @@ def test_unsafe_command_needs_approval():
 
 def test_search_like_command_runs_without_prompt():
     with patch.object(state, "auto_approve", False):
-        with patch("jarvis.tools.shell.subprocess.run") as mock_run:
-            mock_run.return_value = type(
-                "R", (), {"stdout": "match\n", "stderr": "", "returncode": 0}
-            )()
+        with patch("jarvis.tools.shell._run_process") as mock_run:
+            mock_run.return_value = (0, "match\n", "")
             out = run_bash("rg -n agent .harness", 20)
     assert "match" in out
     assert "USER DENIED" not in out

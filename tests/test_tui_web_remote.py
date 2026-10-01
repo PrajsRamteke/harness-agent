@@ -1,4 +1,4 @@
-"""TUI side of the web remote: /web dialog, corner QR hide/show, start + stop mid-session."""
+"""TUI side of the web remote: /web dialog, corner QR hide/show, footer item, start + stop mid-session."""
 from __future__ import annotations
 
 import asyncio
@@ -55,8 +55,12 @@ def _get(url: str) -> int:
         return e.code
 
 
+def _footer_actions(app) -> list:
+    return [action for _markup, action in app.query_one("#footer_right")._segments]
+
+
 def test_web_command_starts_remote_mid_session_and_shows_qr_dialog(web_app):
-    from jarvis.tui.web_bar import WebRemoteBar, WebRemoteQR
+    from jarvis.tui.web_bar import WebRemoteQR
     from jarvis.tui.web_modal import WebConnectScreen
 
     async def run() -> None:
@@ -88,8 +92,7 @@ def test_web_command_starts_remote_mid_session_and_shows_qr_dialog(web_app):
             await pilot.press("escape")
             await pilot.pause(0.2)
             assert not isinstance(app.screen, WebConnectScreen)
-            bar = app.query_one("#webar", WebRemoteBar)
-            assert not bar.has_class("hidden") and bar._qr_shown is False
+            assert "web_connect" in _footer_actions(app)  # the remote stays in the footer
 
             app._stop_web_remote()
 
@@ -122,6 +125,41 @@ def test_clicking_the_corner_qr_hides_it_and_remembers(web_app):
     asyncio.run(run())
 
 
+def test_footer_shows_the_remote_address_without_the_token(web_app):
+    """One quiet footer item replaces the old full-width URL strip: host:port
+    (never the token), a live device count, click → the QR + link dialog."""
+    from jarvis.tui.web_modal import WebConnectScreen
+
+    async def run() -> None:
+        app = web_app()
+        async with app.run_test(size=(160, 44)) as pilot:
+            await pilot.pause(0.3)
+            assert "web_connect" not in _footer_actions(app)
+            assert app._start_web_remote(app._tui_console)
+            await pilot.pause(0.2)
+            bar = app.query_one("#footer_right")
+            markup = dict((a, m) for m, a in bar._segments)["web_connect"]
+            port = str(app._web_server.server_address[1])
+            assert f":{port}" in markup
+            assert app._web_bridge.token not in markup and "token=" not in markup
+
+            sub = app._web_bridge.subscribe()  # a browser connects
+            app._render_footer()
+            assert "1 connected" in dict((a, m) for m, a in bar._segments)["web_connect"]
+            app._web_bridge.unsubscribe(sub)
+
+            await pilot.pause(0.1)
+            start, _end, _a = next(sp for sp in bar._spans if sp[2] == "web_connect")
+            await pilot.click("#footer_right", offset=(start + 1, 0))
+            await pilot.pause(0.3)
+            assert isinstance(app.screen, WebConnectScreen)
+            await pilot.press("escape")
+            app._stop_web_remote()
+            await pilot.pause(0.3)
+
+    asyncio.run(run())
+
+
 def test_web_stop_frees_the_port_and_unwraps_the_console(web_app):
     from jarvis import console as console_mod
     from jarvis.tui.console_shim import TUIConsole
@@ -141,7 +179,7 @@ def test_web_stop_frees_the_port_and_unwraps_the_console(web_app):
             assert app._web_bridge is None and not app._web_primary_url
             assert isinstance(app._tui_console, TUIConsole)
             assert isinstance(console_mod.console, TUIConsole)
-            assert app.query_one("#webar").has_class("hidden")
+            assert "web_connect" not in _footer_actions(app)
             # The browser's stream was told to end.
             from jarvis.web.bridge import CLOSE_SENTINEL
             assert sub.get_nowait() == CLOSE_SENTINEL

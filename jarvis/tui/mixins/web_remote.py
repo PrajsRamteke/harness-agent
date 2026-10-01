@@ -1,7 +1,7 @@
 """Web-remote bridge wiring for the Jarvis TUI.
 
 Owns everything behind ``jarvis --web``: starting the bridge/mux/server,
-rendering the web bar, and routing submits/cancels/settings/actions that
+the corner QR and the footer's remote item, and routing submits/cancels/settings/actions that
 arrive from the browser back into the normal turn loop.
 
 Mixed into ``JarvisTUI``; all ``self.*`` references resolve on the composed
@@ -16,7 +16,7 @@ from rich.markup import escape as _rich_escape
 
 from ..console_shim import TUIConsole
 from ..console_swap import _swap_console_everywhere
-from ..web_bar import WebRemoteBar, WebRemoteQR
+from ..web_bar import WebRemoteQR
 from ..app_commands import (
     _is_bare_model_command,
     _is_provider_hub_command,
@@ -183,6 +183,7 @@ class WebRemoteMixin:
 
         if isinstance(self.screen, WebConnectScreen):
             self.screen._paint()
+        self._render_footer()
 
     def _stop_tunnel(self, *, quiet: bool = False) -> None:
         tunnel = getattr(self, "_web_tunnel", None)
@@ -190,6 +191,7 @@ class WebRemoteMixin:
         self._web_public_link = ""
         if self._web_bridge is not None:
             self._web_bridge.public_host = ""
+        self._render_footer()
         if tunnel is None:
             return
         threading.Thread(target=tunnel.stop, daemon=True, name="tunnel-stop").start()
@@ -253,14 +255,6 @@ class WebRemoteMixin:
     def action_hide_web_qr(self) -> None:
         self._set_web_qr_wanted(False)
         self.notify("QR hidden — /web qr shows it any time", timeout=2.5)
-
-    def action_open_web_url(self) -> None:
-        url = self._web_primary_url
-        if not url:
-            return
-        import webbrowser
-
-        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
 
     def action_web_connect(self) -> None:
         self._open_web_modal()
@@ -338,26 +332,46 @@ class WebRemoteMixin:
                 f"/web hide · /web show — corner QR  ·  /web copy  ·  /web stop[/]"
             )
 
-    def _render_web_bar(self) -> None:
+    def _web_footer_markup(self) -> tuple[str, str] | None:
+        """Footer item while the remote runs: ``(full, short)`` markup.
+
+        Full: where it listens (host:port — the token stays out of the
+        always-on footer) + who's on it; short: just ``🌐 web``. Click opens
+        the QR + link dialog, ⌃⇧U copies the full link.
+        """
+        url = self._web_primary_url
+        if not url:
+            return None
+        from urllib.parse import urlparse
+
+        if getattr(self, "_web_public_link", ""):
+            icon, where, short = "🌍", "anywhere", "anywhere"
+        else:
+            icon, where, short = "🌐", urlparse(url).netloc or url, "web"
+        bridge = self._web_bridge
         try:
-            bar = self.query_one("#webar", WebRemoteBar)
+            n = bridge.subscriber_count() if bridge is not None else 0
         except Exception:
-            bar = None
+            n = 0
+        live = f" [{ui.FG_DIM}]·[/] [{ui.OK}]{n} connected[/]" if n else ""
+        head = f"[{ui.ACCENT}]{icon}[/] "
+        return (
+            f"{head}[{ui.FG_MUTE}]{_rich_escape(where)}[/]{live}",
+            f"{head}[{ui.FG_MUTE}]{short}[/]{live}",
+        )
+
+    def _render_web_bar(self) -> None:
+        """Sync the corner QR and the footer item with the remote's state."""
         try:
             qr = self.query_one("#web_qr_overlay", WebRemoteQR)
         except Exception:
             qr = None
-        if self._web_primary_url:
-            wanted = self._web_qr_wanted()
-            bar and bar.set_url(self._web_primary_url, qr_shown=wanted)
-            if qr:
-                if wanted:
-                    qr.set_url(self._web_primary_url)
-                else:
-                    qr.hide()
-        else:
-            bar and bar.hide_bar()
-            qr and qr.hide()
+        if qr:
+            if self._web_primary_url and self._web_qr_wanted():
+                qr.set_url(self._web_primary_url)
+            else:
+                qr.hide()
+        self._render_footer()
 
     def _copy_web_url(self, *, show_status: bool = True) -> bool:
         # The Anywhere link while it's live — that's the one worth sharing to a phone.
@@ -484,6 +498,13 @@ class WebRemoteMixin:
 
         mux = getattr(self, "_web_mux", None)
         ctx = mux.suppress_broadcast() if mux is not None else nullcontext()
+        # New chat / another session while a turn runs: stop the turn first,
+        # outside the suppress block so pages get its stream_end + busy=false.
+        # (Left running, it kept "thinking" into the new chat, wrote its reply
+        # there and made every new prompt queue behind it.)
+        stopped = ""
+        if action in ("session_resume", "session_new"):
+            stopped = self._stop_turn_for_session_change()
         with ctx:
             result = run_web_action(action, data, console_print=self._tui_console.print)
             if not result.get("ok"):
@@ -503,6 +524,10 @@ class WebRemoteMixin:
                     except Exception as exc:
                         result = dict(result)
                         result["render_warning"] = str(exc)
+                if stopped:
+                    result = dict(result)
+                    result["stopped"] = stopped
+                    self._tui_console.print(f"[{ui.FG_DIM}]⏹ web · {stopped}[/]")
 
             provider_change = action.startswith("provider_")
             if action == "model_select" or provider_change:

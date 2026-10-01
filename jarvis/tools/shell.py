@@ -1,8 +1,10 @@
 """Shell execution tool with approval prompt."""
 import os
 import re
+import signal
 import subprocess
 import threading
+import time
 
 from rich.markup import escape
 
@@ -11,6 +13,125 @@ from ..constants import CWD, MAX_TOOL_OUTPUT, DEFAULT_BASH_TIMEOUT
 from .. import file_changes, state
 
 _bash_lock = threading.Lock()
+
+# How often a running command checks whether its turn was stopped (Esc / web
+# Stop / New chat). Short enough to feel instant, long enough to cost nothing.
+_CANCEL_POLL = 0.2
+
+CANCELLED_RESULT = "CANCELLED: the command was stopped because the turn was interrupted"
+
+
+class _Cancelled(Exception):
+    """The turn running this command was cancelled; the command is stopped."""
+
+
+def _descendants(root: int) -> list[int]:
+    """Every process started (directly or not) by ``root``, via ``ps``."""
+    try:
+        out = subprocess.run(
+            ["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=3,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    children: dict[int, list[int]] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            children.setdefault(int(parts[1]), []).append(int(parts[0]))
+    found: list[int] = []
+    stack = [root]
+    while stack:
+        for child in children.get(stack.pop(), []):
+            if child not in found:
+                found.append(child)
+                stack.append(child)
+    return found
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Stop ``proc`` and everything it started: TERM, a moment, then KILL.
+
+    The shell (``sh -c …``) is rarely the process doing the work; killing only
+    it would leave e.g. ``pytest`` running with the output pipes open.
+    Children are collected first — once the shell dies they're reparented
+    and can't be found from it any more.
+    """
+    pids = _descendants(proc.pid) if os.name == "posix" else []
+    for sig in (signal.SIGTERM, getattr(signal, "SIGKILL", signal.SIGTERM)):
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        try:
+            proc.send_signal(sig)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=1.0)
+            if sig == signal.SIGTERM and not any(_pid_alive(p) for p in pids):
+                return
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _drain(proc: subprocess.Popen) -> tuple[str, str]:
+    try:
+        out, err = proc.communicate(timeout=2)
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        return "", ""
+    return out or "", err or ""
+
+
+def _run_process(cmd: str, timeout: int, env: dict) -> tuple[int, str, str]:
+    """Run ``cmd`` like ``subprocess.run(shell=True, capture_output=True)``,
+    but stop it as soon as the turn is cancelled.
+
+    Raises ``subprocess.TimeoutExpired`` on timeout and ``_Cancelled`` on a
+    cancelled turn — in both cases after the whole process tree is gone, so
+    the shell lock is never held by a command nobody is waiting for.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(CWD),
+        env=env,
+    )
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                # Repeated communicate() calls never lose output.
+                out, err = proc.communicate(timeout=_CANCEL_POLL)
+                return proc.returncode, out or "", err or ""
+            except subprocess.TimeoutExpired:
+                pass
+            if state.turn_cancelled():
+                _kill_tree(proc)
+                _drain(proc)
+                raise _Cancelled()
+            if time.monotonic() >= deadline:
+                _kill_tree(proc)
+                _drain(proc)
+                raise subprocess.TimeoutExpired(cmd, timeout)
+    except BaseException:
+        # KeyboardInterrupt injected by Esc, or anything else: never leave the
+        # command running behind us.
+        if proc.poll() is None:
+            _kill_tree(proc)
+            _drain(proc)
+        raise
 
 # Read-only agent tools (search_code, git_status, …) must not block on approval.
 _SAFE_READONLY = re.compile(
@@ -80,18 +201,12 @@ def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
             # the web Changes panel (nothing is recorded if nothing changed).
             settle_changes = file_changes.watch_shell(cmd)
             try:
-                r = subprocess.run(
-                    cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    cwd=str(CWD),
-                    env=env,
-                )
+                code, stdout, stderr = _run_process(cmd, timeout, env)
             finally:
                 settle_changes()
-            out = (r.stdout or "") + (f"\n[stderr]\n{r.stderr}" if r.stderr else "")
-            return f"$ {cmd}\nexit={r.returncode}\n{out[-MAX_TOOL_OUTPUT:]}"
+            out = (stdout or "") + (f"\n[stderr]\n{stderr}" if stderr else "")
+            return f"$ {cmd}\nexit={code}\n{out[-MAX_TOOL_OUTPUT:]}"
         except subprocess.TimeoutExpired:
             return f"TIMEOUT after {timeout}s"
+        except _Cancelled:
+            return CANCELLED_RESULT

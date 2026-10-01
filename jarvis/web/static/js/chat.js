@@ -32,6 +32,8 @@ const toolRows = new Map();
 let live = null;
 let stickToBottom = true;
 let lastSnapshotSig = null;
+/** Session the transcript on screen belongs to (undefined before the first snapshot). */
+let lastSnapshotSession;
 /** True while a snapshot is being rendered: nothing animates or counts as new. */
 let restoring = false;
 /** Items added while scrolled up — shown on the "Latest" button. */
@@ -813,8 +815,13 @@ export function renderSnapshot(data) {
   const sig = `${data.session_id}|${data.message_count}|${data.show_internal}|${messages.length}`;
   if (sig === lastSnapshotSig && chat()?.childElementCount) return false;
 
-  const keep = live;
-  if (keep) keep.el.remove();
+  // A half-streamed bubble belongs to its session: carried into another one
+  // (New chat, a resumed session) it showed the old "Thinking…" with no prompt.
+  const sameSession = lastSnapshotSession === undefined || lastSnapshotSession === data.session_id;
+  const keep = sameSession ? live : null;
+  if (live) live.el.remove();
+  if (!sameSession && live?.raf) cancelAnimationFrame(live.raf);
+  lastSnapshotSession = data.session_id;
   const root = chat();
   root.innerHTML = '';
   toolRows.clear();

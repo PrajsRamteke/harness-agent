@@ -112,6 +112,19 @@ _LOGO = (
 )
 
 
+def _clip(s: str, limit: int) -> str:
+    return s if len(s) <= limit else s[: limit - 1] + "…"
+
+
+def _short_path(path: str, limit: int = 48) -> str:
+    """Keep a deep cwd on one line next to the logo: ``…/parent/project``."""
+    if len(path) <= limit:
+        return path
+    parts = path.replace("\\", "/").rstrip("/").split("/")
+    tail = "/".join(parts[-2:])
+    return "…/" + tail if len(tail) + 2 <= limit else "…" + path[-(limit - 1):]
+
+
 class WelcomeBlock(Block):
     """Compact wordmark + where you are + how to start."""
 
@@ -154,6 +167,8 @@ class WelcomeBlock(Block):
             p = (time.monotonic() - self._shine_t0) / self.SHINE_SECS
             band = -6 + p * (width + 12)
         for row, line in enumerate(_LOGO):
+            if row:
+                out.append("\n")
             for col, ch in enumerate(line):
                 if ch == " ":
                     out.append(" ")
@@ -164,25 +179,18 @@ class WelcomeBlock(Block):
                     k = max(0.0, 1.0 - abs(col + row * 2 - band) / 3.5)
                     color = ui.blend(color, "#ffffff", 0.75 * k)
                 out.append(ch, style=f"bold {color}")
+            out.append("   ")
             if row == 0:
-                out.append("   ")
                 out.append(f"v{i.get('version', '')}", style=ui.FG_DIM)
             else:
-                out.append("   ")
-                out.append(str(i.get("model", "")), style=f"bold {ui.FG}")
-                prov = i.get("provider")
-                if prov:
-                    out.append(f"  {prov}", style=ui.FG_DIM)
-            out.append("\n")
-        out.append("\n")
-        out.append("  ")
-        out.append(str(i.get("cwd", "")), style=ui.FG_MUTE)
-        if i.get("branch"):
-            out.append("  ⎇ ", style=ui.FG_DIM)
-            out.append(str(i["branch"]), style=ui.ACCENT_2)
+                # Where you are. Model / provider / agent live in the footer.
+                out.append(_short_path(str(i.get("cwd", ""))), style=f"bold {ui.FG}")
+                if i.get("branch"):
+                    out.append("  ⎇ ", style=ui.FG_DIM)
+                    out.append(_clip(str(i["branch"]), 32), style=ui.ACCENT_2)
         ctx = [c for c in (i.get("context") or []) if c]
         if ctx:
-            out.append("\n  ")
+            out.append("\n\n  ")
             for n, bit in enumerate(ctx):
                 if n:
                     out.append(" · ", style=ui.FG_DIM)
@@ -197,6 +205,7 @@ class WelcomeBlock(Block):
             ("@", "files"),
             ("!", "shell"),
             ("tab", "agents"),
+            ("⇧↵", "newline"),
             ("?", "shortcuts"),
         )
         out.append("  ")

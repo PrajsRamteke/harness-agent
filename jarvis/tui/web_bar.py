@@ -1,18 +1,18 @@
-"""Web remote UI — bottom URL strip + top-right QR overlay."""
+"""Web remote UI — the top-right QR overlay.
+
+The remote's address lives in the footer (``WebRemoteMixin._web_footer_markup``).
+"""
 from __future__ import annotations
 
 from urllib.parse import urlparse, urlunparse
 
 from rich.box import ROUNDED
-from rich.markup import escape as _rich_escape
 from rich.panel import Panel
 from rich.text import Text
-from textual.containers import Horizontal
 from textual.widgets import Static
 
 from ..web.qr_ascii import qr_ascii, qr_dimensions
 from . import theme as ui
-from .footer import FooterBar
 
 
 def qr_target(url: str) -> str:
@@ -115,60 +115,3 @@ class WebRemoteQR(Static):
     async def on_click(self, event) -> None:
         event.stop()
         await self.app.run_action("hide_web_qr")
-
-
-class WebRemoteBar(Horizontal):
-    """Persistent footer row: the remote URL plus one-click QR controls."""
-
-    def __init__(self, url: str = "", **kwargs) -> None:
-        super().__init__(**kwargs)
-        self._url = url
-        self._qr_shown = True
-
-    def compose(self):
-        yield FooterBar(id="web_open", classes="-left")
-
-    def set_url(self, url: str, *, qr_shown: bool | None = None) -> None:
-        self._url = url
-        if qr_shown is not None:
-            self._qr_shown = qr_shown
-        self.remove_class("hidden")
-        self._refresh()
-
-    def set_qr_shown(self, shown: bool) -> None:
-        self._qr_shown = shown
-        self._refresh()
-
-    def hide_bar(self) -> None:
-        self.add_class("hidden")
-        self._url = ""
-        try:
-            self.query_one("#web_open", FooterBar).set_segments([])
-        except Exception:
-            pass
-
-    def _refresh(self) -> None:
-        if not self._url:
-            self.hide_bar()
-            return
-        esc = _rich_escape(self._url)
-        short = esc if len(esc) <= 72 else esc[:69] + "…"
-        segments = [
-            (f"[{ui.ACCENT}]🌐[/]  [{ui.ACCENT_2}]{short}[/]", "open_web_url"),
-            (
-                f"[{ui.FG_MUTE}]hide QR[/]" if self._qr_shown else f"[{ui.FG_MUTE}]show QR[/]",
-                "toggle_web_qr",
-            ),
-            (f"[{ui.FG_MUTE}]QR + link[/]", "web_connect"),
-            (f"[{ui.FG_DIM}]⌃⇧U copy[/]", "copy_web_url"),
-        ]
-        try:
-            self.query_one("#web_open", FooterBar).set_segments(segments)
-        except Exception:
-            pass
-
-    def on_mount(self) -> None:
-        if self._url:
-            self._refresh()
-        else:
-            self.hide_bar()

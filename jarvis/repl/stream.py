@@ -96,13 +96,18 @@ def _raise_in_thread(tid: int, exc_type) -> bool:
         return False
 
 
-def cancel_current_stream():
+def cancel_current_stream(thread_id: int | None = None):
     """Cancel the current turn from any thread.
 
     Sets the persistent cancel flag so every phase (tool execution, next stream
     start, render_assistant) knows to abort. Also closes the active stream and
     injects KeyboardInterrupt into the worker thread for immediate unblocking.
     Safe to call from any thread, including the TUI event loop.
+
+    ``thread_id`` is the turn's worker (the TUI knows it). Without one, only a
+    thread that is inside ``call_claude_stream`` right now is interrupted —
+    never the id of a worker that already finished: Python reuses thread ids,
+    so that could hit an unrelated thread (the web server, the sync watcher).
     """
     from .. import state as _state
     _state.cancel_requested.set()
@@ -122,7 +127,9 @@ def cancel_current_stream():
             s.close()
         except Exception:
             pass
-    _raise_in_thread(_worker_thread_id, KeyboardInterrupt)
+    target = thread_id or _worker_thread_id
+    if target:
+        _raise_in_thread(target, KeyboardInterrupt)
     return True
 
 
@@ -580,6 +587,18 @@ def _heal_orphan_tool_uses() -> None:
 
 
 def call_claude_stream():
+    """Stream one model reply (retries, OAuth refresh, provider fallbacks)."""
+    try:
+        return _call_claude_stream()
+    finally:
+        # Once this thread leaves the stream call it's no target for a bare
+        # cancel_current_stream() any more (its id may soon be reused).
+        global _worker_thread_id
+        if _worker_thread_id == (threading.current_thread().ident or 0):
+            _worker_thread_id = 0
+
+
+def _call_claude_stream():
     # Check cancel flag before starting a new stream — allows Escape to
     # prevent the next stream from even starting after tool results.
     if state.turn_cancelled():

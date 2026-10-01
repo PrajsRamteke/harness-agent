@@ -604,6 +604,60 @@ def test_footer_segments_are_clickable(hermetic_app, monkeypatch):
     assert opened == ["models", "agents"]
 
 
+def test_welcome_shows_the_workspace_and_footer_the_session(hermetic_app, monkeypatch):
+    """No info twice: cwd / branch / project context live in the welcome
+    block, agent / model / provider in the footer."""
+    import jarvis.repl.banners as banners
+    from jarvis import state
+    from jarvis.tui.transcript import WelcomeBlock
+
+    monkeypatch.setattr(banners, "_current_git_branch", lambda cwd: "feature/clean-footer")
+    monkeypatch.setattr(state, "MODEL", "vendor/some-model-x")
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(140, 30)) as pilot:
+            await pilot.pause(0.4)
+            welcome = app.query_one(WelcomeBlock).plain_text()
+            assert "⎇ feature/clean-footer" in welcome
+            assert "some-model-x" not in welcome
+            footer = " ".join(
+                m for w in ("#footer_left", "#footer_right") for m, _a in app.query_one(w)._segments
+            )
+            assert "some-model-x" in footer
+            assert "⎇" not in footer and "feature/clean-footer" not in footer
+            assert "pinned" not in footer
+            assert app.query_one("#prompt").placeholder == "Ask anything…"
+
+    asyncio.run(run())
+
+
+def test_footer_shrinks_a_segment_before_dropping_others(hermetic_app, monkeypatch):
+    async def run() -> None:
+        app = hermetic_app()
+        monkeypatch.setattr(
+            app, "_web_footer_markup",
+            lambda: ("🌐 " + "x" * 60, "🌐 web"),
+        )
+        async with app.run_test(size=(110, 30)) as pilot:
+            await pilot.pause(0.3)
+            app._render_footer()
+            segs = dict((a, m) for m, a in app.query_one("#footer_right")._segments)
+            assert segs["web_connect"] == "🌐 web"
+            assert "show_shortcuts" in segs  # "? help" survives the long address
+
+    asyncio.run(run())
+
+
+def test_short_path_keeps_the_project_end():
+    from jarvis.tui.transcript import _short_path
+
+    assert _short_path("~/Desktop/harness") == "~/Desktop/harness"
+    deep = "~/" + "/".join(f"dir{i}" for i in range(20)) + "/parent/project"
+    assert _short_path(deep) == "…/parent/project"
+    assert len(_short_path("/" + "a" * 80)) == 48
+
+
 def test_big_paste_collapses_and_queued_message_is_editable(hermetic_app):
     from textual import events
 

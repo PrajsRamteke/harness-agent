@@ -1,5 +1,23 @@
 """Shared test isolation."""
+import atexit
+import os
+import shutil
+import tempfile
+
 import pytest
+
+# Tests must never touch the developer's real Jarvis config. A plain `pytest`
+# (or `!pytest` inside Jarvis) used to rewrite ~/.config/harness-agent —
+# settings.json, provider, auth_mode, history.json, sessions.db — so the saved
+# provider/model flipped to whatever the last test set. Paths are computed when
+# jarvis is imported, so HOME is pointed at a throwaway directory here, before
+# any test module imports it. The real home stays readable via JARVIS_REAL_HOME
+# (tests that only *read* local data). Opt out: JARVIS_TESTS_REAL_HOME=1.
+if os.environ.get("JARVIS_TESTS_REAL_HOME") != "1" and "JARVIS_REAL_HOME" not in os.environ:
+    os.environ["JARVIS_REAL_HOME"] = os.path.expanduser("~")
+    _test_home = tempfile.mkdtemp(prefix="jarvis-test-home-")
+    os.environ["HOME"] = _test_home
+    atexit.register(shutil.rmtree, _test_home, True)
 
 
 @pytest.fixture(autouse=True)

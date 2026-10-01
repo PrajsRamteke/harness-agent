@@ -784,30 +784,6 @@ Screen {{
     overflow: hidden;
 }}
 
-/* ── Web remote strip ──────────────────────────────────────────── */
-#webar {{
-    height: auto;
-    min-height: 1;
-    max-height: 3;
-    background: {BG_1};
-    color: {FG};
-    padding: 0 2;
-    margin: 0;
-    min-width: 0;
-    border-top: solid {ACCENT};
-    overflow: hidden;
-}}
-#webar.hidden {{
-    display: none;
-}}
-#webar #web_open {{
-    width: 1fr;
-    min-width: 0;
-    height: auto;
-    padding: 0;
-    overflow: hidden;
-    color: {FG_MUTE};
-}}
 #web_qr_overlay.hidden {{ display: none; }}
 
 /* ── Shared widget defaults ─────────────────────────────────────── */

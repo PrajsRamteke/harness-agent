@@ -36,7 +36,7 @@ from rich.text import Text
 from .console_shim import TUIConsole
 from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_has_entries
 from .ask_user import AskUserController, AskQuestion, normalize_questions
-from .web_bar import WebRemoteBar, WebRemoteQR
+from .web_bar import WebRemoteQR
 from . import theme as ui
 from .. import state
 
@@ -92,18 +92,6 @@ def _agent_color() -> str:
     if rec:
         return (rec.get("color") or "").strip() or ui.ACCENT
     return ui.ACCENT
-
-
-def _pin_status_markup() -> str:
-    """Compact pinned-context indicator."""
-    from ..storage import pin as pin_store
-
-    text = pin_store.pin_text()
-    if not text:
-        return ""
-    if not pin_store.is_enabled():
-        return f"[{ui.WARN}]pin paused[/]"
-    return f"[{ui.FG_DIM}]pinned[/]"
 
 
 def _fmt_tokens(n: int) -> str:
@@ -170,7 +158,7 @@ from .transcript import (  # noqa: E402
 )
 
 _SIDEBAR_MIN_WIDTH = 150
-_PLACEHOLDER = "Ask anything…   / commands · @ files · ! shell · ⇧↵ newline"
+_PLACEHOLDER = "Ask anything…"
 _BUSY_PLACEHOLDER = "Type a follow-up — it's queued for when Jarvis finishes · esc interrupts"
 # Shown in place of the default placeholder every few turns.
 _TIPS = (
@@ -245,10 +233,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._web_primary_url = ""
         self._web_tunnel = None          # "Anywhere" tunnel (jarvis/web/tunnel.py)
         self._web_public_link = ""       # its URL + token, once live
-        # Git branch cache — refreshed every few seconds, not every repaint.
-        self._git_branch: str | None = None
-        self._git_branch_checked_at: float = 0.0
-        self._git_branch_ttl: float = 5.0
         self._file_ref_mention: tuple[int, int, str] | None = None
         self._file_ref_mouse_on = False
         self._file_ref_last_query: str | None = None
@@ -293,27 +277,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                 return
         self._ask_user.begin(qs, on_done)
 
-    def _refresh_git_branch(self, *, sync: bool = False) -> None:
-        """Refresh the cached branch (TTL). Runs ``git`` off the UI thread
-        unless ``sync`` — a subprocess per repaint would stutter scrolling."""
-        now = time.monotonic()
-        if (now - self._git_branch_checked_at) < self._git_branch_ttl:
-            return
-        self._git_branch_checked_at = now
-
-        def _probe() -> None:
-            try:
-                from ..repl.banners import _current_git_branch
-                import pathlib as _pl
-                self._git_branch = _current_git_branch(_pl.Path.cwd())
-            except Exception:
-                self._git_branch = None
-
-        if sync:
-            _probe()
-        else:
-            threading.Thread(target=_probe, name="git-branch", daemon=True).start()
-
     async def _on_key(self, event):  # type: ignore[override]
         key = getattr(event, "key", "")
         if self._ask_user.active and self._ask_user.handle_key(key):
@@ -354,7 +317,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                 yield StickyPrompt(id="sticky_prompt")
                 yield from self._compose_dock()
             yield Sidebar(id="sidebar", classes="hidden")
-        yield WebRemoteBar(id="webar")
 
     def _compose_dock(self) -> ComposeResult:
         with Vertical(id="dock"):
@@ -481,15 +443,18 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
     def _welcome_info(self) -> dict:
         import pathlib
         from ..constants import VERSION
-        from ..constants.providers import PROVIDER_LABELS, provider_label  # noqa: F401
 
         cwd = pathlib.Path.cwd()
         try:
             cwd_s = "~/" + str(cwd.relative_to(pathlib.Path.home()))
         except ValueError:
             cwd_s = str(cwd)
-        self._git_branch_checked_at = 0.0
-        self._refresh_git_branch(sync=True)
+        try:
+            from ..repl.banners import _current_git_branch
+
+            branch = _current_git_branch(cwd)
+        except Exception:
+            branch = None
         ctx: list[str] = []
         if state.project_context_file:
             ctx.append(str(state.project_context_file))
@@ -524,10 +489,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             )
         return {
             "version": VERSION,
-            "model": state.MODEL,
-            "provider": provider_label(state.provider or ""),
             "cwd": cwd_s,
-            "branch": self._git_branch,
+            "branch": branch,
             "context": ctx,
             "warning": warning,
         }
@@ -545,12 +508,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             for commit in (info.get("commits") or [])[:5]:
                 lines.append(f"[{ui.FG_DIM}]  · {_rich_escape(commit)}[/]")
             self._tui_console.print("\n".join(lines))
-        if self._web_primary_url:
-            esc = _rich_escape(self._web_primary_url)
-            self._tui_console.print(
-                f"[{ui.FG_DIM}]🌐 remote[/]  [link={esc}]{esc}[/link]  "
-                f"[{ui.FG_DIM}]· scan the QR top-right (click it to hide) · /web qr · ⌃⇧U copy[/]"
-            )
 
     def _render_welcome_intro(self) -> None:
         """Welcome block, then start background workers (so their output
@@ -624,10 +581,14 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
     # ─── footer ──────────────────────────────────────────────────────
     def _footer_segments(self) -> tuple[list[tuple], list[tuple]]:
-        """``(priority, markup, action)``; lower priority number = kept longer.
+        """``(priority, markup, action[, (priority, short markup)])``; lower
+        priority number = kept longer. A segment with a short form shrinks to
+        it instead of being dropped.
 
-        Clickable: agent → agents, model → models, provider → setup hub,
-        think → effort, tokens → sidebar, pin → pins, ``?`` → shortcuts.
+        Session state only — the welcome block already shows cwd, branch
+        and project context. Clickable: agent → agents, model → models,
+        provider → setup hub, think → effort, tokens → sidebar, web remote →
+        QR + link dialog, ``?`` → shortcuts.
         """
         from ..constants.providers import PROVIDER_LABELS, provider_label  # noqa: F401
 
@@ -672,12 +633,11 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                     right.append((6, f"[{ui.FG_DIM}]${cost:.2f}[/]", None))
         except Exception:
             pass
-        self._refresh_git_branch()
-        if self._git_branch:
-            right.append((7, f"[{ui.FG_DIM}]⎇ {_rich_escape(self._git_branch)}[/]", None))
-        pin = _pin_status_markup()
-        if pin:
-            right.append((9, pin, "open_pins"))
+        web = self._web_footer_markup()
+        if web:
+            # The address goes before "? help"; the bare "🌐 web" stays long.
+            full, short = web
+            right.append((9, full, "web_connect", (2, short)))
         if state.show_internal:
             right.append((10, f"[{ui.FG_DIM}]trace[/]", "toggle_internal"))
         right.append((8, f"[{ui.FG_DIM}]? help[/]", "show_shortcuts"))
@@ -711,9 +671,14 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             if not candidates:
                 break
             _p, side, idx = max(candidates)
-            (left if side == "l" else right).pop(idx)
-        left_w.set_segments([(m, a) for _p, m, a in left])
-        right_w.set_segments([(m, a) for _p, m, a in right])
+            segs = left if side == "l" else right
+            seg = segs[idx]
+            if len(seg) > 3 and seg[3]:
+                segs[idx] = (*seg[3], seg[2])
+            else:
+                segs.pop(idx)
+        left_w.set_segments([(seg[1], seg[2]) for seg in left])
+        right_w.set_segments([(seg[1], seg[2]) for seg in right])
 
     # Footer click targets.
     def action_open_models(self) -> None:
@@ -731,10 +696,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
     def action_open_providers(self) -> None:
         if not isinstance(self.screen, ModalScreen):
             self._open_provider_hub()
-
-    def action_open_pins(self) -> None:
-        if not isinstance(self.screen, ModalScreen):
-            self._open_pin_modal()
 
     # Back-compat names used across the app / mixins / web remote.
     def _render_hintbar(self) -> None:
@@ -1403,8 +1364,9 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
         # Mark the worker itself cancelled: the global flag is cleared when
         # the next turn starts, but this thread must keep stopping.
-        state.cancel_thread(self._turn_threads.get(self._turn_id))
-        cancel_current_stream()
+        worker = self._turn_threads.get(self._turn_id)
+        state.cancel_thread(worker)
+        cancel_current_stream(thread_id=worker)
         if hasattr(self._tui_console, "cancel_pending_prompts"):
             self._tui_console.cancel_pending_prompts()
         self._turn_cancelled = True
@@ -1413,6 +1375,38 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         # queued turn can start streaming into a fresh block.
         self._tui_console.assistant_stream_abort()
         self._turn_done()
+
+    def _stop_turn_for_session_change(self) -> str:
+        """New chat / another session while a turn runs: stop that turn first.
+
+        Otherwise the old worker keeps "thinking" into the new chat — its reply
+        lands in the new session, the busy flag never clears and every new
+        prompt queues behind it. Prompts queued for the old chat are dropped
+        (they were follow-ups to a conversation that's gone). Returns a short
+        note ("" when nothing was running).
+        """
+        if not self._busy:
+            return ""
+        dropped = len(state.prompt_queue)
+        state.prompt_queue.clear()
+        self._refresh_queue_bar()
+        self._cancel_turn()
+        note = "stopped the running reply"
+        if dropped:
+            note += f" · dropped {dropped} queued message{'s' if dropped != 1 else ''}"
+        return note
+
+    def _resume_session(self, sid: int) -> bool:
+        """Load session ``sid`` into this chat (the /session picker's pick)."""
+        from .session_modal import resume_session_into_state
+
+        note = self._stop_turn_for_session_change()
+        if not resume_session_into_state(sid, self._tui_console.print, preview=False):
+            return False
+        self._render_loaded_session()
+        if note:
+            self._tui_console.print(f"[{ui.FG_DIM}]⏹ {note}[/]")
+        return True
 
     # ─── input handling ──────────────────────────────────────────────
     def on_prompt_area_submitted(self, event: "PromptArea.Submitted") -> None:
@@ -1529,10 +1523,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         def after(sid):
             if sid is None:
                 return
-            from .session_modal import resume_session_into_state
-
-            if resume_session_into_state(sid, self._tui_console.print, preview=False):
-                self._render_loaded_session()
+            self._resume_session(sid)
         from .session_modal import SessionPickerScreen
 
         self.push_screen(SessionPickerScreen(), after)
@@ -1681,7 +1672,10 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                         out = run_bash(cmd)
                     finally:
                         state.auto_approve = prev
-                    self._tui_console.print(self._shell_output_text(out))
+                    # Esc already said "interrupted": don't print a stopped
+                    # command's leftovers into whatever chat is showing now.
+                    if not (stale() or state.turn_cancelled()):
+                        self._tui_console.print(self._shell_output_text(out))
                 return
 
             if inp.startswith("/"):
@@ -1749,6 +1743,11 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                     )
                     break
                 empty_retries = 0
+                # Cancelled while the reply was finishing (Esc, New chat, another
+                # session): it belongs to a turn that's over — never write it into
+                # whatever conversation / session is current now.
+                if stale() or state.turn_cancelled():
+                    raise KeyboardInterrupt()
                 asst_msg = {"role": "assistant", "content": resp.content}
                 state.messages.append(asst_msg)
                 if state.current_session_id:

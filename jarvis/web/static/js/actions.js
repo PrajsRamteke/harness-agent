@@ -34,8 +34,11 @@ export async function runAction(action, data = {}, successMsg = '') {
   return res;
 }
 
-export function newChat() {
-  return runAction('session_new', {}, 'New chat started');
+export async function newChat() {
+  const res = await runAction('session_new', {});
+  // A turn still running is stopped first (server side); say so.
+  if (res.ok) showToast(res.stopped ? `New chat · ${res.stopped}` : 'New chat started');
+  return res;
 }
 
 let pending = 0;
