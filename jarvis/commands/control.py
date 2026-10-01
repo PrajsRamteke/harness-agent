@@ -3,17 +3,16 @@ import os, time
 
 from ..console import console, Panel, Table
 from ..constants import (
-    KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE, KIMCHI_KEY_FILE,
+    KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, MODEL_SOURCE_LABELS,
-    OPENROUTER_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, OPENCODE_ZEN_DEFAULT_MODEL,
-    HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS, OPENCODE_ZEN_MODEL_IDS,
-    OPENCODE_ZEN_MODELS, OPENCODE_MODELS, THINK_EFFORTS, DEFAULT_THINK_EFFORT,
+    OPENROUTER_DEFAULT_MODEL,
+    HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS,
+    THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     is_catalog_provider, provider_label,
     models_for, is_harness_agent_model, normalize_model_for_provider,
     model_belongs_to_provider,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_HARNESS_AGENT, PROVIDER_KIMCHI,
-    KIMCHI_DEFAULT_MODEL, KIMCHI_MODEL_IDS,
+    PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
@@ -215,10 +214,7 @@ def resolve_model_arg(arg: str) -> tuple[str, str] | None:
     return None
 
 
-_OPENCODE_MODEL_IDS = {m for m, _ in OPENCODE_MODELS}
-_OPENCODE_ZEN_MODEL_IDS = set(OPENCODE_ZEN_MODEL_IDS)
 _HARNESS_AGENT_MODEL_IDS = set(HARNESS_AGENT_MODEL_IDS)
-_KIMCHI_MODEL_IDS = set(KIMCHI_MODEL_IDS)
 
 
 def _provider_for_model(model: str) -> str:
@@ -228,14 +224,17 @@ def _provider_for_model(model: str) -> str:
         return PROVIDER_OPENAI_CODEX
     if model in _HARNESS_AGENT_MODEL_IDS:
         return PROVIDER_OPENCODE_ZEN
-    if model in _KIMCHI_MODEL_IDS:
-        return PROVIDER_KIMCHI
-    if model in _OPENCODE_MODEL_IDS:
+    # OpenCode Go / Zen line-ups are live (models.dev + what each gateway
+    # serves). Zen also serves Claude / GPT ids, so it is asked last: a typed
+    # claude-… keeps going to Anthropic, gpt-… to ChatGPT (checked above).
+    if model_belongs_to_provider(model, PROVIDER_OPENCODE):
         return PROVIDER_OPENCODE
-    if model in _OPENCODE_ZEN_MODEL_IDS:
-        return PROVIDER_OPENCODE_ZEN
     if "/" in model:
         return PROVIDER_OPENROUTER
+    if model.startswith("claude-"):
+        return PROVIDER_ANTHROPIC
+    if model_belongs_to_provider(model, PROVIDER_OPENCODE_ZEN):
+        return PROVIDER_OPENCODE_ZEN
     return PROVIDER_ANTHROPIC
 
 
@@ -243,10 +242,10 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
     target_provider = _provider_for_model(chosen)
     if source == PROVIDER_HARNESS_AGENT:
         target_provider = PROVIDER_OPENCODE_ZEN
-    elif source == PROVIDER_OPENCODE_ZEN:
-        target_provider = PROVIDER_OPENCODE_ZEN
-    if source == PROVIDER_KIMCHI:
-        target_provider = PROVIDER_KIMCHI
+    elif source in (PROVIDER_OPENCODE_ZEN, PROVIDER_OPENCODE, PROVIDER_OPENROUTER):
+        # The picked source decides: OpenCode Go serves gpt-… ids too, and
+        # guessing from the id would send those to ChatGPT (Codex).
+        target_provider = source
     elif is_catalog_provider(source):
         target_provider = source
     elif source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
@@ -491,10 +490,6 @@ def apply_key_change(provider: str, *, removed: bool = False) -> str:
             state.client = _build_opencode_zen_client_for_model(
                 state.MODEL, source=PROVIDER_OPENCODE_ZEN,
             )
-        elif provider == PROVIDER_KIMCHI:
-            from ..auth.client import _build_kimchi_client
-
-            state.client = _build_kimchi_client()
         elif is_catalog_provider(provider):
             from ..auth.client import _build_catalog_client
 
@@ -520,10 +515,6 @@ def _prompt_provider_key_if_needed(
         elif target == PROVIDER_OPENCODE_ZEN:
             if not skip_key_prompt and not has_opencode_zen_key():
                 prompt_for_opencode_zen_key()
-        elif target == PROVIDER_KIMCHI:
-            from ..auth.kimchi import has_kimchi_key, prompt_for_kimchi_key
-            if not has_kimchi_key():
-                prompt_for_kimchi_key()
         elif is_catalog_provider(target):
             from ..auth.catalog_keys import has_key
             from ..auth.client import prompt_for_catalog_key
@@ -578,13 +569,12 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             "  [cyan]2[/]  OpenRouter         [dim](free & paid)[/]\n"
             "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
             "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n"
-            "  [cyan]5[/]  Kimchi             [dim](Kimi, MiniMax, Nemotron)[/]\n"
             "  [dim]…or any provider id from models.dev, e.g.[/] [cyan]deepseek[/] [dim](/key lists them all)[/]\n\n"
             "usage: [dim]/provider <name>[/]",
             title="◎ provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, 5=Kimchi, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
                           "[cyan]/provider openrouter[/], [cyan]/provider opencode[/], "
@@ -594,12 +584,11 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         elif sel in ("2", "openrouter", "or"):         target = PROVIDER_OPENROUTER
         elif sel in ("3", "opencode", "oc"):           target = PROVIDER_OPENCODE
         elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
-        elif sel in ("5", "kimchi", "k"):              target = PROVIDER_KIMCHI
         elif sel:                                      target = sel
         else: return
     builtin = (
         PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
-        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_KIMCHI,
+        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
     )
     if target not in builtin:
         # A provider from models.dev: "md:deepseek", or just "deepseek".
@@ -621,11 +610,12 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             from ..constants import openrouter_default_model
             state.MODEL = openrouter_default_model()
     elif target == PROVIDER_OPENCODE:
-        if state.MODEL not in _OPENCODE_MODEL_IDS:
-            state.MODEL = OPENCODE_DEFAULT_MODEL
+        state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_OPENCODE)
+        if not state.MODEL:
+            console.print("[yellow]OpenCode Go's model list couldn't be loaded (models.dev is unreachable) "
+                          "— check the connection, then run /model[/]")
     elif target == PROVIDER_OPENCODE_ZEN:
-        if state.MODEL not in _OPENCODE_ZEN_MODEL_IDS:
-            state.MODEL = OPENCODE_ZEN_DEFAULT_MODEL
+        state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_OPENCODE_ZEN)
     elif target == PROVIDER_OPENAI_CODEX:
         state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_OPENAI_CODEX)
         if not load_codex_oauth_tokens():
@@ -635,9 +625,6 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             return
         state.auth_mode = AUTH_OAUTH
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
-    elif target == PROVIDER_KIMCHI:
-        if state.MODEL not in _KIMCHI_MODEL_IDS:
-            state.MODEL = KIMCHI_DEFAULT_MODEL
     elif is_catalog_provider(target):
         state.MODEL = normalize_model_for_provider(state.MODEL, target)
     else:
@@ -649,7 +636,7 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             state.auth_mode = mode
             _secure_write(AUTH_MODE_FILE, mode)
 
-    if target in (PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_KIMCHI) or is_catalog_provider(target):
+    if target in (PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN) or is_catalog_provider(target):
         if not _prompt_provider_key_if_needed(
             target, prev_provider, skip_key_prompt=skip_key_prompt,
         ):
@@ -670,9 +657,6 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             state.client = _build_codex_client()
             if state.client is None:
                 raise RuntimeError("Codex OAuth client unavailable")
-        elif target == PROVIDER_KIMCHI:
-            from ..auth.client import _build_kimchi_client
-            state.client = _build_kimchi_client()
         elif is_catalog_provider(target):
             from ..auth.client import _build_catalog_client
             state.client = _build_catalog_client(target)

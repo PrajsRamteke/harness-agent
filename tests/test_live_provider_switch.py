@@ -19,8 +19,8 @@ from jarvis.constants import (
     PROVIDER_ANTHROPIC,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_HARNESS_AGENT,
-    PROVIDER_KIMCHI,
     PROVIDER_OPENAI_CODEX,
+    PROVIDER_OPENCODE,
     PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENROUTER,
 )
@@ -28,11 +28,11 @@ from jarvis.repl.trim import anthropic_wire_messages
 
 _KEY_ENV_VARS = (
     "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY",
-    "OPENCODE_ZEN_API_KEY", "KIMCHI_API_KEY",
+    "OPENCODE_ZEN_API_KEY",
 )
 _PATH_NAMES = (
     "KEY_FILE", "OPENROUTER_KEY_FILE", "OPENCODE_KEY_FILE", "OPENCODE_ZEN_KEY_FILE",
-    "KIMCHI_KEY_FILE", "PROVIDER_FILE", "AUTH_MODE_FILE",
+    "PROVIDER_FILE", "AUTH_MODE_FILE",
 )
 
 
@@ -135,6 +135,20 @@ def test_openrouter_key_added_mid_session_is_used(sandbox):
     assert state.harness_agent_free is False
 
 
+def test_a_gpt_model_picked_under_opencode_go_stays_on_go(sandbox, monkeypatch):
+    """OpenCode Go serves gpt-… ids too: the picked source decides, so the
+    switch never lands on ChatGPT (Codex) — no Codex sign-in exists here."""
+    from jarvis.commands.control import _apply_model_selection
+
+    monkeypatch.setattr("jarvis.commands.control.model_belongs_to_provider",
+                        lambda model, provider: True)  # every provider claims the id
+    sandbox["OPENCODE_KEY_FILE"].write_text("oc-go-key")
+    _apply_model_selection("gpt-6-luna", source=PROVIDER_OPENCODE)
+
+    assert state.provider == PROVIDER_OPENCODE
+    assert state.MODEL == "gpt-6-luna"
+
+
 def test_anthropic_oauth_pick_after_sign_in_does_not_ask_for_api_key(sandbox, monkeypatch):
     from jarvis.commands.control import _apply_model_selection
 
@@ -208,9 +222,9 @@ def test_key_for_another_provider_only_points_at_model_picker(sandbox):
     from jarvis.commands.control import apply_key_change
 
     before = state.client
-    assert apply_key_change(PROVIDER_KIMCHI) == "Kimchi models are now in /model"
+    assert apply_key_change(PROVIDER_OPENCODE) == "OpenCode Go models are now in /model"
     assert state.client is before
-    assert apply_key_change(PROVIDER_KIMCHI, removed=True) == ""
+    assert apply_key_change(PROVIDER_OPENCODE, removed=True) == ""
 
 
 def test_deleting_the_active_key_falls_back_to_the_free_tier(sandbox, monkeypatch):

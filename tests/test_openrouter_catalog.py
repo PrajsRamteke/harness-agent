@@ -137,15 +137,39 @@ def test_every_free_model_reaches_the_picker():
     }
 
 
-def test_picker_lists_discovered_free_models_before_seeds():
+def test_no_openrouter_model_is_hard_coded():
+    """Every OpenRouter model comes from a live catalog: a hard-coded list rots
+    (a retired ":free" model kept its Free tag and was even the default)."""
+    assert [m.id for m in providers.MODELS if m.provider == providers.PROVIDER_OPENROUTER] == []
     free = [oc.FreeModel("vendor/new-free:free", "Vendor: New Free — free")]
     with mock.patch.object(oc, "free_models", return_value=free):
-        rows = providers.openrouter_models_for_picker()
-    ids = [mid for mid, _ in rows]
-    assert ids[0] == "vendor/new-free:free"
-    # Seeds remain as an offline floor, and nothing is duplicated.
-    assert "deepseek/deepseek-v4.1-flash" in ids
-    assert len(ids) == len(set(ids))
+        ids = [mid for mid, _ in providers.openrouter_models_for_picker()]
+    assert ids == ["vendor/new-free:free"]  # conftest gives an empty models.dev
+
+
+def test_free_router_listed_only_while_no_catalog_has_arrived():
+    with mock.patch.object(oc, "free_models", return_value=[]):
+        assert [m for m, _ in providers.openrouter_models_for_picker()] == [providers.OPENROUTER_DEFAULT_MODEL]
+
+
+def test_refresh_records_every_id_openrouter_serves(tmp_path, monkeypatch):
+    monkeypatch.setattr(catalog_cache, "CACHE_DIR", tmp_path)
+    payload = {"data": [_entry("vendor/free:free"), _entry("vendor/paid", prompt="0.000001", completion="0.000002")]}
+    with mock.patch.object(oc, "_get_json", return_value=payload):
+        oc.refresh_free_models()
+    assert oc.served_ids() == {"vendor/free:free", "vendor/paid"}
+    assert [m.id for m in oc.cached_free_models()] == ["vendor/free:free"]
+
+
+def test_saved_model_openrouter_retired_is_replaced_at_startup(monkeypatch):
+    monkeypatch.setattr(oc, "served_ids", lambda: {"vendor/alive:free"})
+    monkeypatch.setattr(oc, "usable_free_models", lambda: [oc.FreeModel("vendor/alive:free", "Alive")])
+    retired = "deepseek/deepseek-v4-flash-0731:free"
+    assert providers.normalize_model_for_provider(retired, providers.PROVIDER_OPENROUTER) == "vendor/alive:free"
+    assert providers.normalize_model_for_provider("vendor/alive:free", providers.PROVIDER_OPENROUTER) == "vendor/alive:free"
+    # Before OpenRouter's list is known, a saved id is kept (no false alarms offline).
+    monkeypatch.setattr(oc, "served_ids", lambda: set())
+    assert providers.normalize_model_for_provider(retired, providers.PROVIDER_OPENROUTER) == retired
 
 
 def test_discovered_models_register_pricing_and_vision():
@@ -160,11 +184,9 @@ def test_discovered_models_register_pricing_and_vision():
 
 def test_curated_specs_win_over_discovered_pricing():
     """A ModelSpec's curated price must not be clobbered by the live catalog."""
-    before = providers.PRICING["deepseek/deepseek-v4.1-flash"]
-    providers.register_dynamic_model(
-        "deepseek/deepseek-v4.1-flash", "bogus", providers.PROVIDER_OPENROUTER
-    )
-    assert providers.PRICING["deepseek/deepseek-v4.1-flash"] == before
+    before = providers.PRICING["claude-sonnet-5"]
+    providers.register_dynamic_model("claude-sonnet-5", "bogus", providers.PROVIDER_OPENROUTER)
+    assert providers.PRICING["claude-sonnet-5"] == before
 
 
 def test_default_model_follows_the_live_catalog():
@@ -185,9 +207,9 @@ def test_default_model_never_picks_an_unusable_model(tmp_path, monkeypatch):
     assert providers.openrouter_default_model() == "vendor/works:free"
 
 
-def test_default_model_falls_back_to_seed_when_catalog_is_cold():
+def test_default_model_falls_back_to_the_free_router_when_catalogs_are_cold():
     with mock.patch.object(oc, "usable_free_models", return_value=[]):
-        assert providers.openrouter_default_model() == providers.OPENROUTER_DEFAULT_MODEL
+        assert providers.openrouter_default_model() == providers.OPENROUTER_DEFAULT_MODEL == "openrouter/free"
 
 
 def test_normalize_uses_live_default_for_openrouter():

@@ -72,7 +72,7 @@ RAW = {
     "lmstudio": _prov("LMStudio", [_m("local-model", cost=(0, 0))], api="http://127.0.0.1:1234/v1",
                       env=("LMSTUDIO_API_KEY",)),
     "github-copilot": _prov("GitHub Copilot", [_m("gpt-x")], env=("GITHUB_TOKEN",)),
-    "kimchi": _prov("Kimchi", [_m("k")]),
+    "kimchi": _prov("Kimchi", [_m("k")]),  # removed from Jarvis; never offered
     # Built-ins: enrichment only.
     "openrouter": _prov("OpenRouter", [
         _m("vendor/paid-model", cost=(3.0, 15.0), images=True, release="2026-08-01"),
@@ -81,9 +81,17 @@ RAW = {
     "opencode-go": _prov("OpenCode Go", [
         _m("kimi-k2.6"), _m("brand-new-go"), _m("gpt-go", provider={"npm": "@ai-sdk/openai"}),
         _m("minimax-anthropic", provider={"npm": "@ai-sdk/anthropic"}),
+        _m("old-but-served", status="deprecated", cost=(0.95, 4.0)),
     ], api="https://opencode.ai/zen/go/v1", env=("OPENCODE_API_KEY",)),
     "anthropic": _prov("Anthropic", [_m("claude-new-1", images=True)], npm="@ai-sdk/anthropic", api=None,
                        env=("ANTHROPIC_API_KEY",)),
+    # models.dev's "opencode" is OpenCode Zen.
+    "opencode": _prov("OpenCode Zen", [
+        _m("zen-frontier", cost=(5.0, 25.0), images=True, release="2026-09-01"),
+        _m("zen-free", cost=(0, 0), release="2026-08-01"),
+        _m("zen-retired", cost=(1.0, 1.0), release="2026-07-01"),
+        _m("claude-routed", cost=(3.0, 15.0)),
+    ], api="https://opencode.ai/zen/v1", env=("OPENCODE_ZEN_API_KEY",)),
 }
 
 
@@ -274,9 +282,9 @@ def test_provider_with_missing_url_var_is_not_connected(catalog, monkeypatch):
 def no_builtin_keys(tmp_path, monkeypatch):
     from jarvis.constants import paths
 
-    for name in ("KEY_FILE", "OPENROUTER_KEY_FILE", "OPENCODE_KEY_FILE", "OPENCODE_ZEN_KEY_FILE", "KIMCHI_KEY_FILE"):
+    for name in ("KEY_FILE", "OPENROUTER_KEY_FILE", "OPENCODE_KEY_FILE", "OPENCODE_ZEN_KEY_FILE"):
         monkeypatch.setattr(paths, name, tmp_path / name.lower())
-    for var in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "KIMCHI_API_KEY"):
+    for var in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr("jarvis.auth.oauth_tokens.load_oauth_tokens", lambda: None)
     monkeypatch.setattr("jarvis.auth.codex_oauth_tokens.load_codex_oauth_tokens", lambda: None)
@@ -317,24 +325,103 @@ def test_pricing_and_vision_are_per_provider(catalog, monkeypatch):
 
 def test_openrouter_lists_paid_models_from_models_dev(catalog, monkeypatch):
     monkeypatch.setattr("jarvis.auth.openrouter_catalog.free_models", lambda live=False: [])
+    monkeypatch.setattr("jarvis.auth.openrouter_catalog.usable_free_models", lambda: [])
+    monkeypatch.setattr("jarvis.auth.openrouter_catalog.served_ids", lambda: set())
     ids = [m for m, _ in pv.openrouter_models_for_picker()]
     assert "vendor/paid-model" in ids
-    assert ids.index("vendor/paid-model") > ids.index(pv.OPENROUTER_DEFAULT_MODEL)
     assert pv.PRICING["vendor/paid-model"] == (3.0, 15.0)
     assert pv.model_supports_images("vendor/paid-model", pv.PROVIDER_OPENROUTER)
+    # OpenRouter's own list never fetched: models.dev's prices decide "free".
+    assert pv.model_is_free("vendor/free-model:free", pv.PROVIDER_OPENROUTER, {})
+    assert not pv.model_is_free("vendor/paid-model", pv.PROVIDER_OPENROUTER, {})
+    assert pv.openrouter_default_model() == "vendor/free-model:free"  # free + tools, from models.dev
 
 
-def test_opencode_go_gains_new_models_and_keeps_its_curated_ones(catalog):
+def test_openrouter_itself_overrules_models_dev(catalog, monkeypatch):
+    """models.dev lags: a ':free' model OpenRouter retired must not be listed (or
+    tagged free), and only OpenRouter's own $0 list is the free tier."""
+    from jarvis.auth import openrouter_catalog as oc
+
+    on_openrouter = [oc.FreeModel("vendor/live:free", "Live — free")]
+    monkeypatch.setattr(oc, "free_models", lambda live=False: list(on_openrouter))
+    monkeypatch.setattr(oc, "served_ids", lambda: {"vendor/live:free", "vendor/paid-model"})
+    ids = [m for m, _ in pv.openrouter_models_for_picker()]
+    assert ids == ["vendor/live:free", "vendor/paid-model"]  # vendor/free-model:free is gone
+    free_ids = {pv.PROVIDER_OPENROUTER: {"vendor/live:free"}}
+    assert pv.model_is_free("vendor/live:free", pv.PROVIDER_OPENROUTER, free_ids)
+    assert not pv.model_is_free("vendor/free-model:free", pv.PROVIDER_OPENROUTER, free_ids)
+    assert not pv.model_is_free("deepseek/deepseek-v4-flash-0731:free", pv.PROVIDER_OPENROUTER, free_ids)
+
+
+def test_opencode_go_comes_from_models_dev_only(catalog):
+    """No hard-coded Go models: the list, prices and vision are models.dev's."""
+    assert [m.id for m in pv.MODELS if m.provider == pv.PROVIDER_OPENCODE] == []
     ids = [m for m, _ in pv.opencode_go_models_for_picker()]
-    curated = [m for m, _ in pv.OPENCODE_MODELS]
-    assert ids[: len(curated)] == curated
-    assert "brand-new-go" in ids and "gpt-go" in ids
+    assert ids == ["brand-new-go", "gpt-go", "kimi-k2.6"]  # usable, newest, then by name
     assert "minimax-anthropic" not in ids
     assert pv.native_responses_models(pv.PROVIDER_OPENCODE) == {"gpt-go"}
-    # Listed by models.dev for Go → belongs, even though MODEL_INFO files the
-    # id under Kimchi (the curated lists share it).
+    assert pv.model_pricing("kimi-k2.6", pv.PROVIDER_OPENCODE) == (1.0, 2.0)
+    # Listed by models.dev for Go → belongs.
     assert pv.model_belongs_to_provider("brand-new-go", pv.PROVIDER_OPENCODE)
     assert pv.model_belongs_to_provider("kimi-k2.6", pv.PROVIDER_OPENCODE)
+    assert pv.opencode_go_default_model() == "brand-new-go"
+
+
+def test_opencode_gateways_drop_what_they_no_longer_serve(catalog, monkeypatch):
+    from jarvis.auth import opencode_catalog
+
+    served = {pv.PROVIDER_OPENCODE: {"kimi-k2.6", "gpt-go"},
+              pv.PROVIDER_OPENCODE_ZEN: {"zen-frontier", "zen-free", "claude-routed"}}
+    monkeypatch.setattr(opencode_catalog, "served_ids", lambda provider: served.get(provider, set()))
+    assert [m for m, _ in pv.opencode_go_models_for_picker()] == ["gpt-go", "kimi-k2.6"]
+    assert [m for m, _ in pv.opencode_zen_live_models_for_picker()] == ["zen-frontier", "zen-free", "claude-routed"]
+    # A saved model the gateway retired is replaced at startup, a served one kept.
+    assert pv.normalize_model_for_provider("brand-new-go", pv.PROVIDER_OPENCODE) == "gpt-go"
+    assert pv.normalize_model_for_provider("kimi-k2.6", pv.PROVIDER_OPENCODE) == "kimi-k2.6"
+    assert pv.normalize_model_for_provider("zen-retired", pv.PROVIDER_OPENCODE_ZEN) == "zen-free"
+
+
+def test_opencode_zen_comes_from_models_dev_and_starts_free(catalog):
+    ids = [m for m, _ in pv.opencode_zen_live_models_for_picker()]
+    assert ids == ["zen-frontier", "zen-free", "zen-retired", "claude-routed"]
+    # A key never starts on the paid frontier model by surprise.
+    assert pv.opencode_zen_default_model() == "zen-free"
+    assert pv.model_pricing("zen-frontier", pv.PROVIDER_OPENCODE_ZEN) == (5.0, 25.0)
+    assert pv.model_supports_images("zen-frontier", pv.PROVIDER_OPENCODE_ZEN)
+    assert pv.model_is_free("zen-free", pv.PROVIDER_OPENCODE_ZEN, {})
+
+
+def test_gateway_list_is_what_it_serves_with_models_dev_details(catalog, monkeypatch):
+    """models.dev lags the gateway: a deprecated model it still serves stays
+    (marked retiring, real price), a served model models.dev doesn't know yet
+    is listed by id, and one models.dev routes to another wire never shows."""
+    from jarvis.auth import opencode_catalog
+
+    served = {"gpt-go", "kimi-k2.6", "old-but-served", "minimax-anthropic", "glm-new"}
+    monkeypatch.setattr(opencode_catalog, "served_ids",
+                        lambda provider: served if provider == pv.PROVIDER_OPENCODE else set())
+    rows = dict(pv.opencode_go_models_for_picker())
+    assert list(rows) == ["gpt-go", "kimi-k2.6", "old-but-served", "glm-new"]
+    assert "retiring" in rows["old-but-served"]
+    assert pv.model_pricing("old-but-served", pv.PROVIDER_OPENCODE) == (0.95, 4.0)
+    assert rows["glm-new"] == "Not on models.dev yet, price unknown"
+    assert pv.model_pricing("glm-new", pv.PROVIDER_OPENCODE) is None
+    # Usable and kept on startup; the other-wire model is not.
+    assert pv.model_belongs_to_provider("glm-new", pv.PROVIDER_OPENCODE)
+    assert not pv.model_belongs_to_provider("minimax-anthropic", pv.PROVIDER_OPENCODE)
+    assert pv.normalize_model_for_provider("glm-new", pv.PROVIDER_OPENCODE) == "glm-new"
+    # The default is never a retiring or undescribed model.
+    assert pv.opencode_go_default_model() == "gpt-go"
+
+
+def test_typed_model_ids_route_to_the_right_provider(catalog):
+    """Zen also serves Claude ids: a typed claude-… still goes to Anthropic."""
+    from jarvis.commands.control import _provider_for_model
+
+    assert _provider_for_model("claude-routed") == pv.PROVIDER_ANTHROPIC
+    assert _provider_for_model("zen-frontier") == pv.PROVIDER_OPENCODE_ZEN
+    assert _provider_for_model("brand-new-go") == pv.PROVIDER_OPENCODE
+    assert _provider_for_model("vendor/paid-model") == pv.PROVIDER_OPENROUTER
 
 
 def test_anthropic_api_lists_new_claude_models(catalog):
@@ -346,7 +433,9 @@ def test_anthropic_api_lists_new_claude_models(catalog):
 def test_without_a_catalog_everything_is_as_before(no_builtin_keys):
     assert models_dev.providers() == {}
     assert pv.connected_model_sources() == [pv.PROVIDER_HARNESS_AGENT]
-    assert [m for m, _ in pv.opencode_go_models_for_picker()] == [m for m, _ in pv.OPENCODE_MODELS]
+    assert pv.opencode_go_models_for_picker() == []  # nothing hard-coded to fall back to
+    assert pv.opencode_go_default_model() == ""
+    assert pv.opencode_zen_default_model() == pv.HARNESS_AGENT_DEFAULT_MODEL  # Zen's free tier
     assert pv.native_responses_models(pv.PROVIDER_OPENCODE_ZEN) == set()
 
 
@@ -447,7 +536,7 @@ def test_request_shape_follows_the_catalog(catalog):
 
 
 def test_builtin_clients_keep_the_old_request_shape():
-    """No hints (OpenCode Go/Zen, Kimchi): reasoning_content stays on every
+    """No hints (OpenCode Go/Zen): reasoning_content stays on every
     assistant message and max_tokens is passed through untouched."""
     from jarvis.auth.opencode_client import OpenCodeClient
 
@@ -537,8 +626,7 @@ def test_unrelated_env_key_does_not_move_first_run_off_the_free_tier(catalog, mo
     monkeypatch.setattr(cl, "_has_openrouter_key", lambda: False)
     monkeypatch.setattr(cl, "_has_opencode_key", lambda: False)
     monkeypatch.setattr(cl, "_has_opencode_zen_key", lambda: False)
-    monkeypatch.setattr(cl, "_has_kimchi_key", lambda: False)
-    for var in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "KIMCHI_API_KEY"):
+    for var in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     assert cl._has_usable_provider_credentials() is False
 

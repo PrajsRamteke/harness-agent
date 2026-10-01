@@ -551,20 +551,25 @@ def test_model_list_marks_free_models(monkeypatch):
         ("harness_agent", "mimo-v2.5-free", "MiMo"),
         ("openrouter", "qwen/qwen3.8-27b:free", "Qwen — free"),
         ("openrouter", "openrouter/zero-cost", "listed as $0 by the catalog"),
+        ("openrouter", "deepseek/deepseek-v4-flash-0731:free", "retired upstream"),
         ("openrouter", "anthropic/claude-sonnet-5", "paid"),
         ("opencode_zen", "big-pickle", "Big Pickle"),
         ("opencode_zen", "claude-opus-5", "paid on Zen"),
         ("anthropic", "claude-sonnet-5", "your plan"),
     ])
     monkeypatch.setattr(providers, "model_supports_images", lambda mid, provider=None: False)
-    monkeypatch.setattr(openrouter_catalog, "cached_free_models",
-                        lambda: [openrouter_catalog.FreeModel(id="openrouter/zero-cost", label="x")])
+    monkeypatch.setattr(openrouter_catalog, "cached_free_models", lambda: [
+        openrouter_catalog.FreeModel(id="openrouter/zero-cost", label="x"),
+        openrouter_catalog.FreeModel(id="qwen/qwen3.8-27b:free", label="Qwen"),
+    ])
     monkeypatch.setattr(zen_catalog, "cached_free_models", lambda: [("big-pickle", "Big Pickle")])
     rows = {r["model_id"] + "@" + r["source"]: r["free"] for r in pickers_api.list_models()["models"]}
     assert rows == {
         "mimo-v2.5-free@harness_agent": True,
         "qwen/qwen3.8-27b:free@openrouter": True,
         "openrouter/zero-cost@openrouter": True,
+        # A ":free" id isn't free unless OpenRouter's own $0 list has it.
+        "deepseek/deepseek-v4-flash-0731:free@openrouter": False,
         "anthropic/claude-sonnet-5@openrouter": False,
         "big-pickle@opencode_zen": True,
         "claude-opus-5@opencode_zen": False,

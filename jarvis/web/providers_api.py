@@ -30,13 +30,10 @@ from ..constants.api_keys import api_key_spec
 from ..constants.oauth_providers import OAUTH_ID_ANTHROPIC, OAUTH_ID_OPENAI_CODEX, oauth_provider
 from ..constants.providers import (
     AUTH_OAUTH,
-    KIMCHI_BASE_URL,
-    KIMCHI_USER_AGENT,
     PROVIDER_ANTHROPIC,
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_HARNESS_AGENT,
-    PROVIDER_KIMCHI,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_OPENCODE,
@@ -75,15 +72,13 @@ CARDS: tuple[Card, ...] = (
          PROVIDER_OPENCODE, "Go", "https://opencode.ai/auth"),
     Card("opencode_zen", "key", "OpenCode Zen", "Coding models, pay as you go",
          PROVIDER_OPENCODE_ZEN, "Zen", "https://opencode.ai/auth"),
-    Card("kimchi", "key", "Kimchi", "Kimi, MiniMax, Nemotron",
-         PROVIDER_KIMCHI, "K", "https://kimchi.dev"),
     Card("harness_agent", "free", "Harness Agent", "Free models. No account, no key.",
          PROVIDER_HARNESS_AGENT, "H"),
 )
 CARD_BY_ID = {c.id: c for c in CARDS}
 
 # Keys the server checks with the provider before saving (verify_key).
-CHECKED_CARDS = frozenset({"anthropic_api", "openrouter", "kimchi"})
+CHECKED_CARDS = frozenset({"anthropic_api", "openrouter"})
 
 
 def _monogram(name: str) -> str:
@@ -319,10 +314,6 @@ def _check_request(card_id: str, key: str) -> tuple[str, dict[str, str]] | None:
         }
     if card_id == "openrouter":
         return "https://openrouter.ai/api/v1/key", {"Authorization": f"Bearer {key}"}
-    if card_id == "kimchi":
-        return f"{KIMCHI_BASE_URL}/models", {
-            "Authorization": f"Bearer {key}", "User-Agent": KIMCHI_USER_AGENT,
-        }
     if card_id.startswith("md:"):
         from ..auth import models_dev
 
@@ -444,13 +435,14 @@ def _default_model(source: str) -> str:
         return p.openrouter_default_model()
     if source == PROVIDER_OPENAI_CODEX_AUTH:
         return p.codex_default_model()
+    if source == PROVIDER_OPENCODE:  # live (models.dev + the gateway's list)
+        return p.opencode_go_default_model() or state.MODEL
+    if source == PROVIDER_OPENCODE_ZEN:
+        return p.opencode_zen_default_model() or state.MODEL
     return {
         PROVIDER_HARNESS_AGENT: p.HARNESS_AGENT_DEFAULT_MODEL,
         PROVIDER_ANTHROPIC_API: p.ANTHROPIC_DEFAULT_MODEL,
         PROVIDER_ANTHROPIC_AUTH: p.ANTHROPIC_DEFAULT_MODEL,
-        PROVIDER_OPENCODE: p.OPENCODE_DEFAULT_MODEL,
-        PROVIDER_OPENCODE_ZEN: p.OPENCODE_ZEN_DEFAULT_MODEL,
-        PROVIDER_KIMCHI: p.KIMCHI_DEFAULT_MODEL,
     }.get(source, state.MODEL)
 
 

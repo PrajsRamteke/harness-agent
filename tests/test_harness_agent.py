@@ -9,7 +9,6 @@ from jarvis.auth.harness_agent import build_harness_agent_client, should_use_har
 from jarvis.constants.providers import (
     HARNESS_AGENT_DEFAULT_MODEL,
     HARNESS_AGENT_MODELS,
-    OPENCODE_ZEN_MODELS,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENCODE_ZEN,
     connected_model_sources,
@@ -44,13 +43,10 @@ class HarnessAgentTests(unittest.TestCase):
         self.assertEqual(len(models), 7)
         self.assertEqual(models[0][0], HARNESS_AGENT_DEFAULT_MODEL)
 
-    def test_opencode_zen_models_include_exclusive_and_shared(self):
-        ids = {m for m, _ in OPENCODE_ZEN_MODELS}
-        self.assertIn("nemotron-3-ultra-free", ids)
-        self.assertIn("mimo-v2.5-free", ids)
-        self.assertIn("big-pickle", ids)
-        self.assertNotIn("hy3-free", ids)
-        self.assertNotIn("minimax-m2.5-free", ids)
+    def test_opencode_zen_key_list_is_not_hard_coded(self):
+        # With a Zen key the list is models.dev's (empty in tests) — the free
+        # tier's static ids are no longer copied into it.
+        self.assertEqual(models_for_source(PROVIDER_OPENCODE_ZEN), [])
 
     def test_is_harness_agent_model(self):
         self.assertTrue(is_harness_agent_model("nemotron-3-ultra-free"))

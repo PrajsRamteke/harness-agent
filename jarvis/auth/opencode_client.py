@@ -942,7 +942,7 @@ class OpenCodeClient:
         # Per-model facts for providers from models.dev (see client.py
         # _build_catalog_client): {"reasoning", "reasoning_field",
         # "max_output", "wire"}. None for every other provider, which keeps
-        # the long-standing OpenCode / Kimchi request shape unchanged.
+        # the long-standing OpenCode request shape unchanged.
         self._model_hints = model_hints
         # OpenAI's own API wants max_completion_tokens; gateways take max_tokens.
         self.max_tokens_param = max_tokens_param

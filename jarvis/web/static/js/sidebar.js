@@ -21,7 +21,6 @@ const PROVIDER_LABELS = {
   opencode: 'OpenCode Go',
   opencode_zen: 'OpenCode Zen',
   openai_codex: 'ChatGPT (Codex)',
-  kimchi: 'Kimchi',
 };
 /** Filled from /api/providers: "Claude Pro / Max" rather than "Anthropic". */
 let activeProviderLabel = '';

@@ -56,6 +56,12 @@ def _isolated_models_dev(tmp_path, monkeypatch):
         raise OSError("network disabled in tests (models.dev)")
 
     monkeypatch.setattr(models_dev, "_http_get", _offline)
+    # OpenCode Go / Zen "served now" lists (auth/opencode_catalog.py): offline
+    # too, and empty unless a test seeds them.
+    from jarvis.auth import opencode_catalog
+
+    monkeypatch.setattr(opencode_catalog, "_fetch", lambda *_a, **_k: None)
+    monkeypatch.setattr(opencode_catalog, "served_ids", lambda provider: set())
     models_dev._memo.update(mtime=None, path=None, providers={}, native={}, meta={})
     models_dev._memo.pop("shared", None)
     yield

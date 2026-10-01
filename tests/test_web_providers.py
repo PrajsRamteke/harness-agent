@@ -78,9 +78,10 @@ def test_format_check_points_to_the_right_provider():
     token = pv.check_key_format("anthropic_api", "sk-ant-oat01-" + "x" * 20)
     assert token["suggest"] == "anthropic"
     assert "start with sk-or-" in pv.check_key_format("openrouter", "x" * 24)["error"]
-    assert "one line" in pv.check_key_format("kimchi", "abc def ghi jkl mno")["error"]
-    assert "short" in pv.check_key_format("kimchi", "abc")["error"]
-    assert pv.check_key_format("kimchi", "k" * 24) is None
+    assert "one line" in pv.check_key_format("opencode", "abc def ghi jkl mno")["error"]
+    assert "short" in pv.check_key_format("opencode", "abc")["error"]
+    assert pv.check_key_format("opencode", "k" * 24) is None
+    assert pv.check_key_format("kimchi", "k" * 24)["error"] == "Unknown provider"  # removed
 
 
 # ─── Listing ────────────────────────────────────────────────────────────
@@ -88,13 +89,14 @@ def test_format_check_points_to_the_right_provider():
 
 def test_list_shows_status_and_never_the_key(keys, monkeypatch):
     keys["openrouter"].write_text("sk-or-v1-secretsecretsecret1234")
-    monkeypatch.setenv("KIMCHI_API_KEY", "kimchi-env-secret-5678")
+    monkeypatch.setenv("OPENCODE_API_KEY", "opencode-env-secret-5678")
     data = pv.list_providers()
     rows = {r["id"]: r for r in data["providers"]}
 
     assert rows["openrouter"]["connected"] and rows["openrouter"]["source"] == "file"
     assert rows["openrouter"]["hint"] == "…1234"
-    assert rows["kimchi"]["source"] == "env" and rows["kimchi"]["env_var"] == "KIMCHI_API_KEY"
+    assert rows["opencode"]["source"] == "env" and rows["opencode"]["env_var"] == "OPENCODE_API_KEY"
+    assert "kimchi" not in rows
     assert not rows["anthropic_api"]["connected"]
     assert rows["harness_agent"]["active"] and data["active"] == "harness_agent"
     assert data["connected"] == 2  # the free tier doesn't count
@@ -140,14 +142,14 @@ def test_saving_writes_the_cleaned_key_then_applies_it_on_the_main_thread(keys, 
 def test_replacing_a_key_says_so(keys, monkeypatch):
     import jarvis.commands.control as control
 
-    keys["kimchi"].write_text("kimchi-old-" + "k" * 16)
+    keys["opencode"].write_text("oc-old-" + "k" * 16)
     monkeypatch.setattr(pv, "verify_key", lambda card_id, key: "ok")
     monkeypatch.setattr(control, "apply_key_change", lambda provider, removed=False: "")
-    monkeypatch.setattr(state, "provider", "kimchi")  # already the live provider
+    monkeypatch.setattr(state, "provider", "opencode")  # already the live provider
     run = lambda action, data: pv.run_provider_action(action, data, console_print=lambda *a: None)
-    res = pv.save_key("kimchi", "kimchi-new-" + "n" * 16, use=True, run_action=run)
-    assert res["ok"] and res["message"] == "Saved the new Kimchi key"
-    assert keys["kimchi"].read_text().startswith("kimchi-new-")
+    res = pv.save_key("opencode", "oc-new-" + "n" * 16, use=True, run_action=run)
+    assert res["ok"] and res["message"] == "Saved the new OpenCode Go key"
+    assert keys["opencode"].read_text().startswith("oc-new-")
 
 
 def test_unverifiable_key_is_saved_but_not_marked_verified(keys, monkeypatch):
@@ -186,22 +188,22 @@ def test_verify_key_reads_401_as_rejected(monkeypatch):
 def test_remove_key(keys, monkeypatch):
     import jarvis.commands.control as control
 
-    keys["kimchi"].write_text("kimchi-" + "k" * 20)
+    keys["opencode"].write_text("oc-" + "k" * 20)
     monkeypatch.setattr(control, "apply_key_change", lambda provider, removed=False: "")
-    assert pv.remove_key("kimchi")["ok"]
-    assert not keys["kimchi"].exists()
+    assert pv.remove_key("opencode")["ok"]
+    assert not keys["opencode"].exists()
 
-    monkeypatch.setenv("KIMCHI_API_KEY", "kimchi-env-" + "k" * 10)
-    res = pv.remove_key("kimchi")
-    assert not res["ok"] and "KIMCHI_API_KEY" in res["error"]
+    monkeypatch.setenv("OPENCODE_API_KEY", "oc-env-" + "k" * 10)
+    res = pv.remove_key("opencode")
+    assert not res["ok"] and "OPENCODE_API_KEY" in res["error"]
 
 
 # ─── Switching ──────────────────────────────────────────────────────────
 
 
 def test_use_needs_a_connection_first(keys):
-    res = pv.run_provider_action("provider_use", {"id": "kimchi"}, console_print=lambda *a: None)
-    assert not res["ok"] and res["error"] == "Add a key for Kimchi first"
+    res = pv.run_provider_action("provider_use", {"id": "opencode"}, console_print=lambda *a: None)
+    assert not res["ok"] and res["error"] == "Add a key for OpenCode Go first"
     res = pv.use_card("anthropic")
     assert res["error"] == "Sign in to Claude Pro / Max first"
 
@@ -230,10 +232,10 @@ def test_model_for_source_keeps_a_model_the_source_serves(monkeypatch):
 
     monkeypatch.setattr(p, "models_for_source", lambda source, cached=False, live=False: [("a", ""), ("b", "")])
     monkeypatch.setattr(state, "MODEL", "b")
-    assert pv.model_for_source("kimchi") == "b"
+    assert pv.model_for_source("anthropic_api") == "b"
     monkeypatch.setattr(state, "MODEL", "elsewhere")
-    monkeypatch.setattr(p, "KIMCHI_DEFAULT_MODEL", "retired")
-    assert pv.model_for_source("kimchi") == "a"  # default gone from the list → first served
+    monkeypatch.setattr(p, "ANTHROPIC_DEFAULT_MODEL", "retired")
+    assert pv.model_for_source("anthropic_api") == "a"  # default gone from the list → first served
 
 
 def test_signing_out_of_the_live_account_lands_on_the_free_tier(keys, monkeypatch):
@@ -411,12 +413,12 @@ def test_http_routes_need_the_token_and_run_on_the_bridge(keys, monkeypatch):
             return e.code, {}
 
     try:
-        assert post("/api/providers/key", {"id": "kimchi", "key": "k" * 24}, token="wrong")[0] == 401
-        status, body = post("/api/providers/key", {"id": "kimchi", "key": "kimchi-" + "k" * 20})
+        assert post("/api/providers/key", {"id": "opencode", "key": "k" * 24}, token="wrong")[0] == 401
+        status, body = post("/api/providers/key", {"id": "opencode", "key": "oc-" + "k" * 20})
         assert status == 200 and body["ok"] and body["verified"]
-        assert keys["kimchi"].exists() and actions == ["provider_key_saved"]
+        assert keys["opencode"].exists() and actions == ["provider_key_saved"]
         rows = {r["id"]: r for r in body["providers"]["providers"]}
-        assert rows["kimchi"]["connected"] and "k" * 20 not in json.dumps(body)
+        assert rows["opencode"]["connected"] and "k" * 20 not in json.dumps(body)
         assert "provider" in body["state"]
 
         events = []

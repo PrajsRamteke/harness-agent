@@ -16,7 +16,7 @@ export const CATALOG = [
   { group: 'Go to', action: 'inspector-changes', label: 'File changes', desc: 'Files Jarvis created, edited or deleted, with diffs', icon: 'file-diff', keys: 'diff review git patch files edited changed side panel' },
   { group: 'Go to', action: 'attach', label: 'Attach files', desc: 'Photos, video, audio, PDFs or documents (or drop / paste them)', icon: 'paperclip', keys: 'upload image photo picture screenshot file media document pdf video camera' },
   { group: 'Go to', action: 'inspector-activity', label: 'Activity', desc: 'What Jarvis is doing, its tool calls and background jobs', icon: 'activity', keys: 'tools jobs progress timeline running side panel' },
-  { group: 'Go to', picker: 'provider', cmd: '/provider', label: 'Providers and login', desc: 'Sign in, add API keys, switch provider', icon: 'key-round', keys: 'login logout sign in oauth api key keys account anthropic claude chatgpt codex openrouter opencode zen kimchi' },
+  { group: 'Go to', picker: 'provider', cmd: '/provider', label: 'Providers and login', desc: 'Sign in, add API keys, switch provider', icon: 'key-round', keys: 'login logout sign in oauth api key keys account anthropic claude chatgpt codex openrouter opencode zen' },
 
   { group: 'Conversation', action: 'session_new', cmd: '/new', label: 'New chat', desc: 'Start a fresh conversation', icon: 'plus', keys: 'clear fresh' },
   { group: 'Conversation', cmd: '/retry', label: 'Retry', desc: 'Send the last message again', icon: 'refresh-cw' },

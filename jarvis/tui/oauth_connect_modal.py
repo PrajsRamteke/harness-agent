@@ -88,7 +88,7 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
                 yield Static(
                     Text.from_markup(
                         "[bold]OAuth login[/] — subscription accounts only.\n"
-                        f"[dim]API keys (Anthropic billing, OpenRouter, OpenCode, Kimchi) → [/][{ui.ACCENT}]/key[/]"
+                        f"[dim]API keys (Anthropic billing, OpenRouter, OpenCode) → [/][{ui.ACCENT}]/key[/]"
                     ),
                     id="oauth_info",
                 )

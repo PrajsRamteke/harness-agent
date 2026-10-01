@@ -22,13 +22,12 @@ from dataclasses import dataclass
 from typing import Any
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
-PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "kimchi")
+PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_OPENCODE_ZEN = "opencode_zen"
 PROVIDER_OPENAI_CODEX = "openai_codex"
-PROVIDER_KIMCHI = "kimchi"
 # Model-picker only — free OpenCode Zen tier (no API key). Backend: opencode_zen.
 PROVIDER_HARNESS_AGENT = "harness_agent"
 
@@ -48,7 +47,6 @@ PROVIDER_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX: "OpenAI Codex",
-    PROVIDER_KIMCHI: "Kimchi",
 }
 
 MODEL_SOURCE_LABELS = {
@@ -59,7 +57,6 @@ MODEL_SOURCE_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX_AUTH: "OpenAI Codex Auth",
-    PROVIDER_KIMCHI: "Kimchi",
 }
 
 # Picker display order (Harness Agent first — always free, no setup).
@@ -71,7 +68,6 @@ MODEL_SOURCES = (
     PROVIDER_OPENCODE,
     PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX_AUTH,
-    PROVIDER_KIMCHI,
 )
 
 # ── SINGLE SOURCE OF TRUTH: all models ────────────────────────────────────────
@@ -106,38 +102,17 @@ MODELS: list[ModelSpec] = [
     ModelSpec("claude-opus-5",     "Opus 5 — high capability",                           PROVIDER_ANTHROPIC,  5.0, 25.0, supports_images=True),
     ModelSpec("claude-sonnet-5",   "Sonnet 5 — balanced",                                PROVIDER_ANTHROPIC,  2.0, 10.0, default=True, supports_images=True),
 
-    # ── OpenRouter ────────────────────────────────────────────────────────────
-    # The free tier is discovered LIVE from https://openrouter.ai/api/v1/models
-    # (see jarvis/auth/openrouter_catalog.py) — every $0 model OpenRouter serves
-    # shows up in /model on its own, and retired ones disappear. The entries
-    # below are only the offline seed list, used before the first refresh or
-    # when the network is unavailable. Don't curate free models here by hand.
-    ModelSpec("deepseek/deepseek-v4-flash-0731:free",   "DeepSeek V4 Flash — 1M ctx, free",  PROVIDER_OPENROUTER, default=True),
-    ModelSpec("nvidia/nemotron-3-ultra-550b-a55b:free", "Nemotron 3 Ultra — 1M ctx, free",   PROVIDER_OPENROUTER),
-    ModelSpec("nvidia/nemotron-3.5-lightning:free",     "Nemotron 3.5 Lightning — 1M, free", PROVIDER_OPENROUTER),
-    ModelSpec("thinkingmachines/inkling:free",          "Inkling — 1M ctx, free",            PROVIDER_OPENROUTER, supports_images=True),
-    ModelSpec("nvidia/nemotron-3-super-120b-a12b:free", "Nemotron 3 Super 120B — free",      PROVIDER_OPENROUTER),
-    ModelSpec("qwen/qwen3.8-27b:free",                  "Qwen3.8 27B — free",                PROVIDER_OPENROUTER, supports_images=True),
-    ModelSpec("google/gemma-4-31b-it:free",             "Gemma 4 31B — free",                PROVIDER_OPENROUTER, supports_images=True),
-    ModelSpec("cohere/north-mini-code:free",            "North Mini Code — free",            PROVIDER_OPENROUTER),
-    ModelSpec("openrouter/free",                        "OpenRouter Free — auto-routed",     PROVIDER_OPENROUTER),
-    ModelSpec("deepseek/deepseek-v4.1-flash",           "DeepSeek V4.1 Flash — fast & cheap", PROVIDER_OPENROUTER, 0.15, 1.20, supports_images=True),
+    # ── OpenRouter: no entries here, on purpose ───────────────────────────────
+    # Every OpenRouter model, price, free flag and vision flag is read live:
+    # the free tier and the list of served ids from openrouter.ai/api/v1/models
+    # (jarvis/auth/openrouter_catalog.py), paid models from models.dev. A
+    # hard-coded list here went stale (a retired ":free" model kept its Free
+    # tag and was the default; a price was 5x off) — see openrouter_default_model.
 
-    # ── OpenCode Go models (real pricing, help.apiyi) ──────────────────────────
-    ModelSpec("glm-5.1",           "GLM-5.1 — latest GLM model",            PROVIDER_OPENCODE, 1.40, 4.40, supports_images=True),
-    ModelSpec("glm-5",             "GLM-5 — high capability",               PROVIDER_OPENCODE, 1.00, 3.20, supports_images=True),
-    ModelSpec("kimi-k2.6",         "Kimi K2.6 — Moonshot AI, most capable", PROVIDER_OPENCODE, 0.32, 1.34, default=True, supports_images=True),
-    ModelSpec("kimi-k2.5",         "Kimi K2.5 — Moonshot AI",               PROVIDER_OPENCODE, 0.60, 3.00, supports_images=True),
-    ModelSpec("deepseek-v4-pro",   "DeepSeek V4 Pro — strong reasoning",    PROVIDER_OPENCODE, 1.74, 3.48),
-    ModelSpec("deepseek-v4-flash", "DeepSeek V4 Flash — fast & cheap",      PROVIDER_OPENCODE, 0.14, 0.28),
-    ModelSpec("mimo-v2.5-pro",     "MiMo V2.5 Pro",                         PROVIDER_OPENCODE, 1.00, 3.00),
-    ModelSpec("mimo-v2.5",         "MiMo V2.5",                             PROVIDER_OPENCODE, 0.40, 2.00),
-    ModelSpec("mimo-v2-pro",       "MiMo V2 Pro",                           PROVIDER_OPENCODE, 1.00, 3.00),
-    ModelSpec("mimo-v2-omni",      "MiMo V2 Omni",                          PROVIDER_OPENCODE, 0.40, 2.00, supports_images=True),
-    ModelSpec("minimax-m2.7",      "MiniMax M2.7",                          PROVIDER_OPENCODE, 0.30, 1.20),
-    ModelSpec("minimax-m2.5",      "MiniMax M2.5",                          PROVIDER_OPENCODE, 0.30, 1.20),
-    ModelSpec("qwen3.6-plus",      "Qwen3.6 Plus",                          PROVIDER_OPENCODE, 0.50, 3.00),
-    ModelSpec("qwen3.5-plus",      "Qwen3.5 Plus",                          PROVIDER_OPENCODE, 0.20, 1.20),
+    # ── OpenCode Go and OpenCode Zen: no entries here, on purpose ─────────────
+    # Their models, prices, vision and tool flags come from models.dev
+    # ("opencode-go" / "opencode"), limited to what each gateway serves right
+    # now (jarvis/auth/opencode_catalog.py). See _gateway_rows.
 
     # ── Harness Agent (free OpenCode Zen — no API key, /model only) ─────────
     # NOTE: hy3-free / x-preview-f-free were retired by the gateway (401 "Model
@@ -151,8 +126,6 @@ MODELS: list[ModelSpec] = [
     ModelSpec("muse-spark-1.3-contributor-free", "Muse Spark 1.3 Free",              PROVIDER_HARNESS_AGENT),
     ModelSpec("ling-3.0-flash-fin-free",         "Ling 3.0 Flash Fin Free",          PROVIDER_HARNESS_AGENT),
 
-    # Paid OpenCode Zen picker reuses these slugs; exclusive free IDs have expired.
-
     # ── OpenAI Codex (ChatGPT subscription / OAuth) ───────────────────────────
     # Offline seed only — the live line-up comes from the Codex backend (see
     # jarvis/auth/codex_catalog.py). gpt-5.5 (404) and gpt-5.4 / gpt-5.4-mini
@@ -161,14 +134,6 @@ MODELS: list[ModelSpec] = [
     ModelSpec("gpt-5.6-terra", "GPT-5.6-Terra — Older balanced model for straightforward work", PROVIDER_OPENAI_CODEX, supports_images=True),
     ModelSpec("gpt-5.6-luna",  "GPT-5.6-Luna — Older fast and efficient model", PROVIDER_OPENAI_CODEX, supports_images=True),
 
-    # ── Kimchi (llm.kimchi.dev — OpenAI-compatible, BYO API key) ───────────────
-    ModelSpec("glm-5.2-fp8",       "GLM-5.2 FP8 — latest GLM model",       PROVIDER_KIMCHI, supports_images=True),
-    ModelSpec("kimi-k2.6",         "Kimi K2.6 — reasoning, most capable",  PROVIDER_KIMCHI, default=True, supports_images=True),
-    ModelSpec("kimi-k2.7",         "Kimi K2.7 — reasoning, most capable",  PROVIDER_KIMCHI, default=True, supports_images=True),
-    ModelSpec("minimax-m2.7",      "MiniMax M2.7",                          PROVIDER_KIMCHI),
-    ModelSpec("minimax-m3",        "MiniMax M3",                            PROVIDER_KIMCHI),
-    ModelSpec("nemotron-3-ultra-fp4", "Nemotron 3 Ultra FP4",               PROVIDER_KIMCHI),
-    ModelSpec("nemotron-3-super-fp4", "Nemotron 3 Super FP4",               PROVIDER_KIMCHI),
 ]
 
 # model_id -> (description, provider, (input_price_per_1M, output_price_per_1M))
@@ -190,6 +155,7 @@ def model_supports_images(model_id: str, provider: str | None = None) -> bool:
     ``provider`` defaults to the active one; catalog providers answer from
     models.dev for that provider specifically.
     """
+    explicit = provider is not None
     if provider is None:
         from .. import state
 
@@ -200,6 +166,20 @@ def model_supports_images(model_id: str, provider: str | None = None) -> bool:
         except Exception:
             m = None
         return bool(m and m.images)
+    if provider in _NATIVE_ENRICHED:
+        info = MODEL_INFO.get(model_id)
+        if info and info[1] == provider:
+            return model_id in IMAGE_SUPPORTING_MODELS
+        # models.dev's answer for *this* provider — the id-keyed set may hold
+        # another provider's model with the same id.
+        try:
+            m = _catalog().native_model(provider, model_id)
+        except Exception:
+            m = None
+        if m is not None:
+            return m.images
+        if info and explicit:  # a model list asking about *this* provider's row
+            return False
     return model_id in IMAGE_SUPPORTING_MODELS
 
 
@@ -230,12 +210,25 @@ def model_is_free(model_id: str, source: str, free_ids: dict[str, set[str]] | No
     if source == PROVIDER_HARNESS_AGENT:
         return True  # the free tier: no key, no cost
     if source == PROVIDER_OPENROUTER:
-        # Every $0 model on openrouter.ai/api/v1/models (auth/openrouter_catalog);
-        # ":free" is OpenRouter's own suffix for them.
-        return (model_id in free_ids.get(source, ()) or model_id.endswith(":free")
-                or model_id == "openrouter/free")
-    if source == PROVIDER_OPENCODE_ZEN:
-        return model_id in free_ids.get(source, ()) or model_id.endswith("-free")
+        # OpenRouter's own $0 list (openrouter.ai/api/v1/models) decides — never
+        # the id: a ":free" model OpenRouter retired is not free, it's gone.
+        listed = free_ids.get(source)
+        if listed:
+            return model_id in listed
+        try:  # that list never fetched yet: models.dev's prices
+            found = _catalog().native_model(source, model_id)
+        except Exception:
+            found = None
+        return bool(found and found.free)
+    if source in (PROVIDER_OPENCODE_ZEN, PROVIDER_OPENCODE):
+        # models.dev's price for this gateway (both 0), never the id's "-free".
+        try:
+            found = _catalog().native_model(source, model_id)
+        except Exception:
+            found = None
+        if found is not None:
+            return found.free
+        return model_id in free_ids.get(source, ())  # Zen's free list (served ∩ $0)
     if is_catalog_provider(source):
         try:
             found = _catalog().get_model(source, model_id)
@@ -302,8 +295,12 @@ def _catalog():
     return models_dev
 
 
-def _native_extras(provider: str, seen: set[str]) -> list[tuple[str, str]]:
-    """Models models.dev lists for a built-in provider that ``seen`` lacks.
+def _native_extras(provider: str, seen: set[str], keep=None,
+                   allow_deprecated: bool = False) -> list[tuple[str, str]]:
+    """Models models.dev lists for a built-in provider that ``seen`` lacks
+    (and ``keep(model)`` accepts, when given). Models models.dev marks
+    deprecated only with ``allow_deprecated`` — i.e. when the provider's own
+    served list (which ``keep`` checks) says they still run.
 
     Registered like any discovered model, so pricing / vision lookups work.
     """
@@ -320,6 +317,10 @@ def _native_extras(provider: str, seen: set[str]) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for m in found:
         if m.id in seen or (hide_no_tools and not m.tools):
+            continue
+        if m.status == "deprecated" and not allow_deprecated:
+            continue
+        if keep is not None and not keep(m):
             continue
         seen.add(m.id)
         price = m.price or (0.0, 0.0)
@@ -384,6 +385,21 @@ def model_pricing(model: str, provider: str | None = None) -> tuple[float, float
         except Exception:
             m = None
         return m.price if m is not None else None
+    info = MODEL_INFO.get(model)
+    if info and (provider is None or info[1] == provider):
+        return PRICING.get(model)
+    if provider in _NATIVE_ENRICHED:
+        # Live-listed models (OpenRouter, OpenCode Go / Zen …): models.dev's
+        # price for *this* provider — the id-keyed table may hold another
+        # provider's entry for the same id (kimi-k2.6 is OpenCode Go and Zen).
+        try:
+            m = _catalog().native_model(provider, model)
+        except Exception:
+            m = None
+        if m is not None:
+            return m.price
+        if info:  # the table's entry is another provider's price for this id
+            return None
     return PRICING.get(model)
 
 # ── Auto-generated model lists from MODEL_INFO ─────────────────────────────────
@@ -433,30 +449,31 @@ def claude_thinking_kwargs(think_mode: bool, effort: str) -> dict[str, Any]:
     return {"output_config": {"effort": "low"}}
 
 
-OPENROUTER_FREE_MODELS = [
-    (mid, info[0])
-    for mid, info in MODEL_INFO.items()
-    if info[1] == PROVIDER_OPENROUTER
-]
-_OPENROUTER_SEED_MODELS: tuple[tuple[str, str], ...] = tuple(OPENROUTER_FREE_MODELS)
+# Used only before any catalog has ever been fetched (first run, offline):
+# OpenRouter's own free router, which forwards to whichever free model is up.
+# It is an OpenRouter endpoint, not a model choice — the live catalogs pick
+# real models as soon as they arrive (``openrouter_default_model``).
+OPENROUTER_DEFAULT_MODEL = "openrouter/free"
 
 
 def openrouter_models_for_picker(live: bool = False) -> list[tuple[str, str]]:
-    """OpenRouter rows: every free model it serves right now, the seeds, then
-    every other (paid) model models.dev lists for OpenRouter.
+    """OpenRouter rows, all live: every free model OpenRouter serves right now,
+    then every other (paid) model models.dev lists for OpenRouter.
 
-    The free tier is read from the public catalog (no API key needed) so the
-    user gets all of it without a code change — see
-    :mod:`jarvis.auth.openrouter_catalog`. ``live=False`` reads the on-disk
-    cache only and never blocks; ``live=True`` refreshes the free tier over
-    the network (models.dev is refreshed by ``refresh_model_catalogs``).
+    The free tier is read from OpenRouter's public catalog (no API key) — see
+    :mod:`jarvis.auth.openrouter_catalog`. models.dev rows that OpenRouter no
+    longer serves are dropped, and once OpenRouter's own free list is known,
+    models.dev's idea of which models are free is ignored (it lags behind).
+    ``live=False`` reads the on-disk caches only and never blocks; ``live=True``
+    refreshes the OpenRouter catalog first.
     """
     try:
-        from ..auth.openrouter_catalog import free_models
+        from ..auth.openrouter_catalog import free_models, served_ids
 
         discovered = free_models(live=live)
+        served = served_ids()
     except Exception:
-        discovered = []
+        discovered, served = [], set()
 
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -467,12 +484,20 @@ def openrouter_models_for_picker(live: bool = False) -> list[tuple[str, str]]:
         if m.id not in seen:
             seen.add(m.id)
             out.append((m.id, m.label))
-    for mid, desc in _OPENROUTER_SEED_MODELS:
-        if mid not in seen:
-            seen.add(mid)
-            out.append((mid, desc))
+
+    def keep(m) -> bool:
+        if served and m.id not in served:
+            return False  # retired on OpenRouter; models.dev hasn't caught up
+        if discovered and m.free:
+            return False  # OpenRouter's own $0 list (above) is the free tier
+        return True
+
     # Then everything else OpenRouter serves (paid models), from models.dev.
-    out.extend(_native_extras(PROVIDER_OPENROUTER, seen))
+    out.extend(_native_extras(PROVIDER_OPENROUTER, seen, keep=keep, allow_deprecated=bool(served)))
+    if not out:
+        # No catalog fetched yet (first run, offline): OpenRouter's free router,
+        # so the provider stays listed and usable until the real list arrives.
+        out.append((OPENROUTER_DEFAULT_MODEL, "OpenRouter Free — routes to an available free model"))
     return out
 
 
@@ -492,6 +517,14 @@ def openrouter_default_model() -> str:
         discovered = []
     if discovered:
         return discovered[0].id
+    # OpenRouter's catalog never fetched yet: a free, tool-capable model from
+    # the models.dev cache, then OpenRouter's free router.
+    try:
+        for m in _catalog().native_models(PROVIDER_OPENROUTER):
+            if m.free and m.tools:
+                return m.id
+    except Exception:
+        pass
     return OPENROUTER_DEFAULT_MODEL
 
 
@@ -532,23 +565,12 @@ def codex_default_model() -> str:
         if mid not in refused:
             return mid
     return CODEX_DEFAULT_MODEL
-OPENCODE_MODELS = [
-    (mid, info[0])
-    for mid, info in MODEL_INFO.items()
-    if info[1] == PROVIDER_OPENCODE
-]
 HARNESS_AGENT_MODELS = [
     (mid, info[0])
     for mid, info in MODEL_INFO.items()
     if info[1] == PROVIDER_HARNESS_AGENT
 ]
 HARNESS_AGENT_MODEL_IDS = frozenset(m for m, _ in HARNESS_AGENT_MODELS)
-KIMCHI_MODELS = [
-    (mid, info[0])
-    for mid, info in MODEL_INFO.items()
-    if info[1] == PROVIDER_KIMCHI
-]
-KIMCHI_MODEL_IDS = frozenset(m for m, _ in KIMCHI_MODELS)
 
 # Static fallback so /model always lists Harness Agent even on partial/cached
 # installs. Derived from MODELS — no separate copy to keep in sync.
@@ -614,40 +636,106 @@ def harness_agent_models_for_picker(
     return [(m, labels[m]) for m in ordered]
 
 
-def opencode_zen_models_for_picker() -> list[tuple[str, str]]:
-    """OpenCode Zen picker list: zen-exclusive models + shared Harness Agent slugs."""
-    seen: set[str] = set()
-    out: list[tuple[str, str]] = []
-    for mid, info in MODEL_INFO.items():
-        if info[1] != PROVIDER_OPENCODE_ZEN:
-            continue
-        if mid not in seen:
-            seen.add(mid)
-            out.append((mid, info[0]))
-    for mid, desc in HARNESS_AGENT_MODELS:
-        if mid not in seen:
-            seen.add(mid)
-            out.append((mid, desc))
-    return out
+def _gateway_served(provider: str) -> set[str]:
+    try:
+        from ..auth.opencode_catalog import served_ids
+
+        return served_ids(provider)
+    except Exception:
+        return set()
 
 
-OPENCODE_ZEN_MODELS = opencode_zen_models_for_picker()
-OPENCODE_ZEN_MODEL_IDS = frozenset(m for m, _ in OPENCODE_ZEN_MODELS)
+def _gateway_skipped(provider: str) -> frozenset:
+    try:
+        return _catalog().native_skipped(provider)
+    except Exception:
+        return frozenset()
+
+
+def _gateway_rows(provider: str) -> list[tuple[str, str]]:
+    """An OpenCode gateway's models, all live. The gateway's served list says
+    what exists; models.dev describes each (name, price, vision, tools —
+    usable first, newest first). A served model models.dev doesn't describe
+    yet is still listed (by id, price unknown); one models.dev says this
+    client can't reach (another wire) never is. Before the served list is
+    known, models.dev's list stands alone."""
+    served = _gateway_served(provider)
+    keep = (lambda m: m.id in served) if served else None
+    rows = _native_extras(provider, set(), keep=keep, allow_deprecated=bool(served))
+    if served:
+        try:
+            described = {m.id for m in _catalog().native_models(provider)}
+        except Exception:
+            described = set()
+        unknown = sorted(served - described - _gateway_skipped(provider))
+        rows.extend((mid, "Not on models.dev yet, price unknown") for mid in unknown)
+    return rows
 
 
 def opencode_zen_live_models_for_picker() -> list[tuple[str, str]]:
-    """OpenCode Zen with an API key: the static rows + every Zen model
-    models.dev lists that the OpenAI-style client can reach."""
-    rows = opencode_zen_models_for_picker()
-    rows.extend(_native_extras(PROVIDER_OPENCODE_ZEN, {m for m, _ in rows}))
-    return rows
+    """OpenCode Zen with an API key (models.dev ``opencode``)."""
+    return _gateway_rows(PROVIDER_OPENCODE_ZEN)
 
 
 def opencode_go_models_for_picker() -> list[tuple[str, str]]:
-    """OpenCode Go: the curated rows, then models.dev's newer additions."""
-    rows = list(OPENCODE_MODELS)
-    rows.extend(_native_extras(PROVIDER_OPENCODE, {m for m, _ in rows}))
-    return rows
+    """OpenCode Go (models.dev ``opencode-go``)."""
+    return _gateway_rows(PROVIDER_OPENCODE)
+
+
+def _gateway_default(provider: str) -> str:
+    """A first model for an OpenCode gateway, chosen from live data.
+
+    Zen: a free model it serves when there is one (so a key never starts on a
+    paid frontier model by surprise), else like Go. Go: the newest model that
+    can call tools, skipping preview / pro / beta tiers when there is
+    anything else. Nothing cached yet (first run): fetch now — the request
+    that needs this model goes over the network anyway.
+    """
+    import re as _re
+
+    def candidates():
+        rows = {mid for mid, _ in _gateway_rows(provider)}
+        try:
+            natives = _catalog().native_models(provider)
+        except Exception:
+            natives = []
+        # Only models models.dev describes as tool-capable and not retiring.
+        return [m for m in natives if m.id in rows and m.tools and m.status != "deprecated"]
+
+    found = candidates()
+    if not found:
+        try:
+            from ..auth.opencode_catalog import refresh as _served_refresh
+
+            _catalog().refresh()
+            _served_refresh()
+        except Exception:
+            pass
+        found = candidates()
+    def plain(ms):
+        return [m for m in ms
+                if not _re.search(r"(preview|-pro\b|exp|beta)", m.id.lower()) and m.status != "beta"]
+
+    if provider == PROVIDER_OPENCODE_ZEN:
+        free = [m for m in found if m.free]
+        if free:
+            return (plain(free) or free)[0].id
+    else:
+        # A Go subscription starts on one of its own models, not a free trial one.
+        found = [m for m in found if not m.free] or found
+    pick = plain(found) or found
+    if pick:
+        return pick[0].id
+    # models.dev unreachable on a first run: Zen still serves the free tier.
+    return HARNESS_AGENT_DEFAULT_MODEL if provider == PROVIDER_OPENCODE_ZEN else ""
+
+
+def opencode_go_default_model() -> str:
+    return _gateway_default(PROVIDER_OPENCODE)
+
+
+def opencode_zen_default_model() -> str:
+    return _gateway_default(PROVIDER_OPENCODE_ZEN)
 
 
 def anthropic_api_models_for_picker() -> list[tuple[str, str]]:
@@ -671,21 +759,14 @@ PRICING: dict[str, tuple[float, float]] = {
 # ── Default models per provider (derived from ModelSpec.default flags) ─────────
 _DEFAULT_BY_PROVIDER: dict[str, str] = {m.provider: m.id for m in MODELS if m.default}
 
-OPENROUTER_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENROUTER]
-OPENCODE_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENCODE]
 HARNESS_AGENT_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_HARNESS_AGENT]
-OPENCODE_ZEN_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER.get(PROVIDER_OPENCODE_ZEN, HARNESS_AGENT_DEFAULT_MODEL)
 CODEX_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENAI_CODEX]
 ANTHROPIC_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_ANTHROPIC]
-KIMCHI_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_KIMCHI]
 
 _PROVIDER_DEFAULT_MODEL = {
     PROVIDER_ANTHROPIC: ANTHROPIC_DEFAULT_MODEL,
     PROVIDER_OPENROUTER: OPENROUTER_DEFAULT_MODEL,
-    PROVIDER_OPENCODE: OPENCODE_DEFAULT_MODEL,
-    PROVIDER_OPENCODE_ZEN: OPENCODE_ZEN_DEFAULT_MODEL,
     PROVIDER_OPENAI_CODEX: CODEX_DEFAULT_MODEL,
-    PROVIDER_KIMCHI: KIMCHI_DEFAULT_MODEL,
 }
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
@@ -693,9 +774,6 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
 OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
-KIMCHI_BASE_URL = "https://llm.kimchi.dev/openai/v1"
-# Kimchi rejects requests without this header (returns misleading 402 "exhausted credits").
-KIMCHI_USER_AGENT = "kimchi/0.1.20"
 
 
 def _has_anthropic_api() -> bool:
@@ -787,15 +865,6 @@ def connected_model_sources() -> list[str]:
                 sources.append(PROVIDER_OPENCODE_ZEN)
         except OSError:
             pass
-    if os.getenv("KIMCHI_API_KEY"):
-        sources.append(PROVIDER_KIMCHI)
-    else:
-        from .paths import KIMCHI_KEY_FILE
-        try:
-            if KIMCHI_KEY_FILE.exists() and KIMCHI_KEY_FILE.read_text().strip():
-                sources.append(PROVIDER_KIMCHI)
-        except OSError:
-            pass
     # Providers discovered from models.dev that have a key, after the built-ins.
     sources.extend(catalog_connected_providers())
     # Harness Agent must always appear — even when other providers are configured.
@@ -867,8 +936,6 @@ def models_for_source(source: str, live: bool = False, cached: bool = False):
         return anthropic_auth_models_for_picker()
     if source == PROVIDER_OPENAI_CODEX_AUTH:
         return codex_models_for_picker(live=live)
-    if source == PROVIDER_KIMCHI:
-        return list(KIMCHI_MODELS)
     if is_catalog_provider(source):
         return catalog_models_for_picker(source)
     return models_for(source)
@@ -892,15 +959,12 @@ def connected_providers() -> set[str]:
         connected.add(PROVIDER_OPENCODE)
     if os.getenv("OPENCODE_ZEN_API_KEY"):
         connected.add(PROVIDER_OPENCODE_ZEN)
-    if os.getenv("KIMCHI_API_KEY"):
-        connected.add(PROVIDER_KIMCHI)
 
     # ── Key files on disk ──────────────────────────────────────────────────
     # Lazy import to avoid circular dependency (paths → no providers imports)
     from .paths import (
         KEY_FILE, OPENROUTER_KEY_FILE,
         OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
-        KIMCHI_KEY_FILE,
     )
 
     def _has_content(p) -> bool:
@@ -919,8 +983,6 @@ def connected_providers() -> set[str]:
         connected.add(PROVIDER_OPENCODE)
     if _has_content(OPENCODE_ZEN_KEY_FILE):
         connected.add(PROVIDER_OPENCODE_ZEN)
-    if _has_content(KIMCHI_KEY_FILE):
-        connected.add(PROVIDER_KIMCHI)
 
     # First run — no keys at all → show everything so user can see options
     if not connected:
@@ -962,8 +1024,6 @@ def models_for(provider: str):
         return opencode_zen_live_models_for_picker()
     if provider == PROVIDER_OPENAI_CODEX:
         return codex_models_for_picker()
-    if provider == PROVIDER_KIMCHI:
-        return KIMCHI_MODELS
     if is_catalog_provider(provider):
         return catalog_models_for_picker(provider)
     return anthropic_api_models_for_picker()
@@ -994,12 +1054,16 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
             return False
     if provider == PROVIDER_OPENCODE_ZEN and is_harness_agent_model(m):
         return True
+    if provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+        served = _gateway_served(provider)
+        if served:  # the gateway's own list decides (models.dev may lag)
+            return m in served and m not in _gateway_skipped(provider)
     info = MODEL_INFO.get(m)
     if info and info[1] == provider:
         return True
     # A model models.dev lists for this provider — discovered at runtime, or
-    # an id a curated list files under another provider (kimi-k2.6 is both
-    # OpenCode Go and Kimchi).
+    # an id another provider registered first (kimi-k2.6 is both OpenCode Go
+    # and Zen).
     if _in_native_catalog(provider, m):
         return True
     if info:
@@ -1008,8 +1072,6 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
         return "/" in m
     if provider == PROVIDER_ANTHROPIC:
         return m.startswith("claude-")
-    if provider == PROVIDER_KIMCHI:
-        return m in KIMCHI_MODEL_IDS
     if provider == PROVIDER_OPENAI_CODEX:
         # A live-discovered model picked last session isn't registered yet.
         try:
@@ -1053,6 +1115,22 @@ def normalize_model_for_provider(model: str, provider: str) -> str:
         if (model or "").strip() not in refused and model_belongs_to_provider(model, provider):
             return model.strip()
         return codex_default_model()
+    if provider == PROVIDER_OPENROUTER:
+        # A saved model OpenRouter has since retired: pick a live one now,
+        # rather than 404 on the first message.
+        try:
+            from ..auth.openrouter_catalog import served_ids
+
+            served = served_ids()
+        except Exception:
+            served = set()
+        if served and (model or "").strip() and model.strip() not in served:
+            return openrouter_default_model()
+    if provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+        # Same for a model the OpenCode gateway no longer serves.
+        served = _gateway_served(provider)
+        if served and (model or "").strip() and model.strip() not in served:
+            return _gateway_default(provider)
     if model_belongs_to_provider(model, provider):
         return model.strip()
     if is_catalog_provider(provider):
@@ -1060,8 +1138,8 @@ def normalize_model_for_provider(model: str, provider: str) -> str:
             return _catalog().default_model(provider) or (model or "").strip()
         except Exception:
             return (model or "").strip()
-    if provider == PROVIDER_OPENCODE_ZEN:
-        return OPENCODE_ZEN_DEFAULT_MODEL
+    if provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+        return _gateway_default(provider)
     if provider == PROVIDER_OPENROUTER:
         return openrouter_default_model()
     return _PROVIDER_DEFAULT_MODEL.get(provider, ANTHROPIC_DEFAULT_MODEL)
@@ -1091,6 +1169,12 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
     except Exception:
         pass
     try:
+        from ..auth.opencode_catalog import refresh as _opencode_refresh
+
+        ok = bool(_opencode_refresh()) or ok
+    except Exception:
+        pass
+    try:
         from ..auth.codex_catalog import refresh_models as _codex_refresh
 
         ok = bool(_codex_refresh(retry_refused=retry_blocked)) or ok
@@ -1111,7 +1195,9 @@ def model_catalogs_are_fresh() -> bool:
         from ..auth.zen_catalog import cache_is_fresh as _zen_fresh
         from ..auth.openrouter_catalog import cache_is_fresh as _or_fresh
         from ..auth.codex_catalog import cache_is_fresh as _codex_fresh
+        from ..auth.opencode_catalog import cache_is_fresh as _opencode_fresh
 
-        return _zen_fresh() and _or_fresh() and _codex_fresh() and _catalog().cache_is_fresh()
+        return (_zen_fresh() and _or_fresh() and _codex_fresh() and _opencode_fresh()
+                and _catalog().cache_is_fresh())
     except Exception:
         return False

@@ -42,7 +42,7 @@ PREFIX = "md:"
 DEFAULT_TIMEOUT = 15.0
 # Bump when the trimmed cache layout or the support rules change: an older
 # cache is then ignored (and refetched in full) instead of misread.
-SCHEMA = 1
+SCHEMA = 2  # 2: built-ins keep deprecated rows + record the ids they skip
 
 REQUEST_HEADERS = {
     "Accept": "application/json",
@@ -60,7 +60,7 @@ NATIVE_IDS: dict[str, str] = {
 }
 
 # Listed by models.dev but not reachable with a plain API key here:
-# a built-in already (kimchi), or a token exchange / sign-in flow models.dev
+# removed on purpose (kimchi), or a token exchange / sign-in flow models.dev
 # can't describe (GitHub Copilot, GitLab Duo).
 SKIP_IDS = frozenset({"kimchi", "github-copilot", "gitlab"})
 
@@ -159,6 +159,8 @@ class CatalogModel:
             bits.append(f"{_fmt_price(self.input_price)}/{_fmt_price(self.output_price)}")
         if self.status == "beta":
             bits.append("beta")
+        elif self.status == "deprecated":
+            bits.append("retiring")
         if not self.tools:
             bits.append("no tool use")
         name = self.name or self.id
@@ -240,11 +242,12 @@ def _model_wire(provider_wire: str, provider_npm: str, mid: str, raw: dict) -> s
     return None
 
 
-def _trim_model(provider_wire: str, provider_npm: str, raw: dict) -> dict | None:
+def _trim_model(provider_wire: str, provider_npm: str, raw: dict,
+                keep_deprecated: bool = False) -> dict | None:
     mid = raw.get("id")
     if not isinstance(mid, str) or not mid:
         return None
-    if raw.get("status") == "deprecated":
+    if raw.get("status") == "deprecated" and not keep_deprecated:
         return None
     modalities = raw.get("modalities") or {}
     out = modalities.get("output") or ["text"]
@@ -283,8 +286,8 @@ def _trim_model(provider_wire: str, provider_npm: str, raw: dict) -> dict | None
         row["d"] = rel
     if wire != "chat":
         row["w"] = wire
-    if raw.get("status") == "beta":
-        row["s"] = "beta"
+    if raw.get("status") in ("beta", "deprecated"):
+        row["s"] = raw["status"]
     return row
 
 
@@ -327,11 +330,16 @@ def trim(raw: dict) -> dict:
         else:
             wire_for_models, npm_for_models = wire, npm
         models = []
+        skipped: list[str] = []
         for m in (prov.get("models") or {}).values():
             if isinstance(m, dict):
-                row = _trim_model(wire_for_models, npm_for_models, m)
+                # Built-ins keep "deprecated" rows: it's a retirement notice, and
+                # the provider's own served list says whether it still runs.
+                row = _trim_model(wire_for_models, npm_for_models, m, keep_deprecated=native)
                 if row:
                     models.append(row)
+                elif native and isinstance(m.get("id"), str):
+                    skipped.append(m["id"])  # another wire, not text, …: never offer it
         if not models:
             continue
         entry: dict = {
@@ -341,6 +349,8 @@ def trim(raw: dict) -> dict:
         }
         if native:
             entry["native"] = NATIVE_IDS[mid]
+            if skipped:
+                entry["skip"] = sorted(skipped)
         else:
             entry["api"] = api
             entry["wire"] = wire
@@ -434,6 +444,7 @@ def _load() -> tuple[dict[str, CatalogProvider], dict[str, list[CatalogModel]]]:
     raw = _read_cache_file() if mtime is not None else None
     providers: dict[str, CatalogProvider] = {}
     native: dict[str, list[CatalogModel]] = {}
+    skip: dict[str, frozenset] = {}
     for mid, entry in ((raw or {}).get("providers") or {}).items():
         if not isinstance(entry, dict):
             continue
@@ -446,6 +457,7 @@ def _load() -> tuple[dict[str, CatalogProvider], dict[str, list[CatalogModel]]]:
             continue
         if entry.get("native"):
             native[str(entry["native"])] = models
+            skip[str(entry["native"])] = frozenset(str(x) for x in entry.get("skip") or ())
             continue
         providers[PREFIX + mid] = CatalogProvider(
             mid=mid,
@@ -458,6 +470,7 @@ def _load() -> tuple[dict[str, CatalogProvider], dict[str, list[CatalogModel]]]:
         )
     with _lock:
         _memo.update(mtime=mtime, path=str(CACHE_FILE), providers=providers, native=native,
+                     skip=skip,
                      meta={"fetched_at": (raw or {}).get("fetched_at") or 0,
                            "etag": (raw or {}).get("etag") or ""})
     _register_labels(providers)
@@ -592,6 +605,13 @@ def get_model(provider: str, model_id: str) -> CatalogModel | None:
 def native_models(provider: str) -> list[CatalogModel]:
     """models.dev's view of a built-in provider (``openrouter``, ``opencode``, …)."""
     return list(_load()[1].get(provider) or [])
+
+
+def native_skipped(provider: str) -> frozenset:
+    """Ids models.dev lists for a built-in that this harness can't use (another
+    wire, not text, …) — so a served list never brings them back."""
+    _load()
+    return _memo.get("skip", {}).get(provider) or frozenset()
 
 
 def native_model(provider: str, model_id: str) -> CatalogModel | None:

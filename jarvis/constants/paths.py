@@ -43,7 +43,6 @@ KEY_FILE = CONFIG_DIR / "key"
 OPENROUTER_KEY_FILE = CONFIG_DIR / "openrouter_key"
 OPENCODE_KEY_FILE = CONFIG_DIR / "opencode_key"
 OPENCODE_ZEN_KEY_FILE = CONFIG_DIR / "opencode_zen_key"
-KIMCHI_KEY_FILE = CONFIG_DIR / "kimchi_key"
 # API keys for providers discovered from models.dev ({"md:<id>": key}, 600).
 PROVIDER_KEYS_FILE = CONFIG_DIR / "provider_keys.json"
 OAUTH_FILE = CONFIG_DIR / "oauth.json"

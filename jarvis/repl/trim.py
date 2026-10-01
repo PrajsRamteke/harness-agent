@@ -223,7 +223,7 @@ def prune_tool_images(messages: List[Dict], *, vision: bool,
 
 
 # Fields the Messages API accepts per assistant block type. Blocks built by the
-# OpenAI-style clients (Harness Agent / OpenCode / Kimchi / Codex) are plain
+# OpenAI-style clients (Harness Agent / OpenCode / Codex) are plain
 # objects and may carry extras.
 _WIRE_BLOCK_KEYS = {
     "text": ("type", "text"),

@@ -22,6 +22,9 @@ from . import catalog_cache
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 CACHE_NAME = "openrouter_free"
+# Every model id OpenRouter serves (free or paid), from the same fetch: what's
+# missing from it has been retired upstream, whatever another catalog says.
+IDS_CACHE = "openrouter_ids"
 
 REQUEST_HEADERS = {"Accept": "application/json", "User-Agent": "harness-agent/1.0"}
 
@@ -129,8 +132,7 @@ def _sort_key(m: FreeModel):
     return (not m.supports_tools, -m.context_length, m.id)
 
 
-def fetch_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[FreeModel] | None:
-    """Fetch the live catalog and return its free models. None on any failure."""
+def _fetch_entries(timeout: float) -> list[dict] | None:
     try:
         payload = _get_json(MODELS_URL, timeout)
     except Exception:
@@ -138,9 +140,21 @@ def fetch_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[FreeModel] | Non
     entries = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
         return None
-    out = [m for m in (_to_free_model(e) for e in entries if isinstance(e, dict)) if m]
+    return [e for e in entries if isinstance(e, dict)]
+
+
+def _free_from(entries: list[dict]) -> list[FreeModel]:
+    out = [m for m in (_to_free_model(e) for e in entries) if m]
     out.sort(key=_sort_key)
-    return out or None
+    return out
+
+
+def fetch_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[FreeModel] | None:
+    """Fetch the live catalog and return its free models. None on any failure."""
+    entries = _fetch_entries(timeout)
+    if entries is None:
+        return None
+    return _free_from(entries) or None
 
 
 def _decode(payload) -> list[FreeModel]:
@@ -236,10 +250,23 @@ def refresh_free_models(
     """
     if retry_blocked:
         clear_unavailable()
-    models = fetch_free_models(timeout)
+    entries = _fetch_entries(timeout)
+    if entries is None:
+        return None
+    ids = sorted({str(e["id"]) for e in entries if e.get("id")})
+    if ids:
+        catalog_cache.write(IDS_CACHE, ids)
+    models = _free_from(entries) or None
     if models:
         catalog_cache.write(CACHE_NAME, _encode(models))
     return models
+
+
+def served_ids() -> set[str]:
+    """Every model id OpenRouter listed at the last fetch (empty before the first).
+    A stale cache still counts: it's newer than any id hard-coded or mirrored."""
+    payload, _fresh = catalog_cache.read(IDS_CACHE)
+    return {str(x) for x in payload} if isinstance(payload, list) else set()
 
 
 def free_models(live: bool = False) -> list[FreeModel]:

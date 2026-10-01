@@ -11,8 +11,8 @@ from jarvis.constants.providers import (
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_HARNESS_AGENT,
-    PROVIDER_KIMCHI,
     PROVIDER_OPENAI_CODEX_AUTH,
+    PROVIDER_OPENCODE,
     PROVIDER_OPENROUTER,
 )
 
@@ -52,7 +52,7 @@ def test_harness_agent_models_for_picker_never_empty():
 
 _KEY_ENV_VARS = (
     "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY",
-    "OPENCODE_ZEN_API_KEY", "KIMCHI_API_KEY",
+    "OPENCODE_ZEN_API_KEY",
 )
 
 
@@ -64,7 +64,7 @@ def no_credentials(tmp_path, monkeypatch):
     for var in _KEY_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     for name in ("KEY_FILE", "OPENROUTER_KEY_FILE", "OPENCODE_KEY_FILE",
-                 "OPENCODE_ZEN_KEY_FILE", "KIMCHI_KEY_FILE"):
+                 "OPENCODE_ZEN_KEY_FILE"):
         monkeypatch.setattr(paths, name, tmp_path / name.lower())
     monkeypatch.setattr("jarvis.auth.oauth_tokens.load_oauth_tokens", lambda: None)
     monkeypatch.setattr("jarvis.auth.codex_oauth_tokens.load_codex_oauth_tokens", lambda: None)
@@ -96,8 +96,15 @@ def test_api_key_provider_listed_only_while_key_exists(no_credentials):
 
 
 def test_env_key_counts_as_configured(no_credentials, monkeypatch):
+    monkeypatch.setenv("OPENCODE_API_KEY", "k")
+    assert connected_model_sources() == [PROVIDER_HARNESS_AGENT, PROVIDER_OPENCODE]
+
+
+def test_kimchi_is_gone(no_credentials, monkeypatch):
+    """Kimchi was removed: its key no longer adds a provider or models."""
     monkeypatch.setenv("KIMCHI_API_KEY", "k")
-    assert connected_model_sources() == [PROVIDER_HARNESS_AGENT, PROVIDER_KIMCHI]
+    assert connected_model_sources() == [PROVIDER_HARNESS_AGENT]
+    assert "kimchi" not in MODEL_SOURCE_LABELS
 
 
 def test_oauth_sources_follow_stored_tokens(no_credentials, monkeypatch):

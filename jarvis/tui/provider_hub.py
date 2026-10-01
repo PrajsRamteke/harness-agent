@@ -21,7 +21,7 @@ from . import theme as ui
 
 _MODE_OPTIONS = [
     ("oauth", "Auth (OAuth)",     "Anthropic / OpenAI Codex — subscription sign-in"),
-    ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode, Kimchi + 200 more via models.dev"),
+    ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode + 200 more via models.dev"),
 ]
 
 

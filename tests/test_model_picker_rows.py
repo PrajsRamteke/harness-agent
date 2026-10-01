@@ -85,6 +85,7 @@ def test_picker_tags_free_and_vision_models_and_filters_them(monkeypatch):
     monkeypatch.setattr(mm, "model_picker_rows", lambda live=False: rows)
     monkeypatch.setattr(mm, "_unconnected_catalog_providers", lambda: [])
     monkeypatch.setattr(mm, "model_sees_images", lambda mid, src: mid in ("qwen/qwen3.8-27b:free", "claude-sonnet-5-5"))
+    monkeypatch.setattr(mm, "free_model_ids", lambda: {"openrouter": {"qwen/qwen3.8-27b:free"}})
     monkeypatch.setattr(providers, "model_catalogs_are_fresh", lambda: True)
     monkeypatch.setattr(mm, "_recent_models", lambda: [])
 

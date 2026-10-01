@@ -23,20 +23,20 @@ const TONES = {
   openrouter: 'indigo',
   opencode: 'slate',
   opencode_zen: 'slate',
-  kimchi: 'chili',
   harness_agent: 'accent',
 };
 
 const GROUPS = [
   { kind: 'oauth', title: 'Subscriptions', sub: 'Use a plan you already pay for' },
-  // Built-in key providers, plus models.dev ones once they have a key.
-  { kind: 'key', title: 'API keys', sub: 'Paste a key from the provider’s site', only: (p) => !p.catalog || p.connected },
-  // Every other provider models.dev lists: searchable, popular ones shown first.
-  { kind: 'key', more: true, title: 'More providers', sub: 'From models.dev — add a key to use one', only: (p) => p.catalog && !p.connected },
+  // Only providers that have a key (saved here or from an env var).
+  { kind: 'key', title: 'API keys', sub: 'Providers you’ve added a key for', only: (p) => p.connected },
+  // Everything else: the built-ins first, then models.dev. Searchable.
+  { kind: 'key', more: true, title: 'More providers', sub: 'Paste a key from the provider’s site to add one', only: (p) => !p.connected },
   { kind: 'free', title: 'Free', sub: 'Works without an account' },
 ];
 
-/** Shown in "More providers" before anything is typed (when present). */
+/** Shown in "More providers" before anything is typed (when present),
+ * after the built-in providers, which are always shown. */
 const POPULAR = [
   'md:openai', 'md:google', 'md:groq', 'md:deepseek', 'md:mistral', 'md:xai',
   'md:togetherai', 'md:fireworks-ai', 'md:moonshotai', 'md:zai', 'md:cerebras', 'md:deepinfra',
@@ -337,10 +337,10 @@ function quickChoices(ids) {
 
 // ─── Render ───────────────────────────────────────────────────────────────
 
-/** Changes when a row is added, removed or moves group (connecting a
- * models.dev provider moves it up into "API keys"): then rebuild. */
+/** Changes when a row is added, removed or moves group (adding a key moves
+ * a provider up into "API keys", removing it moves it back): then rebuild. */
 function sigOf(rows) {
-  return rows.map((p) => (p.catalog && p.connected ? `${p.id}*` : p.id)).join(',');
+  return rows.map((p) => (p.kind === 'key' && p.connected ? `${p.id}*` : p.id)).join(',');
 }
 
 function groupRows(g) {
@@ -381,13 +381,14 @@ function build(body) {
   setTimeout(() => body.querySelector('.pv-groups')?.classList.remove('is-entering'), 700);
 }
 
-/** Show the "More providers" rows the search matches (popular ones when it's
- * empty). Toggles `hidden` in place — no rebuild, so typing stays smooth. */
+/** Show the "More providers" rows the search matches (built-ins and popular
+ * ones when it's empty). Toggles `hidden` in place — no rebuild, so typing
+ * stays smooth. */
 function filterMore() {
   const group = $('providers-body')?.querySelector('.pv-group.is-more');
   if (!group) return;
   const words = String(drafts[MORE_Q] || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const rows = data.providers.filter((p) => p.catalog && !p.connected);
+  const rows = data.providers.filter((p) => p.kind === 'key' && !p.connected);
   const popular = new Set(POPULAR.filter((id) => rows.some((r) => r.id === id)));
   let shown = 0;
   let total = 0;
@@ -395,8 +396,10 @@ function filterMore() {
     const el = group.querySelector(`.pv-row[data-id="${CSS.escape(row.id)}"]`);
     if (!el) continue;
     total += 1;
-    const hay = `${row.label} ${row.id.slice(3)} ${row.env_var || ''}`.toLowerCase();
-    const hit = words.length ? words.every((w) => hay.includes(w)) : popular.has(row.id) || (!popular.size && shown < 12);
+    const hay = `${row.label} ${row.catalog ? row.id.slice(3) : row.id} ${row.env_var || ''}`.toLowerCase();
+    const hit = words.length
+      ? words.every((w) => hay.includes(w))
+      : !row.catalog || popular.has(row.id) || (!popular.size && shown < 12);
     const show = hit || row.id === openId;
     el.hidden = !show;
     if (show) shown += 1;
@@ -405,7 +408,7 @@ function filterMore() {
   if (foot) {
     foot.textContent = words.length
       ? (shown ? `${shown} of ${total} providers` : `No provider matches “${drafts[MORE_Q].trim()}”`)
-      : `Popular providers · type to search all ${total}`;
+      : `Type to search all ${total} providers`;
   }
 }
 

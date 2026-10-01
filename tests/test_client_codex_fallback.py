@@ -9,11 +9,6 @@ def test_resolve_provider_ignores_stale_codex_pin(tmp_path, monkeypatch):
     provider_file = tmp_path / "provider"
     provider_file.write_text(PROVIDER_OPENAI_CODEX)
     monkeypatch.setattr("jarvis.constants.paths.PROVIDER_FILE", provider_file)
-    # Patch KIMCHI_KEY_FILE at both the source module and the auth.kimchi module
-    # (it's imported at module load time, so source-patching alone doesn't propagate).
-    no_key = tmp_path / "no-kimchi-key"
-    monkeypatch.setattr("jarvis.constants.paths.KIMCHI_KEY_FILE", no_key)
-    monkeypatch.setattr("jarvis.auth.kimchi.KIMCHI_KEY_FILE", no_key)
     monkeypatch.setattr("jarvis.auth.client.load_codex_oauth_tokens", lambda: None)
     monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: {"access_token": "a", "refresh_token": "r"})
     monkeypatch.setattr("jarvis.auth.client.KEY_FILE", tmp_path / "missing-key")
@@ -35,7 +30,6 @@ def test_make_client_first_run_uses_harness_agent(tmp_path, monkeypatch, tmp_pat
     monkeypatch.setattr("jarvis.auth.client.AUTH_MODE_FILE", tmp_path / "auth_mode")
     monkeypatch.setattr("jarvis.auth.client.PROVIDER_FILE", tmp_path / "provider")
     monkeypatch.setattr("jarvis.auth.client.KEY_FILE", tmp_path / "missing-key")
-    monkeypatch.setattr("jarvis.constants.paths.KIMCHI_KEY_FILE", tmp_path / "no-kimchi-key")
     (tmp_path / "auth_mode").write_text("oauth")
     monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: None)
     monkeypatch.setattr("jarvis.auth.client.load_codex_oauth_tokens", lambda: None)
@@ -79,3 +73,28 @@ def test_make_client_falls_back_when_codex_oauth_missing(tmp_path, monkeypatch):
             monkeypatch.setattr("jarvis.auth.client.KEY_FILE", tmp_path / "key")
             client = make_client(interactive=True)
     assert client is fake_client
+
+
+def test_removed_provider_lands_on_a_free_model(tmp_path, monkeypatch):
+    """A saved Kimchi choice (provider removed) starts on the free tier with a
+    model it serves — never the old Kimchi model, which would fail every turn."""
+    from jarvis import state
+    from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+
+    provider_file = tmp_path / "provider"
+    provider_file.write_text("kimchi")
+    monkeypatch.setattr("jarvis.auth.client.PROVIDER_FILE", provider_file)
+    monkeypatch.setattr("jarvis.auth.client.AUTH_MODE_FILE", tmp_path / "auth_mode")
+    monkeypatch.setattr("jarvis.auth.client.KEY_FILE", tmp_path / "missing-key")
+    monkeypatch.setattr("jarvis.auth.client.load_oauth_tokens", lambda: None)
+    monkeypatch.setattr("jarvis.auth.client.load_codex_oauth_tokens", lambda: None)
+    monkeypatch.setattr("jarvis.auth.client._has_usable_provider_credentials", lambda: False)
+    monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: False)
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "kimi-k2.6")
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_preferences", lambda: ("kimi-k2.6", "kimchi"))
+    monkeypatch.setattr("jarvis.storage.prefs.load_saved_provider", lambda: "kimchi")
+    monkeypatch.setattr("jarvis.auth.client._build_opencode_zen_client_for_model", lambda *a, **k: MagicMock())
+    client = make_client(interactive=False)
+    assert client is not None
+    assert state.provider == PROVIDER_OPENCODE_ZEN and state.harness_agent_free is True
+    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
