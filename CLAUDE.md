@@ -138,8 +138,11 @@ runtime**, not hard-coded:
     no curated rows at all** (`_gateway_rows`): each gateway's public served
     list (`opencode.ai/zen/v1/models`, `…/zen/go/v1/models`, cached by
     `auth/opencode_catalog.py`) says what exists, models.dev (`opencode`,
-    `opencode-go`) describes it — a deprecated model the gateway still serves
-    stays (label "retiring", built-ins keep deprecated rows since `SCHEMA = 2`),
+    `opencode-go`) describes it — a model models.dev marks deprecated is
+    dropped even while the gateway still serves it, as OpenCode does
+    (`_gateway_retired`; Zen kept serving dead `deepseek-v4-flash-free`, tagged
+    free, every request a 400 "Model is unavailable"), and isn't kept as a saved
+    model — except the free tier's own models on Zen (`is_harness_agent_model`),
     a served model models.dev doesn't know is listed as "Not on models.dev yet,
     price unknown", and ids models.dev routes to another wire (Claude / Gemini
     on Zen, some MiniMax on Go — `native_skipped()`) never show. Defaults are

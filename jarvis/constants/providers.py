@@ -652,16 +652,29 @@ def _gateway_skipped(provider: str) -> frozenset:
         return frozenset()
 
 
+def _gateway_retired(provider: str, model: str) -> bool:
+    """models.dev marks ``model`` deprecated on this OpenCode gateway. OpenCode
+    itself drops those (provider.ts): the gateway can keep serving an id whose
+    upstream is gone — deepseek-v4-flash-free answered 400 "Model is
+    unavailable" while still on /zen/v1/models, tagged free."""
+    try:
+        found = _catalog().native_model(provider, model)
+    except Exception:
+        return False
+    return bool(found and found.status == "deprecated")
+
+
 def _gateway_rows(provider: str) -> list[tuple[str, str]]:
     """An OpenCode gateway's models, all live. The gateway's served list says
     what exists; models.dev describes each (name, price, vision, tools —
-    usable first, newest first). A served model models.dev doesn't describe
-    yet is still listed (by id, price unknown); one models.dev says this
-    client can't reach (another wire) never is. Before the served list is
-    known, models.dev's list stands alone."""
+    usable first, newest first) and, like OpenCode, deprecated ones are
+    dropped even when still served. A served model models.dev doesn't
+    describe yet is still listed (by id, price unknown); one models.dev says
+    this client can't reach (another wire) never is. Before the served list
+    is known, models.dev's list stands alone."""
     served = _gateway_served(provider)
     keep = (lambda m: m.id in served) if served else None
-    rows = _native_extras(provider, set(), keep=keep, allow_deprecated=bool(served))
+    rows = _native_extras(provider, set(), keep=keep)
     if served:
         try:
             described = {m.id for m in _catalog().native_models(provider)}
@@ -1055,6 +1068,8 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
     if provider == PROVIDER_OPENCODE_ZEN and is_harness_agent_model(m):
         return True
     if provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+        if _gateway_retired(provider, m):
+            return False  # deprecated on models.dev: never listed, so never kept
         served = _gateway_served(provider)
         if served:  # the gateway's own list decides (models.dev may lag)
             return m in served and m not in _gateway_skipped(provider)
