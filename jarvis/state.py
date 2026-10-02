@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from .constants import (
     VERSION, PIN_FILE, ALIAS_FILE, MODEL as _INITIAL_MODEL,
     PROVIDER_ANTHROPIC, PROVIDER_OPENCODE_ZEN, AUTH_API_KEY,
-    HARNESS_AGENT_DEFAULT_MODEL,
+    HARNESS_AGENT_FALLBACK_MODEL,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     TOOL_UI_HISTORY_SIZE,
 )
@@ -24,7 +24,8 @@ anthropic_model_ids: list[str] | None = None  # live ids after OAuth/API validat
 
 
 def _compute_initial_model() -> str:
-    """Env `CLAUDE_MODEL` wins; else global settings model; else Harness Agent default."""
+    """Env `CLAUDE_MODEL` wins; else global settings model; else the free tier's
+    fallback (import time: the live list needs jarvis.auth, which imports state)."""
     if os.environ.get("CLAUDE_MODEL"):
         return _INITIAL_MODEL
     try:
@@ -34,7 +35,7 @@ def _compute_initial_model() -> str:
             return m
     except Exception:
         pass
-    return HARNESS_AGENT_DEFAULT_MODEL
+    return HARNESS_AGENT_FALLBACK_MODEL
 
 
 # model

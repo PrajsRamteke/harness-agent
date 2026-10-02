@@ -21,7 +21,8 @@ from ..constants import (
     is_catalog_provider, provider_label,
 )
 from ..constants.providers import (
-    VISION_SEARCH_WORDS, free_model_ids, model_is_free, model_sees_images,
+    HARNESS_AGENT_FALLBACK_MODEL, VISION_SEARCH_WORDS, free_model_ids,
+    harness_agent_models_for_picker, model_is_free, model_sees_images,
 )
 from .. import state
 from .modal_chrome import (
@@ -35,16 +36,16 @@ from .modal_chrome import (
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 
-# Hard-coded so /model always lists Harness Agent even on stale installs (pre-pip-sync).
-_BUILTIN_HARNESS_ROWS: tuple[tuple[str, str], ...] = (
-    ("mimo-v2.5-free", "MiMo V2.5 Free — default"),
-    ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free"),
-    ("big-pickle", "Big Pickle"),
-    ("nemotron-3.5-lightning-free", "Nemotron 3.5 Lightning Free"),
-    ("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free"),
-    ("muse-spark-1.3-contributor-free", "Muse Spark 1.3 Free"),
-    ("ling-3.0-flash-fin-free", "Ling 3.0 Flash Fin Free"),
-)
+
+def _harness_rows() -> list[tuple[str, str, str]]:
+    """Harness Agent rows from the live list (never empty: before any catalog
+    arrives, the fallback model alone) — so /model always lists the free tier."""
+    try:
+        rows = harness_agent_models_for_picker()
+    except Exception:
+        rows = []
+    return [(PROVIDER_HARNESS_AGENT, mid, desc)
+            for mid, desc in rows or [(HARNESS_AGENT_FALLBACK_MODEL, "Big Pickle")]]
 
 
 def model_picker_rows(live: bool = False) -> list[tuple[str, str, str]]:
@@ -64,10 +65,7 @@ def model_picker_rows(live: bool = False) -> list[tuple[str, str, str]]:
             return rows
     except Exception:
         rows = []
-    harness = [
-        (PROVIDER_HARNESS_AGENT, mid, desc)
-        for mid, desc in _BUILTIN_HARNESS_ROWS
-    ]
+    harness = _harness_rows()
     seen = {mid for _, mid, _ in harness}
     extra = [(src, mid, desc) for src, mid, desc in rows if mid not in seen]
     return harness + extra
@@ -335,10 +333,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         rows = list(getattr(self, "_all_rows", []))
         # Never show an empty picker — Harness Agent free tier is always first.
         if not any(src == PROVIDER_HARNESS_AGENT for src, _, _ in rows):
-            harness = [
-                (PROVIDER_HARNESS_AGENT, mid, desc)
-                for mid, desc in _BUILTIN_HARNESS_ROWS
-            ]
+            harness = _harness_rows()
             seen = {mid for _, mid, _ in rows}
             rows = [r for r in harness if r[1] not in seen] + rows
 

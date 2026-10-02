@@ -12,7 +12,7 @@ from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_ZEN_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
     OPENROUTER_BASE_URL,
     OPENCODE_ZEN_BASE_URL,
-    HARNESS_AGENT_DEFAULT_MODEL,
+    harness_agent_default_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX, PROVIDER_HARNESS_AGENT, PROVIDERS,
     is_harness_agent_model, is_catalog_provider,
@@ -404,7 +404,7 @@ def _fallback_harness_agent_client(*, preferred_model: str = ""):
     if pref:
         state.MODEL = pref
     elif not is_harness_agent_model(state.MODEL):
-        state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
+        state.MODEL = harness_agent_default_model()
     _secure_write(PROVIDER_FILE, state.provider)
     return build_harness_agent_client()
 
@@ -436,7 +436,7 @@ def _make_first_run_harness_client(*, interactive: bool):
     """Fresh install: Harness Agent + default free model, no API key needed."""
     state.provider = PROVIDER_OPENCODE_ZEN
     state.harness_agent_free = True
-    state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
+    state.MODEL = harness_agent_default_model()
     _secure_write(PROVIDER_FILE, state.provider)
     for attempt in range(DEFAULT_RETRIES):
         try:
@@ -491,7 +491,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         # there) — but not a provider Jarvis no longer has (Kimchi): nothing
         # serves that model, so every turn would fail.
         if _saved_provider_removed() and not is_harness_agent_model(preferred_model):
-            state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
+            state.MODEL = harness_agent_default_model()
     elif model_belongs_to_provider(preferred_model, state.provider):
         state.MODEL = preferred_model
         if state.provider == PROVIDER_OPENCODE_ZEN:
@@ -558,7 +558,7 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
             return _build_catalog_client(state.provider)
         except Exception as e:
             console.print(f"[yellow]{e} — using the free Harness Agent for now[/]")
-            return _fallback_harness_agent_client(preferred_model=HARNESS_AGENT_DEFAULT_MODEL)
+            return _fallback_harness_agent_client(preferred_model=harness_agent_default_model())
 
     if state.provider == PROVIDER_OPENAI_CODEX:
         state.auth_mode = AUTH_OAUTH

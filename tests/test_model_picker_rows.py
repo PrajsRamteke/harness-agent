@@ -1,8 +1,8 @@
 """Model picker always exposes Harness Agent rows — and never blocks on I/O."""
 import pytest
 
-from jarvis.constants.providers import PROVIDER_HARNESS_AGENT
-from jarvis.tui.model_modal import model_picker_rows, _BUILTIN_HARNESS_ROWS
+from jarvis.constants.providers import HARNESS_AGENT_FALLBACK_MODEL, PROVIDER_HARNESS_AGENT
+from jarvis.tui.model_modal import model_picker_rows
 
 _FETCH = "jarvis.auth.zen_catalog.fetch_free_models"
 _CACHED = "jarvis.auth.zen_catalog.cached_free_models"
@@ -22,17 +22,27 @@ def test_model_picker_rows_always_includes_harness_agent(monkeypatch):
     monkeypatch.setattr(_FETCH, lambda *a, **k: None)
     rows = model_picker_rows()
     harness = [(src, mid) for src, mid, _ in rows if src == PROVIDER_HARNESS_AGENT]
-    assert len(harness) >= len(_BUILTIN_HARNESS_ROWS)
+    assert harness == [(PROVIDER_HARNESS_AGENT, HARNESS_AGENT_FALLBACK_MODEL)]
     assert rows[0][0] == PROVIDER_HARNESS_AGENT
-    assert rows[0][1] == "mimo-v2.5-free"
 
 
 def test_model_picker_rows_surfaces_live_free_models(monkeypatch):
-    """A brand-new free model from the catalog appears without a code change."""
-    monkeypatch.setattr(_FETCH, lambda *a, **k: [("brand-new-free", "Brand New Free")])
-    monkeypatch.setattr("jarvis.auth.catalog_cache.write", lambda *a, **k: None)
+    """A brand-new free model on OpenCode Zen appears without a code change."""
+    from jarvis.auth import models_dev, opencode_catalog
+
+    models_dev.store(models_dev.trim({"opencode": {
+        "id": "opencode", "name": "OpenCode Zen", "npm": "@ai-sdk/openai-compatible",
+        "api": "https://opencode.ai/zen/v1", "env": ["OPENCODE_ZEN_API_KEY"],
+        "models": {"brand-new-free": {
+            "id": "brand-new-free", "name": "Brand New Free", "tool_call": True,
+            "cost": {"input": 0, "output": 0}, "release_date": "2026-09-01",
+            "modalities": {"input": ["text"], "output": ["text"]},
+            "limit": {"context": 128000, "output": 8192},
+        }},
+    }}))
+    monkeypatch.setattr(opencode_catalog, "served_ids", lambda provider: {"brand-new-free"})
     rows = model_picker_rows(live=True)
-    assert rows[0] == (PROVIDER_HARNESS_AGENT, "brand-new-free", "Brand New Free")
+    assert rows[0][:2] == (PROVIDER_HARNESS_AGENT, "brand-new-free")
 
 
 def test_model_picker_rows_reads_cache_without_network(monkeypatch):
@@ -41,17 +51,14 @@ def test_model_picker_rows_reads_cache_without_network(monkeypatch):
     monkeypatch.setattr(_CACHED, lambda *a, **k: [("cached-free", "Cached Free")])
     rows = model_picker_rows()
     ids = [mid for src, mid, _ in rows if src == PROVIDER_HARNESS_AGENT]
-    assert "cached-free" in ids
-    # The built-in set is still there — a thin cache never shrinks the picker.
-    assert set(mid for mid, _ in _BUILTIN_HARNESS_ROWS) <= set(ids)
-    assert rows[0][1] == "mimo-v2.5-free"
+    assert ids == ["cached-free"]  # no built-in list padding it out any more
 
 
 def test_model_picker_rows_falls_back_offline(monkeypatch):
     monkeypatch.setattr(_FETCH, lambda *a, **k: None)
     rows = model_picker_rows()
     assert rows, "picker must never be empty"
-    assert rows[0][1] == "mimo-v2.5-free"
+    assert rows[0][1] == HARNESS_AGENT_FALLBACK_MODEL
 
 
 # ─── Tags: free · sees images (same rules as the web picker) ───────────

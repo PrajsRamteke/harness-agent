@@ -37,7 +37,7 @@ from .providers import (
     OPENCODE_BASE_URL, OPENCODE_ZEN_BASE_URL,
     opencode_go_default_model, opencode_zen_default_model,
     opencode_go_models_for_picker, opencode_zen_live_models_for_picker,
-    HARNESS_AGENT_MODELS, HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS,
+    HARNESS_AGENT_FALLBACK_MODEL, harness_agent_default_model, harness_agent_models,
     PROVIDER_HARNESS_AGENT, is_harness_agent_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX, PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,

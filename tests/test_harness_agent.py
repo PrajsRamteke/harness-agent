@@ -7,8 +7,7 @@ from jarvis import state
 from jarvis.auth import _zen_wire
 from jarvis.auth.harness_agent import build_harness_agent_client, should_use_harness_agent_client
 from jarvis.constants.providers import (
-    HARNESS_AGENT_DEFAULT_MODEL,
-    HARNESS_AGENT_MODELS,
+    HARNESS_AGENT_FALLBACK_MODEL,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENCODE_ZEN,
     connected_model_sources,
@@ -18,19 +17,12 @@ from jarvis.constants.providers import (
 
 
 class HarnessAgentTests(unittest.TestCase):
-    def test_harness_agent_models_listed(self):
-        ids = {m for m, _ in HARNESS_AGENT_MODELS}
+    def test_free_list_is_live_not_hard_coded(self):
+        # No catalog in tests (conftest): only the fallback, until one arrives.
+        # The live list (Zen's Free rows) is tested in test_models_dev.py.
         self.assertEqual(
-            ids,
-            {
-                "nemotron-3-ultra-free",
-                "mimo-v2.5-free",
-                "big-pickle",
-                "nemotron-3.5-lightning-free",
-                "muse-spark-1.2-contributor-free",
-                "muse-spark-1.3-contributor-free",
-                "ling-3.0-flash-fin-free",
-            },
+            models_for_source(PROVIDER_HARNESS_AGENT),
+            [(HARNESS_AGENT_FALLBACK_MODEL, "Big Pickle")],
         )
 
     def test_harness_agent_always_in_model_sources(self):
@@ -38,19 +30,14 @@ class HarnessAgentTests(unittest.TestCase):
         self.assertIn(PROVIDER_HARNESS_AGENT, sources)
         self.assertEqual(sources[0], PROVIDER_HARNESS_AGENT)
 
-    def test_models_for_harness_agent_source(self):
-        models = models_for_source(PROVIDER_HARNESS_AGENT)
-        self.assertEqual(len(models), 7)
-        self.assertEqual(models[0][0], HARNESS_AGENT_DEFAULT_MODEL)
-
     def test_opencode_zen_key_list_is_not_hard_coded(self):
         # With a Zen key the list is models.dev's (empty in tests) — the free
         # tier's static ids are no longer copied into it.
         self.assertEqual(models_for_source(PROVIDER_OPENCODE_ZEN), [])
 
     def test_is_harness_agent_model(self):
-        self.assertTrue(is_harness_agent_model("nemotron-3-ultra-free"))
-        self.assertTrue(is_harness_agent_model("mimo-v2.5-free"))
+        self.assertTrue(is_harness_agent_model(HARNESS_AGENT_FALLBACK_MODEL))
+        self.assertFalse(is_harness_agent_model("mimo-v2.5-free"))  # on no list
         self.assertFalse(is_harness_agent_model("minimax-m2.7"))
 
     def test_should_use_harness_agent_client(self):

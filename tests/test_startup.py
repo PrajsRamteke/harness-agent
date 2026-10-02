@@ -41,14 +41,14 @@ def test_bootstrap_pins_free_tier_on_first_install(monkeypatch):
     monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "")
     monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: True)
     from jarvis import state
-    from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+    from jarvis.constants.providers import HARNESS_AGENT_FALLBACK_MODEL, PROVIDER_OPENCODE_ZEN
 
     state.harness_agent_free = False
     state.MODEL = "claude-sonnet-4-6"
     state.provider = "anthropic"
     ensure_harness_agent_defaults()
     assert state.provider == PROVIDER_OPENCODE_ZEN
-    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
+    assert state.MODEL == HARNESS_AGENT_FALLBACK_MODEL
     assert state.harness_agent_free is True
 
 
@@ -67,12 +67,12 @@ def test_bootstrap_pins_free_tier_without_credentials(monkeypatch):
     monkeypatch.setattr("jarvis.storage.prefs.load_saved_model", lambda: "")
     monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: True)
     from jarvis import state
-    from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+    from jarvis.constants.providers import HARNESS_AGENT_FALLBACK_MODEL, PROVIDER_OPENCODE_ZEN
 
     state.harness_agent_free = False
     ensure_harness_agent_defaults()
     assert state.provider == PROVIDER_OPENCODE_ZEN
-    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
+    assert state.MODEL == HARNESS_AGENT_FALLBACK_MODEL
     assert state.harness_agent_free is True
 
 

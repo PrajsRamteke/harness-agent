@@ -52,7 +52,9 @@ REQUEST_ID_HEADER = "x-opencode-request"
 # (``/zen/v1/responses``) instead of ``/chat/completions``. These are the
 # catalog entries whose ``provider.npm`` is ``@ai-sdk/openai``; every other
 # free model uses the default OpenAI-compatible (chat/completions) API.
-# Posting a Responses-only model to /chat/completions returns 500.
+# Posting a Responses-only model to /chat/completions returns 500. The client
+# adds models.dev's live answer (``native_responses_models``); this set only
+# matters while models.dev is off.
 RESPONSES_API_MODELS = frozenset({
     "muse-spark-1.2-contributor-free",
     "muse-spark-1.3-contributor-free",

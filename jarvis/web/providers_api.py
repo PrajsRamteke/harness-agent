@@ -440,7 +440,7 @@ def _default_model(source: str) -> str:
     if source == PROVIDER_OPENCODE_ZEN:
         return p.opencode_zen_default_model() or state.MODEL
     return {
-        PROVIDER_HARNESS_AGENT: p.HARNESS_AGENT_DEFAULT_MODEL,
+        PROVIDER_HARNESS_AGENT: p.harness_agent_default_model(),
         PROVIDER_ANTHROPIC_API: p.ANTHROPIC_DEFAULT_MODEL,
         PROVIDER_ANTHROPIC_AUTH: p.ANTHROPIC_DEFAULT_MODEL,
     }.get(source, state.MODEL)
@@ -482,10 +482,10 @@ def use_card(card_id: str) -> dict[str, Any]:
 
 def _fall_back_to_free() -> None:
     from ..auth.client import _fallback_harness_agent_client
-    from ..constants.providers import HARNESS_AGENT_DEFAULT_MODEL, is_harness_agent_model
+    from ..constants.providers import harness_agent_default_model, is_harness_agent_model
     from ..storage.prefs import save_last_model
 
-    keep = state.MODEL if is_harness_agent_model(state.MODEL) else HARNESS_AGENT_DEFAULT_MODEL
+    keep = state.MODEL if is_harness_agent_model(state.MODEL) else harness_agent_default_model()
     state.client = _fallback_harness_agent_client(preferred_model=keep)
     save_last_model()
 

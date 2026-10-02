@@ -67,9 +67,13 @@ _FREE_TIER_GATE_TOOLS: list[dict] = [
 
 def build_harness_agent_client() -> OpenCodeClient:
     """OpenCode Zen client for the free Harness Agent tier."""
+    from ..constants.providers import native_responses_models
+
     return OpenCodeClient(
         base_url=f"{OPENCODE_ZEN_BASE_URL}/",
         gate_tools=_FREE_TIER_GATE_TOOLS,
-        responses_models=set(RESPONSES_API_MODELS),
+        # models.dev says which Zen models are /responses-only; the static set
+        # covers them while models.dev is off.
+        responses_models=set(RESPONSES_API_MODELS) | native_responses_models(PROVIDER_OPENCODE_ZEN),
         **zen_client_kwargs(new_session_id()),
     )

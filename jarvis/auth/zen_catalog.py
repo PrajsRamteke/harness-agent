@@ -1,4 +1,9 @@
-"""Live discovery of the free models the Harness Agent tier can use.
+"""The Harness Agent free list's stand-in while models.dev is off.
+
+Normally the free tier lists OpenCode Zen's models at $0 from the models.dev
+catalog plus Zen's served list (``constants.providers.harness_agent_models``),
+and this module isn't fetched. With ``HARNESS_MODELS_DEV=0`` it reads the same
+data from OpenCode's own copy of the catalog instead.
 
 Two public GET endpoints, neither requiring auth or a special User-Agent:
 
@@ -29,9 +34,8 @@ CATALOG_PROVIDER = "opencode"
 
 # Served by the gateway and marked free in the catalog, but verified broken on
 # use — deepseek-v4-flash-free answers 400 "Model is unavailable" on both APIs.
-# NOTE: catalog ``status: "deprecated"`` is only a retirement *notice* and does
-# NOT mean a model is dead (mimo-v2.5-free is deprecated but works), so it must
-# never be used as a filter. This deny-list holds only ids we've confirmed fail.
+# Deprecated models are dropped as well, as OpenCode does (and as the models.dev
+# path does); this list holds ids confirmed dead that the catalog doesn't mark.
 BROKEN_FREE_MODELS = frozenset({
     "deepseek-v4-flash-free",
 })
@@ -52,7 +56,7 @@ def _get_json(url: str, timeout: float):
 
 
 def _is_free(info) -> bool:
-    if not isinstance(info, dict):
+    if not isinstance(info, dict) or info.get("status") == "deprecated":
         return False
     cost = info.get("cost") or {}
     return cost.get("input") == 0 and cost.get("output") == 0

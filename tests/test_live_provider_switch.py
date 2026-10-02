@@ -15,7 +15,7 @@ from jarvis.auth.opencode_client import _ContentBlock, _TextBlock, _ToolUseBlock
 from jarvis.constants import (
     AUTH_API_KEY,
     AUTH_OAUTH,
-    HARNESS_AGENT_DEFAULT_MODEL,
+    HARNESS_AGENT_FALLBACK_MODEL,
     PROVIDER_ANTHROPIC,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_HARNESS_AGENT,
@@ -77,7 +77,7 @@ def sandbox(tmp_path, monkeypatch):
     # Start every test on the free Harness Agent tier.
     monkeypatch.setattr(state, "provider", PROVIDER_OPENCODE_ZEN)
     monkeypatch.setattr(state, "auth_mode", AUTH_API_KEY)
-    monkeypatch.setattr(state, "MODEL", HARNESS_AGENT_DEFAULT_MODEL)
+    monkeypatch.setattr(state, "MODEL", HARNESS_AGENT_FALLBACK_MODEL)
     monkeypatch.setattr(state, "harness_agent_free", True)
     monkeypatch.setattr(state, "client", object())
     paths["saved"] = saved
@@ -237,5 +237,5 @@ def test_deleting_the_active_key_falls_back_to_the_free_tier(sandbox, monkeypatc
     assert "Harness Agent" in note
     assert state.provider == PROVIDER_OPENCODE_ZEN
     assert state.harness_agent_free is True
-    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL  # not the OpenRouter slug
-    assert sandbox["saved"] == [HARNESS_AGENT_DEFAULT_MODEL]
+    assert state.MODEL == HARNESS_AGENT_FALLBACK_MODEL  # not the OpenRouter slug
+    assert sandbox["saved"] == [HARNESS_AGENT_FALLBACK_MODEL]

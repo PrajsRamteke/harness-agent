@@ -180,7 +180,7 @@ def harness_agent_models_available() -> bool:
     """True when this process can list free Harness Agent models."""
     try:
         from .constants.providers import harness_agent_models_for_picker
-        return len(harness_agent_models_for_picker()) >= 3
+        return bool(harness_agent_models_for_picker())
     except Exception:
         return False
 

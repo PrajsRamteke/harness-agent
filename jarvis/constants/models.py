@@ -5,7 +5,7 @@ jarvis/constants/providers.py — add or change models there.
 """
 import os
 
-from .providers import HARNESS_AGENT_DEFAULT_MODEL
+from .providers import HARNESS_AGENT_FALLBACK_MODEL
 
 
 def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
@@ -17,8 +17,9 @@ def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
 
 
 VERSION = "0.2.5"
-# Startup model: CLAUDE_MODEL env override, else the free Harness Agent default.
-MODEL = os.getenv("CLAUDE_MODEL", HARNESS_AGENT_DEFAULT_MODEL)
+# Startup model: CLAUDE_MODEL env override, else the free tier's fallback until
+# startup picks from the live list (harness_agent_default_model).
+MODEL = os.getenv("CLAUDE_MODEL", HARNESS_AGENT_FALLBACK_MODEL)
 MAX_TOOL_OUTPUT = 6000   # trimmed from 15000 — cuts tool-result token cost ~60%
 MAX_FILE_READ = 200_000
 MAX_PARALLEL_TOOLS = _env_int("HARNESS_MAX_PARALLEL_TOOLS", 64, 1, 64)

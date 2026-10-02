@@ -40,12 +40,12 @@ def test_make_client_first_run_uses_harness_agent(tmp_path, monkeypatch, tmp_pat
     monkeypatch.setattr("jarvis.auth.client._build_opencode_zen_client_for_model", lambda *a, **k: MagicMock())
     monkeypatch.setattr("jarvis.auth.harness_agent.build_harness_agent_client", lambda: MagicMock())
     from jarvis import state
-    from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
-    state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
+    from jarvis.constants.providers import HARNESS_AGENT_FALLBACK_MODEL, PROVIDER_OPENCODE_ZEN
+    state.MODEL = HARNESS_AGENT_FALLBACK_MODEL
     client = make_client(interactive=False)
     assert client is not None
     assert state.provider == PROVIDER_OPENCODE_ZEN
-    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
+    assert state.MODEL == HARNESS_AGENT_FALLBACK_MODEL
     assert state.harness_agent_free is True
 
 
@@ -79,7 +79,7 @@ def test_removed_provider_lands_on_a_free_model(tmp_path, monkeypatch):
     """A saved Kimchi choice (provider removed) starts on the free tier with a
     model it serves — never the old Kimchi model, which would fail every turn."""
     from jarvis import state
-    from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+    from jarvis.constants.providers import HARNESS_AGENT_FALLBACK_MODEL, PROVIDER_OPENCODE_ZEN
 
     provider_file = tmp_path / "provider"
     provider_file.write_text("kimchi")
@@ -97,4 +97,4 @@ def test_removed_provider_lands_on_a_free_model(tmp_path, monkeypatch):
     client = make_client(interactive=False)
     assert client is not None
     assert state.provider == PROVIDER_OPENCODE_ZEN and state.harness_agent_free is True
-    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
+    assert state.MODEL == HARNESS_AGENT_FALLBACK_MODEL

@@ -58,8 +58,11 @@ class SystemIdentityTests(unittest.TestCase):
         state.provider = "opencode_zen"
         state.MODEL = "mimo-v2.5-free"
         state.auth_mode = AUTH_API_KEY
-        with mock.patch.object(system, "_build_static_body", return_value="BASE"):
+        # Free-tier models are registered from the live list (models.dev).
+        live = {"mimo-v2.5-free": ("MiMo V2.5 Free — 200K ctx, free", "opencode_zen", (0.0, 0.0))}
+        with mock.patch.object(system, "_build_static_body", return_value="BASE"), \
+                mock.patch.dict("jarvis.constants.providers.MODEL_INFO", live):
             prompt = system.build_system()
         self.assertIn("SELECTED MODEL: mimo-v2.5-free", prompt)
-        self.assertIn("MODEL NAME: MiMo V2.5 Free — default", prompt)
+        self.assertIn("MODEL NAME: MiMo V2.5 Free — 200K ctx, free", prompt)
         self.assertIn("PROVIDER: Harness Agent (free)", prompt)

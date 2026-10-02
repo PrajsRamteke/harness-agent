@@ -18,6 +18,7 @@ models.dev catalog (jarvis/auth/models_dev.py, ids "md:<id>"); see the
 """
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -114,17 +115,10 @@ MODELS: list[ModelSpec] = [
     # ("opencode-go" / "opencode"), limited to what each gateway serves right
     # now (jarvis/auth/opencode_catalog.py). See _gateway_rows.
 
-    # ── Harness Agent (free OpenCode Zen — no API key, /model only) ─────────
-    # NOTE: hy3-free / x-preview-f-free were retired by the gateway (401 "Model
-    # not supported"). Kept in sync with the free ids the live /zen/v1/models
-    # endpoint returns (run: opencode-free-api.sh models).
-    ModelSpec("mimo-v2.5-free",                  "MiMo V2.5 Free — default",         PROVIDER_HARNESS_AGENT, default=True),
-    ModelSpec("nemotron-3-ultra-free",           "Nemotron 3 Ultra Free",            PROVIDER_HARNESS_AGENT),
-    ModelSpec("big-pickle",                      "Big Pickle",                       PROVIDER_HARNESS_AGENT),
-    ModelSpec("nemotron-3.5-lightning-free",     "Nemotron 3.5 Lightning Free",      PROVIDER_HARNESS_AGENT),
-    ModelSpec("muse-spark-1.2-contributor-free", "Muse Spark 1.2 Free",              PROVIDER_HARNESS_AGENT),
-    ModelSpec("muse-spark-1.3-contributor-free", "Muse Spark 1.3 Free",              PROVIDER_HARNESS_AGENT),
-    ModelSpec("ling-3.0-flash-fin-free",         "Ling 3.0 Flash Fin Free",          PROVIDER_HARNESS_AGENT),
+    # ── Harness Agent (free OpenCode Zen, no API key): no entries either ─────
+    # Its list is OpenCode Zen's (above) narrowed to $0 models — see
+    # harness_agent_models. A hard-coded list kept retired ids (hy3-free,
+    # x-preview-f-free: 401) and a dead default.
 
     # ── OpenAI Codex (ChatGPT subscription / OAuth) ───────────────────────────
     # Offline seed only — the live line-up comes from the Codex backend (see
@@ -160,6 +154,8 @@ def model_supports_images(model_id: str, provider: str | None = None) -> bool:
         from .. import state
 
         provider = getattr(state, "provider", "") or ""
+    if provider == PROVIDER_HARNESS_AGENT:
+        provider = PROVIDER_OPENCODE_ZEN  # the free tier is Zen's gateway: same models
     if is_catalog_provider(provider):
         try:
             m = _catalog().get_model(provider, model_id)
@@ -193,9 +189,7 @@ def free_model_ids() -> dict[str, set[str]]:
     except Exception:
         pass
     try:
-        from ..auth.zen_catalog import cached_free_models as zen_free
-
-        out[PROVIDER_OPENCODE_ZEN] = {mid for mid, _label in zen_free()}
+        out[PROVIDER_OPENCODE_ZEN] = {mid for mid, _label in harness_agent_models()}
     except Exception:
         pass
     return out
@@ -379,6 +373,8 @@ def model_pricing(model: str, provider: str | None = None) -> tuple[float, float
     None when unknown. Catalog providers are priced from models.dev, never
     from the id-keyed PRICING table (another provider may share the id).
     """
+    if provider == PROVIDER_HARNESS_AGENT:
+        return (0.0, 0.0)  # the free tier: no key, no cost
     if is_catalog_provider(provider):
         try:
             m = _catalog().get_model(provider, model)
@@ -565,75 +561,91 @@ def codex_default_model() -> str:
         if mid not in refused:
             return mid
     return CODEX_DEFAULT_MODEL
-HARNESS_AGENT_MODELS = [
-    (mid, info[0])
-    for mid, info in MODEL_INFO.items()
-    if info[1] == PROVIDER_HARNESS_AGENT
-]
-HARNESS_AGENT_MODEL_IDS = frozenset(m for m, _ in HARNESS_AGENT_MODELS)
 
-# Static fallback so /model always lists Harness Agent even on partial/cached
-# installs. Derived from MODELS — no separate copy to keep in sync.
-_HARNESS_AGENT_MODEL_FALLBACK: tuple[tuple[str, str], ...] = tuple(HARNESS_AGENT_MODELS)
+
+# The free tier's model before any catalog has arrived (first run, offline):
+# one long-lived free id, shown alone only until the live list is known.
+HARNESS_AGENT_FALLBACK_MODEL = "big-pickle"
+
+# Tiers a default skips when there is anything else.
+_PREVIEW_TIER = re.compile(r"(preview|-pro\b|exp|beta)")
+
+
+def _zen_natives() -> dict:
+    try:
+        return {m.id: m for m in _catalog().native_models(PROVIDER_OPENCODE_ZEN)}
+    except Exception:
+        return {}
+
+
+def harness_agent_models() -> list[tuple[str, str]]:
+    """The free tier's models: OpenCode Zen's list (``_gateway_rows`` — what the
+    gateway serves, described by models.dev, deprecated ones dropped) narrowed
+    to the ones models.dev prices at $0, i.e. the rows Zen tags Free. Nothing
+    hard-coded; caches only, never the network. With models.dev off (or not
+    fetched yet) OpenCode's own free catalog (``auth/zen_catalog``) stands in."""
+    natives = _zen_natives()
+    if natives:
+        return [(mid, label) for mid, label in _gateway_rows(PROVIDER_OPENCODE_ZEN)
+                if mid in natives and natives[mid].free]
+    try:
+        from ..auth.zen_catalog import cached_free_models
+
+        return cached_free_models()
+    except Exception:
+        return []
+
+
+def harness_agent_default_model() -> str:
+    """The free tier's first model, by rule (as a Zen key starts): the first
+    listed that can call tools and isn't a preview / beta tier, when there is
+    one. ``HARNESS_AGENT_FALLBACK_MODEL`` while no list is known."""
+    ids = [mid for mid, _ in harness_agent_models()]
+    natives = _zen_natives()
+    usable = [mid for mid in ids if mid not in natives or natives[mid].tools]
+    plain = [mid for mid in usable
+             if not _PREVIEW_TIER.search(mid.lower())
+             and (mid not in natives or natives[mid].status != "beta")]
+    pick = plain or usable or ids
+    return pick[0] if pick else HARNESS_AGENT_FALLBACK_MODEL
+
+
+def _refresh_harness_agent_sources() -> None:
+    """Network: what Zen serves + models.dev (304 when unchanged), or
+    OpenCode's own catalog when models.dev is off."""
+    try:
+        from ..auth.opencode_catalog import refresh as _served_refresh
+
+        _served_refresh()
+    except Exception:
+        pass
+    try:
+        if _catalog().enabled():
+            _catalog().refresh()
+            return
+        from ..auth.zen_catalog import refresh_free_models
+
+        refresh_free_models()
+    except Exception:
+        pass
 
 
 def harness_agent_models_for_picker(
     live: bool = False, cached: bool = False
 ) -> list[tuple[str, str]]:
-    """Harness Agent models — always shown in /model (no credentials required).
+    """Harness Agent rows for /model, default first — always at least one (no
+    credentials needed): before any catalog arrives, the fallback model alone.
 
-    With ``live=True`` the list is refreshed from the public OpenCode catalog
-    (see :mod:`jarvis.auth.zen_catalog`) so newly added free models appear — and
-    retired ones disappear — without a code change. Falls back to the static
-    list when the network is unavailable.
-
-    With ``cached=True`` the same discovery is read from the on-disk cache
-    instead — instant, no network — and unioned with the static list so the
-    picker is never thinner than the built-in set. This is what UI threads use.
-    """
-    order = [m for m, _ in _HARNESS_AGENT_MODEL_FALLBACK]
-    merged: dict[str, str] = {m: d for m, d in _HARNESS_AGENT_MODEL_FALLBACK}
-    for mid, desc in HARNESS_AGENT_MODELS:
-        if mid not in merged:
-            order.append(mid)
-        merged[mid] = desc
-    static = [(m, merged[m]) for m in order]
-
-    if not live:
-        if not cached:
-            return static
-        try:
-            from ..auth.zen_catalog import cached_free_models
-
-            discovered = cached_free_models()
-        except Exception:
-            discovered = []
-        if not discovered:
-            return static
-        labels = dict(static)
-        labels.update(discovered)
-        ids = [m for m, _ in discovered]
-        ids += [m for m, _ in static if m not in set(ids)]
-        if HARNESS_AGENT_DEFAULT_MODEL in labels:
-            ids = [HARNESS_AGENT_DEFAULT_MODEL] + [
-                m for m in ids if m != HARNESS_AGENT_DEFAULT_MODEL
-            ]
-        return [(m, labels[m]) for m in ids]
-
-    try:
-        from ..auth.zen_catalog import refresh_free_models
-
-        dynamic = refresh_free_models()
-    except Exception:
-        dynamic = None
-    if not dynamic:
-        return static
-
-    labels = dict(dynamic)
-    ordered = [m for m, _ in dynamic if m != HARNESS_AGENT_DEFAULT_MODEL]
-    if HARNESS_AGENT_DEFAULT_MODEL in labels:
-        ordered.insert(0, HARNESS_AGENT_DEFAULT_MODEL)
-    return [(m, labels[m]) for m in ordered]
+    ``live=True`` refreshes the catalogs first (network — worker threads
+    only); otherwise only the on-disk caches are read (``cached`` is accepted
+    for callers; every read is cached now)."""
+    if live:
+        _refresh_harness_agent_sources()
+    rows = harness_agent_models()
+    if not rows:
+        return [(HARNESS_AGENT_FALLBACK_MODEL, "Big Pickle")]
+    default = harness_agent_default_model()
+    return sorted(rows, key=lambda row: row[0] != default)  # stable: default first
 
 
 def _gateway_served(provider: str) -> set[str]:
@@ -698,14 +710,12 @@ def opencode_go_models_for_picker() -> list[tuple[str, str]]:
 def _gateway_default(provider: str) -> str:
     """A first model for an OpenCode gateway, chosen from live data.
 
-    Zen: a free model it serves when there is one (so a key never starts on a
-    paid frontier model by surprise), else like Go. Go: the newest model that
+    Zen: the free tier's pick when it serves a free model (so a key never
+    starts on a paid frontier model by surprise), else like Go. Go: the newest model that
     can call tools, skipping preview / pro / beta tiers when there is
     anything else. Nothing cached yet (first run): fetch now — the request
     that needs this model goes over the network anyway.
     """
-    import re as _re
-
     def candidates():
         rows = {mid for mid, _ in _gateway_rows(provider)}
         try:
@@ -726,13 +736,11 @@ def _gateway_default(provider: str) -> str:
             pass
         found = candidates()
     def plain(ms):
-        return [m for m in ms
-                if not _re.search(r"(preview|-pro\b|exp|beta)", m.id.lower()) and m.status != "beta"]
+        return [m for m in ms if not _PREVIEW_TIER.search(m.id.lower()) and m.status != "beta"]
 
     if provider == PROVIDER_OPENCODE_ZEN:
-        free = [m for m in found if m.free]
-        if free:
-            return (plain(free) or free)[0].id
+        if any(m.free for m in found):
+            return harness_agent_default_model()
     else:
         # A Go subscription starts on one of its own models, not a free trial one.
         found = [m for m in found if not m.free] or found
@@ -740,7 +748,7 @@ def _gateway_default(provider: str) -> str:
     if pick:
         return pick[0].id
     # models.dev unreachable on a first run: Zen still serves the free tier.
-    return HARNESS_AGENT_DEFAULT_MODEL if provider == PROVIDER_OPENCODE_ZEN else ""
+    return harness_agent_default_model() if provider == PROVIDER_OPENCODE_ZEN else ""
 
 
 def opencode_go_default_model() -> str:
@@ -772,7 +780,6 @@ PRICING: dict[str, tuple[float, float]] = {
 # ── Default models per provider (derived from ModelSpec.default flags) ─────────
 _DEFAULT_BY_PROVIDER: dict[str, str] = {m.provider: m.id for m in MODELS if m.default}
 
-HARNESS_AGENT_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_HARNESS_AGENT]
 CODEX_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_OPENAI_CODEX]
 ANTHROPIC_DEFAULT_MODEL = _DEFAULT_BY_PROVIDER[PROVIDER_ANTHROPIC]
 
@@ -817,24 +824,16 @@ def _has_openai_codex_oauth() -> bool:
 
 
 def is_harness_agent_model(model: str) -> bool:
-    """True when ``model`` is a free Harness Agent (OpenCode Zen public) model.
-
-    Includes free models discovered at runtime (on-disk catalog cache), so a
-    newly released free model the user picked survives a restart.
-    """
+    """True when ``model`` is a free Harness Agent (OpenCode Zen public) model:
+    on the live list (``harness_agent_models``, on-disk caches), or the
+    fallback model while no list is known."""
     m = (model or "").strip()
     if not m:
         return False
-    if m in HARNESS_AGENT_MODEL_IDS:
-        return True
-    if m in {mid for mid, _ in _HARNESS_AGENT_MODEL_FALLBACK}:
-        return True
-    try:
-        from ..auth.zen_catalog import cached_free_models
-
-        return any(mid == m for mid, _ in cached_free_models())
-    except Exception:
-        return False
+    rows = harness_agent_models()
+    if rows:
+        return any(mid == m for mid, _ in rows)
+    return m == HARNESS_AGENT_FALLBACK_MODEL
 
 
 def connected_model_sources() -> list[str]:
@@ -919,10 +918,7 @@ def all_model_picker_rows(
     except Exception:
         pass
     if not rows:
-        rows = [
-            (PROVIDER_HARNESS_AGENT, mid, desc)
-            for mid, desc in _HARNESS_AGENT_MODEL_FALLBACK
-        ]
+        rows = [(PROVIDER_HARNESS_AGENT, mid, desc) for mid, desc in harness_agent_models_for_picker()]
     return rows
 
 
@@ -1060,6 +1056,8 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
     m = (model or "").strip()
     if not m:
         return False
+    if provider == PROVIDER_HARNESS_AGENT:
+        return is_harness_agent_model(m)
     if is_catalog_provider(provider):
         try:
             return _catalog().get_model(provider, m) is not None
@@ -1172,9 +1170,12 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
     """
     ok = False
     try:
-        from ..auth.zen_catalog import refresh_free_models as _zen_refresh
+        # The free tier's list comes from Zen's (models.dev); OpenCode's own
+        # 5 MB catalog is only its stand-in while models.dev is off.
+        if not _catalog().enabled():
+            from ..auth.zen_catalog import refresh_free_models as _zen_refresh
 
-        ok = bool(_zen_refresh()) or ok
+            ok = bool(_zen_refresh()) or ok
     except Exception:
         pass
     try:
@@ -1212,7 +1213,7 @@ def model_catalogs_are_fresh() -> bool:
         from ..auth.codex_catalog import cache_is_fresh as _codex_fresh
         from ..auth.opencode_catalog import cache_is_fresh as _opencode_fresh
 
-        return (_zen_fresh() and _or_fresh() and _codex_fresh() and _opencode_fresh()
-                and _catalog().cache_is_fresh())
+        return ((_catalog().enabled() or _zen_fresh()) and _or_fresh() and _codex_fresh()
+                and _opencode_fresh() and _catalog().cache_is_fresh())
     except Exception:
         return False

@@ -6,7 +6,7 @@ from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_KEY_FILE, OPENCODE_ZEN_KEY_FILE,
     AUTH_MODE_FILE, PROVIDER_FILE, PROVIDERS, PROVIDER_LABELS, MODEL_SOURCE_LABELS,
     OPENROUTER_DEFAULT_MODEL,
-    HARNESS_AGENT_DEFAULT_MODEL, HARNESS_AGENT_MODEL_IDS,
+    harness_agent_default_model,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
     is_catalog_provider, provider_label,
     models_for, is_harness_agent_model, normalize_model_for_provider,
@@ -239,15 +239,12 @@ def resolve_model_arg(arg: str) -> tuple[str, str] | None:
     return None
 
 
-_HARNESS_AGENT_MODEL_IDS = set(HARNESS_AGENT_MODEL_IDS)
-
-
 def _provider_for_model(model: str) -> str:
     """Determine provider from model id."""
     # Not a frozen id set: the Codex line-up is discovered at runtime.
     if model_belongs_to_provider(model, PROVIDER_OPENAI_CODEX):
         return PROVIDER_OPENAI_CODEX
-    if model in _HARNESS_AGENT_MODEL_IDS:
+    if is_harness_agent_model(model):
         return PROVIDER_OPENCODE_ZEN
     # OpenCode Go / Zen line-ups are live (models.dev + what each gateway
     # serves). Zen also serves Claude / GPT ids, so it is asked last: a typed
@@ -501,7 +498,7 @@ def apply_key_change(provider: str, *, removed: bool = False) -> str:
             return ""
         from ..auth.client import _fallback_harness_agent_client
 
-        keep = state.MODEL if is_harness_agent_model(state.MODEL) else HARNESS_AGENT_DEFAULT_MODEL
+        keep = state.MODEL if is_harness_agent_model(state.MODEL) else harness_agent_default_model()
         state.client = _fallback_harness_agent_client(preferred_model=keep)
         save_last_model()
         return f"switched to Harness Agent (free) · {state.MODEL}"

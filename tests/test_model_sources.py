@@ -5,6 +5,7 @@ from jarvis.constants.providers import (
     MODEL_SOURCE_LABELS,
     all_model_picker_rows,
     connected_model_sources,
+    HARNESS_AGENT_FALLBACK_MODEL,
     harness_agent_models_for_picker,
     model_option_id,
     parse_model_option_id,
@@ -38,14 +39,14 @@ def test_connected_model_sources_includes_harness_agent():
 def test_all_model_picker_rows_always_includes_harness_agent():
     rows = all_model_picker_rows()
     harness = [(src, mid) for src, mid, _ in rows if src == PROVIDER_HARNESS_AGENT]
-    assert len(harness) >= 3
-    assert harness[0][1] == "mimo-v2.5-free"
+    # No catalog in tests: the fallback model alone, until the live list arrives.
+    assert harness == [(PROVIDER_HARNESS_AGENT, HARNESS_AGENT_FALLBACK_MODEL)]
     assert rows[0][0] == PROVIDER_HARNESS_AGENT
 
 
 def test_harness_agent_models_for_picker_never_empty():
     models = harness_agent_models_for_picker()
-    assert len(models) >= 3
+    assert models == [(HARNESS_AGENT_FALLBACK_MODEL, "Big Pickle")]
 
 
 # ── /model shows a provider only while its credential exists ─────────────────
@@ -81,7 +82,7 @@ def test_without_credentials_only_harness_agent_is_listed(no_credentials):
     assert connected_model_sources() == [PROVIDER_HARNESS_AGENT]
     rows = all_model_picker_rows(cached=True)
     assert _sources(rows) == {PROVIDER_HARNESS_AGENT}
-    assert len(rows) >= 3
+    assert rows
 
 
 def test_api_key_provider_listed_only_while_key_exists(no_credentials):

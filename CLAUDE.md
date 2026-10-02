@@ -82,7 +82,17 @@ python -m pytest tests/ -q
 Free model line-ups change constantly, so free tiers are **discovered at
 runtime**, not hard-coded:
 
-- `auth/zen_catalog.py` — OpenCode Zen free tier (Harness Agent source).
+- **Harness Agent (free tier, no key)** has no model list in code:
+  `constants/providers.py:harness_agent_models()` is OpenCode Zen's list
+  (`_gateway_rows`, below) narrowed to models.dev's $0 models — exactly the
+  rows Zen tags Free, image tags included (`model_supports_images` /
+  `model_pricing` read `harness_agent` as Zen). `harness_agent_default_model()`
+  picks by rule (first tool-capable, non-preview/beta); `HARNESS_AGENT_FALLBACK_MODEL`
+  (`big-pickle`) is used only before any catalog exists (import time, cold first
+  run) and is the picker's only row then. `auth/zen_catalog.py` (OpenCode's own
+  5 MB catalog ∩ served) is the stand-in, fetched only while `HARNESS_MODELS_DEV=0`.
+  The free client sends models.dev's `/responses` models there
+  (`native_responses_models`, plus `_zen_wire.RESPONSES_API_MODELS` for when models.dev is off).
 - `auth/openrouter_catalog.py` — every $0 model in `openrouter.ai/api/v1/models`.
   **Nothing is hidden**: a row missing from `/model` is more confusing than a
   caveated one, so unusable models are labelled and sorted last instead.

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from jarvis.bootstrap import ensure_harness_agent_defaults
-from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_ANTHROPIC
+from jarvis.constants.providers import HARNESS_AGENT_FALLBACK_MODEL, PROVIDER_ANTHROPIC
 from jarvis.storage.settings import Settings
 
 
@@ -86,12 +86,12 @@ def test_first_install_uses_harness_even_with_credentials(tmp_path, monkeypatch,
 
     from jarvis import state
     from jarvis.auth.client import make_client
-    from jarvis.constants.providers import HARNESS_AGENT_DEFAULT_MODEL, PROVIDER_OPENCODE_ZEN
+    from jarvis.constants.providers import HARNESS_AGENT_FALLBACK_MODEL, PROVIDER_OPENCODE_ZEN
 
     client = make_client(interactive=False)
     assert client is not None
     assert state.provider == PROVIDER_OPENCODE_ZEN
-    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
+    assert state.MODEL == HARNESS_AGENT_FALLBACK_MODEL
     assert state.harness_agent_free is True
 
 
@@ -116,6 +116,9 @@ def test_stale_provider_file_does_not_override_saved_model(
     )
     monkeypatch.setattr("jarvis.storage.prefs.should_use_first_run_harness_defaults", lambda: False)
     monkeypatch.setattr("jarvis.auth.client._build_opencode_zen_client_for_model", lambda *a, **k: MagicMock())
+    # The free tier lists it (live list; no catalog in tests otherwise).
+    monkeypatch.setattr("jarvis.auth.zen_catalog.cached_free_models",
+                        lambda: [("nemotron-3-ultra-free", "Nemotron 3 Ultra Free")])
 
     from jarvis import state
     from jarvis.auth.client import make_client
@@ -181,9 +184,9 @@ def test_make_client_first_run_without_saved_model_uses_harness_default(
     from jarvis.auth.client import make_client
     from jarvis.constants.providers import PROVIDER_OPENCODE_ZEN
 
-    state.MODEL = HARNESS_AGENT_DEFAULT_MODEL
+    state.MODEL = HARNESS_AGENT_FALLBACK_MODEL
     client = make_client(interactive=False)
     assert client is not None
     assert state.provider == PROVIDER_OPENCODE_ZEN
-    assert state.MODEL == HARNESS_AGENT_DEFAULT_MODEL
+    assert state.MODEL == HARNESS_AGENT_FALLBACK_MODEL
     assert state.harness_agent_free is True
