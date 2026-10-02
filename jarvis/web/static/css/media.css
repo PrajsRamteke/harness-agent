@@ -160,7 +160,7 @@
   box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.24);
 }
 .lr-cap .ic { width: 12px; height: 12px; stroke-width: 2.2; }
-.lr-cap.is-empty { visibility: hidden; }
+.lr-cap.is-empty, .lr-free.is-empty { visibility: hidden; }
 /* "Free" next to models that cost nothing to use. */
 .lr-free {
   flex-shrink: 0;

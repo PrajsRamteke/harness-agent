@@ -337,26 +337,29 @@ const modelSpec = {
     const foldable = !searching && groups.length > 1;
     const closed = foldable ? closedGroups() : new Set();
     const rows = [];
-    // Keep the image slot when any row has one, so Free tags and image marks line up in columns.
+    // Keep the image / Free slots when any row has one, so the tags line up in columns.
     const imageSlot = (this.data?.models || []).some((m) => m.images);
+    const freeSlot = (this.data?.models || []).some((m) => m.free);
     for (const g of groups) {
       rows.push({
         section: g.label, group: g.source, count: g.models.length, open: !closed.has(g.source),
         toggle: foldable, hasActive: g.models.some((m) => m.active),
       });
       // Every model is rendered, folded or not, so a drawer can slide open.
-      for (const m of g.models) this.pushRow(rows, m, imageSlot);
+      for (const m of g.models) this.pushRow(rows, m, imageSlot, freeSlot);
     }
     return { rows, empty: dlgEmpty('No models match', 'Try a provider name such as “anthropic” — or add a provider with the button above.', { ic: 'search' }) };
   },
-  pushRow(rows, m, imageSlot) {
-    // Tags on the right, always in this order: free to use · can see images
-    // (attachments reach it as pictures) · in use.
+  pushRow(rows, m, imageSlot, freeSlot) {
+    // Tags on the right, always in this order: in use · free to use · can see
+    // images (attachments reach it as pictures). Empty slots keep the Free
+    // tags and image marks in straight columns.
     const tags = [
-      m.free ? '<span class="lr-free" title="Free to use: no cost per message">Free</span>' : '',
+      m.active ? '<span class="badge is-live">In use</span>' : '',
+      m.free ? '<span class="lr-free" title="Free to use: no cost per message">Free</span>'
+        : freeSlot ? '<span class="lr-free is-empty" aria-hidden="true">Free</span>' : '',
       m.images ? `<span class="lr-cap" title="Can see images: attached photos and screenshots reach it as pictures" aria-label="Can see images">${icon('image')}</span>`
         : imageSlot ? '<span class="lr-cap is-empty" aria-hidden="true"></span>' : '',
-      m.active ? '<span class="badge is-live">In use</span>' : '',
     ].join('');
     rows.push({
       node: true,
