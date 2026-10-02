@@ -62,6 +62,7 @@ export function initChat() {
     }
   }, { passive: true });
   jump?.addEventListener('click', () => scrollToBottom(true, true));
+  watchChrome();
   syncThoughtsVisibility();
   initToolOutputModal();
   // Tool rows are also clickable targets for the Activity tab's "jump here".
@@ -72,6 +73,36 @@ export function initChat() {
       openToolOutput(btn.dataset.full);
     }
   });
+}
+
+/**
+ * Frosted glass floats the top bar and the dock over the transcript
+ * (layout.css), which pads and fades by their measured sizes: --top-h,
+ * --dock-h, and the composer's edges from the bottom (--comp-top /
+ * --comp-bot). Measured in every mode, so switching glass on is instant.
+ * While you're at the bottom, a dock that grows (a multi-line draft, chips,
+ * the activity row) keeps the latest message in view instead of covering it.
+ */
+function watchChrome() {
+  const main = document.querySelector('.main');
+  const top = document.querySelector('.topbar');
+  const dock = document.querySelector('.dock');
+  const comp = $('composer');
+  const sc = scroller();
+  if (!main || !top || !dock || !comp || !sc) return;
+  const measure = () => {
+    const stuck = stickToBottom;
+    const compTop = dock.offsetHeight - comp.offsetTop;
+    main.style.setProperty('--top-h', `${top.offsetHeight}px`);
+    main.style.setProperty('--dock-h', `${dock.offsetHeight}px`);
+    main.style.setProperty('--comp-top', `${compTop}px`);
+    main.style.setProperty('--comp-bot', `${compTop - comp.offsetHeight}px`);
+    if (stuck) sc.scrollTop = sc.scrollHeight;
+  };
+  measure();
+  if (typeof ResizeObserver === 'undefined') return;
+  const ro = new ResizeObserver(measure);
+  [main, top, dock, comp].forEach((el) => ro.observe(el));
 }
 
 function hideJump() {

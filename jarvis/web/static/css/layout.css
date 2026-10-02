@@ -403,6 +403,66 @@
 .conn-banner.is-leaving { animation: banner-out 0.26s var(--ease) forwards; }
 @keyframes banner-out { to { opacity: 0; transform: translateY(-8px) scale(0.96); } }
 
+/* ─── Frosted glass: the transcript runs under the chrome ─────────────────
+   With frosted glass on, the top bar and the dock float over the transcript
+   instead of sitting above and below it, so messages scroll *under* them
+   and the blur has real content to frost. chat.js measures both onto .main
+   (--top-h, --dock-h, and --comp-top / --comp-bot: the composer's edges
+   measured from the bottom) and the transcript pads by them, so the first
+   and last message still clear the chrome. The scroll range comes out the
+   same as the stacked layout, so switching glass on or off never moves
+   what you're reading.
+   The mask fades content out across the top bar and across the composer,
+   so nothing shows crisp past a rounded corner or behind the key hints. */
+:root[data-surface="glass"] .topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+:root[data-surface="glass"] .dock {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+:root[data-surface="glass"] :is(.topbar, .composer) {
+  background: var(--chrome);
+  -webkit-backdrop-filter: blur(var(--chrome-blur)) saturate(var(--sat));
+  backdrop-filter: blur(var(--chrome-blur)) saturate(var(--sat));
+}
+:root[data-surface="glass"] .chat-scroll {
+  --pad-t: 22px;
+  --pad-b: 26px;
+  padding-top: calc(var(--top-h, 60px) + var(--pad-t));
+  padding-bottom: calc(var(--dock-h, 140px) + var(--pad-b));
+  scroll-padding: var(--top-h, 60px) 0 var(--dock-h, 140px);
+  mask-image: linear-gradient(to bottom,
+    transparent,
+    #000 calc(var(--top-h, 60px) * 0.7),
+    #000 calc(100% - var(--comp-top, 120px)),
+    transparent calc(100% - var(--comp-bot, 0px)));
+}
+:root[data-surface="glass"] .conn-banner {
+  position: absolute;
+  top: calc(var(--top-h, 60px) + 10px);
+  left: 0;
+  right: 0;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  margin: 0 auto;
+  background: linear-gradient(var(--danger-soft), var(--danger-soft)), var(--glass-strong);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  box-shadow: var(--shadow);
+}
+:root[data-surface="glass"] .conn-banner.is-back {
+  background: linear-gradient(var(--ok-soft), var(--ok-soft)), var(--glass-strong);
+}
+@media (max-width: 960px) {
+  :root[data-surface="glass"] .chat-scroll { --pad-t: 16px; --pad-b: 22px; }
+}
+
 /* ─── Token gate ──────────────────────────────────────────────────────── */
 .gate {
   position: fixed;

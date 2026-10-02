@@ -442,8 +442,11 @@
 }
 
 /* ─── Appearance / shortcuts ──────────────────────────────────────────── */
-.small-card { max-width: 480px; }
+.small-card { max-width: 480px; max-height: min(740px, 86vh); }
 .small-card .picker-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+/* The card caps its height and clips; the settings scroll under the head
+   instead of the last rows being cut off on shorter screens. */
+.settings-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 .setting-block { padding: 14px 18px 4px; }
 .setting-block:last-child { padding-bottom: 16px; }

@@ -29,6 +29,21 @@ function hide() {
   pill()?.classList.remove('is-shown');
 }
 
+/**
+ * The part of the transcript you can read. With frosted glass it runs under
+ * the top bar and the dock; its scroll-padding marks them (layout.css).
+ */
+function readableBox() {
+  const sc = $('chat-scroll');
+  if (!sc) return null;
+  const r = sc.getBoundingClientRect();
+  const cs = getComputedStyle(sc);
+  return {
+    top: r.top + (parseFloat(cs.scrollPaddingTop) || 0),
+    bottom: r.bottom - (parseFloat(cs.scrollPaddingBottom) || 0),
+  };
+}
+
 function place() {
   const btn = pill();
   const hit = transcriptSelection();
@@ -40,7 +55,7 @@ function place() {
   const rects = hit.range.getClientRects();
   const box = hit.range.getBoundingClientRect();
   // Scrolled out of the transcript: hide rather than pin to an edge.
-  const view = $('chat-scroll')?.getBoundingClientRect();
+  const view = readableBox();
   if ((!rects.length && !box.width) || (view && (box.bottom < view.top + 8 || box.top > view.bottom - 8))) {
     hide();
     return;

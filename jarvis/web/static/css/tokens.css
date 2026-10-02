@@ -320,6 +320,11 @@ body.is-offline .glow { opacity: 0.15; }
   --blur-strong: 40px;
   --sat: 150%;
   --sat-strong: 170%;
+  /* The top bar and composer float over the transcript (layout.css), so
+     they get a thinner, lighter-blurred glass: at the panel density above,
+     white-on-black text underneath frosts to an invisible haze. */
+  --chrome: rgba(18, 20, 25, 0.62);
+  --chrome-blur: 14px;
   --shadow: 0 18px 46px -24px rgba(0, 0, 0, 0.78);
   --shadow-lg: 0 34px 90px -28px rgba(0, 0, 0, 0.84);
 
@@ -340,6 +345,7 @@ body.is-offline .glow { opacity: 0.15; }
   --line: rgba(255, 255, 255, 0.1);
   --line-2: rgba(255, 255, 255, 0.17);
   --highlight: rgba(255, 255, 255, 0.13);
+  --chrome: rgba(40, 43, 51, 0.66);
   --amb-1: color-mix(in oklab, var(--accent) 11%, transparent);
   --amb-2: rgba(96, 130, 255, 0.11);
   --amb-3: rgba(176, 110, 255, 0.085);
@@ -360,6 +366,7 @@ body.is-offline .glow { opacity: 0.15; }
   --grid-dot: rgba(15, 20, 35, 0.06);
   --shadow: 0 16px 38px -22px rgba(20, 28, 50, 0.28);
   --shadow-lg: 0 34px 76px -30px rgba(20, 28, 50, 0.36);
+  --chrome: rgba(255, 255, 255, 0.66);
 
   --amb-1: color-mix(in oklab, var(--accent) 9%, transparent);
   --amb-2: rgba(120, 150, 255, 0.13);
@@ -376,6 +383,7 @@ body.is-offline .glow { opacity: 0.15; }
   --line: rgba(60, 54, 42, 0.11);
   --line-2: rgba(60, 54, 42, 0.19);
   --grid-dot: rgba(60, 54, 42, 0.055);
+  --chrome: rgba(255, 253, 248, 0.7);
 
   --amb-1: color-mix(in oklab, var(--accent) 8%, transparent);
   --amb-2: rgba(150, 170, 230, 0.12);
@@ -394,8 +402,12 @@ body.is-offline .glow { opacity: 0.15; }
   --edge-specular: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(60, 54, 42, 0.06);
 }
 
-/* Backdrop: a soft, low-contrast mesh placed mostly off-screen, so it
-   shows as light at the edges rather than colour behind the content. */
+/* Backdrop: three soft lights placed mostly off-screen, so they show as
+   light at the edges rather than colour behind the content. Each drifts on
+   its own slow loop (transform only: the compositor moves them, nothing
+   repaints), so the frost always has something alive to refract. The mesh
+   brightens while Jarvis works and dims offline. Phones only drift while
+   a turn runs (battery); reduced motion stops it (the global rule below). */
 :root[data-surface="glass"] .glow {
   top: 0;
   left: 0;
@@ -403,11 +415,43 @@ body.is-offline .glow { opacity: 0.15; }
   height: 100%;
   transform: none;
   border-radius: 0;
-  background:
-    radial-gradient(52vw 40vh at 4% -8%, var(--amb-1), transparent 58%),
-    radial-gradient(48vw 38vh at 102% 2%, var(--amb-2), transparent 56%),
-    radial-gradient(60vw 40vh at 50% 110%, var(--amb-3), transparent 60%);
-  opacity: 1;
+  background: radial-gradient(60vw 40vh at 50% 110%, var(--amb-3), transparent 60%);
+  opacity: 0.8;
+  animation: drift-c 52s ease-in-out infinite alternate;
+  will-change: transform;
+}
+:root[data-surface="glass"] .glow::before,
+:root[data-surface="glass"] .glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+:root[data-surface="glass"] .glow::before {
+  background: radial-gradient(52vw 40vh at 4% -8%, var(--amb-1), transparent 58%);
+  animation: drift-a 46s ease-in-out infinite alternate;
+}
+:root[data-surface="glass"] .glow::after {
+  background: radial-gradient(48vw 38vh at 102% 2%, var(--amb-2), transparent 56%);
+  animation: drift-b 61s ease-in-out infinite alternate;
+}
+:root[data-surface="glass"] body.is-busy .glow { opacity: 1; }
+:root[data-surface="glass"] body.is-offline .glow { opacity: 0.3; }
+:root[data-surface="glass"] body.is-offline .glow,
+:root[data-surface="glass"] body.is-offline .glow::before,
+:root[data-surface="glass"] body.is-offline .glow::after { animation-play-state: paused; }
+
+@keyframes drift-a { to { transform: translate3d(10vw, 8vh, 0) scale(1.2); } }
+@keyframes drift-b { to { transform: translate3d(-12vw, 10vh, 0) scale(1.14); } }
+@keyframes drift-c { to { transform: translate3d(6vw, -7vh, 0) scale(1.1); } }
+
+@media (max-width: 960px), (pointer: coarse) {
+  :root[data-surface="glass"] body:not(.is-busy) .glow,
+  :root[data-surface="glass"] body:not(.is-busy) .glow::before,
+  :root[data-surface="glass"] body:not(.is-busy) .glow::after { animation-play-state: paused; }
+  /* Lighter blur: phones re-blur the chrome every frame while the
+     transcript scrolls under it. */
+  :root[data-surface="glass"] { --blur: 20px; --blur-strong: 30px; --chrome-blur: 12px; }
 }
 
 :root[data-surface="glass"] .grid {
@@ -444,6 +488,23 @@ body.is-offline .glow { opacity: 0.15; }
 :root[data-surface="glass"] .recent-row.is-active .rr-dot,
 :root[data-surface="glass"] .assistant-mark-active .mark::before {
   box-shadow: none;
+}
+
+/* Small floating glass (chips, toast, "Latest", the quote pill) hard-codes
+   its blur for the default look; with frosted glass on it frosts like the
+   panels it floats beside. */
+:root[data-surface="glass"] :is(.dock-chip, .toast, .jump-btn, .quote-pill) {
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+}
+
+/* System "Reduce transparency": the glass palette stays, but every panel
+   is solid (the colour each one shows over the plain backdrop). */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-surface="glass"] { --glass: #0e0f13; --glass-strong: #101116; --chrome: #0e0f13; --blur: 0px; --blur-strong: 0px; --chrome-blur: 0px; }
+  :root[data-surface="glass"][data-theme="dim"] { --glass: #25272e; --glass-strong: #272931; --chrome: #25272e; }
+  :root[data-surface="glass"][data-theme="light"] { --glass: #fdfdfd; --glass-strong: #ffffff; --chrome: #fdfdfd; }
+  :root[data-surface="glass"][data-theme="light"][data-variant="soft"] { --glass: #fdfaf5; --glass-strong: #fefcf7; --chrome: #fdfaf5; }
 }
 
 /* ─── Glass ───────────────────────────────────────────────────────────── */

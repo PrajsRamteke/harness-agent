@@ -33,6 +33,11 @@ export const ACCENTS = [
 ];
 
 const systemLight = window.matchMedia('(prefers-color-scheme: light)');
+/** System "Reduce transparency": frosted glass keeps its palette, panels go solid (tokens.css). */
+const lessTransparency = window.matchMedia('(prefers-reduced-transparency: reduce)');
+
+const GLASS_SUB = 'Translucent panels; messages scroll under them';
+const GLASS_SUB_SOLID = 'Your system asks for less transparency, so panels stay solid';
 
 // ─── Custom accent: any colour, from the hue bar or the exact picker ─────
 
@@ -250,6 +255,14 @@ export function setGlass(on, src) {
   });
 }
 
+export function isGlass() {
+  return prefs.glass;
+}
+
+export function toggleGlass(src) {
+  setGlass(!prefs.glass, src);
+}
+
 export function setAccent(accent, src) {
   if (accent === prefs.accent) return;
   prefs.accent = accent;
@@ -393,6 +406,8 @@ function paintAppearance() {
   if (softSub) softSub.textContent = SOFT_SUB[prefs.mode];
   const glass = $('sw-glass');
   if (glass) glass.checked = prefs.glass;
+  const glassSub = $('glass-sub');
+  if (glassSub) glassSub.textContent = lessTransparency.matches ? GLASS_SUB_SOLID : GLASS_SUB;
 
   paintAccents();
 
@@ -455,6 +470,7 @@ export function openAppearance() {
 
 export function initTheme() {
   apply();
+  lessTransparency.addEventListener?.('change', paintAppearance);
   systemLight.addEventListener?.('change', () => {
     if (prefs.mode === 'system') {
       apply();

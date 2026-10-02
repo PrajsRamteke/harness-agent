@@ -5,7 +5,7 @@ import { store, subscribe } from './store.js';
 import { allItems, matchItem, rankItems, wantCustomItems } from './catalog.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
 import { newChat, toggleSetting } from './actions.js';
-import { toggleTheme, resolvedTheme, openAppearance, THEME_LABEL } from './theme.js';
+import { toggleTheme, toggleGlass, isGlass, resolvedTheme, openAppearance, THEME_LABEL } from './theme.js';
 import { submitPrompt, fillPrompt } from './composer.js';
 import { openShortcuts } from './shortcuts.js';
 import { openInspector } from './inspector.js';
@@ -26,6 +26,7 @@ function itemMeta(item) {
     return `<span class="lr-state${on ? (item.warn ? ' is-warn' : ' is-on') : ''}">${on ? 'On' : 'Off'}</span>`;
   }
   if (item.action === 'theme') return `<span class="lr-state">${THEME_LABEL[resolvedTheme()]}</span>`;
+  if (item.action === 'glass') return `<span class="lr-state${isGlass() ? ' is-on' : ''}">${isGlass() ? 'On' : 'Off'}</span>`;
   if (item.action === 'inspector-changes') return `<span class="lr-code">${isMac ? '⌥D' : 'Alt D'}</span>`;
   if (item.laptop) return '<span class="lr-meta">on computer</span>';
   if (item.cmd) return `<span class="lr-code">${escapeHtml(item.cmd.trim())}</span>`;
@@ -80,6 +81,10 @@ export async function runItem(item) {
     toggleTheme();
     return;
   }
+  if (item.action === 'glass') {
+    toggleGlass();
+    return;
+  }
   if (item.action === 'appearance') {
     openAppearance();
     return;
@@ -107,7 +112,7 @@ function pick(idx) {
   const item = visible[idx];
   if (!item) return;
   // Toggles keep the palette open so several can be flipped in a row.
-  if (item.toggle || item.action === 'theme') {
+  if (item.toggle || item.action === 'theme' || item.action === 'glass') {
     runItem(item).then(() => {
       if (isModalOpen('palette')) render();
       nav?.setCursor(idx);
