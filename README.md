@@ -11,7 +11,7 @@ It remembers how you like things done, learns from every task, and runs on free 
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1f2a4d)](#installation)
-[![Version](https://img.shields.io/badge/version-0.2.5-6CB6FF)](https://github.com/PrajsRamteke/harness-agent/commits/main)
+[![Version](https://img.shields.io/badge/version-0.3.0-6CB6FF)](https://github.com/PrajsRamteke/harness-agent/commits/main)
 [![Free models](https://img.shields.io/badge/free%20models-built%20in-FFB648)](#models-and-providers)
 [![GitHub stars](https://img.shields.io/github/stars/PrajsRamteke/harness-agent?style=flat&color=6CB6FF)](https://github.com/PrajsRamteke/harness-agent/stargazers)
 
