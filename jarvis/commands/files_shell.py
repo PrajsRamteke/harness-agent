@@ -52,6 +52,9 @@ def handle_files_shell(c: str, arg: str) -> bool:
         return True
     if c == "/load":
         state.messages = json.loads(pathlib.Path(arg).read_text())
+        from ..repl.trim import count_tool_calls
+
+        state.tool_calls_count = count_tool_calls(state.messages)
         state.current_session_id = db_create_session(state.MODEL)
         db_replace_session_messages(state.current_session_id, state.messages)
         console.print(f"[green]loaded {len(state.messages)} messages → session #{state.current_session_id}[/]")

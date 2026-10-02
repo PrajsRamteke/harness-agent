@@ -114,6 +114,28 @@ def estimate_session_tokens(messages: List[Dict]) -> tuple[int, int, int]:
     return total_in, total_out, total_tokens
 
 
+def count_tool_calls(messages: List[Dict]) -> int:
+    """How many tools the assistant called in ``messages`` — ``/stats`` and the
+    sidebars after resuming a session.
+
+    The live counter (``render.py``) goes up once per ``tool_use`` block the
+    model sends; this counts the same blocks in saved history (dicts from
+    sessions.db / ``/load``, or SDK objects still in memory).
+    """
+    n = 0
+    for msg in messages or []:
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for b in content:
+            kind = b.get("type") if isinstance(b, dict) else getattr(b, "type", None)
+            if kind == "tool_use":
+                n += 1
+    return n
+
+
 def _stub_tool_results(msg: Dict) -> Dict:
     """Return a copy of a user message with tool_result blocks collapsed.
 

@@ -8,7 +8,7 @@ from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from ..storage.sessions import db_count_sessions, db_list_sessions, db_delete_session, db_load_session
-from ..repl.trim import estimate_session_tokens
+from ..repl.trim import count_tool_calls, estimate_session_tokens
 from .. import state
 from .modal_chrome import (
     TUI_MODAL_CHROME_CSS,
@@ -286,7 +286,9 @@ def resume_session_into_state(sid: int, console_print, preview: bool = True, *, 
         return False
     state.messages = loaded
     state.current_session_id = sid
-    state.tool_calls_count = 0
+    # Recounted from the history, like the tokens — resetting to 0 made a
+    # resumed session show "0 tool calls" in the sidebars and /stats.
+    state.tool_calls_count = count_tool_calls(loaded)
     state.total_in, state.total_out, state.total_tokens = estimate_session_tokens(loaded)
     if not quiet:
         console_print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")

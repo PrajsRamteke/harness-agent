@@ -1,132 +1,72 @@
-# Harness — Jarvis Terminal Agent
+<div align="center">
 
-**AI coding agent for your terminal.**  
-Chat, run tools, edit files, execute shell commands, and control macOS — all from one TUI.
+<img src="assets/jarvis-logo.png" alt="Jarvis" width="132" />
 
+# Jarvis
 
+**The open-source AI agent that works where your code lives.**
+
+Jarvis reads your project, runs commands, edits files and checks its own work, right in your terminal.
+It remembers how you like things done, learns from every task, and runs on free models the moment you install it.
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1f2a4d)](#installation)
+[![Version](https://img.shields.io/badge/version-0.2.5-6CB6FF)](https://github.com/PrajsRamteke/harness-agent/commits/main)
+[![Free models](https://img.shields.io/badge/free%20models-built%20in-FFB648)](#models-and-providers)
+[![GitHub stars](https://img.shields.io/github/stars/PrajsRamteke/harness-agent?style=flat&color=6CB6FF)](https://github.com/PrajsRamteke/harness-agent/stargazers)
+
+[Install](#installation) · [Features](#features) · [Usage](#usage) · [Commands](#slash-commands) · [Configuration](#configuration) · [Development](#development)
+
+</div>
 
 ---
 
-## ✨ Overview
+## Why Jarvis
 
-Harness is a **terminal-native AI agent** that lives in your terminal. You talk to it, it uses tools — reads/writes files, runs shell commands, searches code, uses git, controls macOS apps, OCRs images, browses the web — and gets work done right where your code lives.
-
-> **No web UI, no daemon.** Just `jarvis` in your project folder.
+| | |
+| --- | --- |
+| **Free from the first run** | Jarvis starts on Harness Agent, a free model provider. No API key, no account, no credit card, no ads. |
+| **Remembers you** | Facts about you and your preferences are saved and loaded into every new session. |
+| **Learns from its own work** | After solving a tricky task, Jarvis writes a short lesson and recalls it the next time a similar task appears. |
+| **Checks the web, then checks again** | Verified search reads several independent sources and reports how well they agree. |
+| **Follows you to your phone** | `/web` opens the live session in any browser via a QR code. `/web anywhere` works off your network too. |
+| **Any model you like** | Claude and ChatGPT subscriptions, your own API keys, and around 200 providers from [models.dev](https://models.dev). |
+| **Brings your existing setup** | Reads agents, skills, MCP servers and commands from Claude Code, Cursor, Codex, Gemini, OpenCode and more. |
+| **Uses your Mac, too** | Opens apps, clicks, types, runs AppleScript and Shortcuts, takes screenshots and reads text from images. |
 
 ---
 
-## 🚀 Quick Start
+## Installation
 
-### 🪟 Windows
+You need **Python 3.10 or newer**. The installer puts Jarvis in its own virtual environment and adds a single `jarvis` command.
 
-Open **PowerShell** or **Command Prompt** and paste this one line:
+### macOS and Linux
 
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install.ps1 | iex"
+```bash
+curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
 ```
 
-Then open a **new terminal** in your project folder and run:
+Then open a **new terminal** in any project folder and run:
 
-```powershell
+```bash
 jarvis
 ```
 
-**No Python 3.10+ or Git yet?** Install both with `winget` first, open a new terminal, then run the command above:
-
-```powershell
-winget install -e --id Python.Python.3.12
-winget install -e --id Git.Git
-```
-
-### 🍎 macOS / 🐧 Linux
-
-**macOS without Python 3.10+** (install Python, then Jarvis):
+<details>
+<summary>No Python 3.10+ on macOS yet?</summary>
 
 ```bash
 brew install python@3.11
 curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
-source ~/.zshrc   # or ~/.zprofile on macOS — needed so `jarvis` is on PATH
+source ~/.zshrc        # or ~/.zprofile, so `jarvis` is on your PATH
 jarvis
 ```
 
-If `jarvis` is not found in the same terminal right after install:
+The installer also looks in `/opt/homebrew/bin/python3.*` if Homebrew isn't on your `PATH` yet.
 
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-jarvis
-```
+</details>
 
-**Already have Python 3.10+:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
-source ~/.zshrc   # or ~/.zprofile on macOS
-jarvis
-```
-
-That's it. You'll be prompted to pick an auth method on first run.
-
----
-
-## 🖼️ Screenshots
-
-
-|     |     |
-| --- | --- |
-|     |     |
-
-
----
-
-## 📋 Table of Contents
-
-- [Features](#-features)
-- [Requirements](#-requirements)
-- [Installation](#-installation)
-- [Usage](#-usage)
-- [Slash Commands](#-slash-commands)
-- [Environment Variables](#-environment-variables)
-- [Project Layout](#-project-layout)
-- [Notes](#-notes)
-
----
-
-## 🧰 Features
-
-
-|                                                                                                                                 |                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 💬 Interactive TUIRich terminal UI with markdown rendering, syntax-highlighted code, panels, and streaming responses.          | 🔐 Dual AuthUse an **API key** (sk-ant-…) or sign in with **OAuth** via PKCE.                                                             |
-| 📁 File OperationsRead, write, edit files. List directories, glob patterns, rank files by relevance, search code with ripgrep. | 🐚 Shell AccessRun any shell command, view output inline — no context switching.                                                          |
-| ⎇ Git IntegrationStatus, diff, log — all from the chat. No need to tab out.                                                    | 🖥️ macOS ControlLaunch/focus/quit apps, click UI elements, type text, run AppleScript, use keyboard shortcuts, clipboard, notifications. |
-| 🌐 Web AccessSearch the web and fetch URLs. Verified search cross-checks multiple sources for factual answers.                 | 🧠 Persistent MemoryRemembers facts about you across sessions. Stores skills, notes, and aliases under `~/.config/claude-agent/`.         |
-| 📊 Cost Tracking`/cost` shows token usage and estimated USD spend per session.                                                 | 🔌 MCP SupportModel Context Protocol — connect external tools and data sources.                                                           |
-| 🎨 ThemesBuilt-in **red** and **purple** themes. Easily extensible.                                                            |                                                                                                                                            |
-
-
----
-
-## ✅ Requirements
-
-- **Python 3.10+** — macOS ships with older system Python (`/usr/bin/python3`). Install a newer one before the install script:
-  ```bash
-  brew install python@3.11
-  ```
-  The install script also checks `/opt/homebrew/bin/python3.*` if Homebrew is not on your `PATH` yet.
-- **Windows** — Python 3.10+ and Git. Easiest via `winget`:
-  ```powershell
-  winget install -e --id Python.Python.3.12
-  winget install -e --id Git.Git
-  ```
-  [Windows Terminal](https://aka.ms/terminal) is recommended for the TUI (it's the default on Windows 11).
-- **macOS** — required for macOS control features. Core agent works on any platform.
-- **API key** (sk-ant-…) or a **Pro/Max subscription**
-
----
-
-## 📦 Installation
-
-### One-command install — Windows
+### Windows
 
 In **PowerShell** or **Command Prompt**:
 
@@ -134,306 +74,346 @@ In **PowerShell** or **Command Prompt**:
 powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install.ps1 | iex"
 ```
 
-Already inside PowerShell? The shorter form works too, and makes `jarvis` available in that same window straight away:
+Open a **new terminal** in your project folder and run `jarvis`. No admin rights are needed: Jarvis is installed to `%LOCALAPPDATA%\harness-agent` and the command to `%USERPROFILE%\.local\bin`.
+
+<details>
+<summary>No Python or Git yet?</summary>
 
 ```powershell
-irm https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install.ps1 | iex
+winget install -e --id Python.Python.3.12
+winget install -e --id Git.Git
 ```
 
-What it does:
+Open a new terminal, then run the installer above. [Windows Terminal](https://aka.ms/terminal) is recommended for the best TUI experience.
 
-- clones Jarvis into `%LOCALAPPDATA%\harness-agent` and installs it in its own virtual environment (no admin rights needed)
-- adds a `jarvis` command in `%USERPROFILE%\.local\bin` and puts that folder on your user `PATH`
+</details>
 
-**Update:** run the same command again.
+### First run
 
-**Troubleshooting: "'jarvis' is not recognized"** — open a **new** terminal so it picks up the updated `PATH`. For the current PowerShell window only:
+There is nothing to set up. Jarvis starts on a free Harness Agent model straight away. When you want something else:
 
-```powershell
-$env:Path = "$HOME\.local\bin;$env:Path"
-jarvis
+- `/model` to switch models (free models are listed first)
+- `/provider` to sign in with **Claude Pro/Max** or **ChatGPT**, or to add an API key
+
+### Updating
+
+Jarvis checks for updates in the background each time it starts. To update by hand:
+
+```bash
+jarvis update            # pull the latest version and reinstall
+jarvis update --check    # only show what's available
 ```
 
-**Uninstall:**
+Running the installer again also updates. Set `HARNESS_SKIP_UPDATE=1` to turn off automatic updates.
+
+### Uninstalling
+
+```bash
+# macOS / Linux
+rm -f "$(command -v jarvis)"            # the jarvis command
+rm -rf ~/.local/share/harness-agent     # the app
+rm -rf ~/.config/harness-agent          # optional: settings, sessions and keys
+```
 
 ```powershell
+# Windows
 Remove-Item -Recurse -Force "$env:LOCALAPPDATA\harness-agent", "$HOME\.local\bin\jarvis.cmd"
 ```
 
-### One-command install — macOS / Linux
+---
+
+## Features
+
+### A coding agent in your terminal
+
+- **Files and code**: read, write and edit files (including multi-file edits), list folders, glob, rank files by relevance and search with ripgrep.
+- **Shell and git**: run commands with an approval step for risky ones, and check status, diffs and history without leaving the chat.
+- **Parallel tools**: reads and searches run concurrently, up to 64 at a time.
+- **Lean context**: each turn only sends the tool definitions it is likely to need, so tokens go further.
+- **Every change tracked**: a live ledger of changed files with diffs, edit history and an applicable patch.
+- **Background jobs**: long builds run in the background, and Jarvis picks the work back up when they finish.
+- **Loops**: `/loop 5m <task>` repeats a task on a timer, or `/loop <task>` lets Jarvis pace itself.
+- **Plan mode**: read-only research until you approve a plan (`/plan` or `⇧⇥`).
+- **Headless runs**: `jarvis -p "<task>"` runs a single task without the TUI and exits.
+
+### Models and providers
+
+| Provider | How to connect | Cost |
+| --- | --- | --- |
+| **Harness Agent** | Built in, the default on first run | Free |
+| **OpenRouter free tier** | `/provider` with a free OpenRouter key | Free models found live and tagged |
+| **Claude Pro / Max** | `/provider` → sign in with Claude | Your subscription |
+| **ChatGPT (Codex)** | `/provider` → sign in with ChatGPT | Your subscription |
+| **Anthropic API** | `/provider` or `ANTHROPIC_API_KEY` | Pay as you go |
+| **OpenRouter** | `/provider` or `OPENROUTER_API_KEY` | Pay as you go |
+| **OpenCode Go / Zen** | `/provider` or `OPENCODE_API_KEY` / `OPENCODE_ZEN_API_KEY` | Pay as you go |
+| **models.dev catalog** | `/provider`, or the provider's own variable (`DEEPSEEK_API_KEY`, `GROQ_API_KEY`, …) | Pay as you go |
+
+Free model line-ups change often, so Jarvis discovers them at runtime instead of hard-coding a list. The model picker shows **Free**, **vision** and **In use** tags, and you can type `free` or `vision` to filter.
+
+### Memory and lessons
+
+- **Memory** keeps short facts about you (name, stack, commit style, preferences) and loads them into every session. Review or edit them with `/memory`.
+- **Lessons** are written by Jarvis after it solves something: the kind of task and what actually worked. Relevant lessons are recalled for similar tasks, and the ones that keep helping are kept. Browse them with `/lesson`.
+- `/scan` can build your memory from your documents and projects in one go.
+
+Both are plain JSON files on your machine (see [Files and locations](#files-and-locations)).
+
+### Web research
+
+- `web_search` and `fetch_url` for searching and reading pages and docs.
+- `verified_search` collects candidates from several domains, reads them in parallel, compares their claims and reports the level of agreement.
+- A hallucination guard removes sentences that cite sources Jarvis never opened.
+
+### Web remote: your session in a browser or on your phone
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/PrajsRamteke/harness-agent/main/scripts/install | bash
+jarvis --web             # start with the web remote (default port 8765)
+jarvis --web --tunnel    # also open a public HTTPS link
 ```
 
-After install, open a **new terminal**, go to any project, and run:
+Or from inside a session: `/web` shows a QR code and link, `/web open` opens it in this computer's browser, and `/web anywhere` opens a tunnel (Cloudflare quick tunnel or ngrok) so it works from any network. The browser and terminal stay in sync. You can approve commands, review file changes, attach photos and documents, switch models and manage providers from your phone.
+
+### macOS control
+
+Launch, focus and quit apps, read the UI, click elements and menus, type and press keys, run AppleScript and Shortcuts, use the clipboard, send notifications, read text aloud, take screenshots of the screen, a window or a web page, and run OCR on images.
+
+macOS needs **Accessibility**, **Automation** and **Screen Recording** permissions for these. Grant them in *System Settings → Privacy & Security*.
+
+### Agents, skills, MCP servers and commands
+
+Jarvis uses plain files for extensions, and it also reads the ones you made for other AI tools:
+
+| Extension | What it does | Where Jarvis looks |
+| --- | --- | --- |
+| **Agents** | Personas appended to the system prompt. One is active at a time, and `Tab` cycles them. | `.harness/agents/`, `.claude/agents/`, `.cursor/agents/`, `.gemini/agents/`, `.opencode/agents/`, `.agents/` |
+| **Skills** | `SKILL.md` packs that Jarvis loads on its own when a task matches their description. | `.harness/skills/`, `.claude/skills/`, `.opencode/skills/`, `.agents/skills/`, `.codex/`, `.cursor/`, `.gemini/`, `.kiro/` |
+| **MCP servers** | External tools over the Model Context Protocol (stdio, streamable HTTP and SSE, with browser sign-in). | `.mcp.json`, plus Claude Code, Cursor, Codex, Gemini, OpenCode and other configs |
+| **Commands** | Your prompt templates, run as `/<name> [args]` with `$ARGUMENTS` and `$1`…`$9`. | `.harness/commands/`, `.claude/commands/`, `.opencode/commands/`, `.agents/commands/` |
+
+Each type has a **project** scope (the folder you're in) and a **global** scope (`~/.harness/…` plus other tools' home folders).
+
+**Adding a skill or MCP server** takes one step. Any of these work:
+
+- Ask Jarvis: *"add this skill: https://github.com/anthropics/skills/tree/main/skills/pdf"* or *"add the Linear MCP server"*. It asks for approval, installs it and connects it.
+- `/skill add <link>` or `/mcp add <link>`, with `--project` or `--global`.
+- The `/skill` and `/mcp` dialogs. Popular servers (Linear, Notion, Sentry, GitHub, …) take one click.
+
+API keys for MCP servers go to `~/.config/harness-agent/mcp_secrets.json` (mode 600), never into `.mcp.json`. Hosted servers that need a login show an **Authenticate** button. Tools appear as soon as you finish signing in, without a restart.
+
+### A terminal UI built for long sessions
+
+- Streaming Markdown with syntax highlighting, inline diffs and collapsible thinking.
+- A **sticky prompt** keeps your message pinned while you read a long reply.
+- **Prompt polish** (`⌃G`) fixes spelling and grammar before you send, and pressing it again undoes the change.
+- `@` attaches files, `!cmd` runs a shell command directly, and you can drag and drop images and documents.
+- **22 themes** with live preview (`/theme`), including Tokyo Night, Catppuccin, Nord, Dracula and Gruvbox.
+- **Pets**: adopt a cat, dog, bunny or dragon that levels up as you ship. It includes a focus timer and badges (`/pet`).
+- Token, context and cost readout in the footer, and a session sidebar (`⌃B`).
+
+---
+
+## Usage
+
+Run Jarvis from the folder you want it to work in. All file operations, searches and shell commands are scoped to that folder.
 
 ```bash
-jarvis
+jarvis                         # start the TUI
+jarvis "explain this repo"     # start the TUI and send a first prompt
+jarvis -p "run the tests and fix failures"   # headless: one task, then exit
+jarvis --web [PORT]            # start with the web remote
+jarvis --web --tunnel          # web remote with a public HTTPS link
+jarvis --legacy                # the older Rich REPL
+jarvis update [--check]        # update Jarvis
 ```
 
-**Troubleshooting: "command not found: jarvis"**
+**Project context**: Jarvis detects an `AGENTS.md`, `CLAUDE.md` or `JARVIS.md` in the project root and reads it when it needs to.
 
-If your shell can't find `jarvis`, add `~/.local/bin` to your PATH:
+### Slash commands
 
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-jarvis
-```
+Type `/` to see every command with fuzzy search, or press `⌃P` for the command palette.
 
-Add that line to your `~/.zshrc` to make it permanent.
+| Area | Commands |
+| --- | --- |
+| **Conversation** | `/new` fresh chat · `/retry` resend last message · `/session` resume or delete sessions · `/export` save as Markdown · `/copy` copy last reply · `/clear` · `/exit` |
+| **Models** | `/model` pick a model · `/provider` sign in, add keys, switch provider · `/think` reasoning effort · `/stats` and `/cost` usage |
+| **Memory and context** | `/memory` · `/lesson` · `/pin` pinned context · `/unpin` · `/scan` build memory from your files |
+| **Extensions** | `/agent` · `/agent init` · `/skill` · `/skill add <link>` · `/mcp` · `/mcp add <link>` · `/command` |
+| **Modes** | `/plan` plan mode · `/auto` auto-approve shell · `/loop` repeat a task · `/verbose` show thinking and tool traces |
+| **Web remote** | `/web` QR and link · `/web open` · `/web anywhere` public link · `/web stop` |
+| **Interface** | `/theme` · `/sidebar` · `/pet` · `/settings` · `/local` quick local commands · `/paste` clipboard text or image |
+| **Maintenance** | `/upgrade` · `/version` · `/help` |
 
+### Keyboard shortcuts
 
+| Keys | Action |
+| --- | --- |
+| `↵` / `⇧↵` | Send (queued while Jarvis is busy) / new line |
+| `Esc` | Interrupt the running turn, or close a dialog |
+| `⇥` / `⇧⇥` | Cycle agents / toggle plan mode |
+| `⌃P` | Command palette |
+| `⌃G` | Polish the prompt (press again to undo) |
+| `⌃T` or `F2` | Show thinking and tool previews |
+| `⌃F` or `F3` | Tools inspector (full file reads and command output) |
+| `⌃B` | Toggle the session sidebar |
+| `⌥↑` / `⌥↓` | Jump to the previous or next prompt |
+| `⌃Y` | Copy the last reply |
+| `?` or `F1` | All shortcuts |
 
-### Development setup
+---
 
-From the repository root, run these **one at a time** (Python **3.10+**):
+## Configuration
+
+### Environment variables
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | Use this Anthropic key (pins the provider to Anthropic) | — |
+| `OPENROUTER_API_KEY` | OpenRouter key | — |
+| `OPENCODE_API_KEY` / `OPENCODE_ZEN_API_KEY` | OpenCode Go / Zen keys | — |
+| `<PROVIDER>_API_KEY` | Connects that models.dev provider, e.g. `DEEPSEEK_API_KEY`, `GROQ_API_KEY` | — |
+| `HARNESS_PROVIDER` | Pin a provider: `anthropic`, `openrouter`, `opencode`, `opencode_zen`, or `md:<id>` | auto |
+| `CLAUDE_MODEL` | Model to start with | free Harness Agent model |
+| `HARNESS_MODELS_DEV` | Set to `0` to turn off the models.dev catalog | `1` |
+| `HARNESS_MAX_PARALLEL_TOOLS` | Maximum concurrent tool workers | `64` |
+| `HARNESS_HTTP_READ_TIMEOUT` | Seconds between bytes on a streaming response | `240` OpenRouter, `600` direct |
+| `HARNESS_HTTP_CONNECT_TIMEOUT` | Connection timeout in seconds | `30` |
+| `HARNESS_STREAM_REPLY` | Set to `0` to turn off live streaming | `1` |
+| `HARNESS_MOUSE` | Set to `0` for native terminal text selection | `1` |
+| `HARNESS_WEB_PORT` | Web remote port | `8765` |
+| `HARNESS_WEB_TUNNEL` | Set to `1` to always open a public link with `--web` | `0` |
+| `HARNESS_UPLOAD_MAX_MB` | Largest attachment the web remote accepts | `50` |
+| `HARNESS_SKIP_UPDATE` | Set to `1` to turn off automatic updates | `0` |
+| `HARNESS_CHROME` | Chrome or Chromium binary used for web page screenshots | auto-detected |
+
+### Settings
+
+Preferences live in `~/.config/harness-agent/settings.json`, and a project can override them in `.harness/settings.json`. Use `/settings` to view, edit, reset or reload them from inside Jarvis.
+
+### Files and locations
+
+| Path | Contents |
+| --- | --- |
+| `~/.config/harness-agent/` | Credentials (mode 600), `settings.json`, `sessions.db`, `memory.json`, `lessons.json`, `pet.json`, `mcp.json`, model catalog cache, web uploads |
+| `~/.harness/` | Global agents, skills and commands |
+| `<project>/.harness/` | Project agents, skills, commands and `settings.json` (`/agent init` creates it) |
+| `<project>/.mcp.json` | Project MCP servers |
+
+Your sessions, memory and lessons are files on your machine. Conversation content is sent only to the model provider you choose.
+
+---
+
+## Development
 
 ```bash
 git clone https://github.com/PrajsRamteke/harness-agent.git
 cd harness-agent
 python3 -m venv .venv
-source .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -e .
-jarvis --help                # verify the CLI is on PATH
-```
-
-**Windows (PowerShell):**
-
-```powershell
-git clone https://github.com/PrajsRamteke/harness-agent.git
-cd harness-agent
-py -3 -m venv .venv
-.venv\Scripts\Activate.ps1   # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-pip install -e .
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e .                 # installs dependencies and the `jarvis` command
 jarvis --help
 ```
 
-`pip install -e .` installs runtime dependencies from `pyproject.toml` and registers the `jarvis` command. You do **not** need `pip install -r requirements.txt` for normal development (that file mirrors the same deps for reference or tooling-only installs).
-
-**Run the agent:**
+Run the test suite:
 
 ```bash
-jarvis                     # TUI mode (default)
-python agent.py            # same as jarvis
-python agent.py --legacy   # Rich REPL mode
-```
-
-**Run tests** (after `pip install pytest`):
-
-```bash
+pip install pytest
 python -m pytest tests/ -q
 ```
 
-The same setup sequence is documented at the top of `requirements.txt`.
+Tests run against a temporary `HOME`, so they never touch your real `~/.config/harness-agent`.
 
----
-
-## 🎮 Usage
-
-```bash
-jarvis
-```
-
-Run it from the **folder you want it to work in**. The status bar shows the current project path — all file operations, code searches, and shell commands are scoped to that directory.
-
-### First run
-
-On first launch, you'll pick how to authenticate:
-
-
-| Option      | How it works                                                                      |
-| ----------- | --------------------------------------------------------------------------------- |
-| **API key** | Paste an `sk-ant-…` key. Saved at `~/.config/claude-agent/key` (permissions: 600) |
-| **OAuth**   | Opens your browser to sign in with your Pro/Max account via PKCE                  |
-
-
-### ⌨️ Slash Commands
-
-
-| Command             | What it does                                                    |
-| ------------------- | --------------------------------------------------------------- |
-| `/help`             | List all commands                                               |
-| `/model <name>`     | Switch models (e.g. `opus-4-7`, `haiku-4-5`)                    |
-| `/agent`            | Open the agent picker — choose a project or global agent        |
-| `/agent <name>`     | Activate an agent by name (Tab cycles through agents)           |
-| `/agent new <name>` | Scaffold a new agent in `.harness/agents/<name>.md`             |
-| `/agent init`       | Scaffold a `.harness/` tree in the current project              |
-| `/skill`            | Open the skill browser (LLM auto-invokes skills by description) |
-| `/skill add <link>` | Install a skill from GitHub / a `SKILL.md` link / an archive (`--project` or `--global`) |
-| `/mcp`              | MCP control panel — add a server from a link, sign in, connect |
-| `/mcp add <link>`   | Add an MCP server: `https://…`, `npx -y …`, `claude mcp add …`, JSON, a GitHub link, or a name like `linear` |
-| `/mcp auth <name>`  | Sign in to a hosted MCP server in your browser |
-| `/verbose` / `F2`   | Toggle internal thinking and tool traces (shown by default)     |
-| `/cost`             | Show token usage + estimated USD cost                           |
-| `/clear`            | Reset the conversation                                          |
-| `/logout`           | Clear saved credentials                                         |
-| `/theme`            | Switch themes                                                   |
-
-
----
-
-## ⚙️ Environment Variables
-
-
-| Variable                       | What it does                           | Default                            |
-| ------------------------------ | -------------------------------------- | ---------------------------------- |
-| `ANTHROPIC_API_KEY`            | Use this key instead of the stored one | —                                  |
-| `CLAUDE_MODEL`                 | Override default model                 | `sonnet-4-6`                       |
-| `HARNESS_MAX_PARALLEL_TOOLS`   | Max concurrent tool workers            | `64` (capped)                      |
-| `HARNESS_HTTP_READ_TIMEOUT`    | Streaming response timeout (s)         | `240` (OpenRouter), `600` (direct) |
-| `HARNESS_HTTP_CONNECT_TIMEOUT` | Connection timeout (s)                 | `30`                               |
-| `HARNESS_STREAM_REPLY`         | Set to `0` to disable live streaming   | `1`                                |
-| `HARNESS_MODELS_DEV`           | Set to `0` to turn off the models.dev provider/model catalog | `1`              |
-
-
----
-
-## 🎛️ Agents & Skills
-
-Harness uses two file-based extension points — **agents** (manual select) and
-**skills** (LLM auto-invoke) — that aggregate from every AI tool's config
-directory (Harness, Claude Code, OpenCode, Cursor, Windsurf, …).
-
-```
-project/
-├── .harness/
-│   ├── agents/                   ← project-local agents
-│   │   ├── coding.md             ← user-creatable .md files with YAML frontmatter
-│   │   ├── reverse_eng.md
-│   │   └── setup.md
-│   ├── skills/                   ← project-local skills
-│   │   ├── debugging/SKILL.md
-│   │   ├── testing/SKILL.md
-│   │   └── security/SKILL.md
-│   └── settings.json             ← (optional) per-project overrides
-│
-├── AGENTS.md  /  CLAUDE.md       ← project context (auto-detected)
-└── …
-
-~/.harness/                       ← user-global counterpart
-├── agents/                       ← bundled coding/reverse_eng/setup seeded on first run
-├── skills/
-└── settings.json
-```
-
-**Agents** — markdown files with frontmatter (`name`, `description`, optional
-`icon`/`color`). The active agent's body is appended to the system prompt.
-One active at a time, shown in the status bar. `/agent` opens the picker;
-`Tab` cycles. Project agents are always available; global ones require
-`agent.global = true` in settings (or `/agent global on`).
-
-**Skills** — `SKILL.md` packs with `name` + `description`. The LLM sees all
-discovered descriptions and decides when to load a skill itself via
-`/skill load <name>`.
-
-### Adding skills and MCP servers
-
-You don't have to edit any files. Do any of these — in the terminal or the web UI:
-
-- **Ask Jarvis.** "Add this skill: https://github.com/anthropics/skills/tree/main/skills/pdf",
-  "add the Linear MCP server to this project", or paste an `npx …` / `claude mcp add …`
-  line. Jarvis asks you to approve, installs it, and connects it.
-- **Use the dialogs.** `/skill` and `/mcp` (Skills and MCP in the web sidebar) have an
-  *Add* box: paste a link, pick **Project** (this folder only) or **Global** (every
-  project), done. Popular servers (Linear, Notion, Sentry, GitHub, …) are one click.
-- **Slash commands.** `/skill add <link> [--project|--global]`, `/mcp add <link> …`.
-
-Where things go: skills → `.harness/skills/<name>/` (project) or `~/.harness/skills/<name>/`
-(global); MCP servers → `.mcp.json` in the project, or `~/.config/harness-agent/mcp.json`
-(global). Skills from a GitHub repo need no `git`; a repo with several skills shows a list
-to choose from.
-
-**Signing in.** A hosted MCP server that wants a login shows an **Authenticate** button
-(above the prompt in the terminal, in the MCP dialog and a banner on the web). Click it,
-approve in your browser, and the tools appear on their own — no restart. Signing in from
-another device (a phone)? Paste the address it ends on. Servers that want an API key
-ask for it in a hidden box; keys are kept in `~/.config/harness-agent/mcp_secrets.json`
-(mode 600), never in `.mcp.json`. Opening Jarvis never starts a sign-in by itself, and a
-saved login refreshes silently.
-
----
-
-## 🗂️ Project Layout
+### Project layout
 
 ```
 harness/
-├── agent.py                # Entry point (routes to TUI or REPL)
-├── pyproject.toml          # Package config
-├── requirements.txt
-├── CLAUDE.md               # Context file for AI assistants
-├── JARVIS.md
-│
-├── jarvis/                 # Main package
-│   ├── __main__.py         # `python -m jarvis`
-│   ├── cli.py              # CLI entry point
-│   ├── main.py             # Core send-and-loop logic
-│   ├── state.py            # Module-level shared state
-│   │
-│   ├── auth/               # Authentication
-│   │   ├── client.py       # Unified client factory
-│   │   ├── api_key.py      # API key handling
-│   │   ├── oauth_flow.py   # OAuth PKCE flow
-│   │   ├── pkce.py         # PKCE utilities
-│   │   ├── openrouter.py   # OpenRouter support
-│   │   └── opencode.py     # OpenCode adapter
-│   │
-│   ├── tools/              # Tool implementations
-│   │   ├── router.py       # Dynamic tool selection
-│   │   ├── schemas_core.py # Core tool schemas
-│   │   ├── schemas_mac.py  # macOS tool schemas
-│   │   ├── mac/            # macOS control
-│   │   └── web/            # Web fetch & search
-│   │
-│   ├── repl/               # Response handling
-│   │   ├── stream.py       # Stream processing
-│   │   ├── render.py       # Tool execution + rendering
-│   │   ├── hallucination.py
-│   │   └── trim.py         # Context trimming
-│   │
-│   ├── tui/                # Textual TUI
-│   │   ├── app.py          # Terminal UI app
-│   │   ├── agent_modal.py  # Agent picker
-│   │   └── skill_modal.py  # Skill browser + install from a link
-│   │
-│   ├── commands/           # Slash commands
-│   │   ├── dispatch.py
-│   │   ├── agent.py        # /agent — pick / new / init / refresh
-│   │   └── skill.py        # /skill — list / load / refresh
-│   │
-│   ├── storage/            # Persistence
-│   │   ├── sessions.py     # SQLite session history
-│   │   ├── memory.py       # User memory
-│   │   ├── agents.py       # Agent discovery & loading
-│   │   ├── skills.py       # Skill discovery & loading
-│   │   ├── settings.py     # Unified settings.json (global + project merge)
-│   │   └── prefs.py        # Legacy preferences
-│   │
-│   ├── mcp/                # MCP server management
-│   │   ├── config.py
-│   │   ├── registry.py
-│   │   └── manager.py
-│   │
-│   ├── constants/          # Paths, models, prompts
-│   └── utils/
-│
-├── scripts/                # Install scripts
-├── assets/                 # Screenshots
-└── tests/                  # pytest unit tests (`python -m pytest tests/ -q`)
+├── agent.py             Entry point (TUI by default, --legacy for the REPL)
+├── pyproject.toml       Package metadata and dependencies
+├── jarvis/
+│   ├── cli.py           Command-line flags, `jarvis update`
+│   ├── main.py          Core send-and-tool loop
+│   ├── state.py         Shared session state
+│   ├── auth/            API keys, OAuth (Claude, ChatGPT), provider clients, live model catalogs
+│   ├── tools/           File, shell, git, search, web, vision, macOS and extension tools + routing
+│   ├── repl/            Streaming, tool execution, context trimming, hallucination guard
+│   ├── tui/             Textual app: transcript, dialogs, sidebar, pets, themes
+│   ├── web/             Web remote: HTTP server, live sync, browser UI
+│   ├── mcp/             MCP config, registry, browser sign-in, secrets
+│   ├── storage/         Sessions, memory, lessons, agents, skills, commands, settings
+│   ├── commands/        Slash command handlers
+│   ├── pet/             Pet model, sprites and events
+│   ├── constants/       Paths, models, providers, system prompt, default agents
+│   └── utils/           Shared helpers
+├── scripts/             Installers for macOS/Linux and Windows
+├── assets/              Logo and images
+└── tests/               pytest suite
 ```
 
+### Adding a tool
+
+1. Implement the handler in `jarvis/tools/`.
+2. Add its JSON schema to `schemas_core.py`, or to a group for specialised tools.
+3. Register it in `jarvis/tools/__init__.py` (`TOOL_GROUPS`, `TOOL_NAME_TO_GROUP`, `FUNC`).
+4. For a specialised group, add a trigger in `tools/router.py:select_tools()`.
+5. Optionally give it a readable transcript row in `tui/tool_format.py`.
+
+`CLAUDE.md` has a detailed architecture guide for contributors and AI assistants.
+
 ---
 
-## 📝 Notes
+## Troubleshooting
 
-- **macOS permissions** — UI control tools need **Accessibility** and **Automation** permissions. Enable them in: System Settings → Privacy & Security → Accessibility / Automation.
-- **Credentials** — All config, keys, and history live under `~/.config/claude-agent/`.
-- **Tool selection is dynamic** — Harness only sends the schemas for tools it thinks you'll need, keeping context lean. Core file/code tools are always included; macOS, web, OCR tools are loaded on demand.
-- **Project context** — Drop a `JARVIS.md` (or `CLAUDE.md`) in your project root, and the agent reads it automatically for project-specific instructions.
-- **Providers and models** — The provider list and model details (context, price, tool support) come from [models.dev](https://models.dev), an open database by the OpenCode team (MIT licence, © models.dev). It's fetched in the background and cached; an unchanged list costs one tiny request.
+<details>
+<summary><b><code>jarvis: command not found</code> (macOS / Linux)</b></summary>
+
+Open a new terminal, or add `~/.local/bin` to your `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add that line to `~/.zshrc` (or `~/.bashrc`) to make it permanent.
+
+</details>
+
+<details>
+<summary><b><code>'jarvis' is not recognized</code> (Windows)</b></summary>
+
+Open a new terminal so it picks up the updated `PATH`. For the current PowerShell window only:
+
+```powershell
+$env:Path = "$HOME\.local\bin;$env:Path"
+```
+
+</details>
+
+<details>
+<summary><b>macOS control or screenshots don't work</b></summary>
+
+Give your terminal app **Accessibility**, **Automation** and **Screen Recording** permissions in *System Settings → Privacy & Security*, then restart the terminal.
+
+</details>
+
+<details>
+<summary><b>A free model stopped responding</b></summary>
+
+Free line-ups change often. Run `/model refresh` to fetch the current list, then pick another free model with `/model`.
+
+</details>
 
 ---
 
-Built with ❤️ by [Prajwal Ramteke](https://github.com/PrajsRamteke)
+## Acknowledgements
 
-[GitHub](https://github.com/PrajsRamteke/harness-agent) · [Issues](https://github.com/PrajsRamteke/harness-agent/issues) · [Discussions](https://github.com/PrajsRamteke/harness-agent/discussions)
+Provider and model details (context size, prices, tool support) come from [models.dev](https://models.dev), an open database by the OpenCode team (MIT licence, © models.dev).
+
+## Support
+
+- [Report a bug or request a feature](https://github.com/PrajsRamteke/harness-agent/issues)
+- [Ask a question or share an idea](https://github.com/PrajsRamteke/harness-agent/discussions)
+
+<div align="center">
+
+[Built by Prajwal Ramteke](https://github.com/PrajsRamteke). If Jarvis helps you, consider giving it a ⭐.
+
+</div>
