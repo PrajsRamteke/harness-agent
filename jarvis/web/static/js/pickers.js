@@ -460,6 +460,20 @@ const modelSpec = {
 
 let agentsGlobal = false;
 
+// Agent .md frontmatter uses emoji; the web UI renders Lucide icons instead.
+const AGENT_EMOJI_ICONS = {
+  '⚡': 'zap', '🧪': 'flask-conical', '🔬': 'scan-search',
+  '🔒': 'lock', '🛡': 'shield', '⬟': 'lock', '🗝': 'lock',
+  '🛠': 'wrench', '⚙': 'wrench', '🧩': 'columns-2', '📚': 'book-open',
+  '🐛': 'circle-alert', '🧠': 'brain', '📝': 'file-pen', '🧹': 'refresh-cw',
+  '🌐': 'globe', '📦': 'folder', '💻': 'terminal', '🎯': 'sparkles',
+  '🧭': 'map', '📊': 'chart-column', '🩺': 'activity',
+};
+
+function agentIconName(raw) {
+  return AGENT_EMOJI_ICONS[raw] || 'sparkles';
+}
+
 const agentSpec = {
   title: 'Agents',
   sub: 'Adds the agent’s instructions to every message',
@@ -483,8 +497,7 @@ const agentSpec = {
     }
     for (const a of agents) {
       rows.push({
-        emoji: a.icon || '',
-        icon: 'sparkles',
+        icon: agentIconName((a.icon || '').trim()),
         title: a.name,
         sub: a.description || '',
         current: a.active,
