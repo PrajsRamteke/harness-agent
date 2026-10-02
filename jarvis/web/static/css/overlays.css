@@ -195,28 +195,7 @@
 .mdrawer.is-static .mdrawer-head { min-height: 44px; }
 
 .search-extra:empty { display: none; }
-.search-fold {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  height: 30px;
-  padding: 0 11px 0 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--text-2);
-  font-size: 12.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.search-fold:hover { background: var(--card-hover); color: var(--text); border-color: var(--line-2); }
-.search-fold .ic { width: 14px; height: 14px; }
 @media (max-width: 560px) {
-  /* Phones: the arrow alone, so the search field keeps its room. */
-  .search-fold { width: 32px; padding: 0; justify-content: center; }
-  .search-fold span { display: none; }
   .mdrawer-head { min-height: 54px; }
 }
 
@@ -823,8 +802,7 @@
 .quote-pill .ic { width: 14px; height: 14px; color: var(--accent); }
 
 /* ─── Providers and login (providers.js) ─────────────────────────────── */
-.providers-card { max-width: 560px; }
-.providers-card .picker-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+/* Size, header, toolbar and footer: the shared dialog kit (.dlg-card, dialogs.css). */
 .pv-body {
   display: flex;
   flex-direction: column;
@@ -905,7 +883,24 @@
 .pv-now-btn { flex-shrink: 0; min-height: 34px; padding: 0 12px; font-size: 13px; gap: 6px; }
 .pv-now-btn .ic { width: 14px; height: 14px; }
 
-/* Paste any key */
+/* "Add an API key" sub-view: paste any key */
+#providers .pv-add { display: flex; flex-direction: column; gap: 14px; }
+#providers .pv-add-intro { display: flex; align-items: flex-start; gap: 12px; }
+#providers .pv-add-intro p { margin: 1px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
+#providers .pv-add-intro strong { color: var(--text); font-weight: 600; }
+#providers .pv-add-ic {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+#providers .pv-add-ic .ic { width: 17px; height: 17px; }
+#providers .pv-add-more { margin: 0 4px; }
 .pv-quick { display: flex; flex-direction: column; gap: 8px; }
 .pv-quick-out {
   display: flex;
@@ -918,6 +913,8 @@
   color: var(--text-2);
 }
 .pv-quick-out > * { animation: fade 0.2s ease; }
+.pv-quick-found { display: inline-flex; align-items: center; gap: 7px; }
+.pv-quick-found .ic { width: 14px; height: 14px; color: var(--ok); }
 .pv-quick-found strong { color: var(--text); font-weight: 600; }
 .pv-quick-msg { display: inline-flex; align-items: center; gap: 7px; }
 .pv-quick-msg .ic { width: 14px; height: 14px; }
@@ -989,16 +986,17 @@
 .pv-field-btn:hover { background: var(--card-hover); color: var(--text); }
 .pv-field-btn .ic { width: 16px; height: 16px; animation: pop-in 0.3s var(--spring); }
 
-/* Groups and rows */
+/* Groups and rows — the toolbar's search filters every group in place (hidden). */
 .pv-groups { display: flex; flex-direction: column; gap: 20px; }
 .pv-group { display: flex; flex-direction: column; gap: 6px; }
-.pv-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 4px 2px; }
-.pv-group-head h3 { margin: 0; font-family: var(--font-display); font-size: 12.5px; font-weight: 600; color: var(--text-2); }
-.pv-group-head span { font-size: 12px; color: var(--text-3); text-align: right; }
-/* "More providers" (models.dev): a search over ~200 rows, filtered in place. */
-.pv-more-search { margin-bottom: 4px; }
+#providers .pv-group[hidden],
+#providers .pv-row[hidden],
+#providers #pv-empty[hidden] { display: none; }
+#providers .pv-group .dlg-section-right { text-align: right; font-size: 12px; }
 .pv-more-foot { margin: 2px 4px 0; font-size: 12px; color: var(--text-3); }
-.pv-group.is-more .pv-row[hidden] { display: none; }
+.pv-more-foot a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* ↑ ↓ from the search walk the rows' main buttons (dialog.js arrowRows). */
+#providers .pv-row:has(> .pv-head:focus-visible) { background: var(--card-hover); border-color: var(--line-2); }
 
 .pv-row {
   display: grid;
@@ -1156,7 +1154,7 @@
   .pv-body { padding: 14px 12px 16px; gap: 14px; }
   .pv-panel { padding: 2px 12px 14px; }
   .pv-input { font-size: 16px; }
-  .pv-group-head span { display: none; }
+  #providers .pv-group .dlg-section-right { display: none; }
   .pv-now-btn { width: 38px; padding: 0; }
   .pv-now-btn span { display: none; }
 }

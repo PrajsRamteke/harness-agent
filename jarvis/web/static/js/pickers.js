@@ -8,6 +8,7 @@ import { $, escapeHtml, showToast, debounce, originBadge, storageGet, storageSet
 import { icon } from './icons.js';
 import { store } from './store.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
+import { footer as dlgFooter, empty as dlgEmpty, section as dlgSection } from './dialog.js';
 import { runAction } from './actions.js';
 import { openProviders } from './providers.js';
 import { openMcp } from './mcp.js';
@@ -53,7 +54,7 @@ function paintRows(rows, emptyHtml) {
   const list = $('picker-list');
   current.rows = rows;
   if (!rows.some((r) => !r.section || r.group)) {
-    list.innerHTML = `<div class="list-empty">${emptyHtml}</div>`;
+    list.innerHTML = emptyHtml;
     return;
   }
   // A kind may lay its rows out itself (the model list's provider drawers).
@@ -76,38 +77,48 @@ async function reload() {
   try {
     const { rows, empty } = await current.spec.load(q);
     if (seq !== loadSeq || !current) return;
-    paintRows(rows, empty || '<strong>Nothing here yet</strong>');
-  } catch {
+    paintRows(rows, empty || dlgEmpty('Nothing here yet'));
+  } catch (err) {
+    console.error('picker: could not load the list', err);
     if (seq !== loadSeq || !current) return;
     current.rows = [];
-    $('picker-list').innerHTML = '<div class="list-empty"><strong>Could not load this list</strong>Check that Jarvis is still running, then try again.</div>';
+    $('picker-list').innerHTML = dlgEmpty('Could not load this list', 'Check that Jarvis is still running, then try again.', { ic: 'circle-alert' });
   }
 }
 
 const reloadSoon = debounce(reload, 160);
 
-function renderChips() {
-  const box = $('picker-chips');
-  box.innerHTML = current.spec.chips ? current.spec.chips() : '';
-  current.spec.bindChips?.(box);
-  // Small controls at the end of the search bar (the model list's "Collapse all").
+/** The toolbar: small controls after the search (the model list's "Collapse all") + the primary action. */
+function renderBar() {
   const extra = $('picker-search-extra');
   if (extra) {
     extra.innerHTML = current.spec.searchExtra ? current.spec.searchExtra() : '';
     current.spec.bindSearchExtra?.(extra);
   }
+  const slot = $('picker-action');
+  const a = current.spec.action;
+  if (!slot) return;
+  slot.innerHTML = a
+    ? `<button type="button" class="btn btn-primary dlg-action" data-pact${a.title ? ` title="${escapeHtml(a.title)}"` : ''}>${icon(a.ic || 'plus')}<span>${escapeHtml(a.label)}</span></button>`
+    : '';
+  slot.querySelector('[data-pact]')?.addEventListener('click', () => a.run());
 }
 
+/** The footer: the scope switch (agents) and the key hints, same as every dialog. */
 function renderFoot() {
   const foot = $('picker-foot');
-  foot.innerHTML = current.spec.foot ? current.spec.foot() : '';
-  current.spec.bindFoot?.(foot);
+  const spec = current.spec;
+  foot.innerHTML = dlgFooter({
+    scope: spec.scope ? spec.scope() : '',
+    note: spec.note ? spec.note() : '',
+    hints: [['↑ ↓', 'move'], ['↵', spec.verb || 'select'], ['esc', 'close']],
+  });
+  spec.bindFoot?.(foot);
 }
 
 function hideDetail() {
   $('picker-detail').hidden = true;
   $('picker-list').hidden = false;
-  document.querySelector('#picker .search-row').hidden = false;
   $('picker-search')?.focus();
 }
 
@@ -145,7 +156,7 @@ function open(kind, arg = '') {
   search.value = spec.searchArg && arg ? arg : '';
   search.placeholder = spec.placeholder || 'Search';
   hideDetail();
-  renderChips();
+  renderBar();
   renderFoot();
   setLoading();
   openModal('picker', { focus: search, onClose: () => { current = null; } });
@@ -211,7 +222,9 @@ const sessionSpec = {
           : `<button type="button" class="row-btn is-icon" data-del="${s.id}" aria-label="Delete session ${s.id}" title="Delete">${icon('trash-2')}</button>`,
         pick: () => pickAndClose('session_resume', { session_id: s.id }, 'Session resumed'),
       })),
-      empty: q ? '<strong>No sessions match</strong>Try a different word or the session number.' : '<strong>No saved sessions yet</strong>Conversations are saved as you chat.',
+      empty: q
+        ? dlgEmpty('No sessions match', 'Try a different word or the session number.', { ic: 'search' })
+        : dlgEmpty('No saved sessions yet', 'Conversations are saved as you chat.', { ic: 'history' }),
     };
   },
   bindRows(list) {
@@ -246,10 +259,8 @@ const sessionSpec = {
       });
     });
   },
-  foot: () => '<span class="spacer"></span><button type="button" class="btn btn-primary" data-foot="new">New chat</button>',
-  bindFoot(foot) {
-    foot.querySelector('[data-foot="new"]')?.addEventListener('click', () => pickAndClose('session_new', {}, 'New chat started'));
-  },
+  verb: 'resume',
+  action: { label: 'New chat', ic: 'plus', run: () => pickAndClose('session_new', {}, 'New chat started') },
 };
 
 // Providers folded in the model list (this browser only; a search shows everything).
@@ -292,7 +303,7 @@ const modelSpec = {
   title: 'Models',
   sub: 'Used for the next message',
   icon: 'cpu',
-  placeholder: 'Search models, or type “free” or “vision”',
+  placeholder: 'Search models, “free”, “vision”…',
   data: null,
   query: '',
   init() {
@@ -302,9 +313,7 @@ const modelSpec = {
   async load(q) {
     this.data = await fetchModels(q);
     this.query = q;
-    const built = this.build();
-    renderChips();
-    return built;
+    return this.build();
   },
   /** Groups by provider; each header folds its models away (remembered per browser). */
   groups() {
@@ -338,7 +347,7 @@ const modelSpec = {
       // Every model is rendered, folded or not, so a drawer can slide open.
       for (const m of g.models) this.pushRow(rows, m, imageSlot);
     }
-    return { rows, empty: '<strong>No models match</strong>Try a provider name such as “anthropic”, or add a provider below.' };
+    return { rows, empty: dlgEmpty('No models match', 'Try a provider name such as “anthropic” — or add a provider with the button above.', { ic: 'search' }) };
   },
   pushRow(rows, m, imageSlot) {
     // Tags on the right, always in this order: free to use · can see images
@@ -359,9 +368,19 @@ const modelSpec = {
       pick: () => (m.active ? closePicker() : pickAndClose('model_select', { option_id: m.id }, `Model: ${m.model_id}`)),
     });
   },
+  /** "Collapse all" / "Expand all" — at the right of the list's header, like every dialog's section controls. */
+  foldBtn() {
+    const closed = closedGroups();
+    const anyOpen = this.groups().some((g) => !closed.has(g.source));
+    const label = anyOpen ? 'Collapse all' : 'Expand all';
+    return `<button type="button" class="dlg-section-btn" data-fold="${anyOpen ? 'close' : 'open'}" title="${label} providers" aria-label="${label} providers">${icon(anyOpen ? 'chevrons-down-up' : 'chevrons-up-down')}<span>${label}</span></button>`;
+  },
   /** One drawer per provider: a header that opens and closes it, and its models on a rail. */
   renderRows(rows) {
-    let html = '';
+    const groups = this.groups();
+    let html = !this.query && groups.length > 1
+      ? dlgSection('Providers', { count: groups.length, right: `<span id="mfold">${this.foldBtn()}</span>` })
+      : '';
     let inDrawer = false;
     const close = () => {
       if (inDrawer) html += '</div></div></div></section>';
@@ -419,32 +438,21 @@ const modelSpec = {
     const at = reach.findIndex((el) => el.classList.contains('is-cursor'));
     if (at === -1 && reach.length) nav.setCursor(0, false);
     else nav.paint(false);
-    renderChips();
+    const fold = list.querySelector('#mfold');
+    if (fold) fold.innerHTML = this.foldBtn();
   },
   bindRows(list) {
     list.querySelectorAll('[data-group]').forEach((btn) => {
       btn.addEventListener('click', () => this.toggleGroup(btn.dataset.group));
     });
-  },
-  searchExtra() {
-    const groups = this.groups();
-    if (this.query || groups.length < 2) return '';
-    const closed = closedGroups();
-    const anyOpen = groups.some((g) => !closed.has(g.source));
-    const label = anyOpen ? 'Collapse all' : 'Expand all';
-    return `<button type="button" class="search-fold" data-fold="${anyOpen ? 'close' : 'open'}" title="${label} providers" aria-label="${label} providers">${icon(anyOpen ? 'chevron-up' : 'chevron-down')}<span>${label}</span></button>`;
-  },
-  bindSearchExtra(box) {
-    box.querySelector('[data-fold]')?.addEventListener('click', (e) => {
-      this.setAllGroups(e.currentTarget.dataset.fold === 'open');
+    list.querySelector('#mfold')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-fold]');
+      if (btn) this.setAllGroups(btn.dataset.fold === 'open');
     });
   },
+  verb: 'use',
   // Models only list providers that are set up — adding one is a click away.
-  foot: () => `<span class="picker-foot-note">Missing a provider?</span><span class="spacer"></span>
-    <button type="button" class="btn" data-foot="providers">${icon('key-round')}<span>Add a provider</span></button>`,
-  bindFoot(foot) {
-    foot.querySelector('[data-foot="providers"]')?.addEventListener('click', () => open('provider'));
-  },
+  action: { label: 'Add provider', ic: 'key-round', title: 'Sign in or paste an API key', run: () => open('provider') },
 };
 
 let agentsGlobal = false;
@@ -482,13 +490,14 @@ const agentSpec = {
       });
     }
     const hidden = data.hidden_global_count ? `${data.hidden_global_count} global agents are hidden. ` : '';
-    return { rows, empty: `<strong>No agents found</strong>${hidden}Add one under .harness/agents/.` };
+    return { rows, empty: dlgEmpty('No agents found', `${hidden}Add one under <code>.harness/agents/</code>.`, { ic: 'sparkles' }) };
   },
-  chips: () => seg(SCOPES, String(agentsGlobal)),
-  bindChips(box) {
-    bindSeg(box, async (val) => {
+  verb: 'use',
+  scope: () => seg(SCOPES, String(agentsGlobal)),
+  bindFoot(foot) {
+    bindSeg(foot, async (val) => {
       agentsGlobal = val;
-      renderChips();
+      renderFoot();
       await pickerAction('agents_scope', { global_agents: val });
       reload();
     });

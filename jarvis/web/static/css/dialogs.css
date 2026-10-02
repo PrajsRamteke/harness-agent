@@ -1,0 +1,254 @@
+/* One shape for every list dialog — Models, Agents, Sessions, Skills,
+ * Commands, MCP servers, Providers (dialog.js):
+ *   header (back | icon, title, subtitle, close) · toolbar (search + action)
+ *   · body (scrolls) · footer (scope switch, note, key hints).
+ * Same size everywhere, so switching dialogs, tabs or filters never jumps. */
+
+.dlg-card {
+  max-width: 680px;
+  height: min(760px, 86vh);
+  max-height: none;
+}
+.dlg-card .picker-head {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 16px 14px 18px;
+}
+
+/* Back: takes the icon tile's place while a sub-view is open. */
+.dlg-back {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  border: 1px solid var(--line-2);
+  background: var(--tile);
+  box-shadow: inset 0 1px 0 var(--highlight);
+  color: var(--text);
+}
+.dlg-back[hidden] { display: none; }
+.dlg-back .ic { width: 18px; height: 18px; transition: transform 0.2s var(--ease); }
+.dlg-back:hover .ic { transform: translateX(-2px); }
+.dlg-back:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.picker-head.is-sub .picker-icon { display: none; }
+.picker-head.is-sub .picker-titles { animation: dlg-slide 0.22s var(--ease); }
+@keyframes dlg-slide { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+
+/* Tabs (MCP: Your servers | Marketplace) — between the header and the toolbar. */
+.dlg-tabs { flex-shrink: 0; padding: 12px 16px 0; }
+.dlg-tabs:empty { display: none; }
+
+/* Toolbar: search + the dialog's primary action. */
+.dlg-bar { flex-shrink: 0; padding: 12px 16px 4px; }
+.dlg-bar:empty { display: none; }
+.dlg-toolbar { display: flex; align-items: center; gap: 8px; }
+.dlg-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--card-sunk);
+  color: var(--text-3);
+  cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.dlg-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-soft); }
+.dlg-search-ic { display: grid; place-items: center; flex-shrink: 0; }
+.dlg-search-ic .ic { width: 16px; height: 16px; }
+.dlg-search:focus-within .dlg-search-ic { color: var(--accent); }
+.dlg-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font-size: 14.5px;
+}
+.dlg-search input::placeholder { color: var(--text-3); }
+.dlg-search input::-webkit-search-cancel-button { cursor: pointer; }
+.dlg-kbd { display: inline-flex; gap: 3px; flex-shrink: 0; opacity: 0.75; }
+.dlg-kbd kbd { min-width: 20px; height: 20px; padding: 0 5px; font-size: 11px; }
+.dlg-search:not(:focus-within) .dlg-kbd { opacity: 0.4; }
+.dlg-action {
+  flex-shrink: 0;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+.dlg-action .ic { width: 15px; height: 15px; }
+.dlg-action-slot:empty, .search-extra:empty { display: none; }
+.dlg-toolbar .search-extra { display: inline-flex; flex-shrink: 0; }
+
+/* Body: the one scrolling area. */
+.dlg-card .dlg-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.dlg-card .modal-list.dlg-body { padding: 8px 10px 12px; }
+.dlg-card .pv-body.dlg-body { padding: 12px 16px 16px; }
+
+/* Section headers inside the list: LABEL · count ……… control. */
+.dlg-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  margin: 2px 2px 2px;
+}
+.dlg-section h3,
+.dlg-card .list-section,
+.dlg-card .ex-list-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.dlg-section h3 em,
+.dlg-card .ex-list-head h3 em {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-style: normal;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  letter-spacing: 0;
+  color: var(--text-2);
+}
+.dlg-section-right { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-3); }
+
+/* Rows: one tile size and one type scale in every list. */
+.dlg-card .lr-icon { width: 36px; height: 36px; }
+.dlg-card .list-row { min-height: 52px; }
+
+/* Footer: scope switch · note …… key hints. */
+.dlg-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  min-height: 52px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.dlg-foot:empty { display: none; }
+.dlg-scope { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.dlg-scope-lbl { font-size: 12.5px; color: var(--text-3); }
+.dlg-note { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.dlg-note > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dlg-note .ic { width: 13px; height: 13px; flex-shrink: 0; }
+.dlg-spacer { flex: 1; }
+.dlg-hints { display: inline-flex; align-items: center; gap: 14px; flex-shrink: 0; font-size: 12px; }
+.dlg-hints > span { display: inline-flex; align-items: center; gap: 4px; }
+.dlg-hints kbd { min-width: 20px; height: 20px; padding: 0 5px; font-size: 11px; }
+
+/* Empty / error state, centred. */
+.dlg-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13.5px;
+}
+.dlg-empty-ic {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  background: var(--tile);
+  border: 1px solid var(--line-2);
+  box-shadow: inset 0 1px 0 var(--highlight);
+  color: var(--text-2);
+}
+.dlg-empty-ic .ic { width: 20px; height: 20px; }
+.dlg-empty strong { color: var(--text); font-size: 15px; font-weight: 600; }
+.dlg-empty p { margin: 0; max-width: 380px; line-height: 1.5; }
+.dlg-empty code { font-size: 12px; }
+.dlg-empty-act { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 12px; }
+
+@media (max-width: 560px) {
+  .dlg-card { height: 92dvh; }
+  .dlg-card .picker-head { padding: 18px 14px 12px 16px; }
+  .dlg-bar, .dlg-tabs { padding-left: 14px; padding-right: 14px; }
+  .dlg-search input { font-size: 16px; }
+  .dlg-kbd, .dlg-hints { display: none; }
+  .dlg-action { width: 42px; padding: 0; justify-content: center; }
+  .dlg-action span { display: none; }
+  .dlg-foot { flex-wrap: wrap; padding: 10px 14px; }
+  .dlg-foot:has(> .dlg-spacer:last-child):not(:has(.dlg-scope, .dlg-note)) { display: none; }
+}
+
+/* A sub-view's form (Add a skill, Custom server …): no card-in-a-card. */
+.dlg-lead { margin: 0 2px; font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+.dlg-lead code { font-size: 12px; }
+.dlg-card .ex-add.is-flat { padding: 0; border: none; background: none; gap: 12px; }
+.dlg-card .ex-add-row .dlg-scope { min-width: 0; }
+
+/* Form sub-views (Commands editor, Add a skill …) keep their buttons in the footer. */
+.dlg-foot .cm-actions,
+.dlg-foot .dlg-actions {
+  position: static;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+.dlg-foot .cm-actions .btn,
+.dlg-foot .dlg-actions .btn { min-height: 36px; }
+/* A note beside form buttons gives way first — the primary button never leaves the screen. */
+.dlg-actions .dlg-note { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+@media (max-width: 560px) {
+  .dlg-actions .dlg-note { display: none; }
+  /* Form footers: "Save to" on its own line, Cancel + the primary button under it, right-aligned. */
+  .dlg-foot .dlg-actions { flex-wrap: wrap; row-gap: 10px; }
+  .dlg-foot .dlg-actions > .dlg-scope { flex: 1 1 100%; }
+}
+
+/* A quiet control at the right of a list header (Models: Collapse all). */
+.dlg-section-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.dlg-section-btn:hover { background: var(--card-hover); color: var(--text); }
+.dlg-section-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.dlg-section-btn .ic { width: 14px; height: 14px; }
+.dlg-card .modal-list > .dlg-section { margin: 2px 4px 6px 6px; }

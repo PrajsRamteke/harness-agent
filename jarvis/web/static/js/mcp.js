@@ -1,15 +1,19 @@
 /** MCP servers — the web /mcp: a searchable marketplace, sign in, connect, remove.
  *
+ * Built on the shared dialog kit (dialog.js): tabs, a toolbar (search + the
+ * tab's primary action), one scrolling body, a footer (scope switch · hints).
  * Two tabs — *Your servers* first (shown when you have any), then the
  * *Marketplace* (shown when you don't). **Marketplace**: a search field over every well-known server
  * (Slack, Notion, Linear, GitHub…) with category chips and one row per server —
  * brand tile, what it does, how it signs in (Sign in · No account · API key ·
  * Your app · Desktop app · Runs locally) and one button. Hosted ones connect
  * and open their sign-in page straight from that click; key / app / desktop
- * ones first unfold a short guided setup (steps, a link that opens the
+ * ones first open a short guided setup (steps, a link that opens the
  * vendor's page — for Slack already filled in —, the fields it needs).
  * Anything else — a link, `npx …`, a `claude mcp add …` line, JSON, a GitHub
  * repo — goes through *Custom server* (Jarvis previews what it found).
+ * Setup, Custom server and the OAuth-app form are sub-views: the header's back
+ * button (and Esc) returns to the list, their buttons sit in the footer.
  * **Your servers**: one card per server with its status and the one thing to
  * do next — Authenticate, Enter key, Connect, Retry, Disconnect, or use your
  * own OAuth app for a host that only lets approved apps sign in.
@@ -30,6 +34,7 @@ import { store, loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { fetchMcpServers, fetchMcpAuth, extPost, pickerAction } from './api.js';
 import { btn, rowBtn, moreBtn, seg, mark, patch, field, autosize, msg, spin, plural, tildify, openMenu, closeMenu, hostOf } from './extui.js';
+import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
 
 const TONE = { live: 'accent', auth: 'amber', key: 'amber', warn: 'amber', failed: 'chili', connecting: 'slate', idle: 'slate' };
 const RANK = { auth: 0, key: 1, failed: 2, warn: 3, connecting: 4, live: 5, idle: 6 };
@@ -62,13 +67,16 @@ const auth = {}; // name → { starting, url, opened, status, startedAt, expires
 const drafts = {}; // input id → text typed so far
 const revealed = new Set();
 const toolsOpen = new Set();
-const appOpen = new Set(); // cards showing the "your own OAuth app" form
 const dismissed = new Set(); // banner closed for a server (until it stops needing sign-in)
 const seen = new Set(); // server names already listed once (only new ones animate in)
 let pollTimer = 0;
 let previewSeq = 0;
-let built = false;
 let tab = ''; // 'market' | 'servers' ('' = pick for the user)
+let svq = ''; // Your servers search
+/** The sub-view on show: null (the tabs) | { kind: 'custom' } | { kind: 'setup', id } | { kind: 'app', name }. */
+let view = null;
+const HINTS = [['↑ ↓', 'move'], ['↵', 'connect'], ['esc', 'close']];
+const LOCK_NOTE = `<p class="pv-foot">${icon('lock')}<span>Keys and sign-ins stay on the computer running Jarvis. This browser never keeps them.</span></p>`;
 
 const add = {
   text: '',
@@ -84,9 +92,7 @@ const add = {
 const mk = {
   q: '',
   cat: ALL,
-  open: '', // catalog id whose setup / result is unfolded
   active: 0, // keyboard row in the list
-  custom: false, // the "Custom server" panel instead of the list
   busy: {}, // id → true while adding / connecting
   notes: {}, // id → { text, error }
 };
@@ -262,23 +268,24 @@ function keyPanel(s) {
 }
 
 /** Sign in through your own OAuth app — for hosts that only let approved apps sign in. */
-function appPanel(s) {
+/** The OAuth-app sub-view: for hosts that only let approved apps sign in. */
+function appViewHtml(s) {
   const idKey = `mcp-app-${s.name}-id`;
   const secKey = `mcp-app-${s.name}-secret`;
   const redirect = data?.oauth_redirect_url || 'http://localhost:33418/callback';
-  return `<div class="mk-setup is-card">
-    <p class="mk-why"><strong>Use your own OAuth app</strong><span>Register an app with ${escapeHtml(displayName(s))}'s developer settings, add the redirect URL below, then paste its Client ID (and secret, if it has one).</span></p>
+  return `<div class="mk-view">
+    ${viewHeadHtml(s, s.remote ? hostOf(s.endpoint) : '')}
+    <p class="dlg-lead">Register an OAuth app in ${escapeHtml(displayName(s))}'s developer settings with the redirect URL below, then paste the app's Client ID (and its secret, if it has one). Jarvis signs in as that app.</p>
     <div class="mk-redirect"><span>Redirect URL</span><code>${escapeHtml(redirect)}</code>
       <button type="button" class="ex-copy" data-act="copy-text" data-text="${escapeHtml(redirect)}" aria-label="Copy the redirect URL" title="Copy">${icon('copy')}</button></div>
-    <label class="ex-lbl is-friendly" for="${idKey}">Client ID</label>
-    ${field(idKey, { value: drafts[idKey] || '', placeholder: 'Paste the Client ID', label: 'Client ID' })}
-    <label class="ex-lbl is-friendly" for="${secKey}">Client Secret <em>optional</em></label>
-    ${field(secKey, { value: drafts[secKey] || '', placeholder: 'Paste the Client Secret', label: 'Client Secret', secret: true, shown: revealed.has(secKey) })}
-    <div class="pv-actions">
-      ${btn('save-app', 'Save and sign in', { cls: 'btn-primary', ic: 'log-in', data: { name: s.name }, busy: busy[s.name] === 'app' })}
-      ${btn('close-app', 'Cancel', { cls: 'btn-quiet', data: { name: s.name } })}
+    <div class="mk-fields">
+      <label class="ex-lbl is-friendly" for="${idKey}">Client ID</label>
+      ${field(idKey, { value: drafts[idKey] || '', placeholder: 'Paste the Client ID', label: 'Client ID' })}
+      <label class="ex-lbl is-friendly" for="${secKey}">Client Secret <em>optional</em></label>
+      ${field(secKey, { value: drafts[secKey] || '', placeholder: 'Paste the Client Secret', label: 'Client Secret', secret: true, shown: revealed.has(secKey) })}
     </div>
-  </div>`;
+    ${noteHtml(s.name)}
+  </div>${LOCK_NOTE}`;
 }
 
 function failErr(s) {
@@ -294,7 +301,6 @@ function failedPanel(s) {
   const line = appOnly
     ? `<p class="ex-errline" title="${escapeHtml(err)}">${icon('circle-alert')}<span>${escapeHtml(displayName(s))} only lets approved apps sign in.</span></p>`
     : `<p class="ex-errline">${icon('circle-alert')}<span>${escapeHtml(err)}</span></p>`;
-  if (appOpen.has(s.name)) return `${line}${appPanel(s)}`;
   let next = '';
   if (appOnly) {
     next = `<p class="pv-hint">${s.alt_note ? escapeHtml(s.alt_note) : 'Sign in through an OAuth app of your own instead — register one in its developer settings, then paste its Client ID here.'}</p>`;
@@ -331,8 +337,7 @@ function toolsHtml(s) {
 function panelHtml(s) {
   const st = statusOf(s);
   let mid = '';
-  if (appOpen.has(s.name) && st !== 'failed' && st !== 'live') mid = appPanel(s);
-  else if (st === 'auth') mid = authPanel(s);
+  if (st === 'auth') mid = authPanel(s);
   else if (st === 'key') mid = keyPanel(s);
   else if (st === 'failed') mid = failedPanel(s);
   else if (st === 'warn') mid = warnPanel(s);
@@ -450,9 +455,7 @@ function resultHtml(res) {
 }
 
 function previewHtml() {
-  if (add.result) {
-    return `${resultHtml(add.result)}<div class="pv-actions"><button type="button" class="btn btn-quiet btn-sm" data-act="dismiss-result">Done</button></div>`;
-  }
+  if (add.result) return resultHtml(add.result);
   const p = add.preview;
   if (!add.text.trim()) {
     return '<p class="pv-hint ex-idle">Paste a hosted address (https://…/mcp), an install command (npx -y … / uvx …), a <code>claude mcp add …</code> line, a JSON config or a GitHub repo. Jarvis shows what it will run or connect to before adding anything.</p>';
@@ -463,6 +466,7 @@ function previewHtml() {
 }
 
 function addBtnHtml() {
+  if (add.result) return btn('custom-done', 'Done', { cls: 'btn-primary', ic: 'check' });
   const ok = add.preview?.servers?.length;
   const n = add.preview?.servers?.length || 0;
   const label = add.adding ? 'Adding…' : n > 1 ? `Add ${n} servers` : 'Add server';
@@ -473,6 +477,7 @@ function addBtnHtml() {
 
 const catalogRows = () => data?.catalog || [];
 const catalogRow = (id) => catalogRows().find((r) => r.id === id) || null;
+const guided = (r) => ['key', 'app', 'desktop'].includes(r?.auth);
 
 /** Every word must match (same rule as jarvis/mcp/catalog.matches). */
 function matches(r, q) {
@@ -483,16 +488,10 @@ function matches(r, q) {
   return words.every((w) => hay.includes(w));
 }
 
-/** Rows the list shows now, in order: `{ kind: 'head' | 'row' | 'source' | 'custom', … }`. */
+/** Rows the list shows now, in order: `{ kind: 'head' | 'row' | 'source' | 'empty', … }`. */
 function marketItems() {
   const q = mk.q.trim();
-  const source = looksLikeSource(q);
-  const items = [];
-  if (source) {
-    items.push({ kind: 'source', key: 'source' });
-    items.push({ kind: 'custom', key: 'custom' });
-    return items;
-  }
+  if (looksLikeSource(q)) return [{ kind: 'source', key: 'source' }];
   let rows = catalogRows().filter((r) => matches(r, q));
   if (mk.cat === 'Popular') rows = rows.filter((r) => r.popular);
   else if (mk.cat !== ALL) rows = rows.filter((r) => r.category === mk.cat);
@@ -501,8 +500,8 @@ function marketItems() {
     const starts = (r) => (r.label.toLowerCase().startsWith(ql) || r.id.startsWith(ql) ? 0 : 1);
     rows = [...rows].sort((a, b) => starts(a) - starts(b)); // stable: popular order kept within
   }
-  const grouped = !q && mk.cat === ALL;
-  if (grouped) {
+  const items = [];
+  if (!q && mk.cat === ALL) {
     const pop = rows.filter((r) => r.popular);
     const rest = rows.filter((r) => !r.popular).sort((a, b) => a.label.localeCompare(b.label));
     if (pop.length) items.push({ kind: 'head', key: 'h-pop', label: 'Popular', count: pop.length });
@@ -510,14 +509,14 @@ function marketItems() {
     if (rest.length) items.push({ kind: 'head', key: 'h-all', label: 'More servers', count: rest.length });
     rest.forEach((r) => items.push({ kind: 'row', key: r.id, row: r }));
   } else {
+    if (rows.length) items.push({ kind: 'head', key: 'h-res', label: q ? 'Results' : CAT_LABEL[mk.cat] || mk.cat, count: rows.length });
     rows.forEach((r) => items.push({ kind: 'row', key: r.id, row: r }));
   }
   if (!rows.length) items.push({ kind: 'empty', key: 'empty' });
-  items.push({ kind: 'custom', key: 'custom' });
   return items;
 }
 
-const pickable = (items) => items.filter((it) => it.kind !== 'head' && it.kind !== 'empty');
+const pickable = (items) => items.filter((it) => it.kind === 'row' || it.kind === 'source');
 
 /** The server a catalog row was added as, with its live state (or null). */
 function installedOf(r) {
@@ -546,14 +545,13 @@ function mkSideHtml(r) {
     if (st === 'connecting') return `<span class="mk-busy">${spin('Connecting')}</span>`;
     if (st === 'key') return rowBtn('mk-manage', 'Enter key', { cls: 'is-primary', ic: 'key-round', data: { id } });
     if (st === 'failed') return rowBtn('mk-manage', 'Fix', { cls: 'is-warn', ic: 'circle-alert', data: { id } });
-    return rowBtn('connect', 'Connect', { cls: 'is-go', data: { name: s.name } });
+    return rowBtn('connect', 'Connect', { cls: 'is-go', ic: 'plug-zap', data: { name: s.name } });
   }
-  const guided = ['key', 'app', 'desktop'].includes(r.auth);
-  if (guided) return rowBtn('mk-toggle', mk.open === id ? 'Close' : 'Set up', { cls: mk.open === id ? '' : 'is-go', data: { id } });
+  if (guided(r)) return rowBtn('mk-setup', 'Set up', { cls: 'is-go', data: { id } });
   return rowBtn('mk-connect', 'Connect', { cls: 'is-go', ic: r.auth === 'local' ? 'plug-zap' : r.auth === 'open' ? 'zap' : 'log-in', data: { id } });
 }
 
-/** The unfolded part of a row: guided setup, sign-in progress or what went wrong. */
+/** The unfolded part of a row: sign-in progress or what just happened. */
 function mkPanelHtml(r) {
   const id = r.id;
   const s = installedOf(r);
@@ -570,19 +568,30 @@ function mkPanelHtml(r) {
           ${btn('mk-manage', 'Signed in on another device?', { cls: 'btn-quiet btn-sm', data: { id } })}
         </div>${note}`;
     }
-    return note;
   }
-  if (mk.open !== id) return note;
-  return setupHtml(r) + note;
+  return note;
 }
 
-function setupHtml(r) {
+/** Tile · name · badge · where it lives — the top of a sub-view. */
+function viewHeadHtml(row, where = '') {
+  const label = row.label || row.name;
+  return `<div class="mk-vhead">
+    ${row.color ? tile(row) : mark(label, 'slate')}
+    <span class="pv-text">
+      <span class="pv-title mk-title"><span class="ex-name">${escapeHtml(label)}</span>${row.auth ? badgeHtml(row) : ''}</span>
+      <span class="pv-sub mk-desc">${escapeHtml(row.desc || where || '')}</span>
+    </span>
+  </div>`;
+}
+
+/** The guided setup sub-view of a key / app / desktop server. */
+function setupViewHtml(r) {
   const id = r.id;
   const su = r.setup || {};
   const vars = r.credentials || [];
   const steps = (su.steps || []).map((t, i) => `<li><span class="pv-n">${i + 1}</span><span>${escapeHtml(t)}</span></li>`).join('');
   const link = su.link
-    ? `<a class="btn ${vars.length || r.auth === 'desktop' ? 'btn-sm' : 'btn-primary'} mk-link" href="${escapeHtml(su.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(su.link_label || 'Open')}${icon('external-link')}</a>`
+    ? `<a class="btn btn-sm mk-link" href="${escapeHtml(su.link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(su.link_label || 'Open')}${icon('external-link')}</a>`
     : '';
   const redirect = r.auth === 'app' && r.redirect_url
     ? `<div class="mk-redirect"><span>Redirect URL</span><code>${escapeHtml(r.redirect_url)}</code>
@@ -595,19 +604,17 @@ function setupHtml(r) {
     return `<label class="ex-lbl is-friendly" for="${escapeHtml(fid)}">${escapeHtml(f.label)}${f.hint ? ` <em>${escapeHtml(f.hint)}</em>` : ''}</label>
       ${field(fid, { value: drafts[fid] || '', placeholder: f.placeholder || 'Paste it here', label: f.label, secret: f.secret !== false, shown: revealed.has(fid) })}`;
   }).join('');
-  const title = su.title || (vars.length ? `${r.label} needs ${vars.length > 1 ? 'a few details' : 'one thing'}` : `Connect ${r.label}`);
   const why = su.why || (vars.length ? 'Kept on the computer running Jarvis — never written into a config file, never shown to the model.' : '');
-  return `<div class="mk-setup">
-    <p class="mk-why"><strong>${escapeHtml(title)}</strong>${why ? `<span>${escapeHtml(why)}</span>` : ''}</p>
+  const n = mk.notes[id];
+  return `<div class="mk-view">
+    ${viewHeadHtml(r)}
+    ${why ? `<p class="dlg-lead">${escapeHtml(why)}</p>` : ''}
     ${steps ? `<ol class="mk-steps">${steps}</ol>` : ''}
     ${link || redirect ? `<div class="mk-setup-links">${link}${redirect}</div>` : ''}
     ${inputs ? `<div class="mk-fields">${inputs}</div>` : ''}
     ${su.note ? `<p class="pv-hint mk-note">${icon('info')}<span>${escapeHtml(su.note)}</span></p>` : ''}
-    <div class="pv-actions">
-      ${btn('mk-connect', 'Connect', { cls: 'btn-primary', ic: r.auth === 'app' ? 'log-in' : 'plug-zap', data: { id }, busy: !!mk.busy[id] })}
-      ${btn('mk-toggle', 'Cancel', { cls: 'btn-quiet', data: { id } })}
-    </div>
-  </div>`;
+    ${n?.text ? msg(n.text, n.error ? 'error' : 'ok') : ''}
+  </div>${vars.length ? LOCK_NOTE : ''}`;
 }
 
 function mkRowClass(r, active) {
@@ -617,19 +624,21 @@ function mkRowClass(r, active) {
   return `pv-row mk-row${panel ? ' is-open' : ''}${active ? ' is-active' : ''}${st ? ` is-${st}` : ''}${st === 'live' ? ' is-connected' : ''}`;
 }
 
-function mkRowHtml(r, active, i) {
+function mkTextHtml(r) {
   const s = installedOf(r);
   const st = s ? statusOf(s) : '';
   const sub = s && st !== 'live' && st !== 'idle'
     ? `<span class="pv-sub ex-st is-${st}"><i class="ex-dot" aria-hidden="true"></i>${escapeHtml(statusText(s, st))}</span>`
     : `<span class="pv-sub mk-desc">${escapeHtml(r.desc || '')}</span>`;
+  return `<span class="pv-title mk-title"><span class="ex-name">${escapeHtml(r.label)}</span>${badgeHtml(r)}</span>${sub}`;
+}
+
+function mkRowHtml(r, active, i) {
+  const st = installedOf(r) ? statusOf(installedOf(r)) : '';
   return `<div class="${mkRowClass(r, active)}" data-id="${escapeHtml(r.id)}" id="mk-opt-${escapeHtml(r.id)}" role="option" aria-selected="${active}" style="--i:${i}">
     <button type="button" class="pv-head mk-head" data-act="mk-pick" data-id="${escapeHtml(r.id)}" tabindex="-1">
       ${tile(r, { on: st === 'live' })}
-      <span class="pv-text">
-        <span class="pv-title mk-title"><span class="ex-name">${escapeHtml(r.label)}</span>${badgeHtml(r)}</span>
-        ${sub}
-      </span>
+      <span class="pv-text">${mkTextHtml(r)}</span>
     </button>
     <div class="pv-side">${mkSideHtml(r)}</div>
     <div class="fold"><div class="fold-inner"><div class="pv-panel mk-panel">${mkPanelHtml(r)}</div></div></div>
@@ -637,10 +646,13 @@ function mkRowHtml(r, active, i) {
 }
 
 function mkItemHtml(it, active, i) {
-  if (it.kind === 'head') return `<div class="mk-group" role="presentation"><span>${escapeHtml(it.label)}</span><em>${it.count}</em></div>`;
+  if (it.kind === 'head') return section(it.label, { count: it.count });
   if (it.kind === 'empty') {
-    return `<div class="mk-empty" role="presentation">${icon('search')}<strong>No server matches “${escapeHtml(mk.q.trim())}”</strong>
-      <span>Try another word${mk.cat !== ALL ? ' or <button type="button" class="link-btn" data-act="mk-cat" data-val="All">all categories</button>' : ''} — or add it yourself as a custom server.</span></div>`;
+    const q = mk.q.trim();
+    const actions = `${btn('mk-custom', 'Add a custom server', { cls: 'btn-primary', ic: 'link' })}${mk.cat !== ALL ? btn('mk-cat', 'All categories', { data: { val: ALL } }) : ''}`;
+    return empty(q ? `No server matches “${q}”` : 'Nothing here yet',
+      'Try another word — or add it yourself: paste its link, an <code>npx</code> / <code>uvx</code> command or a JSON config.',
+      { ic: 'search', action: actions });
   }
   if (it.kind === 'source') {
     const q = mk.q.trim();
@@ -652,26 +664,13 @@ function mkItemHtml(it, active, i) {
       <div class="pv-side">${rowBtn('mk-source', 'Preview', { cls: 'is-go' })}</div>
     </div>`;
   }
-  if (it.kind === 'custom') {
-    return `<div class="pv-row mk-row mk-custom-row${active ? ' is-active' : ''}" role="option" id="mk-opt-custom" aria-selected="${active}">
-      <button type="button" class="pv-head mk-head" data-act="mk-custom" tabindex="-1">
-        <span class="mk-tile is-plus" aria-hidden="true">${icon('link')}</span>
-        <span class="pv-text"><span class="pv-title">Custom server</span><span class="pv-sub mk-desc">Paste a link, npx / uvx command, claude mcp add line, JSON or GitHub repo</span></span>
-      </button>
-      <div class="pv-side"><span class="mk-chev">${icon('chevron-right')}</span></div>
-    </div>`;
-  }
   return mkRowHtml(it.row, active, i);
 }
 
 function catsHtml() {
   const cats = [ALL, ...(data?.categories || [])];
-  const count = (c) => {
-    const rows = catalogRows();
-    if (c === ALL) return rows.length;
-    if (c === 'Popular') return rows.filter((r) => r.popular).length;
-    return rows.filter((r) => r.category === c).length;
-  };
+  const rows = catalogRows();
+  const count = (c) => (c === ALL ? rows.length : c === 'Popular' ? rows.filter((r) => r.popular).length : rows.filter((r) => r.category === c).length);
   return cats.filter((c) => count(c) > 0).map((c) => `<button type="button" class="mk-cat" data-act="mk-cat" data-val="${escapeHtml(c)}" aria-pressed="${c === mk.cat}">${escapeHtml(CAT_LABEL[c] || c)}</button>`).join('');
 }
 
@@ -680,8 +679,8 @@ function tabsHtml() {
   const need = servers.filter((s) => ['auth', 'key', 'failed'].includes(statusOf(s))).length;
   const t = currentTab();
   return `<div class="mk-tabs" role="tablist" aria-label="MCP">
-    <button type="button" role="tab" class="mk-tab" data-act="tab" data-val="servers" aria-selected="${t === 'servers'}">${icon('plug')}<span>Your servers</span>${servers.length ? `<em class="mk-count${need ? ' is-attn' : ''}">${servers.length}</em>` : ''}</button>
-    <button type="button" role="tab" class="mk-tab" data-act="tab" data-val="market" aria-selected="${t === 'market'}">${icon('sparkles')}<span>Marketplace</span></button>
+    <button type="button" role="tab" class="mk-tab" data-act="tab" data-val="servers" aria-selected="${t === 'servers'}" tabindex="${t === 'servers' ? 0 : -1}">${icon('plug')}<span>Your servers</span>${servers.length ? `<em class="mk-count${need ? ' is-attn' : ''}">${servers.length}</em>` : ''}</button>
+    <button type="button" role="tab" class="mk-tab" data-act="tab" data-val="market" aria-selected="${t === 'market'}" tabindex="${t === 'market' ? 0 : -1}">${icon('sparkles')}<span>Marketplace</span></button>
   </div>`;
 }
 
@@ -691,74 +690,7 @@ function currentTab() {
   return (data?.servers || []).length ? 'servers' : 'market';
 }
 
-function mkFootHtml() {
-  if (!data) return '';
-  return `<span class="mk-foot-lbl">New servers go to</span>${seg(SCOPES, add.scope, { label: 'Where to add new servers', act: 'scope', group: 'add' })}
-    <span class="mk-foot-path" title="${escapeHtml(add.scope === 'project' ? data.project_config_path || '' : data.global_config_path || '')}">${add.scope === 'project' ? 'only this folder' : 'every project'}</span>`;
-}
-
 // ─── Render ───────────────────────────────────────────────────────────────
-
-function build(body) {
-  body.innerHTML = `
-    <div id="mcp-tabs"></div>
-    <section class="mk" id="mk-sec" aria-label="MCP marketplace">
-      <div class="mk-search" id="mk-search">
-        <span class="mk-search-ic">${icon('search')}</span>
-        <input id="mk-q" type="search" placeholder="Search servers — Slack, Notion, GitHub…" aria-label="Search MCP servers"
-          role="combobox" aria-controls="mk-list" aria-expanded="true" aria-autocomplete="list"
-          autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go"
-          data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
-        <span class="mk-kbd" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd><kbd>↵</kbd></span>
-      </div>
-      <div class="mk-cats" id="mk-cats" role="group" aria-label="Categories"></div>
-      <div class="mk-list" id="mk-list" role="listbox" aria-label="MCP servers"></div>
-      <section class="ex-add mk-custom" id="mk-custom" aria-label="Custom server" hidden>
-        <div class="ex-add-head"><button type="button" class="link-btn mk-back" data-act="mk-back">${icon('arrow-left')}<span>Marketplace</span></button><h3>Custom server</h3></div>
-        <div class="ex-src">
-          <span class="pv-field-ic">${icon('link')}</span>
-          <textarea id="mcp-src" class="ex-src-input" rows="1" placeholder="Paste a link, npx …, claude mcp add …, JSON or a GitHub repo"
-            aria-label="Server to add" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
-            data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></textarea>
-        </div>
-        <div class="ex-add-row">
-          <div class="ex-add-scope" id="mcp-add-scope"></div>
-          <span id="mcp-add-btn"></span>
-        </div>
-        <p class="ex-path" id="mcp-path"></p>
-        <div class="ex-preview" id="mcp-preview" aria-live="polite"></div>
-      </section>
-      <div class="mk-foot" id="mk-foot"></div>
-    </section>
-    <section class="ex-list-sec" id="sv-sec" aria-label="Your servers" hidden>
-      <div class="ex-list-head"><h3 id="mcp-count">Your servers</h3><span id="mcp-scope-seg"></span></div>
-      <p class="pv-hint ex-scope-hint" id="mcp-scope-hint"></p>
-      <div class="ex-list" id="mcp-list"></div>
-    </section>
-    <p class="pv-foot">${icon('lock')}<span>Keys and sign-ins stay on the computer running Jarvis. This browser never keeps them.</span></p>`;
-  const ta = $('mcp-src');
-  ta.value = add.text;
-  $('mk-q').value = mk.q;
-  built = true;
-}
-
-function renderAddPanel() {
-  patch($('mcp-add-scope'), seg(SCOPES, add.scope, { label: 'Where to add it', act: 'scope', group: 'add' }));
-  patch($('mcp-add-btn'), addBtnHtml());
-  patch($('mcp-path'), pathHint());
-  renderPreview();
-}
-
-function renderPreview() {
-  const el = $('mcp-preview');
-  if (!el) return;
-  const focused = document.activeElement;
-  const focusId = focused?.classList?.contains('pv-input') && el.contains(focused) ? focused.id : '';
-  const sel = focusId ? [focused.selectionStart, focused.selectionEnd] : null;
-  patch(el, previewHtml());
-  patch($('mcp-add-btn'), addBtnHtml());
-  restoreFocus(focusId, sel);
-}
 
 function restoreFocus(id, sel) {
   if (!id || document.activeElement?.id === id) return;
@@ -768,103 +700,224 @@ function restoreFocus(id, sel) {
   try { el.setSelectionRange(sel[0], sel[1]); } catch { /* not a text input */ }
 }
 
+/** Run `paint` without losing the field being typed in (patch() replaces markup). */
+function keepFocus(root, paint) {
+  const focused = document.activeElement;
+  const id = focused?.id && root?.contains(focused) && /^(INPUT|TEXTAREA)$/.test(focused.tagName) ? focused.id : '';
+  const sel = id ? [focused.selectionStart, focused.selectionEnd] : null;
+  paint();
+  restoreFocus(id, sel);
+}
+
+/** The body shows one thing at a time; its skeleton is rebuilt only when that changes. */
+function bodyMode() {
+  if (view?.kind === 'custom') return 'custom';
+  if (view?.kind === 'setup') return `setup:${view.id}`;
+  if (view?.kind === 'app') return `app:${view.name}`;
+  return currentTab();
+}
+
+function ensureBody(body, mode) {
+  if (body.dataset.mode === mode) return;
+  body.dataset.mode = mode;
+  body._html = null;
+  body.scrollTop = 0;
+  if (mode === 'market') {
+    body.innerHTML = `<div class="mk-list" id="mk-list" role="listbox" aria-label="MCP servers"></div>${LOCK_NOTE}`;
+  } else if (mode === 'servers') {
+    body.innerHTML = `<div id="sv-head"></div><div class="ex-list" id="mcp-list"></div>${LOCK_NOTE}`;
+  } else if (mode === 'custom') {
+    body.innerHTML = `<section class="ex-add is-flat mk-custom" aria-label="Custom server">
+        <p class="dlg-lead">Paste a hosted address (<code>https://…/mcp</code>), an install command (<code>npx -y …</code> / <code>uvx …</code>), a <code>claude mcp add …</code> line, a JSON config or a GitHub repo. Jarvis shows what it will run or connect to before adding anything.</p>
+        <div class="ex-src">
+          <span class="pv-field-ic">${icon('link')}</span>
+          <textarea id="mcp-src" class="ex-src-input" rows="1" placeholder="Paste a link, npx …, claude mcp add …, JSON or a GitHub repo"
+            aria-label="Server to add" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+            data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></textarea>
+        </div>
+        <p class="ex-path" id="mcp-path"></p>
+        <div class="ex-preview" id="mcp-preview" aria-live="polite"></div>
+      </section>${LOCK_NOTE}`;
+    const ta = $('mcp-src');
+    ta.value = add.text;
+    requestAnimationFrame(() => autosize(ta));
+  } else {
+    body.innerHTML = '<div id="mk-view-body"></div>';
+  }
+}
+
+/** Tabs and toolbar: the search input is built once per tab (rebuilding it would drop the caret). */
+function renderBar() {
+  const tabsEl = $('mcp-tabs');
+  const bar = $('mcp-bar');
+  if (tabsEl) {
+    tabsEl.hidden = !!view;
+    if (!view) patch(tabsEl, tabsHtml());
+  }
+  if (!bar) return;
+  bar.hidden = !!view;
+  if (view) return;
+  const t = currentTab();
+  if (bar.dataset.tab !== t) {
+    bar.dataset.tab = t;
+    bar._html = null;
+    bar.innerHTML = t === 'market'
+      ? `${toolbar({ id: 'mk-q', placeholder: `Search ${catalogRows().length || 60}+ servers — Slack, Notion, GitHub…`, label: 'Search the MCP marketplace', value: mk.q,
+        attrs: { role: 'combobox', 'aria-controls': 'mk-list', 'aria-autocomplete': 'list' },
+        action: { act: 'mk-custom', label: 'Custom server', ic: 'link', title: 'Add any server: a link, npx / uvx command, JSON or GitHub repo' } })}
+        <div class="mk-cats" id="mk-cats" role="group" aria-label="Categories"></div>`
+      : toolbar({ id: 'sv-q', placeholder: 'Search your servers', label: 'Search your MCP servers', value: svq,
+        attrs: { role: 'combobox', 'aria-controls': 'mcp-list', 'aria-autocomplete': 'list' },
+        action: { act: 'tab', label: 'Add server', ic: 'plus', title: 'Browse the marketplace', data: { val: 'market' } } });
+  }
+  if (t === 'market') patch($('mk-cats'), catsHtml());
+}
+
+function renderFoot() {
+  const foot = $('mcp-foot');
+  if (!foot || !data) return;
+  let html = '';
+  if (view?.kind === 'custom') {
+    html = `<div class="dlg-actions"><div class="dlg-scope"><span class="dlg-scope-lbl">Save to</span>${seg(SCOPES, add.scope, { label: 'Where to add it', act: 'scope', group: 'add' })}</div>
+      <span class="dlg-spacer"></span>${btn('back', 'Cancel', { cls: 'btn-quiet' })}${addBtnHtml()}</div>`;
+  } else if (view?.kind === 'setup') {
+    const r = catalogRow(view.id);
+    html = `<div class="dlg-actions"><div class="dlg-scope"><span class="dlg-scope-lbl">Save to</span>${seg(SCOPES, add.scope, { label: 'Where to add it', act: 'scope', group: 'add' })}</div>
+      <span class="dlg-spacer"></span>${btn('back', 'Cancel', { cls: 'btn-quiet' })}${btn('mk-connect', 'Connect', { cls: 'btn-primary', ic: r?.auth === 'app' ? 'log-in' : 'plug-zap', data: { id: view.id }, busy: !!mk.busy[view.id] })}</div>`;
+  } else if (view?.kind === 'app') {
+    html = `<div class="dlg-actions"><span class="dlg-spacer"></span>${btn('back', 'Cancel', { cls: 'btn-quiet' })}${btn('save-app', 'Save and sign in', { cls: 'btn-primary', ic: 'log-in', data: { name: view.name }, busy: busy[view.name] === 'app' })}</div>`;
+  } else if (currentTab() === 'market') {
+    html = footer({ scopeLabel: 'Save to', scope: seg(SCOPES, add.scope, { label: 'Where new servers are added', act: 'scope', group: 'add' }), hints: HINTS });
+  } else {
+    html = footer({
+      scope: seg([
+        { value: 'false', label: 'This project', title: 'Only servers from this folder' },
+        { value: 'true', label: 'Project + global', title: 'Also servers added for every project' },
+      ], String(!!data.global_mcp), { label: 'Which servers to use', act: 'global' }),
+      hints: HINTS,
+    });
+  }
+  keepFocus(foot, () => patch(foot, html));
+}
+
+function renderAddPanel() {
+  patch($('mcp-path'), pathHint());
+  renderPreview();
+}
+
+function renderPreview() {
+  const el = $('mcp-preview');
+  if (el) keepFocus(el, () => patch(el, previewHtml()));
+  renderFoot();
+}
+
 function renderMarket({ scrollActive = false } = {}) {
   const list = $('mk-list');
   if (!list || !data) return;
-  patch($('mk-cats'), catsHtml());
-  patch($('mk-foot'), mkFootHtml());
-  const custom = $('mk-custom');
-  if (custom) custom.hidden = !mk.custom;
-  list.hidden = mk.custom;
-  $('mk-search').hidden = mk.custom;
-  $('mk-cats').hidden = mk.custom;
-  $('mk-foot').hidden = mk.custom; // the custom panel has its own Project / Global switch
-  if (mk.custom) {
-    renderAddPanel();
-    return;
-  }
-  const focused = document.activeElement;
-  const focusId = focused?.classList?.contains('pv-input') && list.contains(focused) ? focused.id : '';
-  const sel = focusId ? [focused.selectionStart, focused.selectionEnd] : null;
   const items = marketItems();
   const picks = pickable(items);
   mk.active = Math.max(0, Math.min(mk.active, picks.length - 1));
   const activeKey = picks[mk.active]?.key;
   const sig = items.map((it) => it.key).join(',');
-  if (list.dataset.sig !== sig) {
-    list.innerHTML = items.map((it, i) => mkItemHtml(it, it.key === activeKey, i)).join('');
-    list._html = null;
-    list.dataset.sig = sig;
-  } else {
-    // Same rows: update each in place so an open setup keeps its typing and its fold animates.
+  keepFocus(list, () => {
+    if (list.dataset.sig !== sig) {
+      list.innerHTML = items.map((it, i) => mkItemHtml(it, it.key === activeKey, i)).join('');
+      list.dataset.sig = sig;
+      return;
+    }
+    // Same rows: update each in place so a fold animates and nothing flickers.
     for (const it of items) {
-      if (it.kind !== 'row') {
-        const el = list.querySelector(`#mk-opt-${CSS.escape(it.key)}`);
-        if (el) {
-          el.classList.toggle('is-active', it.key === activeKey);
-          el.setAttribute('aria-selected', String(it.key === activeKey));
-        }
-        continue;
+      if (it.kind === 'source') {
+        const el = $('mk-opt-source');
+        el?.classList.toggle('is-active', it.key === activeKey);
+        el?.setAttribute('aria-selected', String(it.key === activeKey));
       }
+      if (it.kind !== 'row') continue;
       const el = list.querySelector(`.mk-row[data-id="${CSS.escape(it.key)}"]`);
       if (!el) continue;
       const r = it.row;
       el.className = mkRowClass(r, it.key === activeKey);
       el.setAttribute('aria-selected', String(it.key === activeKey));
-      const s = installedOf(r);
-      const st = s ? statusOf(s) : '';
-      const head = el.querySelector('.mk-head .pv-text');
-      patch(head, `<span class="pv-title mk-title"><span class="ex-name">${escapeHtml(r.label)}</span>${badgeHtml(r)}</span>${s && st !== 'live' && st !== 'idle'
-        ? `<span class="pv-sub ex-st is-${st}"><i class="ex-dot" aria-hidden="true"></i>${escapeHtml(statusText(s, st))}</span>`
-        : `<span class="pv-sub mk-desc">${escapeHtml(r.desc || '')}</span>`}`);
-      const t = el.querySelector('.mk-head > .mk-tile, .mk-head > .pv-mark');
-      if (t) t.classList.toggle('is-on', st === 'live');
+      patch(el.querySelector('.mk-head .pv-text'), mkTextHtml(r));
+      const st = installedOf(r) ? statusOf(installedOf(r)) : '';
+      el.querySelector('.mk-head > .mk-tile, .mk-head > .pv-mark')?.classList.toggle('is-on', st === 'live');
       patch(el.querySelector('.pv-side'), mkSideHtml(r));
       patch(el.querySelector('.mk-panel'), mkPanelHtml(r));
     }
-  }
-  const q = $('mk-q');
-  if (q) q.setAttribute('aria-activedescendant', activeKey ? `mk-opt-${activeKey}` : '');
+  });
+  $('mk-q')?.setAttribute('aria-activedescendant', activeKey ? `mk-opt-${activeKey}` : '');
   if (scrollActive && activeKey) list.querySelector(`#mk-opt-${CSS.escape(activeKey)}`)?.scrollIntoView({ block: 'nearest' });
-  restoreFocus(focusId, sel);
 }
 
+function svMatches(s) {
+  const words = svq.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = [s.name, s.label, s.desc, s.endpoint, s.source_label, s.scope].filter(Boolean).join(' ').toLowerCase();
+  return words.every((w) => hay.includes(w));
+}
+
+const visibleServers = () => sortedServers().filter(svMatches);
+
 function listSig() {
-  return sortedServers().map((s) => s.name).join(',');
+  return visibleServers().map((s) => s.name).join(',');
 }
 
 function renderList() {
   const list = $('mcp-list');
   if (!list || !data) return;
-  const focused = document.activeElement;
-  const focusId = focused?.classList?.contains('pv-input') && list.contains(focused) ? focused.id : '';
-  const sel = focusId ? [focused.selectionStart, focused.selectionEnd] : null;
-  const servers = sortedServers();
-  if (!servers.length) {
-    list.dataset.sig = '';
-    patch(list, `<div class="list-empty ex-empty">${icon('plug')}<strong>No servers yet</strong>MCP servers give Jarvis new tools — Slack, Notion, Linear, GitHub, a browser, your own.
-      <div class="pv-actions is-center">${btn('tab', 'Browse the marketplace', { cls: 'btn-primary', ic: 'sparkles', data: { val: 'market' } })}</div></div>`);
-    return;
-  }
-  if (list.dataset.sig !== listSig()) {
-    const firstPaint = !list.dataset.sig && !seen.size;
-    list.innerHTML = servers.map((s, i) => rowHtml(s, i, !firstPaint && !seen.has(s.name))).join('');
-    list._html = null;
-    list.dataset.sig = listSig();
-  } else {
-    for (const s of servers) {
-      const el = list.querySelector(`.pv-row[data-name="${CSS.escape(s.name)}"]`);
-      if (!el) continue;
-      el.className = rowClass(s);
-      const head = el.querySelector('.pv-head');
-      head.setAttribute('aria-expanded', String(openName === s.name));
-      patch(head, headHtml(s));
-      patch(el.querySelector('.pv-side'), sideHtml(s));
-      patch(el.querySelector('.pv-panel'), panelHtml(s));
+  const all = data.servers || [];
+  const servers = visibleServers();
+  const live = all.filter((s) => statusOf(s) === 'live').length;
+  patch($('sv-head'), all.length
+    ? `${section('Your servers', { count: svq ? `${servers.length} of ${all.length}` : all.length, right: live ? `<span class="mk-state is-live"><i class="ex-dot" aria-hidden="true"></i>${live} connected</span>` : '' })}
+      ${data.global_mcp ? '' : '<p class="pv-hint ex-scope-hint">Servers added globally are hidden — choose <strong>Project + global</strong> below to use them too.</p>'}`
+    : '');
+  keepFocus(list, () => {
+    if (!all.length) {
+      list.dataset.sig = '';
+      patch(list, empty('No servers yet', 'MCP servers give Jarvis new tools — Slack, Notion, Linear, GitHub, a browser, your own.',
+        { ic: 'plug', action: btn('tab', 'Browse the marketplace', { cls: 'btn-primary', ic: 'sparkles', data: { val: 'market' } }) }));
+      return;
     }
+    if (!servers.length) {
+      list.dataset.sig = '';
+      patch(list, empty(`No server matches “${svq.trim()}”`, 'Try another word, or find it in the marketplace.',
+        { ic: 'search', action: btn('tab', 'Search the marketplace', { ic: 'sparkles', data: { val: 'market', q: svq.trim() } }) }));
+      return;
+    }
+    if (list.dataset.sig !== listSig()) {
+      const firstPaint = !list.dataset.sig && !seen.size;
+      list.innerHTML = servers.map((s, i) => rowHtml(s, i, !firstPaint && !seen.has(s.name))).join('');
+      list._html = null;
+      list.dataset.sig = listSig();
+    } else {
+      for (const s of servers) {
+        const el = list.querySelector(`.pv-row[data-name="${CSS.escape(s.name)}"]`);
+        if (!el) continue;
+        el.className = rowClass(s);
+        const head = el.querySelector('.pv-head');
+        head.setAttribute('aria-expanded', String(openName === s.name));
+        patch(head, headHtml(s));
+        patch(el.querySelector('.pv-side'), sideHtml(s));
+        patch(el.querySelector('.pv-panel'), panelHtml(s));
+      }
+    }
+  });
+  all.forEach((s) => seen.add(s.name));
+}
+
+function renderView() {
+  const el = $('mk-view-body');
+  if (!el) return;
+  let html = '';
+  if (view.kind === 'setup') {
+    const r = catalogRow(view.id);
+    html = r ? setupViewHtml(r) : empty('That server is gone', 'It’s no longer in the marketplace.', { ic: 'circle-alert' });
+  } else if (view.kind === 'app') {
+    const s = serverByName(view.name);
+    html = s ? appViewHtml(s) : empty('That server is gone', 'It was removed while this was open.', { ic: 'circle-alert' });
   }
-  servers.forEach((s) => seen.add(s.name));
-  restoreFocus(focusId, sel);
+  keepFocus(el, () => patch(el, html));
 }
 
 function renderHeader() {
@@ -872,43 +925,29 @@ function renderHeader() {
   const servers = data.servers || [];
   const live = servers.filter((s) => statusOf(s) === 'live').length;
   const need = servers.filter((s) => ['auth', 'key'].includes(statusOf(s))).length;
-  const sub = $('mcp-sub');
-  if (sub) {
-    sub.textContent = !servers.length
-      ? `${catalogRows().length} servers to connect in a click`
-      : `${live} connected${need ? ` · ${need} need${need === 1 ? 's' : ''} you` : ''} · ${catalogRows().length} in the marketplace`;
-  }
-  const count = $('mcp-count');
-  if (count) count.textContent = servers.length ? `Your servers · ${servers.length}` : 'Your servers';
-  patch($('mcp-scope-seg'), seg([
-    { value: 'false', label: 'This project', title: 'Only servers from this folder' },
-    { value: 'true', label: 'Project + global', title: 'Also servers added for every project' },
-  ], String(!!data.global_mcp), { label: 'Which servers to use', act: 'global' }));
-  patch($('mcp-scope-hint'), data.global_mcp
-    ? ''
-    : 'Servers you add globally are hidden while this is on “This project”. Switch to “Project + global” to use them.');
-  patch($('mcp-tabs'), tabsHtml());
-  const t = currentTab();
-  const ms = $('mk-sec');
-  const ss = $('sv-sec');
-  if (ms) ms.hidden = t !== 'market';
-  if (ss) ss.hidden = t !== 'servers';
+  setHomeSub('mcp', !servers.length
+    ? `${catalogRows().length} servers to connect in a click`
+    : `${live} connected${need ? ` · ${need} need${need === 1 ? 's' : ''} you` : ''} · ${catalogRows().length} in the marketplace`);
 }
 
 function render() {
   const body = $('mcp-body');
   if (!body) return;
   if (!data) {
-    built = false;
+    body.dataset.mode = '';
     body.innerHTML = loadError
-      ? `<div class="list-empty"><strong>Could not load MCP servers</strong>Check that Jarvis is still running, then try again.<div class="pv-actions is-center">${btn('reload', 'Try again', { ic: 'refresh-cw' })}</div></div>`
+      ? empty('Could not load MCP servers', 'Check that Jarvis is still running, then try again.', { ic: 'circle-alert', action: btn('reload', 'Try again', { ic: 'refresh-cw' }) })
       : `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(5)}</div>`;
     return;
   }
-  if (!built || !$('mk-q')) build(body);
   renderHeader();
-  if (currentTab() === 'market') renderMarket();
+  renderBar();
+  ensureBody(body, bodyMode());
+  if (view?.kind === 'custom') renderAddPanel();
+  else if (view) renderView();
+  else if (currentTab() === 'market') renderMarket();
   else renderList();
+  renderFoot();
 }
 
 // ─── Banner above the composer + sidebar dot ──────────────────────────────
@@ -1262,12 +1301,7 @@ async function menuFor(name, anchor) {
   const key = await openMenu(anchor, items);
   if (!key) return;
   if (key === 'copy') copyEndpoint(name);
-  else if (key === 'app') {
-    appOpen.add(name);
-    openName = name;
-    render();
-    setTimeout(() => $(`mcp-app-${name}-id`)?.focus({ preventScroll: false }), 140);
-  }
+  else if (key === 'app') openApp(name);
   else if (key === 'signout') await run(name, 'signout', 'mcp/signout', { name }, { okText: `Signed out of ${name}` });
   else if (key === 'remove') await run(name, 'remove', 'mcp/remove', { name, scope: s.scope }, { okText: `Removed ${name}` });
   else if (key === 'move-global') await run(name, 'move', 'mcp/move', { name, scope: 'global' }, { okText: `Moved ${name} to global` });
@@ -1291,7 +1325,8 @@ async function saveApp(name) {
     closeWin(win);
     return;
   }
-  appOpen.delete(name);
+  leaveView({ focus: false });
+  tab = 'servers';
   delete drafts[`mcp-app-${name}-id`];
   delete drafts[`mcp-app-${name}-secret`];
   if (res.status === 'connected') {
@@ -1315,15 +1350,75 @@ async function copyEndpoint(name) {
   else showToast('Copy failed', true);
 }
 
-// ─── Marketplace actions ──────────────────────────────────────────────────
+// ─── Sub-views ────────────────────────────────────────────────────────────
 
-function setTab(t, { focus = true } = {}) {
-  tab = t;
+/** Open a sub-view: header back button + title, toolbar hidden, buttons in the footer. */
+function enterView(next, { title, sub, focus = '' }) {
+  view = next;
+  setView('mcp', { title, sub, back: () => leaveView(), backLabel: 'MCP servers' });
+  render();
+  $('mcp-body').scrollTop = 0;
+  requestAnimationFrame(() => {
+    const el = (focus && $(focus)) || $('mcp-body')?.querySelector('.pv-input, textarea') || $('mcp-foot')?.querySelector('.btn-primary');
+    el?.focus({ preventScroll: true });
+  });
+}
+
+/** Back to the tabs (header back button, Esc, Cancel). */
+function leaveView({ focus = true } = {}) {
+  const was = view;
+  view = null;
+  setView('mcp', null);
+  if (was?.kind === 'setup') delete mk.notes[was.id];
+  if (!isModalOpen('mcp')) return;
   render();
   if (!focus) return;
-  setTimeout(() => {
-    if (t === 'market' && !mk.custom) $('mk-q')?.focus({ preventScroll: true });
-  }, 30);
+  requestAnimationFrame(() => {
+    if (was?.kind === 'setup') {
+      const row = $('mk-list')?.querySelector(`.mk-row[data-id="${CSS.escape(was.id)}"]`);
+      row?.scrollIntoView({ block: 'nearest' });
+    }
+    $(currentTab() === 'market' ? 'mk-q' : 'sv-q')?.focus({ preventScroll: true });
+  });
+}
+
+function openSetup(id) {
+  const r = catalogRow(id);
+  if (!r) return;
+  delete mk.notes[id];
+  const sub = r.setup?.title && r.setup.title.length <= 64 ? r.setup.title : 'MCP servers';
+  enterView({ kind: 'setup', id }, { title: `Connect ${r.label}`, sub });
+}
+
+function openCustom(text = '') {
+  enterView({ kind: 'custom' }, { title: 'Custom server', sub: 'MCP servers', focus: 'mcp-src' });
+  if (text) setSource(text);
+}
+
+function openApp(name) {
+  const s = serverByName(name);
+  if (!s) return;
+  delete notes[name];
+  enterView({ kind: 'app', name }, { title: 'Use your own OAuth app', sub: `Sign in to ${displayName(s)} through an app you registered`, focus: `mcp-app-${name}-id` });
+}
+
+// ─── Marketplace actions ──────────────────────────────────────────────────
+
+function setTab(t, { focus = true, q = null } = {}) {
+  tab = t;
+  if (q !== null && t === 'market') {
+    mk.q = q;
+    mk.active = 0;
+    const input = $('mk-q');
+    if (input) input.value = q;
+  }
+  if (view) {
+    view = null;
+    setView('mcp', null);
+  }
+  render();
+  $('mcp-body').scrollTop = 0;
+  if (focus) setTimeout(() => $(t === 'market' ? 'mk-q' : 'sv-q')?.focus({ preventScroll: true }), 30);
 }
 
 function credentialsFor(r) {
@@ -1337,7 +1432,7 @@ function credentialsFor(r) {
   return { values, missing };
 }
 
-/** The row's button (or Enter on it): connect now, or unfold its guided setup first. */
+/** The row's button (or Enter on it): connect now, or open its guided setup first. */
 function mkPrimary(id) {
   const r = catalogRow(id);
   if (!r) return;
@@ -1349,36 +1444,28 @@ function mkPrimary(id) {
     else manage(id);
     return;
   }
-  if (['key', 'app', 'desktop'].includes(r.auth) && mk.open !== id) {
-    toggleSetup(id);
+  if (guided(r) && view?.kind !== 'setup') {
+    openSetup(id);
     return;
   }
   connectMarket(id);
-}
-
-function toggleSetup(id) {
-  mk.open = mk.open === id ? '' : id;
-  delete mk.notes[id];
-  renderMarket();
-  if (mk.open === id) {
-    setTimeout(() => {
-      const row = $('mk-list')?.querySelector(`.mk-row[data-id="${CSS.escape(id)}"]`);
-      row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      if (window.matchMedia('(min-width: 561px)').matches) row?.querySelector('.mk-panel .pv-input')?.focus({ preventScroll: true });
-    }, 180);
-  }
 }
 
 /** Add a marketplace server and take it as far as it goes: connected, or its sign-in page open. */
 async function connectMarket(id) {
   const r = catalogRow(id);
   if (!r || mk.busy[id]) return;
+  const inSetup = view?.kind === 'setup' && view.id === id;
   const { values, missing } = credentialsFor(r);
   if (missing.length) {
-    mk.open = id;
+    if (!inSetup) {
+      openSetup(id);
+      return;
+    }
     mk.notes[id] = { text: `Paste the ${missing.join(' and ')} first.`, error: true };
-    renderMarket();
-    $('mk-list')?.querySelector(`.mk-row[data-id="${CSS.escape(id)}"] .pv-input`)?.focus();
+    render();
+    const empty0 = [...($('mcp-body')?.querySelectorAll('.mk-fields .pv-input') || [])].find((x) => !x.value.trim());
+    empty0?.focus();
     return;
   }
   // A hosted sign-in follows: open its tab now, inside the click (pop-up blockers allow only that).
@@ -1388,43 +1475,46 @@ async function connectMarket(id) {
   }
   mk.busy[id] = true;
   delete mk.notes[id];
-  renderMarket();
+  render();
   const res = await extPost('mcp/add', { source: id, scope: add.scope, credentials: values, connect: true });
   delete mk.busy[id];
   applyResult(res);
   const out = (res.servers || [])[0] || {};
   const name = out.name || id;
+  const done = () => {
+    for (const v of r.credentials || []) delete drafts[`mk-f-${id}-${v}`];
+    if (view?.kind === 'setup' && view.id === id) leaveView();
+  };
   switch (out.status) {
     case 'connected':
       closeWin(win);
-      mk.open = '';
-      for (const v of r.credentials || []) delete drafts[`mk-f-${id}-${v}`];
+      done();
       showToast(`Connected ${r.label} · ${plural(out.tool_count || 0, 'tool')}`);
       haptic(10);
       break;
     case 'auth_required':
-      mk.open = '';
-      for (const v of r.credentials || []) delete drafts[`mk-f-${id}-${v}`];
+      done();
       haptic(10);
       await authenticate(name, win);
       break;
     case 'needs_credentials':
       closeWin(win);
-      mk.open = id;
       mk.notes[id] = { text: `${r.label} was added, but it still needs ${(out.missing || []).join(', ')}.`, error: true };
       break;
     case 'added':
       closeWin(win);
-      mk.notes[id] = { text: `${r.label} added — switch on “Project + global” in Your servers to use it.`, error: false };
+      done();
+      mk.notes[id] = { text: `${r.label} added — choose “Project + global” in Your servers to use it.`, error: false };
       break;
     case 'exists':
     case 'denied':
       closeWin(win);
+      done();
       mk.notes[id] = { text: out.message || `${r.label} is already set up.`, error: false };
       break;
     default:
       closeWin(win);
-      mk.open = '';
+      // In the setup view the error stays next to the fields; from the list, under the row.
       mk.notes[id] = { text: out.error || res.error || `Couldn’t add ${r.label}.`, error: true };
   }
   renderAll();
@@ -1442,17 +1532,6 @@ function manage(id) {
   }, 160);
 }
 
-function openCustom(text = '') {
-  mk.custom = true;
-  render();
-  if (text) setSource(text);
-  setTimeout(() => {
-    const ta = $('mcp-src');
-    autosize(ta);
-    ta?.focus({ preventScroll: true });
-  }, 40);
-}
-
 function moveActive(delta) {
   const picks = pickable(marketItems());
   if (!picks.length) return;
@@ -1464,7 +1543,6 @@ function activateActive() {
   const it = pickable(marketItems())[mk.active];
   if (!it) return;
   if (it.kind === 'source') openCustom(mk.q.trim());
-  else if (it.kind === 'custom') openCustom();
   else if (it.kind === 'row') mkPrimary(it.key);
 }
 
@@ -1544,7 +1622,6 @@ async function addServer() {
     }
     const first = res.servers.find((r) => ['auth_required', 'needs_credentials', 'failed'].includes(r.status));
     if (first) openName = first.name;
-    scrollToServer((first || res.servers[0])?.name);
     const ok = res.servers.filter((r) => r.status === 'connected');
     if (ok.length) showToast(`Connected ${ok.map((r) => r.name).join(', ')}`);
   }
@@ -1564,15 +1641,6 @@ function toggleRow(name) {
       row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 120);
   }
-}
-
-/** Bring a card into view (the add panel above is tall, the new server sits below it). */
-function scrollToServer(name) {
-  if (!name) return;
-  setTimeout(() => {
-    const row = $('mcp-list')?.querySelector(`.pv-row[data-name="${CSS.escape(name)}"]`);
-    row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, 260);
 }
 
 function focusKey(name) {
@@ -1599,8 +1667,8 @@ async function pasteInto(inputId) {
 
 function handleClick(e) {
   const el = e.target.closest('[data-act]');
-  const body = $('mcp-body');
-  if (!el || !body.contains(el)) return;
+  const root = $('mcp');
+  if (!el || !root?.contains(el)) return;
   const act = el.dataset.act;
   const name = el.dataset.name || el.closest('.pv-row')?.dataset.name || '';
   switch (act) {
@@ -1624,50 +1692,42 @@ function handleClick(e) {
       if (toolsOpen.has(name)) toolsOpen.delete(name); else toolsOpen.add(name);
       render();
       break;
-    case 'tab': setTab(el.dataset.val); break;
+    case 'tab': setTab(el.dataset.val, { q: el.dataset.q ?? null }); break;
     case 'mk-cat':
       mk.cat = el.dataset.val || ALL;
       mk.active = 0;
-      renderMarket();
-      $('mk-list')?.scrollTo({ top: 0 });
+      if (!view && currentTab() !== 'market') tab = 'market';
+      render();
+      $('mcp-body').scrollTop = 0;
       break;
     case 'mk-pick': {
       const id = el.dataset.id;
-      const picks = pickable(marketItems());
-      const i = picks.findIndex((it) => it.key === id);
+      const i = pickable(marketItems()).findIndex((it) => it.key === id);
       if (i >= 0) mk.active = i;
-      const r = catalogRow(id);
-      // The row itself: guided ones unfold, installed ones go to their card, the rest connect.
-      if (r && !installedOf(r) && !['key', 'app', 'desktop'].includes(r.auth)) connectMarket(id);
-      else if (r && installedOf(r)) mkPrimary(id);
-      else toggleSetup(id);
+      mkPrimary(id);
       break;
     }
     case 'mk-connect': connectMarket(el.dataset.id); break;
-    case 'mk-toggle': toggleSetup(el.dataset.id); break;
+    case 'mk-setup': openSetup(el.dataset.id); break;
     case 'mk-manage': manage(el.dataset.id); break;
     case 'mk-source': openCustom(mk.q.trim()); break;
     case 'mk-custom': openCustom(); break;
-    case 'mk-back':
-      mk.custom = false;
-      render();
-      setTimeout(() => $('mk-q')?.focus({ preventScroll: true }), 30);
+    case 'back': leaveView(); break;
+    case 'custom-done':
+      add.result = null;
+      leaveView({ focus: false });
+      setTab('servers');
       break;
-    case 'open-app':
-      appOpen.add(name);
-      render();
-      setTimeout(() => $(`mcp-app-${name}-id`)?.focus({ preventScroll: true }), 60);
-      break;
-    case 'close-app': appOpen.delete(name); render(); break;
-    case 'save-app': saveApp(name); break;
+    case 'open-app': openApp(name); break;
+    case 'save-app': saveApp(el.dataset.name || name); break;
     case 'copy-text':
       copyText(el.dataset.text || '').then((ok) => showToast(ok ? 'Copied' : 'Copy failed', !ok));
       break;
     case 'scope':
       add.scope = el.dataset.val;
       add.scopeTouched = true;
-      renderAddPanel();
-      patch($('mk-foot'), mkFootHtml());
+      if (view?.kind === 'custom') renderAddPanel();
+      else renderFoot();
       break;
     case 'global': {
       const on = el.dataset.val === 'true';
@@ -1680,7 +1740,6 @@ function handleClick(e) {
       break;
     }
     case 'add': addServer(); break;
-    case 'dismiss-result': add.result = null; renderPreview(); break;
     case 'dismiss': dismissed.add(name); renderBanner(); break;
     case 'more': closeMenu(); openMcp(); break;
     case 'reveal': {
@@ -1705,7 +1764,12 @@ function handleInput(e) {
     mk.q = el.value;
     mk.active = 0;
     renderMarket();
-    $('mk-list')?.scrollTo({ top: 0 });
+    $('mcp-body').scrollTop = 0;
+    return;
+  }
+  if (el.id === 'sv-q') {
+    svq = el.value;
+    renderList();
     return;
   }
   if (el.id === 'mcp-src') {
@@ -1743,16 +1807,18 @@ function handleKey(e) {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       activateActive();
-    } else if (e.key === 'Escape' && el.value) {
-      // First Esc clears the search; the next one closes the dialog.
-      e.preventDefault();
-      e.stopPropagation();
-      el.value = '';
-      mk.q = '';
-      mk.active = 0;
-      renderMarket();
     }
     return;
+  }
+  // Your servers: ↑ ↓ between the search and the cards; Enter in the search opens the first one.
+  const heads = () => [...($('mcp-list')?.querySelectorAll('.pv-row > .pv-head') || [])];
+  if (el.id === 'sv-q' || (el.classList?.contains('pv-head') && $('mcp-list')?.contains(el))) {
+    if (arrowRows(e, $('sv-q'), heads())) return;
+    if (el.id === 'sv-q' && e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      heads()[0]?.click();
+      return;
+    }
   }
   if (e.key !== 'Enter' || e.isComposing) return;
   if (el.id === 'mcp-src') {
@@ -1770,13 +1836,12 @@ function handleKey(e) {
   if (el.id.startsWith('mcp-cred-')) addServer();
   const app = /^mcp-app-(.+)-(id|secret)$/.exec(el.id);
   if (app) saveApp(app[1]);
-  const mf = /^mk-f-(.+?)-[A-Za-z0-9_]+$/.exec(el.id);
-  if (mf) {
+  if (el.id.startsWith('mk-f-') && view?.kind === 'setup') {
     // Next empty field, else connect.
     const inputs = [...(el.closest('.mk-fields')?.querySelectorAll('.pv-input') || [])];
     const next = inputs.slice(inputs.indexOf(el) + 1).find((x) => !x.value.trim());
     if (next) next.focus();
-    else connectMarket(mf[1]);
+    else connectMarket(view.id);
   }
 }
 
@@ -1796,9 +1861,9 @@ function handleBannerClick(e) {
 /** `focus`: a server name to open its card, `market` (or a search like `market slack`) for the marketplace. */
 export function openMcp(focus = '') {
   const m = /^(?:market(?:place)?|browse|add)\b\s*(.*)$/i.exec(String(focus || '').trim());
+  view = null;
   if (m) {
     tab = 'market';
-    mk.custom = false;
     if (m[1]) {
       mk.q = m[1];
       mk.active = 0;
@@ -1810,17 +1875,19 @@ export function openMcp(focus = '') {
   } else if (focus) {
     // Not one of yours: look for it in the marketplace.
     tab = 'market';
-    mk.custom = false;
     mk.q = focus;
     mk.active = 0;
     focus = '';
   }
   render();
-  if ($('mk-q') && $('mk-q').value !== mk.q) $('mk-q').value = mk.q;
+  if ($('mk-q') && $('mk-q').value !== mk.q) {
+    $('mk-q').value = mk.q;
+    renderMarket();
+  }
   // Phones: no keyboard popping up over the list until the user taps the search.
   const wide = window.matchMedia('(min-width: 561px)').matches;
   openModal('mcp', {
-    focus: (currentTab() === 'market' && wide ? $('mk-q') : null) || undefined,
+    focus: (wide ? $(currentTab() === 'market' ? 'mk-q' : 'sv-q') : null) || undefined,
     onClose: () => {
       closeMenu();
       confirmName = null;
@@ -1828,10 +1895,9 @@ export function openMcp(focus = '') {
       // A finished result / unsent text stay for the next visit; an open sign-in keeps its card.
       if (!Object.keys(auth).some((n) => openName === n)) openName = null;
       for (const id of Object.keys(mk.notes)) delete mk.notes[id];
-      appOpen.clear();
+      view = null; // modal.js already reset the header
     },
   });
-  autosize($('mcp-src'));
   refreshMcp().then(() => {
     if (isModalOpen('mcp')) {
       if (!openName && currentTab() === 'servers') {
@@ -1839,8 +1905,9 @@ export function openMcp(focus = '') {
         if (first) openName = first.name;
       }
       render();
-      if (currentTab() === 'market' && !mk.custom && document.activeElement?.id !== 'mk-q'
-        && window.matchMedia('(min-width: 561px)').matches) $('mk-q')?.focus({ preventScroll: true });
+      const q = $(currentTab() === 'market' ? 'mk-q' : 'sv-q');
+      if (!view && q && document.activeElement !== q && !$('mcp')?.contains(document.activeElement)
+        && window.matchMedia('(min-width: 561px)').matches) q.focus({ preventScroll: true });
     }
   });
 }
@@ -1850,10 +1917,10 @@ export function closeMcp() {
 }
 
 export function initMcp() {
-  const body = $('mcp-body');
-  body?.addEventListener('click', handleClick);
-  body?.addEventListener('input', handleInput);
-  body?.addEventListener('keydown', handleKey);
+  const root = $('mcp');
+  root?.addEventListener('click', handleClick);
+  root?.addEventListener('input', handleInput);
+  root?.addEventListener('keydown', handleKey);
   $('mcp-chip')?.addEventListener('click', handleBannerClick);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {

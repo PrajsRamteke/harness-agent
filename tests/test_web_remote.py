@@ -221,7 +221,7 @@ def test_js_modules_import_existing_files_and_names():
     for f in js.glob("*.js"):
         for names, mod in re.findall(r"import \{([^}]+)\} from '\./([\w.]+)'", f.read_text()):
             assert mod in exports, f"{f.name} imports missing {mod}"
-            for name in (n.strip() for n in names.split(",") if n.strip()):
+            for name in (n.strip().split(" as ")[0].strip() for n in names.split(",") if n.strip()):
                 assert name in exports[mod], f"{f.name} imports {name} not exported by {mod}"
 
 
@@ -231,6 +231,9 @@ def test_every_element_id_the_scripts_look_up_exists():
     markup = (STATIC / "index.html").read_text() + "\n".join(js.values())
     missing: dict[str, list[str]] = {}
     built_by_helpers = {"pv-quick"}     # providers.js field('pv-quick', …) writes the id
+    # dialog.js toolbar({ id: 'x' }) writes the search box's id.
+    for src in js.values():
+        built_by_helpers |= set(re.findall(r"toolbar\(\{\s*id:\s*'([\w-]+)'", src))
     for name, src in js.items():
         for ident in set(re.findall(r"\$\('([\w-]+)'\)", src)) - built_by_helpers:
             if f'id="{ident}"' not in markup and f"id='{ident}'" not in markup:

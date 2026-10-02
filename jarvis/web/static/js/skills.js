@@ -13,6 +13,7 @@ import { openModal, closeModal, isModalOpen } from './modal.js';
 import { fetchSkills, fetchSkill, extPost, pickerAction } from './api.js';
 import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 import { btn, rowBtn, moreBtn, seg, mark, patch, autosize, msg, spin, plural, tildify, openMenu, closeMenu } from './extui.js';
+import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
 
 const SCOPES = [
   { value: 'project', label: 'This project', title: 'Only in this folder (.harness/skills)' },
@@ -25,7 +26,10 @@ const FEATURED = [
 let data = null; // last /api/skills
 let loadError = false;
 let built = false;
-let view = null; // { name, content?, loading?, error? } — the SKILL.md reader
+let view = null; // { name, content?, loading?, error? } — the SKILL.md reader (a sub-view)
+let mode = 'list'; // 'list' | 'add' — "Add a skill" is a sub-view too
+let query = '';
+let barBuilt = false;
 let previewSeq = 0;
 const busy = {};
 const notes = {};
@@ -43,13 +47,6 @@ const add = {
 const kb = (n) => (n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 1024)} KB` : `${(n / 1_048_576).toFixed(1)} MB`);
 
 // ─── Markup ───────────────────────────────────────────────────────────────
-
-function pathHint() {
-  if (!data) return '';
-  return add.scope === 'project'
-    ? `Installed into <code>${escapeHtml(tildify(data.project_dir) || '.harness/skills')}</code> — only in this folder.`
-    : `Installed into <code>${escapeHtml(tildify(data.global_dir) || '~/.harness/skills')}</code> — every project.`;
-}
 
 function chipsHtml() {
   return `<div class="ex-chips" role="group" aria-label="Where to find skills">${FEATURED.map((c) => `
@@ -80,14 +77,14 @@ function resultHtml(r) {
   return `${msg(`Installed ${names} (${where}). Jarvis loads ${(r.installed || []).length === 1 ? 'it' : 'them'} when a task matches.`, 'ok')}
     ${r.scope_note ? `<p class="pv-hint">${escapeHtml(r.scope_note)}</p>` : ''}
     ${skipped ? `<ul class="ex-hints">${skipped}</ul>` : ''}
-    <div class="pv-actions"><button type="button" class="btn btn-quiet btn-sm" data-act="dismiss-result">Done</button></div>`;
+    <div class="pv-actions"><button type="button" class="btn btn-sm" data-act="done">${icon('check')}<span>Done</span></button><button type="button" class="btn btn-quiet btn-sm" data-act="dismiss-result">Add another</button></div>`;
 }
 
 function previewHtml() {
   if (add.result) return resultHtml(add.result);
   const p = add.preview;
   if (!add.text.trim()) {
-    return '<p class="pv-hint ex-idle">Paste a GitHub link (a repo or one folder), <code>owner/repo</code>, a SKILL.md link, a .zip, or a folder path. Skills are instructions Jarvis follows — only add ones you trust.</p>';
+    return '<p class="pv-hint ex-idle">Skills are instructions Jarvis follows — only add ones you trust.</p>';
   }
   if (!p || p.loading) return `<p class="pv-hint ex-loading">${spin('Reading it… a big repository can take a few seconds')}</p>`;
   if (p.error) return msg(p.error, 'error');
@@ -130,53 +127,64 @@ function skillRow(s, i) {
   </div>`;
 }
 
+function matches(s, q) {
+  const hay = `${s.name} ${s.description || ''} ${s.tool_label || ''} ${s.scope || ''}`.toLowerCase();
+  return q.split(/\s+/).every((w) => hay.includes(w));
+}
+
 function listHtml() {
   const skills = data?.skills || [];
   if (!skills.length) {
-    return `<div class="list-empty ex-empty">${icon('book-open')}<strong>No skills yet</strong>Skills teach Jarvis a repeatable job — review a PR, fill a PDF, write in your voice. Paste a link above to add one.</div>`;
+    const featured = FEATURED[0];
+    return empty('No skills yet', 'Skills teach Jarvis a repeatable job — review a PR, fill a PDF, write in your voice.', {
+      ic: 'book-open',
+      action: `${btn('add', 'Add a skill', { cls: 'btn-primary', ic: 'plus' })}
+        <button type="button" class="btn" data-act="chip" data-text="${escapeHtml(featured.text)}" title="${escapeHtml(featured.desc)}">${icon('sparkles')}<span>Browse ${escapeHtml(featured.label)}</span></button>`,
+    });
   }
-  return skills.map(skillRow).join('');
+  const q = query.trim().toLowerCase();
+  const shown = q ? skills.filter((s) => matches(s, q)) : skills;
+  if (!shown.length) return empty('No skills match', `Nothing installed matches “${escapeHtml(query.trim())}”.`, { ic: 'search', action: btn('add', 'Add a skill', { ic: 'plus' }) });
+  return shown.map(skillRow).join('');
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────
 
-function build(body) {
+function buildList(body) {
   body.innerHTML = `
-    <section class="ex-add" aria-label="Add a skill">
-      <div class="ex-add-head"><h3>Add a skill</h3><span>From a GitHub link, a SKILL.md, an archive or a folder</span></div>
+    <div id="skills-notice"></div>
+    <section class="ex-list-sec" aria-label="Installed skills">
+      <div id="skills-count"></div>
+      <div class="ex-list" id="skills-list"></div>
+    </section>`;
+  built = 'list';
+}
+
+function buildAdd(body) {
+  body.innerHTML = `
+    <section class="ex-add is-flat" aria-label="Add a skill">
+      <p class="dlg-lead">Paste a GitHub repo or folder link, <code>owner/repo</code>, a SKILL.md link, an archive or a folder path. Jarvis reads it first and lists what it found.</p>
       <div class="ex-src">
         <span class="pv-field-ic">${icon('link')}</span>
         <textarea id="skills-src" class="ex-src-input" rows="1" placeholder="Paste a GitHub link, owner/repo, or a SKILL.md link"
           aria-label="Skill to add" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
           data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></textarea>
       </div>
-      <div class="ex-add-row">
-        <div class="ex-add-scope" id="skills-add-scope"></div>
-        <span id="skills-add-btn"></span>
-      </div>
-      <p class="ex-path" id="skills-path"></p>
       <div id="skills-chips"></div>
       <div class="ex-preview" id="skills-preview" aria-live="polite"></div>
-    </section>
-    <section class="ex-list-sec" aria-label="Installed skills">
-      <div class="ex-list-head"><h3 id="skills-count">Installed</h3><span id="skills-scope-seg"></span></div>
-      <div id="skills-notice"></div>
-      <div class="ex-list" id="skills-list"></div>
     </section>`;
   const ta = $('skills-src');
   ta.value = add.text;
   autosize(ta);
-  built = true;
+  built = 'add';
 }
 
 function renderPreview() {
   patch($('skills-preview'), previewHtml());
-  patch($('skills-add-btn'), installBtnHtml());
+  if (mode === 'add' && !view) renderFoot();
 }
 
 function renderAddPanel() {
-  patch($('skills-add-scope'), seg(SCOPES, add.scope, { label: 'Where to install it', act: 'scope' }));
-  patch($('skills-path'), pathHint());
   patch($('skills-chips'), chipsHtml());
   renderPreview();
 }
@@ -184,17 +192,11 @@ function renderAddPanel() {
 function renderList() {
   const skills = data.skills || [];
   const hidden = data.hidden_global_count || 0;
-  const sub = $('skills-sub');
-  if (sub) {
-    const project = skills.filter((s) => s.scope === 'project').length;
-    sub.textContent = skills.length ? `${plural(skills.length, 'skill')} · ${project} in this project` : 'Jarvis loads a skill when a task matches it';
-  }
-  const count = $('skills-count');
-  if (count) count.textContent = skills.length ? `Installed · ${skills.length}` : 'Installed';
-  patch($('skills-scope-seg'), seg([
-    { value: 'false', label: 'This project', title: 'Only skills from this folder' },
-    { value: 'true', label: 'Project + global', title: 'Also skills installed for every project' },
-  ], String(!!data.global_skills), { label: 'Which skills Jarvis can use', act: 'global' }));
+  const project = skills.filter((s) => s.scope === 'project').length;
+  setHomeSub('skills', skills.length ? `${plural(skills.length, 'skill')} · ${project} in this project` : 'Jarvis loads a skill when a task matches it');
+  const q = query.trim().toLowerCase();
+  const shown = q ? skills.filter((s) => matches(s, q)).length : skills.length;
+  patch($('skills-count'), skills.length ? section(q ? 'Matching' : 'Installed', { count: q ? `${shown} of ${skills.length}` : skills.length }) : '');
   patch($('skills-notice'), hidden
     ? `<p class="pv-msg is-warn" role="status">${icon('circle-alert')}<span>${plural(hidden, 'global skill')} ${hidden === 1 ? 'is' : 'are'} hidden from Jarvis.</span>
         <button type="button" class="btn btn-sm" data-act="show-global">Show ${hidden === 1 ? 'it' : 'them'}</button></p>`
@@ -204,38 +206,99 @@ function renderList() {
 
 function renderDetail() {
   const body = $('skills-body');
-  built = false;
+  built = 'read';
   const v = view;
   const s = data?.skills?.find((x) => x.name === v.name);
-  // The header's name / description are shown above; the reader shows the instructions.
+  // The header carries the name; the reader shows where it's from, then the instructions.
   const text = String(v.content || '').replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, '').trim();
   body.innerHTML = `
-    <button type="button" class="btn btn-quiet detail-back" data-act="back">${icon('arrow-left')}<span>Back to skills</span></button>
-    <div class="ex-detail-head"><strong class="ex-name">${escapeHtml(v.name)}</strong>${s ? skillBadges(s) : ''}</div>
+    ${s ? `<div class="ex-detail-head">${skillBadges(s)}</div>` : ''}
     ${s?.description ? `<p class="ex-detail-desc">${escapeHtml(s.description)}</p>` : ''}
     ${v.loading ? `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(3)}</div>` : v.error ? msg(v.error, 'error') : `<div class="md ex-md">${renderMarkdown(text)}</div>`}`;
   applyMarkdownLinks(body);
   body.scrollTop = 0;
-  body.querySelector('.detail-back')?.focus({ preventScroll: true });
+}
+
+/** Search + "Add skill" — only on the list (sub-views use the header's back button). */
+function renderBar() {
+  const bar = $('skills-bar');
+  if (!bar) return;
+  const onList = !view && mode === 'list' && !!data;
+  bar.hidden = !onList;
+  if (onList && !barBuilt) {
+    bar.innerHTML = toolbar({ id: 'skills-q', placeholder: 'Search skills', value: query, action: { act: 'add', label: 'Add skill', ic: 'plus', title: 'Add skills from a link' } });
+    barBuilt = true;
+  }
+}
+
+function renderFoot() {
+  const foot = $('skills-foot');
+  if (!foot) return;
+  if (view) {
+    patch(foot, footer({ hints: [['esc', 'back']] }));
+  } else if (mode === 'add') {
+    // A form: where it goes on the left, the install button on the right.
+    patch(foot, `<div class="dlg-actions">
+      <div class="dlg-scope"><span class="dlg-scope-lbl">Save to</span>${seg(SCOPES, add.scope, { label: 'Where to install it', act: 'scope' })}</div>
+      <span class="dlg-note" title="${escapeHtml(add.scope === 'project' ? data?.project_dir || '' : data?.global_dir || '')}"><span>${add.scope === 'project' ? 'only this folder' : 'every project'}</span></span>
+      <span class="dlg-spacer"></span>${installBtnHtml()}</div>`);
+  } else if (data) {
+    patch(foot, footer({
+      scope: seg([
+        { value: 'false', label: 'This project', title: 'Only skills from this folder' },
+        { value: 'true', label: 'Project + global', title: 'Also skills installed for every project' },
+      ], String(!!data.global_skills), { label: 'Which skills Jarvis can use', act: 'global' }),
+      hints: [['↑ ↓', 'move'], ['↵', 'read'], ['esc', 'close']],
+    }));
+  } else {
+    patch(foot, '');
+  }
 }
 
 function render() {
   const body = $('skills-body');
   if (!body) return;
+  renderBar();
+  renderFoot();
   if (view) {
+    setView('skills', { title: view.name, sub: 'Skill', back: backToList, backLabel: 'skills' });
     renderDetail();
     return;
   }
   if (!data) {
     built = false;
     body.innerHTML = loadError
-      ? `<div class="list-empty"><strong>Could not load skills</strong>Check that Jarvis is still running, then try again.<div class="pv-actions is-center">${btn('reload', 'Try again', { ic: 'refresh-cw' })}</div></div>`
+      ? empty('Could not load skills', 'Check that Jarvis is still running, then try again.', { ic: 'circle-alert', action: btn('reload', 'Try again', { ic: 'refresh-cw' }) })
       : `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(5)}</div>`;
     return;
   }
-  if (!built || !$('skills-src')) build(body);
-  renderAddPanel();
+  if (mode === 'add') {
+    setView('skills', { title: 'Add a skill', sub: 'From a link, an archive or a folder', back: backToList, backLabel: 'skills' });
+    if (built !== 'add' || !$('skills-src')) buildAdd(body);
+    renderAddPanel();
+    return;
+  }
+  setView('skills', null);
+  if (built !== 'list' || !$('skills-list')) buildList(body);
   renderList();
+}
+
+function backToList() {
+  view = null;
+  mode = 'list';
+  render();
+  $('skills-q')?.focus({ preventScroll: true });
+}
+
+function openAdd(text = '') {
+  mode = 'add';
+  view = null;
+  if (text) add.text = text;
+  render();
+  if (text) setSource(text);
+  const ta = $('skills-src');
+  ta?.focus({ preventScroll: true });
+  autosize(ta);
 }
 
 export async function refreshSkills() {
@@ -397,17 +460,18 @@ async function setGlobal(on) {
 
 function handleClick(e) {
   const el = e.target.closest('[data-act]');
-  const body = $('skills-body');
-  if (!el || !body.contains(el)) return;
+  const card = $('skills');
+  if (!el || !card?.contains(el)) return;
   const name = el.dataset.name || el.closest('[data-name]')?.dataset.name || '';
   switch (el.dataset.act) {
     case 'view': openSkill(name); break;
-    case 'back':
-      view = null;
-      render();
-      break;
+    case 'add': openAdd(); break;
+    case 'done': backToList(); break;
     case 'menu': menuFor(name, el); break;
-    case 'chip': setSource(el.dataset.text); $('skills-src')?.focus(); break;
+    case 'chip':
+      if (mode !== 'add') openAdd(el.dataset.text);
+      else { setSource(el.dataset.text); $('skills-src')?.focus(); }
+      break;
     case 'scope':
       add.scope = el.dataset.val;
       add.scopeTouched = true;
@@ -444,6 +508,11 @@ function handleChange(e) {
 
 function handleInput(e) {
   const el = e.target;
+  if (el.id === 'skills-q') {
+    query = el.value;
+    if (data) renderList();
+    return;
+  }
   if (el.id !== 'skills-src') return;
   add.text = el.value;
   add.result = null;
@@ -456,6 +525,12 @@ function handleInput(e) {
 }
 
 function handleKey(e) {
+  if (!view && mode === 'list' && arrowRows(e, $('skills-q'), [...($('skills-list')?.querySelectorAll('.ex-skill-main') || [])])) return;
+  if (e.key === 'Enter' && !e.isComposing && e.target.id === 'skills-q') {
+    const first = $('skills-list')?.querySelector('.ex-skill-main:not([disabled])');
+    if (first) { e.preventDefault(); first.click(); }
+    return;
+  }
   if (e.key !== 'Enter' || e.isComposing || e.shiftKey) return;
   if (e.target.id === 'skills-src') {
     e.preventDefault();
@@ -468,17 +543,22 @@ function handleKey(e) {
 
 export function openSkills() {
   view = null;
+  mode = 'list';
+  query = '';
+  barBuilt = false;
   render();
   openModal('skills', {
-    focus: $('skills-src') || undefined,
+    focus: $('skills-q') || undefined,
     onClose: () => {
       closeMenu();
       view = null;
+      mode = 'list';
       for (const n of Object.keys(notes)) delete notes[n];
     },
   });
-  autosize($('skills-src'));
-  refreshSkills();
+  refreshSkills().then(() => {
+    if (isModalOpen('skills') && !view && mode === 'list' && document.activeElement?.closest?.('#skills') && !document.activeElement.matches('input, textarea')) $('skills-q')?.focus({ preventScroll: true });
+  });
 }
 
 export function closeSkills() {
@@ -490,15 +570,9 @@ export function handleSkillsEvent() {
 }
 
 export function initSkills() {
-  const body = $('skills-body');
-  body?.addEventListener('click', handleClick);
-  body?.addEventListener('change', handleChange);
-  body?.addEventListener('input', handleInput);
-  body?.addEventListener('keydown', handleKey);
-  body?.addEventListener('keydown', (e) => {
-    if (e.key === 'Backspace' && view && e.target === body) {
-      view = null;
-      render();
-    }
-  });
+  const card = $('skills');
+  card?.addEventListener('click', handleClick);
+  card?.addEventListener('change', handleChange);
+  card?.addEventListener('input', handleInput);
+  card?.addEventListener('keydown', handleKey);
 }

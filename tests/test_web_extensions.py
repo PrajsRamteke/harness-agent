@@ -257,8 +257,14 @@ def test_oauth_app_route_saves_the_app_for_a_hosted_server(remote, monkeypatch):
 
 def test_marketplace_is_wired_in_the_page():
     mcp = (STATIC / "js" / "mcp.js").read_text()
-    for ident in ('id="mk-q"', 'id="mk-cats"', 'id="mk-list"', 'id="mk-custom"', "'mcp/app'", "mk-tabs"):
+    for ident in ("id: 'mk-q'", "id: 'sv-q'", 'id="mk-cats"', 'id="mk-list"', "'mcp/app'", "mk-tabs"):
         assert ident in mcp, ident
+    # Built on the shared dialog kit: sub-views use the header's back button, never an in-body link.
+    assert "from './dialog.js'" in mcp and "setView('mcp'" in mcp and "mk-back" not in mcp
+    html = (STATIC / "index.html").read_text()
+    card = html[html.index('<div class="modal" id="mcp"'):html.index('<div class="modal" id="skills"')]
+    for ident in ('id="mcp-tabs"', 'id="mcp-bar"', 'id="mcp-body"', 'id="mcp-foot"', "dlg-back", "dlg-card"):
+        assert ident in card, ident
     assert "chipsHtml" not in mcp  # the old wall of quick-add chips is gone
     for kind in ("oauth", "open", "key", "app", "desktop", "local"):
         assert f"  {kind}: {{ label:" in mcp, kind

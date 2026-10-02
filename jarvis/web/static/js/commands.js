@@ -14,6 +14,7 @@ import { fetchCommands, extPost, pickerAction } from './api.js';
 import { setCustomItems, setCustomRefresher } from './catalog.js';
 import { fillPrompt, submitPrompt } from './composer.js';
 import { rowBtn, moreBtn, seg, patch, msg, spin, plural, tildify, openMenu, closeMenu } from './extui.js';
+import { setView, setHomeSub, toolbar, section as dlgSection, footer, empty, arrowRows } from './dialog.js';
 
 const SCOPES = [
   { value: 'project', label: 'This project', title: 'Only in this folder (.harness/commands)' },
@@ -231,9 +232,9 @@ function emptyHtml() {
 
 function section(title, rows, dir, offset, shown = '') {
   if (!rows.length) return '';
+  const path = dir ? `<code class="cm-sec-path" title="${escapeHtml(dir)}">${escapeHtml(shown || tildify(dir))}</code>` : '';
   return `<section class="cm-sec" aria-label="${escapeHtml(title)}">
-    <div class="cm-sec-head"><span class="cm-sec-title">${escapeHtml(title)}</span><span class="cm-count">${rows.length}</span>
-      ${dir ? `<code class="cm-sec-path" title="${escapeHtml(dir)}">${escapeHtml(shown || tildify(dir))}</code>` : ''}</div>
+    ${dlgSection(title, { count: rows.length, right: path })}
     <div class="ex-list">${rows.map((c, i) => commandRow(c, offset + i)).join('')}</div>
   </section>`;
 }
@@ -252,8 +253,10 @@ function listHtml() {
   if (!(data?.commands || []).length) return emptyHtml();
   const rows = filtered();
   if (!rows.length) {
-    return `<div class="list-empty"><strong>No command matches “${escapeHtml(query.trim())}”</strong>
-      <div class="pv-actions is-center"><button type="button" class="btn btn-sm" data-act="new-from-query">${icon('plus')}<span>Make /${escapeHtml(slugify(query))}</span></button></div></div>`;
+    return empty(`No command matches “${query.trim()}”`, 'Try another word — or make it now.', {
+      ic: 'search',
+      action: `<button type="button" class="btn" data-act="new-from-query">${icon('plus')}<span>Make /${escapeHtml(slugify(query))}</span></button>`,
+    });
   }
   const project = rows.filter((c) => c.scope === 'project');
   const global = rows.filter((c) => c.scope !== 'project');
@@ -278,49 +281,49 @@ function noticeHtml() {
   return out.join('');
 }
 
-function footHtml() {
+function listFootHtml() {
   const any = (data?.commands || []).length;
-  return `<div class="cm-foot">
-    <p class="cm-how">${icon('info')}<span>Type <kbd>/</kbd> in the message box to run one. Add words after the name to fill <code>$ARGUMENTS</code>.</span></p>
-    ${any ? `<div class="cm-scope"><span>Use commands from</span>${seg([
+  return footer({
+    scope: any ? seg([
       { value: 'false', label: 'This project', title: 'Only commands saved in this folder' },
       { value: 'true', label: 'Project + global', title: 'Also commands saved for every project' },
-    ], String(!!data.global_commands), { label: 'Which commands Jarvis uses', act: 'global' })}</div>` : ''}
-  </div>`;
+    ], String(!!data.global_commands), { label: 'Which commands Jarvis uses', act: 'global' }) : '',
+    note: 'Type <kbd>/</kbd> in the chat to run one',
+    hints: [['↑ ↓', 'move'], ['↵', 'edit'], ['esc', 'close']],
+  });
+}
+
+/** Search + "New command" — only on the list (the editor uses the header's back button). */
+function renderBar() {
+  const bar = $('commands-bar');
+  if (!bar) return;
+  const onList = !view && !!data;
+  bar.hidden = !onList;
+  if (onList && !$('cm-search')) {
+    bar.innerHTML = toolbar({ id: 'cm-search', placeholder: 'Search your commands', value: query, action: { act: 'new', label: 'New command', ic: 'plus' } });
+  }
 }
 
 function buildList(body) {
   body.innerHTML = `
-    <div class="cm-toolbar">
-      <div class="pv-field has-lead cm-search">
-        <span class="pv-field-ic">${icon('search')}</span>
-        <input id="cm-search" class="pv-input is-plain" type="search" placeholder="Search your commands" aria-label="Search your commands"
-          autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other" enterkeyhint="search">
-      </div>
-      <button type="button" class="btn btn-primary cm-new" data-act="new" aria-label="New command" title="New command">${icon('plus')}<span>New command</span></button>
-    </div>
     <div id="cm-notice" class="cm-notice"></div>
-    <div id="cm-list" class="cm-list"></div>
-    <div id="cm-foot"></div>`;
-  $('cm-search').value = query;
+    <div id="cm-list" class="cm-list"></div>`;
   built = 'list';
 }
 
 function renderList() {
   const body = $('commands-body');
-  if (built !== 'list' || !$('cm-search')) buildList(body);
+  setView('commands', null);
+  renderBar();
+  if (built !== 'list' || !$('cm-list')) buildList(body);
   const list = data.commands || [];
-  const sub = $('commands-sub');
-  if (sub) {
-    const project = list.filter((c) => c.scope === 'project').length;
-    sub.textContent = list.length
-      ? `${plural(list.length, 'command')} · ${project} in this project`
-      : 'Prompts you reuse, one /name away';
-  }
-  $('cm-search').closest('.cm-toolbar').hidden = !list.length;
+  const project = list.filter((c) => c.scope === 'project').length;
+  setHomeSub('commands', list.length
+    ? `${plural(list.length, 'command')} · ${project} in this project`
+    : 'Prompts you reuse, one /name away');
   patch($('cm-notice'), noticeHtml());
   patch($('cm-list'), listHtml());
-  patch($('cm-foot'), footHtml());
+  patch($('commands-foot'), listFootHtml());
   if (flash) {
     const name = flash;
     flash = '';
@@ -443,12 +446,15 @@ function insertChips() {
 function buildEditor(body) {
   const v = view;
   const fresh = !v.path;
+  setView('commands', {
+    title: fresh ? 'New command' : `Edit /${v.original.name}`,
+    sub: fresh ? 'A prompt you can run with /name' : 'Changes apply the next time you run it',
+    back: () => leaveEditor(),
+    backLabel: 'commands',
+  });
+  renderBar();
   body.innerHTML = `
-    <button type="button" class="btn btn-quiet detail-back" data-act="back">${icon('arrow-left')}<span>All commands</span></button>
-    <div class="cm-ed-head">
-      <h3>${fresh ? 'New command' : `Edit <span class="cm-name">/${escapeHtml(v.original.name)}</span>`}</h3>
-      ${v.command ? badges(v.command) : ''}
-    </div>
+    ${v.command ? `<div class="cm-ed-head">${badges(v.command)}</div>` : ''}
     <div id="cm-ed-starters"></div>
     <div class="cm-form">
       <div class="cm-fieldset">
@@ -486,7 +492,7 @@ function buildEditor(body) {
           autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other"></label>
       <div class="cm-preview" id="cm-preview" aria-live="polite"></div>
     </section>
-    <div class="cm-actions" id="cm-actions"></div>`;
+`;
   $('cm-name').value = v.draft.name;
   $('cm-desc').value = v.draft.description;
   $('cm-body').value = v.draft.body;
@@ -508,8 +514,6 @@ function renderEditor() {
   if (built !== 'edit' || !$('cm-name')) buildEditor(body);
   const v = view;
   const d = v.draft;
-  const sub = $('commands-sub');
-  if (sub) sub.textContent = v.path ? 'Changes apply the next time you run it' : 'A prompt you can run with /name';
   patch($('cm-ed-starters'), !v.path && !d.body.trim()
     ? `<div class="cm-ed-starters"><span>Start from an example</span>${STARTERS.map((s, i) => `<button type="button" class="pv-chip ex-chip" data-act="starter" data-i="${i}" title="${escapeHtml(s.description)}"><span class="cm-name">/${escapeHtml(s.name)}</span></button>`).join('')}</div>`
     : '');
@@ -523,7 +527,8 @@ function renderEditor() {
   if (tryCmd.textContent !== shown) tryCmd.textContent = shown;
   $('cm-try').placeholder = d.argument_hint || 'type example words…';
   patch($('cm-preview'), previewHtml(d.body, v.tryArgs));
-  patch($('cm-actions'), actionsHtml());
+  // The editor's buttons live in the footer, so they never scroll away.
+  patch($('commands-foot'), `<div class="cm-actions">${actionsHtml()}</div>`);
 }
 
 function render() {
@@ -531,8 +536,12 @@ function render() {
   if (!body) return;
   if (!data) {
     built = '';
+    renderBar();
+    patch($('commands-foot'), '');
     body.innerHTML = loadError
-      ? `<div class="list-empty"><strong>Could not load your commands</strong>Check that Jarvis is still running, then try again.<div class="pv-actions is-center"><button type="button" class="btn" data-act="reload">${icon('refresh-cw')}<span>Try again</span></button></div></div>`
+      ? empty('Could not load your commands', 'Check that Jarvis is still running, then try again.', {
+        ic: 'circle-alert', action: `<button type="button" class="btn" data-act="reload">${icon('refresh-cw')}<span>Try again</span></button>`,
+      })
       : `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(4)}</div>`;
     return;
   }
@@ -577,6 +586,7 @@ function leaveEditor({ force = false } = {}) {
   if (!force && dirty() && view.armed !== 'discard') {
     view.armed = 'discard';
     renderEditor();
+    showToast('You have unsaved changes — go back again to discard them');
     return;
   }
   view = null;
@@ -712,8 +722,8 @@ function onEditorInput(el) {
 
 function handleClick(e) {
   const el = e.target.closest('[data-act]');
-  const body = $('commands-body');
-  if (!el || !body.contains(el)) return;
+  const card = $('commands');
+  if (!el || !card?.contains(el)) return;
   const name = el.dataset.name || el.closest('[data-name]')?.dataset.name || '';
   switch (el.dataset.act) {
     case 'new': startEditor(); break;
@@ -788,6 +798,7 @@ function handleInput(e) {
 function handleKey(e) {
   if (e.isComposing) return;
   const el = e.target;
+  if (!view && arrowRows(e, $('cm-search'), [...($('cm-list')?.querySelectorAll('.ex-skill-main') || [])])) return;
   if (view && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     save();
@@ -796,8 +807,9 @@ function handleKey(e) {
   if (e.key !== 'Enter' || e.shiftKey) return;
   if (el.id === 'cm-search') {
     e.preventDefault();
-    const first = filtered()[0];
-    if (first && query.trim()) startEditor({ command: first });
+    const first = $('cm-list')?.querySelector('[data-act="edit"], [data-name]');
+    const c = first ? find(first.dataset.name || first.closest('[data-name]')?.dataset.name || '') : null;
+    if (c && query.trim()) startEditor({ command: c });
     return;
   }
   if (!view || el.tagName !== 'INPUT') return;
@@ -837,10 +849,7 @@ export async function openCommands(arg = '') {
     else startEditor({ draft: { name: target } });
   } else {
     render();
-    requestAnimationFrame(() => {
-      const input = $('cm-search');
-      if (input && !input.closest('.cm-toolbar').hidden) input.focus({ preventScroll: true });
-    });
+    requestAnimationFrame(() => $('cm-search')?.focus({ preventScroll: true }));
   }
 }
 
@@ -853,10 +862,10 @@ export function handleCommandsEvent() {
 }
 
 export function initCommands() {
-  const body = $('commands-body');
-  body?.addEventListener('click', handleClick);
-  body?.addEventListener('input', handleInput);
-  body?.addEventListener('keydown', handleKey);
+  const card = $('commands');
+  card?.addEventListener('click', handleClick);
+  card?.addEventListener('input', handleInput);
+  card?.addEventListener('keydown', handleKey);
   setCustomRefresher(refreshIfStale);
   refreshCommands();
 }

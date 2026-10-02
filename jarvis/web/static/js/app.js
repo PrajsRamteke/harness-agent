@@ -13,6 +13,7 @@ import { initInspector, toggleInspector } from './inspector.js';
 import { initChanges } from './changes.js';
 import { initActivity } from './activity.js';
 import { initModals } from './modal.js';
+import { initDialogs } from './dialog.js';
 import { initPalette, runItem } from './palette.js';
 import { initPickers, openPickerByKind } from './pickers.js';
 import { initProviders } from './providers.js';
@@ -114,6 +115,7 @@ function boot() {
 
   loadUiPrefs();
   initModals();
+  initDialogs();
   initChat();
   initQuote({ onQuote: insertQuote });
   initQr();

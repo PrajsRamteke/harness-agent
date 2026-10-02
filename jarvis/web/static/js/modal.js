@@ -1,5 +1,6 @@
 /** Modal stack (Esc closes the top one, focus is trapped and restored) + list keyboard nav */
 import { $, trapFocus, reducedMotion } from './utils.js';
+import { goBack, setView } from './dialog.js';
 
 const stack = [];
 /** id → timer while a dialog plays its exit animation */
@@ -45,6 +46,7 @@ export function closeModal(id, reason = 'done') {
   if (idx === -1) return;
   const [entry] = stack.splice(idx, 1);
   const el = $(id);
+  setView(id, null); // the next open starts at the dialog's list
   // The stack is already updated, so the app treats it as closed right away;
   // the element just fades out before it's hidden.
   if (el && reducedMotion()) {
@@ -73,7 +75,15 @@ export function initModals() {
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      closeModal(top, 'esc');
+      // Esc steps out one level at a time: a typed search is cleared first,
+      // then a sub-view (editor, reader, setup) goes back, then the dialog closes.
+      const field = document.activeElement;
+      if (field?.matches?.('.dlg-search input') && field.value && $(top)?.contains(field)) {
+        field.value = '';
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+      }
+      if (!goBack(top)) closeModal(top, 'esc');
       return;
     }
     trapFocus($(top), e);

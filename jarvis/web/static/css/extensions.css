@@ -1,8 +1,7 @@
 /* MCP servers + Skills: add by link, status cards, sign-in banner (mcp.js, skills.js, extui.js).
  * Builds on the Providers dialog's parts (.pv-row, .pv-field, .pv-msg, .pv-actions, …) in overlays.css. */
 
-.ext-card { max-width: 640px; }
-.ext-card .picker-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+/* Card size and header come from the dialog kit (.dlg-card, dialogs.css). */
 .ex-body { gap: 18px; }
 
 /* Sidebar chip: a dot when something needs the user. */
@@ -384,11 +383,9 @@
 }
 
 /* ─── MCP marketplace (mcp.js) ─────────────────────────────────────────── */
-/* One steady size: switching tabs or filtering never resizes the dialog. */
-#mcp .ext-card { max-width: 720px; height: min(820px, 90vh); max-height: none; }
-#mcp .ex-body { gap: 14px; }
-#mcp .ex-body > .mk { flex: 1; min-height: 0; }
+/* Size: the shared .dlg-card (dialogs.css) — every list dialog is the same. */
 
+.dlg-tabs .mk-tabs { margin: 0; }
 .mk-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -428,52 +425,10 @@
 }
 .mk-count.is-attn { background: var(--warn-soft); color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn-line); }
 
-.mk { display: flex; flex-direction: column; gap: 10px; }
-.mk[hidden], .mk-custom[hidden], .mk-list[hidden], .mk-search[hidden], .mk-cats[hidden], .mk-foot[hidden] { display: none; }
 
-.mk-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 46px;
-  padding: 0 10px 0 14px;
-  border-radius: 13px;
-  border: 1px solid var(--line-2);
-  background: var(--card-sunk);
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.mk-search:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-soft); }
-.mk-search-ic { display: grid; place-items: center; color: var(--text-3); }
-.mk-search-ic .ic { width: 16px; height: 16px; }
-.mk-search:focus-within .mk-search-ic { color: var(--accent); }
-.mk-search input {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  border: none;
-  outline: none;
-  background: none;
-  color: var(--text);
-  font: 14.5px var(--font-ui);
-}
-.mk-search input::placeholder { color: var(--text-3); }
-.mk-search input::-webkit-search-cancel-button { cursor: pointer; }
-.mk-kbd { display: flex; gap: 3px; }
-.mk-kbd kbd {
-  display: grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 4px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--text-3);
-  font: 11px var(--font-mono);
-}
-
-/* Category chips: one line that scrolls sideways (never wraps, so filtering can't move the list). */
+/* Category chips: a second toolbar row (stays put while the list scrolls), one line
+   that scrolls sideways (never wraps, so filtering can't move the list). */
+.dlg-bar .mk-cats { margin-top: 10px; }
 .mk-cats {
   display: flex;
   gap: 6px;
@@ -500,38 +455,14 @@
 .mk-cat[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); font-weight: 600; }
 .mk-cat:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--focus); }
 
-/* The list keeps one height while you type and filter. */
-.mk-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 1;
-  min-height: 220px;
-  margin: 0 -4px;
-  padding: 2px 4px 6px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scroll-padding: 34px 0 8px;
-}
-.mk-group {
-  position: sticky;
-  top: -2px;
-  z-index: 1;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 6px 0 0;
-  padding: 6px 4px 4px;
-  background: linear-gradient(var(--glass-strong) 70%, transparent);
-  font: 600 11.5px var(--font-ui);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-.mk-group:first-child { margin-top: 0; }
-.mk-group em { font-style: normal; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-3); opacity: 0.8; }
 
-.mk-row { flex-shrink: 0; }
+.mk-list { display: flex; flex-direction: column; gap: 6px; }
+/* The MCP body (mcp.js sets data-mode): list sections sit closer than the old cards did. */
+.ex-body[data-mode] { gap: 8px; }
+.ex-body[data-mode] > .ex-list { gap: 8px; }
+.mk-list > .dlg-section { margin-top: 8px; }
+.mk-list > .dlg-section:first-child { margin-top: 0; }
+.mk-row { flex-shrink: 0; scroll-margin: 8px 0; }
 .mk-row .pv-head { padding: 9px 6px 9px 10px; cursor: pointer; }
 .mk-row.is-active { border-color: var(--accent-line); background: var(--card-hover); }
 .mk-row.is-auth, .mk-row.is-key { border-color: var(--warn-line); }
@@ -614,9 +545,14 @@
 .mk-row:hover .row-btn.is-go .ic, .mk-row.is-active .row-btn.is-go .ic { color: var(--accent); }
 
 .mk-panel { gap: 12px; }
+/* Sub-views (setup, OAuth app): tile + name on top, then the form. */
+.mk-view { display: flex; flex-direction: column; gap: 14px; }
+.mk-vhead { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 2px 2px 4px; }
+.mk-vhead .pv-text { gap: 1px; }
+.mk-view + .pv-foot, .mk-custom + .pv-foot { margin-top: 18px; }
+.mk-list + .pv-foot, .ex-list + .pv-foot { margin-top: 14px; }
 .mk-panel a.btn, .ex-panel a.mk-link { text-decoration: none; }
 .mk-setup { display: flex; flex-direction: column; gap: 12px; }
-.mk-setup.is-card { padding: 12px; border-radius: 13px; border: 1px solid var(--line); background: var(--card-sunk); }
 .mk-why { display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
 .mk-why strong { font-size: 13.5px; font-weight: 600; color: var(--text); }
 .mk-steps { display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; list-style: none; }
@@ -663,34 +599,17 @@
 .mk-empty .ic { width: 20px; height: 20px; margin-bottom: 6px; }
 .mk-empty strong { color: var(--text); font-weight: 600; }
 
-.mk-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  padding: 0 2px;
-  font-size: 12.5px;
-  color: var(--text-3);
-}
-.mk-foot .seg button { height: 28px; font-size: 12px; }
-.mk-foot-path { font-size: 12px; }
-.mk-custom .ex-add-head { justify-content: flex-start; gap: 12px; }
-.mk-back { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
-.mk-back .ic { width: 14px; height: 14px; }
 
 /* A failed card stays calm: one line, then what to do. */
 .ex-errline { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; line-height: 1.5; color: var(--danger); overflow-wrap: anywhere; }
 .ex-errline .ic { width: 15px; height: 15px; margin-top: 2px; flex-shrink: 0; }
 
 @media (max-width: 560px) {
-  .mk-kbd { display: none; }
-  .mk-search input { font-size: 16px; }
-  #mcp .ext-card { height: 88dvh; }
+  .mk-tab { height: 34px; font-size: 13px; }
   .mk-badge span { display: none; }
   .mk-badge { padding: 0 5px; }
   .mk-row .pv-side .row-btn:not(.is-icon) { padding: 0 10px; }
-  .mk-state { display: none; }
-  .mk-foot-path { display: none; }
+  .mk-row .mk-state { display: none; }
 }
 
 /* ─── Custom commands (commands.js) ────────────────────────────────────── */

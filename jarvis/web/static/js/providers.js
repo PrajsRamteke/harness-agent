@@ -9,11 +9,17 @@
  * Rendering: the first paint builds the rows; later paints patch each row in
  * place (class, head, panel) so the open/close fold animates and an input
  * that isn't being replaced keeps its text and caret.
+ *
+ * Chrome is the shared dialog kit (dialog.js): the toolbar's search filters
+ * every group in place, ↑ ↓ walk from the search through the rows (Enter
+ * opens one), and "Add API key" is a sub-view (header back button, Esc goes
+ * back, its buttons in the footer).
  */
 import { $, escapeHtml, showToast, haptic, debounce } from './utils.js';
 import { icon } from './icons.js';
 import { subscribe, loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
+import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
 import { fetchProviders, fetchOAuthStatus, providerPost } from './api.js';
 
 const TONES = {
@@ -41,7 +47,7 @@ const POPULAR = [
   'md:openai', 'md:google', 'md:groq', 'md:deepseek', 'md:mistral', 'md:xai',
   'md:togetherai', 'md:fireworks-ai', 'md:moonshotai', 'md:zai', 'md:cerebras', 'md:deepinfra',
 ];
-const MORE_Q = 'pv-more-q';
+const SEARCH_ID = 'pv-q';
 
 const OAUTH_COPY = {
   anthropic: {
@@ -74,6 +80,8 @@ const revealed = new Set(); // secret inputs switched to plain text
 const notes = {}; // card id → { text, error }
 let quickBusy = false;
 let quickNote = null; // { text, error, suggest }
+let view = null; // null (the list) | 'add' (paste any API key)
+let query = ''; // the toolbar search
 let pollTimer = 0;
 let openPicker = () => {};
 const listeners = new Set();
@@ -311,18 +319,16 @@ function quickOutHtml() {
     return `<span class="pv-quick-msg${quickNote.error ? ' is-error' : ' is-ok'}">${icon(quickNote.error ? 'circle-alert' : 'circle-check')}<span>${escapeHtml(quickNote.text)}</span></span>
       ${quickNote.suggest ? quickChoices([quickNote.suggest]) : ''}`;
   }
-  if (!key) return '<span class="pv-hint">Jarvis works out which provider it belongs to.</span>';
+  if (!key) return '<span class="pv-hint">Paste it above, then press Enter or Connect.</span>';
   const found = detectKey(key);
   if (found === 'anthropic') {
-    return `<span class="pv-hint">That’s a Claude sign-in token, not an API key.</span>
-      <button type="button" class="btn btn-primary btn-sm" data-act="goto" data-id="anthropic"><span>Sign in with Claude</span>${icon('arrow-right')}</button>`;
+    return '<span class="pv-hint">That’s a Claude sign-in token, not an API key — sign in with Claude instead.</span>';
   }
   if (found) {
-    return `<span class="pv-quick-found">Looks like an <strong>${escapeHtml(rowById(found)?.label || found)}</strong> key</span>
-      <button type="button" class="btn btn-primary btn-sm" data-act="quick-save" data-id="${found}"${quickBusy ? ' disabled' : ''}>${quickBusy ? spin('Checking') : `<span>Connect</span>${icon('arrow-right')}`}</button>`;
+    return `<span class="pv-quick-found">${icon('circle-check')}<span>Looks like an <strong>${escapeHtml(rowById(found)?.label || found)}</strong> key</span></span>`;
   }
   if (key.length < 16) return '<span class="pv-hint">That’s too short for a key. Copy the whole thing.</span>';
-  // Built-in providers only — "More providers" below has 200 to search.
+  // Built-in providers only — the list's search finds the other 200.
   const ids = (data?.providers || []).filter((p) => p.kind === 'key' && !p.catalog && !p.key_prefix && p.source !== 'env').map((p) => p.id);
   return `<span class="pv-hint">Which provider is it for?</span>${quickChoices(ids)}`;
 }
@@ -349,67 +355,81 @@ function groupRows(g) {
 
 function build(body) {
   let i = 0;
-  const groups = GROUPS.map((g) => {
+  const groups = GROUPS.map((g, gi) => {
     const rows = groupRows(g);
     if (!rows.length) return '';
     // Only the rows the filter shows get staggered; 200 hidden ones would
     // push the visible ones' entrance seconds back.
     const html = rows.map((r) => rowHtml(r, g.more ? 0 : i++)).join('');
-    if (g.more) {
-      return `<section class="pv-group is-more" aria-label="${escapeHtml(g.title)}">
-        <div class="pv-group-head"><h3>${escapeHtml(g.title)}</h3><span>${escapeHtml(g.sub)}</span></div>
-        <div class="pv-more-search">
-          ${field(MORE_Q, { placeholder: `Search ${rows.length} providers`, label: 'Search providers', lead: 'search' })}
-        </div>
-        ${html}
-        <p class="pv-more-foot" id="pv-more-foot"></p>
-      </section>`;
-    }
-    return `<section class="pv-group" aria-label="${escapeHtml(g.title)}">
-      <div class="pv-group-head"><h3>${escapeHtml(g.title)}</h3><span>${escapeHtml(g.sub)}</span></div>
+    const head = section(g.title, { count: rows.length, right: escapeHtml(g.sub) });
+    return `<section class="pv-group${g.more ? ' is-more' : ''}" data-g="${gi}" aria-label="${escapeHtml(g.title)}">
+      ${head}
       ${html}
+      ${g.more ? '<p class="pv-more-foot" id="pv-more-foot"></p>' : ''}
     </section>`;
   }).join('');
   body.innerHTML = `
     <div class="pv-now" id="pv-now">${nowHtml()}</div>
-    <div class="pv-quick">
-      ${field('pv-quick', { placeholder: 'Paste any API key', secret: true, label: 'Paste any API key', lead: 'key-round' })}
-      <div class="pv-quick-out" id="pv-quick-out" aria-live="polite">${quickOutHtml()}</div>
-    </div>
     <div class="pv-groups is-entering" data-sig="${escapeHtml(sigOf(data.providers))}">${groups}</div>
-    <p class="pv-foot">${icon('lock')}<span>Keys and sign-ins stay on the computer running Jarvis (<code>~/.config/harness-agent</code>). This browser never keeps them. Provider list from <a href="https://models.dev" target="_blank" rel="noopener noreferrer">models.dev</a>.</span></p>`;
+    <div id="pv-empty" hidden></div>`;
   setTimeout(() => body.querySelector('.pv-groups')?.classList.remove('is-entering'), 700);
 }
 
-/** Show the "More providers" rows the search matches (built-ins and popular
- * ones when it's empty). Toggles `hidden` in place — no rebuild, so typing
- * stays smooth. */
-function filterMore() {
-  const group = $('providers-body')?.querySelector('.pv-group.is-more');
-  if (!group) return;
-  const words = String(drafts[MORE_Q] || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const rows = data.providers.filter((p) => p.kind === 'key' && !p.connected);
-  const popular = new Set(POPULAR.filter((id) => rows.some((r) => r.id === id)));
-  let shown = 0;
-  let total = 0;
-  for (const row of rows) {
-    const el = group.querySelector(`.pv-row[data-id="${CSS.escape(row.id)}"]`);
-    if (!el) continue;
-    total += 1;
-    const hay = `${row.label} ${row.catalog ? row.id.slice(3) : row.id} ${row.env_var || ''}`.toLowerCase();
-    const hit = words.length
-      ? words.every((w) => hay.includes(w))
-      : !row.catalog || popular.has(row.id) || (!popular.size && shown < 12);
-    const show = hit || row.id === openId;
-    el.hidden = !show;
-    if (show) shown += 1;
+function searchWords() {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/** Show the rows the search matches, in every group (when it's empty: all of
+ * them, except "More providers", which shows the built-ins and popular ones).
+ * Toggles `hidden` in place — no rebuild, so typing stays smooth. */
+function filterRows() {
+  const body = $('providers-body');
+  const groupsEl = body?.querySelector('.pv-groups');
+  if (!groupsEl) return;
+  const words = searchWords();
+  let anyShown = 0;
+  GROUPS.forEach((g, gi) => {
+    const box = groupsEl.querySelector(`.pv-group[data-g="${gi}"]`);
+    if (!box) return;
+    const rows = groupRows(g);
+    const popular = new Set(POPULAR.filter((id) => rows.some((r) => r.id === id)));
+    let shown = 0;
+    for (const row of rows) {
+      const el = box.querySelector(`.pv-row[data-id="${CSS.escape(row.id)}"]`);
+      if (!el) continue;
+      const hay = `${row.label} ${row.catalog ? row.id.slice(3) : row.id} ${row.env_var || ''} ${row.kind === 'key' ? '' : row.blurb || ''}`.toLowerCase();
+      let hit;
+      if (words.length) hit = words.every((w) => hay.includes(w));
+      else hit = !g.more || !row.catalog || popular.has(row.id) || (!popular.size && shown < 12);
+      const show = hit || row.id === openId;
+      el.hidden = !show;
+      if (show) shown += 1;
+    }
+    box.hidden = shown === 0;
+    const em = box.querySelector('.dlg-section h3 em');
+    if (em) em.textContent = String(words.length ? shown : rows.length);
+    anyShown += shown;
+    if (g.more) {
+      const foot = $('pv-more-foot');
+      if (foot) {
+        foot.innerHTML = words.length
+          ? `${shown} of ${rows.length} · list from <a href="https://models.dev" target="_blank" rel="noopener noreferrer">models.dev</a>`
+          : `Showing popular ones — search above for all ${rows.length} · list from <a href="https://models.dev" target="_blank" rel="noopener noreferrer">models.dev</a>`;
+      }
+    }
+  });
+  const emptyEl = $('pv-empty');
+  if (emptyEl) {
+    emptyEl.hidden = anyShown > 0;
+    patch(emptyEl, anyShown > 0 ? '' : empty('No providers match', `Nothing called “${escapeHtml(query.trim())}”. Have a key? Paste it and Jarvis works out the provider.`, {
+      ic: 'search', action: btn('add-key', 'Add API key', { ic: 'key-round' }),
+    }));
   }
-  const foot = $('pv-more-foot');
-  if (foot) {
-    foot.textContent = words.length
-      ? (shown ? `${shown} of ${total} providers` : `No provider matches “${drafts[MORE_Q].trim()}”`)
-      : `Type to search all ${total} providers`;
-  }
+}
+
+/** The rows' main buttons the keyboard walks through (↑ ↓ from the search). */
+function visibleHeads() {
+  return [...($('providers-body')?.querySelectorAll('.pv-group:not([hidden]) .pv-row:not([hidden]) > .pv-head') || [])];
 }
 
 /** Swap `el`'s markup only when it changed (typing isn't reset for nothing). */
@@ -420,26 +440,106 @@ function patch(el, html) {
   }
 }
 
+const NOTE = 'Keys stay on the computer running Jarvis';
+
+/** Toolbar (built once, so typing never loses focus) + footer. */
+function renderChrome() {
+  const bar = $('providers-bar');
+  if (bar && !$(SEARCH_ID)) {
+    bar.innerHTML = toolbar({
+      id: SEARCH_ID,
+      placeholder: 'Search providers',
+      label: 'Search providers',
+      value: query,
+      action: { act: 'add-key', label: 'Add API key', ic: 'key-round', title: 'Paste a key — Jarvis works out which provider it’s for' },
+    });
+  }
+  if (bar) bar.hidden = view === 'add';
+  patch($('providers-foot'), view === 'add'
+    ? addActionsHtml()
+    : footer({ note: NOTE, noteIc: 'lock', hints: [['↑ ↓', 'move'], ['↵', 'open'], ['esc', 'close']] }));
+}
+
+/** The add view's buttons, in the footer like every form: Cancel · Connect. */
+function addActionsHtml() {
+  const found = detectKey(cleanKey(drafts['pv-quick']));
+  const primary = found === 'anthropic'
+    ? `<button type="button" class="btn btn-primary" data-act="goto" data-id="anthropic"><span>Sign in with Claude</span>${icon('arrow-right')}</button>`
+    : `<button type="button" class="btn btn-primary" data-act="quick-save" data-id="${found}"${found && !quickBusy ? '' : ' disabled'}
+        title="${found ? 'Check the key and use it' : 'Paste a key first — or pick its provider above'}">${quickBusy ? spin('Checking…') : `<span>Connect</span>${icon('arrow-right')}`}</button>`;
+  return `<div class="dlg-actions">
+      <span class="dlg-note">${icon('lock')}<span>Saved on the computer running Jarvis</span></span>
+      <span class="dlg-spacer"></span>
+      <button type="button" class="btn btn-quiet" data-act="cancel-add">Cancel</button>
+      ${primary}
+    </div>`;
+}
+
+function addViewHtml() {
+  return `<section class="pv-add" id="pv-add" aria-label="Add an API key">
+      <div class="pv-add-intro">
+        <span class="pv-add-ic" aria-hidden="true">${icon('key-round')}</span>
+        <p><strong>Paste a key from any provider.</strong> Anthropic, OpenRouter, OpenAI, Groq, DeepSeek… Jarvis works out which provider it belongs to, checks it where it can, and saves it on your computer.</p>
+      </div>
+      <div class="pv-quick">
+        ${field('pv-quick', { placeholder: 'Paste any API key', secret: true, label: 'Paste any API key', lead: 'key-round' })}
+        <div class="pv-quick-out" id="pv-quick-out" aria-live="polite">${quickOutHtml()}</div>
+      </div>
+      <p class="pv-hint pv-add-more">Prefer to pick the provider yourself? Go back, search for it and open its row — each one links to where you get a key.</p>
+    </section>`;
+}
+
+function renderAdd(body) {
+  if (!$('pv-add')) {
+    body.innerHTML = addViewHtml();
+    body.scrollTop = 0;
+  } else {
+    paintQuick();
+  }
+}
+
+function openAdd() {
+  view = 'add';
+  setView('providers', { title: 'Add an API key', sub: 'Providers', back: closeAdd, backLabel: 'providers' });
+  render();
+  if (window.matchMedia('(min-width: 561px)').matches) setTimeout(() => $('pv-quick')?.focus({ preventScroll: true }), 60);
+}
+
+function closeAdd({ focusSearch = true } = {}) {
+  if (view !== 'add') return;
+  view = null;
+  quickNote = null;
+  setView('providers', null);
+  render();
+  if (focusSearch) $(SEARCH_ID)?.focus({ preventScroll: true });
+}
+
 function render() {
   const body = $('providers-body');
   if (!body) return;
+  renderChrome();
   if (!data) {
     body.innerHTML = loadError
-      ? `<div class="list-empty"><strong>Could not load providers</strong>Check that Jarvis is still running, then try again.<div class="pv-actions is-center">${btn('reload', 'Try again', { ic: 'refresh-cw' })}</div></div>`
+      ? empty('Could not load providers', 'Check that Jarvis is still running, then try again.', {
+        ic: 'circle-alert', action: btn('reload', 'Try again', { ic: 'refresh-cw' }),
+      })
       : `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(6)}</div>`;
     return;
   }
-  const sub = $('providers-sub');
-  if (sub) {
-    sub.textContent = data.connected
-      ? `${data.connected} connected · saved on your computer`
-      : 'Sign in or paste an API key. Saved on your computer.';
-  }
+  setHomeSub('providers', data.connected
+    ? `${data.connected} connected · saved on your computer`
+    : 'Sign in or paste an API key. Saved on your computer.');
 
   // Keep the caret where it was when an input has to be rebuilt.
   const focused = document.activeElement;
   const focusId = focused?.classList?.contains('pv-input') && body.contains(focused) ? focused.id : '';
   const sel = focusId ? [focused.selectionStart, focused.selectionEnd] : null;
+
+  if (view === 'add') {
+    renderAdd(body);
+    restoreFocus(focusId, sel);
+    return;
+  }
 
   const groups = body.querySelector('.pv-groups');
   if (!groups || groups.dataset.sig !== sigOf(data.providers)) {
@@ -464,8 +564,11 @@ function render() {
     }
   }
 
-  filterMore();
+  filterRows();
+  restoreFocus(focusId, sel);
+}
 
+function restoreFocus(focusId, sel) {
   if (focusId && document.activeElement !== $(focusId)) {
     const el = $(focusId);
     if (el) {
@@ -477,6 +580,7 @@ function render() {
 
 function paintQuick() {
   patch($('pv-quick-out'), quickOutHtml());
+  if (view === 'add') patch($('providers-foot'), addActionsHtml());
 }
 
 function setNote(id, text, error = false) {
@@ -589,18 +693,16 @@ async function quickSave(id) {
     delete drafts['pv-quick'];
     const input = $('pv-quick');
     if (input) input.value = '';
-    quickNote = { text: res.message || 'Connected' };
+    quickNote = null;
     haptic(10);
     showToast(res.message || 'Connected');
-    setTimeout(() => {
-      if (quickNote && !quickNote.error) {
-        quickNote = null;
-        paintQuick();
-      }
-    }, 5000);
-  } else {
-    quickNote = { text: res.error || 'That did not work', error: true, suggest: res.suggest };
+    // Back to the list, where the provider now sits under "API keys".
+    applyResult(res);
+    closeAdd({ focusSearch: false });
+    $('providers-body')?.querySelector(`.pv-row[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return;
   }
+  quickNote = { text: res.error || 'That did not work', error: true, suggest: res.suggest };
   applyResult(res);
   paintQuick();
 }
@@ -697,7 +799,7 @@ function afterInput(inputId, pasted) {
 function handleClick(e) {
   const el = e.target.closest('[data-act]');
   const body = $('providers-body');
-  if (!el || !body.contains(el)) return;
+  if (!el || !(body.contains(el) || $('providers-bar')?.contains(el) || $('providers-foot')?.contains(el))) return;
   const act = el.dataset.act;
   const id = el.dataset.id || el.closest('.pv-row')?.dataset.id;
   switch (act) {
@@ -768,10 +870,17 @@ function handleClick(e) {
     case 'quick-save':
       quickSave(id);
       break;
+    case 'add-key':
+      openAdd();
+      break;
+    case 'cancel-add':
+      closeAdd();
+      break;
     case 'goto':
       delete drafts['pv-quick'];
       if ($('pv-quick')) $('pv-quick').value = '';
       quickNote = null;
+      closeAdd({ focusSearch: false });
       if (openId !== id) toggleRow(id);
       else render();
       break;
@@ -790,23 +899,17 @@ function handleInput(e) {
   const el = e.target;
   if (!el.classList?.contains('pv-input')) return;
   drafts[el.id] = el.value;
-  if (el.id === MORE_Q) {
-    filterMore();
-    return;
-  }
   afterInput(el.id, e.inputType === 'insertFromPaste');
 }
 
 function handleKey(e) {
   const el = e.target;
-  if (e.key !== 'Enter' || e.isComposing || !el.classList?.contains('pv-input')) return;
-  e.preventDefault();
-  if (el.id === MORE_Q) {
-    // Enter opens the first provider the search shows.
-    const first = $('providers-body')?.querySelector('.pv-group.is-more .pv-row:not([hidden])');
-    if (first && openId !== first.dataset.id) toggleRow(first.dataset.id);
+  if (el.classList?.contains('pv-head')) {
+    arrowRows(e, $(SEARCH_ID), visibleHeads());
     return;
   }
+  if (e.key !== 'Enter' || e.isComposing || !el.classList?.contains('pv-input')) return;
+  e.preventDefault();
   if (el.id === 'pv-quick') {
     const found = detectKey(cleanKey(el.value));
     if (found && found !== 'anthropic') quickSave(found);
@@ -821,6 +924,28 @@ function handleKey(e) {
   // Enter does what the primary button says.
   const row = rowById(m[2]);
   saveKey(m[2], !row?.connected || !!row.active);
+}
+
+function handleSearchInput(e) {
+  query = e.target.value || '';
+  filterRows();
+  $('providers-body')?.scrollTo({ top: 0 });
+}
+
+function handleSearchKey(e) {
+  if (e.isComposing) return;
+  if (arrowRows(e, e.target, visibleHeads())) return;
+  if (e.key === 'Enter') {
+    // Enter opens the first provider the search shows (no match: paste a key instead).
+    e.preventDefault();
+    const first = visibleHeads()[0]?.closest('.pv-row');
+    if (first) {
+      if (openId !== first.dataset.id) toggleRow(first.dataset.id);
+      else focusRow(first.dataset.id);
+    } else if (query.trim()) {
+      openAdd();
+    }
+  }
 }
 
 // ─── ChatGPT sign-in: watch for the localhost callback ────────────────────
@@ -869,9 +994,14 @@ function openWanted(want) {
 
 /** `focus`: a card id or a name ("openrouter", "claude") to open that row. */
 export function openProviders(focus = '') {
+  view = null;
+  query = '';
+  if ($(SEARCH_ID)) $(SEARCH_ID).value = '';
   render();
   openModal('providers', {
+    focus: window.matchMedia('(min-width: 561px)').matches ? SEARCH_ID : undefined,
     onClose: () => {
+      view = null;
       confirmId = null;
       replaceId = null;
       // Reopen fresh, except in the middle of a sign-in.
@@ -907,6 +1037,12 @@ export function initProviders({ onOpenPicker } = {}) {
   body?.addEventListener('click', handleClick);
   body?.addEventListener('input', handleInput);
   body?.addEventListener('keydown', handleKey);
+  renderChrome();
+  const bar = $('providers-bar');
+  bar?.addEventListener('click', handleClick);
+  bar?.addEventListener('input', (e) => { if (e.target.id === SEARCH_ID) handleSearchInput(e); });
+  bar?.addEventListener('keydown', (e) => { if (e.target.id === SEARCH_ID) handleSearchKey(e); });
+  $('providers-foot')?.addEventListener('click', handleClick);
 
   // Back from the sign-in tab: check right away instead of on the next tick.
   document.addEventListener('visibilitychange', () => {
