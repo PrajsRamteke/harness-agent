@@ -419,14 +419,17 @@ class _OpenCodeStream:
 
     def _process_chunk(self, chunk) -> tuple[Optional[str], Optional[str]]:
         """Extract text/reasoning deltas and accumulate tool call fragments."""
-        delta = chunk.choices[0].delta if chunk.choices else None
-        if delta is None:
-            return None, None
         # Usage on streaming chunks lives at the root chunk level, NOT on delta.
         # Some providers emit usage on every chunk; others only on the final chunk.
         # Always overwrite so the LAST chunk with usage wins (final totals).
-        if hasattr(chunk, "usage") and chunk.usage is not None:
+        # Read it BEFORE the choices check: the final usage chunk usually has
+        # `choices: []` (OpenAI spec; Zen does this), and skipping it left every
+        # turn at 0 tokens in / 0 out.
+        if getattr(chunk, "usage", None) is not None:
             self._usage_obj = chunk.usage
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta is None:
+            return None, None
         text = None
         reasoning = None
         reasoning_content = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)

@@ -42,7 +42,9 @@ from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
 from ..media import materialize_uploads
-from .trim import anthropic_wire_messages, prune_tool_images, trim_messages
+from .trim import (
+    _content_chars, _total_chars, anthropic_wire_messages, prune_tool_images, trim_messages,
+)
 from .render import assistant_model_label
 from .stream_display import RichAssistantStreamDisplay
 from .turn_progress import report_turn_phase
@@ -602,6 +604,23 @@ def call_claude_stream():
             _worker_thread_id = 0
 
 
+def _usage_or_estimate(final, messages) -> tuple[int, int]:
+    """(input, output) tokens for one request: the provider's usage, or — when
+    it reported none (no usage chunk, OpenAI without ``include_usage``) — the
+    same chars/4 estimate a resumed session uses, so the counters never sit at
+    0 while a session runs."""
+    usage = getattr(final, "usage", None)
+    in_tok = int(getattr(usage, "input_tokens", 0) or 0)
+    out_tok = int(getattr(usage, "output_tokens", 0) or 0)
+    if in_tok or out_tok:
+        return in_tok, out_tok
+    blocks = [
+        b.model_dump() if hasattr(b, "model_dump") else b
+        for b in (getattr(final, "content", None) or [])
+    ]
+    return _total_chars(messages) // 4, _content_chars(blocks) // 4
+
+
 def _call_claude_stream():
     # Check cancel flag before starting a new stream — allows Escape to
     # prevent the next stream from even starting after tool results.
@@ -673,15 +692,12 @@ def _call_claude_stream():
             # overcounts — just store the latest value which reflects total
             # *unique* input consumed so far.  Output tokens are per-turn unique
             # so accumulation is correct.
-            state.total_in = final.usage.input_tokens
-            state.total_out += final.usage.output_tokens
+            in_tok, out_tok = _usage_or_estimate(final, messages)
+            state.total_in = in_tok
+            state.total_out += out_tok
             # Anthropic's Usage exposes only input/output tokens; OpenCode's
             # fake Usage adds total_tokens. Compute when absent.
-            state.total_tokens = getattr(
-                final.usage,
-                "total_tokens",
-                final.usage.input_tokens + final.usage.output_tokens,
-            )
+            state.total_tokens = int(getattr(final.usage, "total_tokens", 0) or 0) or (in_tok + out_tok)
             return final
         except _STREAM_TIMEOUT_ERRORS:
             _current_stream = None
