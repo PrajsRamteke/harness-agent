@@ -16,7 +16,7 @@ def _env_int(name: str, default: int, min_value: int, max_value: int) -> int:
     return max(min_value, min(max_value, value))
 
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 # Startup model: CLAUDE_MODEL env override, else the free tier's fallback until
 # startup picks from the live list (harness_agent_default_model).
 MODEL = os.getenv("CLAUDE_MODEL", HARNESS_AGENT_FALLBACK_MODEL)

@@ -57,7 +57,7 @@ def db_append_message(session_id: int, idx: int, msg: Dict):
 
 
 def db_replace_session_messages(session_id: int, msgs: List[Dict]):
-    """Rewrite all messages for a session (used after /retry etc.)."""
+    """Rewrite all messages for a session."""
     with db_conn() as c:
         c.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
         now = time.time()

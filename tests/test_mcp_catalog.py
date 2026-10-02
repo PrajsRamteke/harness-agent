@@ -134,3 +134,13 @@ def test_server_cards_get_keywords_and_the_old_address_note(ext_env):
     fields = install._catalog_fields("figma", {"url": "https://mcp.figma.com/mcp"})
     assert fields["catalog_id"] == "figma" and "desktop app" in fields["alt_note"]
     assert install._catalog_fields("figma", {"url": "http://127.0.0.1:3845/mcp"}).get("alt_note", "") == ""
+
+
+def test_figma_without_the_desktop_app_uses_a_token():
+    tok = catalog.lookup("figma-token")
+    assert tok["auth"] == "key" and tok["command"] == "npx" and "figma-developer-mcp" in tok["args"]
+    assert tok["env"] == {"FIGMA_API_KEY": "${FIGMA_API_KEY}"}
+    assert [c["id"] for c in catalog.search("figma")][:2] == ["figma", "figma-token"]
+    spec = install.parse_source("figma-token")[0]
+    assert spec["entry"]["env"] == {"FIGMA_API_KEY": "${FIGMA_API_KEY}"} and spec["credentials"] == ["FIGMA_API_KEY"]
+    assert "Figma (token)" in catalog.lookup("figma")["setup"]["why"]

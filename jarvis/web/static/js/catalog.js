@@ -21,7 +21,6 @@ export const CATALOG = [
   { group: 'Go to', picker: 'provider', cmd: '/provider', label: 'Providers and login', desc: 'Sign in, add API keys, switch provider', icon: 'key-round', keys: 'login logout sign in oauth api key keys account anthropic claude chatgpt codex openrouter opencode zen' },
 
   { group: 'Conversation', action: 'session_new', cmd: '/new', label: 'New chat', desc: 'Start a fresh conversation', icon: 'plus', keys: 'clear fresh' },
-  { group: 'Conversation', cmd: '/retry', label: 'Retry', desc: 'Send the last message again', icon: 'refresh-cw' },
   { group: 'Conversation', cmd: '/reset', label: 'Reset', desc: 'Clear the conversation history', icon: 'rotate-ccw' },
   { group: 'Conversation', cmd: '/history', label: 'History', desc: 'Summarise the messages so far', icon: 'list' },
   { group: 'Conversation', cmd: '/stats', label: 'Stats', desc: 'Session time, messages and tools', icon: 'chart-column' },

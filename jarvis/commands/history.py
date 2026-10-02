@@ -1,8 +1,8 @@
-"""Handlers for history/retry/search/new/reset/clear."""
+"""Handlers for history/search/new/reset/clear."""
 import json
 
 from ..console import console, Table
-from ..storage.sessions import db_create_session, db_replace_session_messages
+from ..storage.sessions import db_create_session
 from ..repl.banners import welcome_banner, header_panel
 from .. import state
 
@@ -41,17 +41,6 @@ def handle_history(c: str, arg: str):
         return True, None
     if c == "/clear":
         console.clear(); header_panel(); return True, None
-    if c == "/retry":
-        last_user = None
-        for i in range(len(state.messages) - 1, -1, -1):
-            m = state.messages[i]
-            if m["role"] == "user" and isinstance(m["content"], str):
-                last_user = m["content"]; state.messages = state.messages[:i]; break
-        if last_user is None:
-            console.print("[red]no prior user message[/]"); return True, None
-        if state.current_session_id:
-            db_replace_session_messages(state.current_session_id, state.messages)
-        return True, last_user
     if c == "/history":
         if not state.messages: console.print("[dim]empty[/]"); return True, None
         t = Table(show_header=True, header_style="bold cyan", box=None)

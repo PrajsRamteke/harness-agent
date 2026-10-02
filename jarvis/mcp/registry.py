@@ -341,9 +341,10 @@ def _describe_remote_error(leaves: list[BaseException], config: dict[str, Any]) 
             item = by_url(str(config.get("url") or ""))
             if item and item.get("auth") == "desktop":
                 steps = (item.get("setup") or {}).get("steps") or []
+                alt = " No desktop app? Add “Figma (token)” from the marketplace instead." if item["id"] == "figma" else ""
                 return "error", (
                     f"The {item['label']} desktop app's MCP server isn't running. "
-                    + " ".join(steps[:3])
+                    + " ".join(steps[:3]) + alt
                 ).strip()
             return "error", f"Couldn't reach {host}. Check the address and your connection."
         if isinstance(e, (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout, TimeoutError, asyncio.TimeoutError)):

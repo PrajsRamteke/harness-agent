@@ -11,7 +11,6 @@ COMMANDS = [
     ("/help", "open the help reference (type to search)"),
     ("/new", "start a fresh conversation (keeps pinned context)"),
     ("/reset", "clear conversation"),
-    ("/retry", "re-send last user message"),
     ("/history", "show message summary"),
     ("/export ", "export conversation as markdown"),
     ("/session", "open the session modal (resume / delete handled inside)"),

@@ -219,12 +219,12 @@ CATALOG: list[dict[str, Any]] = [
         "figma", "Figma", "Designs, components and variables — via the Figma app", "Design",
         "http://127.0.0.1:3845/mcp", "#a259ff", auth="desktop",
         alt_urls=["https://mcp.figma.com/mcp"],
-        alt_note="Figma's hosted server only accepts apps Figma has approved. Use the Figma desktop app's "
-                 "server instead: remove this one and add Figma from the marketplace.",
+        alt_note="Figma's hosted server only accepts apps Figma has approved. Remove this one and add Figma "
+                 "from the marketplace: “Figma” uses the desktop app, “Figma (token)” works with just a browser.",
         setup={
             "title": "Turn on Figma's desktop MCP server",
             "why": "Figma only lets apps it has approved use its hosted server, so Jarvis talks to the Figma "
-                   "desktop app on this computer instead — no sign-in needed.",
+                   "desktop app on this computer instead — no sign-in needed. No desktop app? Use “Figma (token)”.",
             "steps": [
                 "Open the Figma desktop app (latest version) and any design file.",
                 "Switch to Dev Mode (Shift+D).",
@@ -234,6 +234,31 @@ CATALOG: list[dict[str, Any]] = [
             "link": "https://developers.figma.com/docs/figma-mcp-server/local-server-installation/",
         },
         keywords="design ui dev mode",
+    ),
+    # No desktop app: Framelink (MIT, github.com/GLips/Figma-Context-MCP) reads files through
+    # Figma's REST API with a personal access token made in the browser.
+    _local(
+        "figma-token", "Figma (token)", "Read Figma files, frames and images — no desktop app needed", "npx",
+        ["-y", "figma-developer-mcp", "--stdio"], "#a259ff", category="Design", auth="key",
+        env={"FIGMA_API_KEY": "${FIGMA_API_KEY}"}, credentials=["FIGMA_API_KEY"],
+        fields={"FIGMA_API_KEY": {
+            "label": "Personal access token", "hint": "figma.com → Settings → Security → Personal access tokens",
+            "secret": True, "placeholder": "figd_…"}},
+        setup={
+            "title": "Connect Figma with a personal access token",
+            "why": "Works in any browser — no Figma desktop app. Jarvis reads your files through Figma's API "
+                   "(Framelink, an open-source MCP server) with a token you create once.",
+            "steps": [
+                "Open Figma settings in your browser and go to the Security tab.",
+                "Under Personal access tokens, click “Generate new token”; give File content read access.",
+                "Copy the token (it starts with figd_) and paste it here. Then share a Figma link with Jarvis.",
+            ],
+            "link_label": "Open Figma settings",
+            "link": "https://www.figma.com/settings",
+            "note": "Read-only: Jarvis can read designs and export images, not edit them.",
+        },
+        repo="GLips/Figma-Context-MCP",
+        keywords="design ui framelink browser web token",
     ),
     _hosted("canva", "Canva", "Create and edit designs", "Design",
             "https://mcp.canva.com/mcp", "#00c4cc", keywords="design graphics"),

@@ -20,7 +20,7 @@ from .modal_chrome import (
 
 # Browse view groups (search view is flat). Unlisted commands land in "Other".
 _GROUPS: list[tuple[str, list[str]]] = [
-    ("Session", ["/new", "/session", "/retry", "/history", "/export ",
+    ("Session", ["/new", "/session", "/history", "/export ",
                  "/copy", "/paste", "/clear", "/reset", "/exit"]),
     ("Model & agent", ["/model", "/provider", "/think", "/agent", "/agent init",
                        "/plan", "/auto", "/verbose"]),

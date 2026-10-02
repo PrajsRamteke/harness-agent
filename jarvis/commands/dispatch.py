@@ -23,7 +23,7 @@ from .settings import handle_settings
 from .pet import handle_pet
 
 # commands that set `inp` for sending
-FALLTHROUGH = {"/retry", "/paste", "/multi"}
+FALLTHROUGH = {"/paste", "/multi"}
 
 
 def handle_slash(inp: str):
