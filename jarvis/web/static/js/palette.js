@@ -66,7 +66,7 @@ function render() {
 /** Run any catalog item (palette or slash menu). */
 export async function runItem(item) {
   if (item.picker) {
-    openPicker(item.picker);
+    openPicker(item.picker, item.pickerArg || '');
     return;
   }
   if (item.action === 'session_new') {

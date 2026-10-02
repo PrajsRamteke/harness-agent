@@ -1,42 +1,43 @@
-"""Centered MCP control modal — one place for every MCP action.
+"""The MCP dialog — your servers and the marketplace, in one searchable list.
 
-User interaction:
+Type to search 60+ well-known servers (Slack, Notion, Linear, GitHub…), pick
+one and press Enter: hosted ones open their sign-in page, key / app ones ask
+for exactly what they need (with a link to get it), local ones just start.
+Your own servers sit on top with their health.
 
-* ↑/↓        navigate the server list
-* Space/Enter  toggle the highlighted server (connect ↔ disconnect)
-* g           toggle global scope (project-only ↔ project + global)
-* i           import the highlighted global server into this project's .mcp.json
-* e           export the highlighted project server to your global MCP config
-* a           add a server: paste a link / npx … / claude mcp add … / JSON / GitHub link / name
-* Enter       connect ↔ disconnect — or sign in when the server says "sign-in"
-* o           sign out (forget the saved login)      k  enter the keys a server needs
-* m           move between project ↔ global
-* r           re-scan all config files
-* d           delete a server you added (project or global; press twice)
-* /           focus the filter input
-* Esc         close
-
-Designed to make ``/mcp`` the only MCP command a user ever needs.
+* type          search (servers + marketplace); paste a link / npx … to add it
+* ↑/↓ · Enter   move · connect / disconnect / sign in / set up
+* ←/→           marketplace category (while the list has focus)
+* a             add a custom server (link, npx …, claude mcp add …, JSON, GitHub)
+* o             sign out (forget the saved login)      k  enter the keys a server needs
+* p             a server's OAuth app (Client ID / Secret) — for hosts without self sign-up
+* m             move between project ↔ global          d  remove (press twice)
+* g             toggle global scope    i / e  import / export    r  re-scan configs
+* /             focus search    Esc  close
 """
 
 from __future__ import annotations
 
+import re
 import threading
 
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import CenterMiddle, Horizontal, Vertical
+from textual.message import Message
 from textual.timer import Timer
+from textual.widget import Widget
 from textual.widgets import Button, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from rich.text import Text
 
-from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, picker_row
+from .modal_chrome import TUI_MODAL_CHROME_CSS, TuiModalScreen, hint_line, picker_row, section_header
 from .mouse_toggle import enable_mouse, disable_mouse
 from . import theme as ui
 from .. import state
+from ..mcp import catalog as mcp_catalog
 from ..mcp.config import (
     MCP_PROJECT_CONFIG_FILENAME,
     get_config,
@@ -49,7 +50,47 @@ from ..mcp.sources import SOURCE_ICONS as _SOURCE_ICONS, format_endpoint as _end
 from ..utils.origins import tool_tag
 
 
+# Marketplace categories as the chip row names them (short enough for 100 columns).
+_CHIP_LABELS = {
+    "Communication": "Chat",
+    "Developer tools": "Dev tools",
+    "Cloud & data": "Cloud & data",
+    "Search & web": "Web",
+    "On this computer": "Local",
+}
+_ALL = "All"
+
+_SOURCE_RE = re.compile(r"^(https?://|npx\s|uvx\s|docker\s|claude\s+mcp\s|\{|\./|/|~/|[A-Z_][A-Z0-9_]*=)")
+
+
+def _looks_like_source(text: str) -> bool:
+    """Pasted install text (an address, a command, JSON) rather than a search."""
+    return bool(_SOURCE_RE.match((text or "").strip()))
+
+
 # ── helpers ──────────────────────────────────────────────────────────────
+
+
+def _tile(mono: str, color: str) -> tuple[str, str]:
+    """A small colored logo tile: ``(text, style)`` for ``picker_row(icon=…)``."""
+    mono = (mono or "?")[:2]
+    bg = color if re.fullmatch(r"#[0-9a-fA-F]{6}", color or "") else ui.BG_4
+    return f"{mono:^3}", f"bold #ffffff on {bg}"
+
+
+_AUTH_BADGES = {
+    "oauth": ("↗ Sign in", "ACCENT"),
+    "open": ("● No account", "OK"),
+    "key": ("⚿ API key", "WARN"),
+    "app": ("◆ Your app", "ACCENT_2"),
+    "desktop": ("◧ Desktop app", "ACCENT_2"),
+    "local": ("▸ Runs locally", "FG_MUTE"),
+}
+
+
+def _badge(auth: str) -> tuple[str, str]:
+    text, tok = _AUTH_BADGES.get(auth, ("", "FG_DIM"))
+    return text, getattr(ui, tok, ui.FG_DIM)
 
 
 def _row_label(
@@ -63,6 +104,7 @@ def _row_label(
     spinner: str = "⠋",
     health: dict | None = None,
     also: list[str] | None = None,
+    item: dict | None = None,
 ):
     health = health or mcp_registry.get_server_health(name, cfg, connecting=connecting)
     status = health.get("status", "idle")
@@ -75,7 +117,9 @@ def _row_label(
     elif status == "failed":
         dot, color, word = "✗", ui.ERR, "failed"
     elif status == "auth":
-        dot, color, word = "◐", ui.WARN, "sign-in"
+        dot, color, word = "◐", ui.WARN, "sign in"
+    elif health.get("needs_credentials"):
+        dot, color, word = "◈", ui.WARN, "needs keys"
     elif status == "warn":
         dot, color, word = "▲", ui.WARN, (f"check · {tool_count} tools" if health.get("connected") else "check")
     else:
@@ -84,54 +128,187 @@ def _row_label(
     transport = cfg.get("type", "stdio")
     # Where it comes from (claude, cursor, codex …), "+2" when other tools define it too.
     meta = f"{src_icon} {tool_tag(source, also or ())} · {transport}" + (" · auto" if is_auto else "")
+    if item:
+        icon, icon_style = _tile(item.get("monogram") or mcp_catalog.monogram(item.get("label", name)),
+                                 item.get("color", ""))
+        detail = item.get("desc", "")
+    else:
+        icon, icon_style = _tile(mcp_catalog.monogram(name), "")
+        detail = _endpoint_text(cfg)
+    right = Text(no_wrap=True)
+    right.append(f"{dot} {word}", style=color if status != "idle" or connecting else ui.FG_DIM)
+    right.append(f"   {meta}", style=ui.FG_DIM)
     return picker_row(
-        name,
-        detail=_endpoint_text(cfg),
-        right=f"{word}   {meta}",
-        icon=dot,
-        icon_style=f"bold {color}",
+        f" {name}",
+        detail=detail,
+        right="",
+        icon=icon,
+        icon_style=icon_style,
         title_style=f"bold {ui.FG}",
-        title_width=18,
-        right_style=color if status in ("live", "failed", "warn", "connecting", "auth") or connecting else ui.FG_DIM,
+        title_width=20,
+        tags=right,
+        tags_width=min(46, max(30, len(right.plain) + 2)),
     )
+
+
+def _market_row(item: dict, *, query: str = "", busy: bool = False, spinner: str = "⠋"):
+    icon, icon_style = _tile(item.get("monogram", ""), item.get("color", ""))
+    if busy:
+        text, color = f"{spinner} connecting…", ui.ACCENT
+    else:
+        text, color = _badge(item.get("auth", ""))
+    tags = Text(text, style=color, no_wrap=True)
+    return picker_row(
+        f" {item['label']}",
+        detail=item.get("desc", ""),
+        query=query,
+        icon=icon,
+        icon_style=icon_style,
+        title_style=f"bold {ui.FG}",
+        title_width=20,
+        tags=tags,
+        tags_width=16,
+    )
+
+
+class CategoryBar(Widget):
+    """``All  Popular  Chat  Productivity …`` — click a chip, or ←/→ from the list."""
+
+    DEFAULT_CSS = """
+    CategoryBar { height: auto; padding: 0 1; margin-bottom: 1; }
+    """
+
+    class Changed(Message):
+        def __init__(self, value: str) -> None:
+            super().__init__()
+            self.value = value
+
+    def __init__(self, categories: list[str], value: str = _ALL, *, id: str | None = None) -> None:
+        super().__init__(id=id)
+        self.categories = [_ALL, *categories]
+        self.value = value
+        self._spans: list[tuple[int, int, int, str]] = []
+
+    def _layout(self, width: int) -> list[list[tuple[int, str, str]]]:
+        """Chips per line — a chip never breaks across lines."""
+        lines: list[list[tuple[int, str, str]]] = [[]]
+        x = 0
+        for cat in self.categories:
+            label = f" {_CHIP_LABELS.get(cat, cat)} "
+            gap = 2 if lines[-1] else 0
+            if lines[-1] and width and x + gap + len(label) > width:
+                lines.append([])
+                x, gap = 0, 0
+            lines[-1].append((x + gap, label, cat))
+            x += gap + len(label)
+        return lines
+
+    def get_content_height(self, container, viewport, width: int) -> int:
+        return len(self._layout(width))
+
+    def render(self) -> Text:
+        t = Text(no_wrap=True)
+        self._spans = []
+        for row, line in enumerate(self._layout(self.content_size.width)):
+            if row:
+                t.append("\n")
+            x = 0
+            for start, label, cat in line:
+                t.append(" " * (start - x))
+                if cat == self.value:
+                    t.append(label, style=f"bold {ui.ACCENT} reverse")
+                else:
+                    t.append(label, style=ui.FG_MUTE)
+                self._spans.append((row, start, start + len(label), cat))
+                x = start + len(label)
+        return t
+
+    def set_value(self, value: str, *, notify: bool = True) -> None:
+        if value not in self.categories or value == self.value:
+            return
+        self.value = value
+        self.refresh()
+        if notify:
+            self.post_message(self.Changed(value))
+
+    def step(self, delta: int) -> None:
+        i = self.categories.index(self.value) if self.value in self.categories else 0
+        self.set_value(self.categories[(i + delta) % len(self.categories)])
+
+    def on_click(self, event) -> None:
+        off = event.get_content_offset(self)
+        if off is None:
+            return
+        for row, start, end, cat in self._spans:
+            if row == off.y and start <= off.x < end:
+                self.set_value(cat)
+                return
+
+
+class McpList(OptionList):
+    """An ``OptionList`` that says whether a row was picked by mouse or keyboard,
+    so a click can connect a marketplace server but never disconnects a live one."""
+
+    class Activated(Message):
+        def __init__(self, index: int, by_mouse: bool) -> None:
+            super().__init__()
+            self.index = index
+            self.by_mouse = by_mouse
+
+    async def _on_click(self, event) -> None:
+        event.prevent_default()  # OptionList's own handler would select it as if by keyboard
+        clicked = event.style.meta.get("option")
+        if clicked is not None and not self._options[clicked].disabled:
+            self.highlighted = clicked
+            self.post_message(self.Activated(clicked, True))
+
+    def action_select(self) -> None:
+        idx = self.highlighted
+        if idx is not None and not self._options[idx].disabled:
+            self.post_message(self.Activated(idx, False))
 
 
 # ── main MCP modal ───────────────────────────────────────────────────────
 
 class MCPModalScreen(TuiModalScreen[None]):
-    """Single modal for everything MCP — list, toggle, import."""
+    """Single modal for everything MCP — your servers, the marketplace, every action."""
 
     DEFAULT_CSS = (
         TUI_MODAL_CHROME_CSS
         + """
     MCPModalScreen #modal {
-        width: 88%;
-        max-width: 140;
-        max-height: 85%;
+        width: 92%;
+        max-width: 150;
+        height: 90%;
+        max-height: 52;
     }
-    MCPModalScreen OptionList {
-        height: 18;
+    MCPModalScreen McpList {
+        height: 1fr;
+        min-height: 8;
     }
     MCPModalScreen #mcp_header {
         padding: 0 1;
         margin-bottom: 1;
-        color: #e6edf3;
+        color: {ui.FG_MUTE};
+        height: 1;
     }
     MCPModalScreen #mcp_status {
         padding: 0 1;
-        margin-top: 1;
         color: {ui.FG_MUTE};
+        height: auto;
     }
     MCPModalScreen #mcp_status.ok { color: {ui.OK}; }
     MCPModalScreen #mcp_status.err { color: {ui.ERR}; }
     MCPModalScreen #mcp_status.connecting { color: {ui.WARN}; }
     MCPModalScreen #mcp_health {
-        padding: 0 1;
+        padding: 1 1 0 1;
         margin-top: 1;
         color: {ui.FG_MUTE};
-        min-height: 1;
+        height: auto;
+        min-height: 3;
+        border-top: solid {ui.BORDER};
     }
-    MCPModalScreen Input { margin-bottom: 1; }
+    MCPModalScreen #mcp_filter { margin-bottom: 1; }
     MCPModalScreen #mcp_buttons { height: 1; margin-top: 1; }
     MCPModalScreen #mcp_buttons Button { margin: 0 1 0 0; }
     """
@@ -140,7 +317,6 @@ class MCPModalScreen(TuiModalScreen[None]):
     BINDINGS = [
         Binding("escape", "cancel",   "Close",  show=True),
         Binding("space",  "toggle",   "Toggle", show=True),
-        Binding("enter",  "toggle",   "Toggle", show=False),
         Binding("g",      "toggle_global", "Global", show=True),
         Binding("i",      "import_global", "Import", show=True),
         Binding("e",      "export_global", "Export", show=True),
@@ -150,44 +326,55 @@ class MCPModalScreen(TuiModalScreen[None]):
         Binding("o",      "sign_out", "Sign out", show=False),
         Binding("m",      "move",     "Move",   show=False),
         Binding("k",      "keys",     "Keys",   show=False),
+        Binding("p",      "oauth_app", "OAuth app", show=False),
         Binding("c",      "copy_link", "Copy link", show=False),
-        Binding("slash",  "focus_filter", "Filter", show=False),
+        Binding("slash",  "focus_filter", "Search", show=False),
+        Binding("left",   "category(-1)", show=False),
+        Binding("right",  "category(1)", show=False),
         Binding("down",   "cursor_down",  show=False),
         Binding("up",     "cursor_up",    show=False),
         Binding("pagedown", "page_down",  show=False),
         Binding("pageup",   "page_up",    show=False),
     ]
 
-    def __init__(self, *, add: bool = False) -> None:
+    def __init__(self, *, add: bool = False, query: str = "") -> None:
         super().__init__()
         self._open_add = add
         self._armed_delete: str | None = None
-        self._filter: str = ""
-        self._row_ids: list[str] = []   # parallel to OptionList rows
+        self._filter: str = query
+        self._category: str = _ALL
+        self._row_ids: list[str] = []   # parallel to OptionList rows: srv::name · cat::id · add::… · ""
         self._connecting_names: set[str] = set()
+        self._adding: set[str] = set()  # marketplace ids being added / connected
         self._connect_status_msg: str = ""
         self._scope_busy: bool = False
         self._spinner_i: int = 0
         self._spinner_timer: Timer | None = None
+        self._market: dict[str, dict] = {}
 
     def compose(self) -> ComposeResult:
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("▧  MCP Servers", id="modal_title")
+                yield Static("▧  MCP servers & marketplace", id="modal_title")
                 yield Static("", id="mcp_header")
-                yield Input(placeholder="filter…  (press / to focus)", id="mcp_filter")
-                yield OptionList(id="mcp_list")
+                yield Input(
+                    value=self._filter,
+                    placeholder=f"Search {len(mcp_catalog.CATALOG)}+ servers — Slack, Notion, GitHub…  or paste a link / npx command",
+                    id="mcp_filter",
+                )
+                yield CategoryBar(mcp_catalog.CATEGORIES, id="mcp_cats")
+                yield McpList(id="mcp_list")
                 yield Static("", id="mcp_health")
                 yield Static("", id="mcp_status")
                 with Horizontal(id="mcp_buttons"):
                     yield Button("Connect", id="mcp_primary", variant="primary", compact=True)
-                    yield Button("+ Add server", id="mcp_add", compact=True)
                     yield Button("Keys…", id="mcp_keys", compact=True)
+                    yield Button("OAuth app…", id="mcp_app", compact=True)
+                    yield Button("+ Custom server", id="mcp_add", compact=True)
                 yield Static(
-                    f"[bold {ui.FG_MUTE}]↵[/] connect / sign in   [bold {ui.FG_MUTE}]a[/] add   "
-                    f"[bold {ui.FG_MUTE}]d[/] delete   [bold {ui.FG_MUTE}]m[/] move   "
-                    f"[bold {ui.FG_MUTE}]o[/] sign out   [bold {ui.FG_MUTE}]k[/] keys   "
-                    f"[bold {ui.FG_MUTE}]g[/] global   [bold {ui.FG_MUTE}]esc[/] close",
+                    hint_line(("↵", "connect"), ("↑↓", "move"), ("←→", "category"), ("/", "search"),
+                              ("a", "custom"), ("d", "remove"), ("o", "sign out"), ("g", "global"),
+                              ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -200,14 +387,17 @@ class MCPModalScreen(TuiModalScreen[None]):
             self.app.scroll_sensitivity_y = 1.0
         except AttributeError:
             self._prev_scroll = None
-        self._refresh_rows()
-        self.query_one("#mcp_list", OptionList).focus()
+        self._refresh_rows(keep_highlight=False)
+        if self._open_add or self._filter or not get_config().list_servers():
+            self.query_one("#mcp_filter", Input).focus()
+            if self._open_add and not self._filter:
+                self._focus_first_market_row()
+        else:
+            self.query_one("#mcp_list", McpList).focus()
         self._refresh_health_detail()
         subscribe = getattr(self.app, "mcp_subscribe", None)
         if subscribe:
             subscribe(self._registry_changed)
-        if self._open_add:
-            self.call_after_refresh(self.action_manual_add)
 
     def _registry_changed(self) -> None:
         if not self.is_mounted:
@@ -222,6 +412,18 @@ class MCPModalScreen(TuiModalScreen[None]):
         if self._armed_delete and self._selected_name() != self._armed_delete:
             self._armed_delete = None
         self._refresh_health_detail()
+
+    def on_mcp_list_activated(self, event: McpList.Activated) -> None:
+        event.stop()
+        kind, key = self._selected_row()
+        if kind == "srv" and event.by_mouse:
+            return  # a click only selects a server of yours; Enter / the button acts
+        self._activate()
+
+    def on_category_bar_changed(self, event: CategoryBar.Changed) -> None:
+        self._category = event.value
+        self._refresh_rows(keep_highlight=False)
+        self._focus_first_market_row()
 
     def on_unmount(self) -> None:
         disable_mouse()
@@ -266,7 +468,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._spinner_timer = None
 
     def _tick_connect_spinner(self) -> None:
-        if not self._connecting_names and not self._scope_busy:
+        if not self._connecting_names and not self._scope_busy and not self._adding:
             self._stop_connect_spinner()
             return
         self._spinner_i += 1
@@ -322,34 +524,6 @@ class MCPModalScreen(TuiModalScreen[None]):
             segs.append((label, style))
         return Text.assemble(*segs)
 
-    def _refresh_health_detail(self) -> None:
-        name = self._selected_name()
-        try:
-            widget = self.query_one("#mcp_health", Static)
-        except Exception:
-            return
-        if not name:
-            widget.update("")
-            self._sync_buttons(None)
-            return
-        config = get_config()
-        cfg = config.get_server(name)
-        health = mcp_registry.get_server_health(
-            name, cfg, connecting=name in self._connecting_names
-        )
-        detail = health.get("detail") or health.get("summary", "")
-        hint = ""
-        if health["status"] == "auth":
-            hint = " — press Enter to sign in"
-        elif health.get("needs_credentials"):
-            hint = " — press k to enter " + ", ".join(health["needs_credentials"])
-        elif health["status"] == "failed":
-            hint = " — space to retry"
-        elif health["status"] == "warn" and health.get("hints"):
-            hint = " — fix hints then space to connect"
-        widget.update(Text(detail + hint, style=self._health_color(health["status"])))
-        self._sync_buttons(name, health)
-
     def _global_hint(self) -> str:
         """What `g` would add, read once per dialog (it parses every tool's config)."""
         if getattr(self, "_global_hint_text", None) is None:
@@ -367,109 +541,225 @@ class MCPModalScreen(TuiModalScreen[None]):
                 self._global_hint_text = "(g: also load Claude / Cursor / Codex / …)"
         return self._global_hint_text
 
+    def _refresh_health_detail(self) -> None:
+        try:
+            widget = self.query_one("#mcp_health", Static)
+        except Exception:
+            return
+        kind, key = self._selected_row()
+        if kind == "cat":
+            item = self._market.get(key) or {}
+            widget.update(self._market_detail(item))
+            self._sync_buttons(None, item=item)
+            return
+        if kind == "add":
+            text = Text()
+            if key == "custom":
+                text.append("Add any MCP server", style=f"bold {ui.FG}")
+                text.append("\nPaste a link (https://…/mcp), an install command (npx -y … / uvx …), "
+                            "a `claude mcp add …` line, a JSON config or a GitHub repo — Jarvis works out the rest.",
+                            style=ui.FG_MUTE)
+            else:
+                text.append("Add this as a custom server", style=f"bold {ui.FG}")
+                text.append(f"\n{self._filter.strip()[:200]}", style=ui.ACCENT)
+                text.append("\n↵ shows what it will run or connect to before anything is added.", style=ui.FG_MUTE)
+            widget.update(text)
+            self._sync_buttons(None, add=True)
+            return
+        name = key if kind == "srv" else None
+        if not name:
+            widget.update(Text("No match. Try another word — or paste a link / npx command to add your own.",
+                               style=ui.FG_DIM) if self._filter else "")
+            self._sync_buttons(None)
+            return
+        config = get_config()
+        cfg = config.get_server(name)
+        health = mcp_registry.get_server_health(
+            name, cfg, connecting=name in self._connecting_names
+        )
+        item = mcp_catalog.for_server(name, cfg or {})
+        detail = health.get("detail") or health.get("summary", "")
+        hint = ""
+        if health["status"] == "auth":
+            hint = " — press Enter to sign in"
+        elif health.get("needs_credentials"):
+            hint = " — press Enter (or k) to add " + ", ".join(self._field_labels(name, health["needs_credentials"]))
+        elif health["status"] == "failed":
+            hint = " — Enter to retry"
+            if "registered apps" in (health.get("last_connect_error") or ""):
+                hint = " — press p to add its OAuth app (Client ID / Secret)"
+        elif health["status"] == "warn" and health.get("hints"):
+            hint = " — fix hints then Enter to connect"
+        text = Text()
+        text.append(name, style=f"bold {ui.FG}")
+        bits = [b for b in ((item or {}).get("label", ""), config.get_scope(name) or "", _endpoint_text(cfg or {}, max_len=90)) if b]
+        text.append("  " + " · ".join(bits), style=ui.FG_DIM)
+        text.append("\n" + detail + hint, style=self._health_color(health["status"]))
+        widget.update(text)
+        self._sync_buttons(name, health)
+
+    def _field_labels(self, name: str, variables: list[str]) -> list[str]:
+        item = mcp_catalog.for_server(name, get_config().get_server(name) or {})
+        fields = (item or {}).get("fields") or {}
+        return [fields.get(v, {}).get("label", v) for v in variables]
+
+    def _market_detail(self, item: dict) -> Text:
+        if not item:
+            return Text("")
+        t = Text()
+        t.append(item["label"], style=f"bold {ui.FG}")
+        t.append(f"  {item.get('category', '')} · {item.get('endpoint', '')}", style=ui.FG_DIM)
+        auth = item.get("auth")
+        labels = [f.get("label", v) for v, f in (item.get("fields") or {}).items()]
+        if item.get("id") in self._adding:
+            msg = f"Adding {item['label']}…"
+        elif auth == "oauth":
+            msg = f"Hosted. ↵ adds it and opens {item['label']}'s sign-in page in your browser — nothing to paste."
+        elif auth == "open":
+            msg = "Hosted, no account needed. ↵ connects right away."
+        elif auth == "key":
+            msg = (f"Needs your {' and '.join(labels) or 'API key'}. ↵ asks for it, with a link to get one "
+                   "(kept private, never in a config file).")
+        elif auth in ("app", "desktop"):
+            msg = (item.get("setup") or {}).get("why", "") + " ↵ walks you through it."
+        else:
+            msg = f"Runs on this computer: {item.get('endpoint', '')}. ↵ adds and starts it."
+        t.append("\n" + msg, style=ui.FG_MUTE)
+        return t
+
+    def _visible_market(self, installed_ids: set[str]) -> list[dict]:
+        q = "" if _looks_like_source(self._filter) else self._filter
+        cat = "" if self._category == _ALL else self._category
+        rows = mcp_catalog.search(q, cat)
+        return [mcp_catalog.public_item(r) for r in rows if r["id"] not in installed_ids]
+
     def _refresh_rows(self, keep_highlight: bool = True) -> None:
-        """Re-read config and re-render the option list."""
+        """Re-read config and re-render the list: your servers, then the marketplace."""
         config = get_config()
         servers = config.list_servers()
         auto_connect = set(config.get_auto_connect())
+        spinner = self._spinner_char()
 
         # Header line
-        spinner = self._spinner_char()
         connecting_count = len(self._connecting_names)
+        scope_bits = (
+            ("◉ global on", f"bold {ui.ACCENT}") if config.include_global() else ("▣ project only", f"bold {ui.ACCENT_2}")
+        )
         if connecting_count:
             scope_text = Text.assemble(
-                ("scope: ", "dim"),
-                (
-                    ("◉ global on  ", "bold blue")
-                    if config.include_global()
-                    else ("▣ project-only  ", "bold magenta")
-                ),
-                (f"{spinner} connecting {connecting_count} server", "bold yellow"),
-                ("s…" if connecting_count != 1 else "…", "bold yellow"),
-            )
-        elif config.include_global():
-            scope_text = Text.assemble(
-                ("scope: ", "dim"),
-                ("◉ global on  ", "bold blue"),
-                (f"{len(servers)} servers", "dim"),
-                self._header_health_bits(sorted(servers.keys())),
+                ("scope ", ui.FG_DIM), scope_bits, ("   ", ""),
+                (f"{spinner} connecting {connecting_count} server", f"bold {ui.WARN}"),
+                ("s…" if connecting_count != 1 else "…", f"bold {ui.WARN}"),
             )
         else:
             scope_text = Text.assemble(
-                ("scope: ", "dim"),
-                ("▣ project-only  ", "bold magenta"),
-                (f"{len(servers)} servers", "dim"),
+                ("scope ", ui.FG_DIM), scope_bits, ("   ", ""),
+                (f"{len(servers)} server{'s' if len(servers) != 1 else ''}", ui.FG_MUTE),
                 self._header_health_bits(sorted(servers.keys())),
-                ("  ", ""),
-                (self._global_hint(), "dim"),
+                ("" if config.include_global() else "   " + self._global_hint(), ui.FG_DIM),
             )
         self.query_one("#mcp_header", Static).update(scope_text)
 
-        # Apply filter
+        q = self._filter.strip()
+        looks_source = _looks_like_source(q)
         names_sorted = sorted(servers.keys())
-        if self._filter:
-            f = self._filter.lower()
+        items = {n: mcp_catalog.for_server(n, servers[n] or {}) for n in names_sorted}
+        if q and not looks_source:
+            ql = q.lower()
             names_sorted = [
                 n for n in names_sorted
-                if f in n.lower()
-                or f in str(servers[n].get("command", "")).lower()
-                or f in str(servers[n].get("url", "")).lower()
+                if ql in n.lower()
+                or ql in str(servers[n].get("command", "")).lower()
+                or ql in str(servers[n].get("url", "")).lower()
+                or (items[n] is not None and mcp_catalog.matches(items[n], q))
             ]
+        installed_ids = {it["id"] for it in items.values() if it}
+        market = self._visible_market(installed_ids)
+        self._market = {m["id"]: m for m in market}
 
-        opts = self.query_one("#mcp_list", OptionList)
+        opts = self.query_one("#mcp_list", McpList)
+        prev_key = self._row_ids[opts.highlighted] if (keep_highlight and opts.highlighted is not None
+                                                        and opts.highlighted < len(self._row_ids)) else None
         prev_idx = opts.highlighted if keep_highlight else None
+        options: list[Option] = []
+        ids: list[str] = []
+
+        def add(opt: Option, rid: str) -> None:
+            options.append(opt)
+            ids.append(rid)
+
+        if looks_source:
+            add(Option(picker_row(f"Add “{q[:70]}{'…' if len(q) > 70 else ''}”", detail="as a custom server",
+                                  icon="  + ", icon_style=f"bold {ui.ACCENT} reverse", title_style=f"bold {ui.ACCENT}"),
+                       id="add::source"), "add::source")
+
+        if names_sorted:
+            counts = mcp_registry.health_counts(names_sorted, connecting=self._connecting_names)
+            note = f"{len(names_sorted)}" + (f" · {counts['live']} live" if counts.get("live") else "")
+            add(section_header("Your servers", note, first=not options), "")
+            for name in names_sorted:
+                cfg = servers[name]
+                scope = config.get_scope(name) or "global"
+                source = config.get_source(name) or scope
+                is_connecting = name in self._connecting_names
+                health = mcp_registry.get_server_health(name, cfg, connecting=is_connecting)
+                add(Option(_row_label(name, cfg, scope, source, name in auto_connect, connecting=is_connecting,
+                                      spinner=spinner, health=health, also=config.get_also(name), item=items[name]),
+                           id=f"srv::{name}"), f"srv::{name}")
+
+        if not looks_source:
+            cat_note = "" if self._category == _ALL else f" · {self._category}"
+            add(section_header("Marketplace", f"{len(market)} server{'s' if len(market) != 1 else ''}{cat_note}"
+                               + ("" if q else "  ↵ to connect"), first=not options), "")
+            for item in market:
+                add(Option(_market_row(item, query=q, busy=item["id"] in self._adding, spinner=spinner),
+                           id=f"cat::{item['id']}"), f"cat::{item['id']}")
+            if not market:
+                add(Option(Text(f"  no marketplace match for “{q}”" if q else "  nothing in this category",
+                                style=f"italic {ui.FG_DIM}"), disabled=True), "")
+            add(Option(picker_row("Custom server…", detail="paste a link, npx / uvx command, JSON or GitHub repo",
+                                  icon="  + ", icon_style=f"bold {ui.FG_MUTE} reverse", title_style=f"bold {ui.FG_MUTE}"),
+                       id="add::custom"), "add::custom")
+
         opts.clear_options()
-        self._row_ids = []
+        opts.add_options(options)
+        self._row_ids = ids
 
-        if not names_sorted:
-            opts.add_option(
-                Option(
-                    Text("  (no servers match this filter)", style="dim italic"),
-                    id="__empty__",
-                    disabled=True,
-                )
-            )
-            return
-
-        for name in names_sorted:
-            cfg = servers[name]
-            scope = config.get_scope(name) or "global"
-            source = config.get_source(name) or scope
-            row_id = f"srv::{name}"
-            self._row_ids.append(name)
-            is_connecting = name in self._connecting_names
-            health = mcp_registry.get_server_health(
-                name, cfg, connecting=is_connecting
-            )
-            opts.add_option(
-                Option(
-                    _row_label(
-                        name,
-                        cfg,
-                        scope,
-                        source,
-                        name in auto_connect,
-                        connecting=is_connecting,
-                        spinner=spinner,
-                        health=health,
-                        also=config.get_also(name),
-                    ),
-                    id=row_id,
-                )
-            )
-
-        if prev_idx is not None and prev_idx < len(self._row_ids):
-            opts.highlighted = prev_idx
-        elif self._row_ids:
-            opts.highlighted = 0
+        target = None
+        if prev_key and prev_key in ids:
+            target = ids.index(prev_key)
+        elif prev_idx is not None and prev_idx < len(ids) and ids[prev_idx]:
+            target = prev_idx
+        if target is None:
+            target = next((i for i, rid in enumerate(ids) if rid), None)
+        if target is not None:
+            opts.highlighted = target
         self._refresh_health_detail()
 
-    def _selected_name(self) -> str | None:
-        opts = self.query_one("#mcp_list", OptionList)
+    def _focus_first_market_row(self) -> None:
+        opts = self.query_one("#mcp_list", McpList)
+        for i, rid in enumerate(self._row_ids):
+            if rid.startswith("cat::"):
+                opts.highlighted = i
+                opts.scroll_to_highlight()
+                break
+        self._refresh_health_detail()
+
+    def _selected_row(self) -> tuple[str, str]:
+        """``(kind, key)`` of the highlighted row — kind is srv | cat | add | ""."""
+        try:
+            opts = self.query_one("#mcp_list", McpList)
+        except Exception:
+            return "", ""
         idx = opts.highlighted
-        if idx is None or idx >= len(self._row_ids):
-            return None
-        return self._row_ids[idx]
+        if idx is None or idx >= len(self._row_ids) or not self._row_ids[idx]:
+            return "", ""
+        kind, _, key = self._row_ids[idx].partition("::")
+        return kind, key
+
+    def _selected_name(self) -> str | None:
+        kind, key = self._selected_row()
+        return key if kind == "srv" else None
 
     # ── actions ──────────────────────────────────────────────────────────
 
@@ -477,19 +767,22 @@ class MCPModalScreen(TuiModalScreen[None]):
         self.dismiss(None)
 
     def action_cursor_down(self) -> None:
-        self.query_one("#mcp_list", OptionList).action_cursor_down()
+        self.query_one("#mcp_list", McpList).action_cursor_down()
 
     def action_cursor_up(self) -> None:
-        self.query_one("#mcp_list", OptionList).action_cursor_up()
+        self.query_one("#mcp_list", McpList).action_cursor_up()
 
     def action_page_down(self) -> None:
-        self.query_one("#mcp_list", OptionList).action_page_down()
+        self.query_one("#mcp_list", McpList).action_page_down()
 
     def action_page_up(self) -> None:
-        self.query_one("#mcp_list", OptionList).action_page_up()
+        self.query_one("#mcp_list", McpList).action_page_up()
 
     def action_focus_filter(self) -> None:
         self.query_one("#mcp_filter", Input).focus()
+
+    def action_category(self, delta: int) -> None:
+        self.query_one("#mcp_cats", CategoryBar).step(int(delta))
 
     def action_refresh(self) -> None:
         from ..mcp.scope import apply_mcp_scope_change
@@ -497,40 +790,206 @@ class MCPModalScreen(TuiModalScreen[None]):
         self._refresh_rows()
         self._set_status("config reloaded", ok=True)
 
-    def _sync_buttons(self, name: str | None, health: dict | None = None) -> None:
+    def _activate(self) -> None:
+        """Enter / click / the primary button on whatever row is highlighted."""
+        kind, key = self._selected_row()
+        if kind == "cat":
+            self._connect_market(key)
+        elif kind == "add":
+            self.action_manual_add(self._filter.strip() if key == "source" else "")
+        elif kind == "srv":
+            health = mcp_registry.get_server_health(key, get_config().get_server(key))
+            if health.get("needs_credentials") and not mcp_registry.is_connected(key):
+                self.action_keys()
+            else:
+                self.action_toggle()
+
+    def _sync_buttons(self, name: str | None, health: dict | None = None, *, item: dict | None = None,
+                      add: bool = False) -> None:
         try:
             primary = self.query_one("#mcp_primary", Button)
             keys = self.query_one("#mcp_keys", Button)
+            app_btn = self.query_one("#mcp_app", Button)
         except Exception:
+            return
+
+        def set_label(label: str) -> None:
+            primary.display = True
+            if str(primary.label) != label:
+                primary.label = label
+                # A Button keeps its old width when only the label changes.
+                primary.styles.width = len(label) + 2
+                primary.refresh(layout=True)
+
+        keys.display = False
+        app_btn.display = False
+        if item:
+            set_label({"app": "Set up", "desktop": "Set up", "key": "Connect…"}.get(item.get("auth", ""), "Connect"))
+            return
+        if add:
+            set_label("Add…")
             return
         if not name:
             primary.display = False
-            keys.display = False
             return
         health = health or mcp_registry.get_server_health(name, get_config().get_server(name))
         status = health.get("status")
-        primary.display = True
-        label = (
+        set_label(
             "Authenticate" if status == "auth"
             else "Disconnect" if health.get("connected")
+            else "Add keys" if health.get("needs_credentials")
             else "Connect"
         )
-        if str(primary.label) != label:
-            primary.label = label
-            # A Button keeps its old width when only the label changes.
-            primary.styles.width = len(label) + 2
-            primary.refresh(layout=True)
         keys.display = bool(health.get("needs_credentials"))
+        cfg = get_config().get_server(name) or {}
+        app_btn.display = bool(cfg.get("url")) and (
+            isinstance(cfg.get("oauth"), dict) or "registered apps" in (health.get("last_connect_error") or "")
+        )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
         bid = event.button.id
         if bid == "mcp_primary":
-            self.action_toggle()
+            self._activate()
         elif bid == "mcp_add":
             self.action_manual_add()
         elif bid == "mcp_keys":
             self.action_keys()
+        elif bid == "mcp_app":
+            self.action_oauth_app()
+
+    # ── marketplace ──────────────────────────────────────────────────────
+
+    def _connect_market(self, item_id: str) -> None:
+        if item_id in self._adding:
+            return
+        item = self._market.get(item_id) or mcp_catalog.public_item(mcp_catalog.lookup(item_id) or {})
+        if not item.get("id"):
+            return
+        from ..mcp import secrets as mcp_secrets
+
+        missing = [v for v in item.get("credentials") or [] if not mcp_secrets.get_secret(v)]
+        if missing or item.get("auth") == "desktop":
+            from .extension_modals import ConnectSetupScreen
+
+            def after(values: dict | None) -> None:
+                if values is not None:
+                    self._start_market_add(item, values)
+
+            self.app.push_screen(ConnectSetupScreen(item, missing), after)
+            return
+        self._start_market_add(item, {})
+
+    def _start_market_add(self, item: dict, values: dict) -> None:
+        self._adding.add(item["id"])
+        self._connect_status_msg = f"adding {item['label']}…"
+        self._start_connect_spinner()
+        self._set_status(f"{self._spinner_char()} adding {item['label']}…", connecting=True)
+        self._refresh_rows()
+        self._market_worker(item["id"], values)
+
+    @work(thread=True, group="mcp-market")
+    def _market_worker(self, item_id: str, values: dict) -> None:
+        from ..mcp.install import add_mcp
+
+        try:
+            res = add_mcp(item_id, credentials=values or None)
+        except Exception as exc:  # noqa: BLE001
+            res = {"ok": False, "error": str(exc), "servers": []}
+        try:
+            self.app.call_from_thread(self._market_done, item_id, res)
+        except Exception:
+            pass
+
+    def _market_done(self, item_id: str, res: dict) -> None:
+        from ..mcp.scope import invalidate_mcp_prompt_cache
+
+        self._adding.discard(item_id)
+        self._connect_status_msg = ""
+        if not self._connecting_names and not self._scope_busy and not self._adding:
+            self._stop_connect_spinner()
+        reload_config()
+        invalidate_mcp_prompt_cache()
+        servers = res.get("servers") or []
+        r = servers[0] if servers else {}
+        name = r.get("name") or item_id
+        st = r.get("status")
+        label = (self._market.get(item_id) or {}).get("label") or name
+        if self.is_mounted:
+            # Follow the new server to the top section.
+            self._filter = self.query_one("#mcp_filter", Input).value or ""
+        self._refresh_rows(keep_highlight=False)
+        self._highlight_server(name)
+        where = f" ({r.get('scope')})" if r.get("scope") else ""
+        if st == "connected":
+            self._set_status(f"✓ {label} connected{where} — {r.get('tool_count', 0)} tools ready", ok=True)
+        elif st == "auth_required":
+            self._set_status(f"{label} added{where} — finish signing in in your browser", ok=None)
+            self._sign_in(name)
+        elif st == "needs_credentials":
+            self._set_status(f"{label} added{where} — needs {', '.join(r.get('missing') or [])}", ok=None)
+            self.action_keys()
+        elif st in ("exists", "added"):
+            self._set_status(r.get("message") or f"{label} is already added", ok=None)
+        else:
+            self._set_status(f"✗ {label}: {r.get('error') or res.get('error') or 'could not add'}", ok=False)
+
+    def _highlight_server(self, name: str) -> None:
+        rid = f"srv::{name}"
+        if rid in self._row_ids:
+            opts = self.query_one("#mcp_list", McpList)
+            opts.highlighted = self._row_ids.index(rid)
+            opts.scroll_to_highlight()
+            self._refresh_health_detail()
+
+    def action_oauth_app(self) -> None:
+        name = self._selected_name()
+        if not name:
+            return
+        cfg = get_config().get_server(name) or {}
+        if not cfg.get("url"):
+            self._set_status(f"{name} runs locally — it has no sign-in", ok=False)
+            return
+        from ..mcp.catalog import oauth_redirect_url
+        from .extension_modals import ConnectSetupScreen
+
+        item = {
+            "id": name, "label": name, "auth": "app", "redirect_url": oauth_redirect_url(),
+            "credentials": ["client_id", "client_secret"],
+            "fields": {
+                "client_id": {"label": "Client ID", "hint": "from the provider's developer settings", "secret": False},
+                "client_secret": {"label": "Client Secret", "hint": "leave as-is if the app has none", "secret": True},
+            },
+            "setup": {
+                "title": f"Sign in to {name} with your own OAuth app",
+                "why": "This server doesn't let new apps sign up on their own. Register an OAuth app with its "
+                       "provider, use the redirect URL below, then paste the app's Client ID and Secret.",
+            },
+        }
+
+        def after(values: dict | None) -> None:
+            if not values:
+                return
+            self._connecting_names.add(name)
+            self._connect_status_msg = f"saving app and connecting {name}…"
+            self._start_connect_spinner()
+            self._refresh_rows()
+            self._oauth_app_worker(name, values.get("client_id", ""), values.get("client_secret", ""))
+
+        self.app.push_screen(ConnectSetupScreen(item), after)
+
+    @work(thread=True)
+    def _oauth_app_worker(self, name: str, client_id: str, client_secret: str) -> None:
+        from ..mcp.install import set_oauth_app
+
+        try:
+            res = set_oauth_app(name, client_id, client_secret)
+        except Exception as exc:  # noqa: BLE001
+            res = {"ok": False, "status": "failed", "error": str(exc)}
+        try:
+            self.app.call_from_thread(self._keys_done, name, res)
+        except Exception:
+            pass
 
     def action_authenticate(self) -> None:
         name = self._selected_name()
@@ -586,7 +1045,7 @@ class MCPModalScreen(TuiModalScreen[None]):
         if not needed:
             self._set_status(f"{name} isn't waiting for any keys", ok=False)
             return
-        from .extension_modals import KeysScreen
+        from .extension_modals import ConnectSetupScreen, KeysScreen
 
         def after(values: dict | None) -> None:
             if not values:
@@ -597,7 +1056,11 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._refresh_rows()
             self._keys_worker(name, values)
 
-        self.app.push_screen(KeysScreen(name, needed), after)
+        item = mcp_catalog.for_server(name, get_config().get_server(name) or {})
+        if item:
+            self.app.push_screen(ConnectSetupScreen(mcp_catalog.public_item(item), needed), after)
+        else:
+            self.app.push_screen(KeysScreen(name, needed), after)
 
     @work(thread=True)
     def _keys_worker(self, name: str, values: dict) -> None:
@@ -618,9 +1081,14 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._stop_connect_spinner()
         st = res.get("status")
         if st == "connected":
-            self._set_status(f"connected {name} — {res.get('tool_count', 0)} tools", ok=True)
+            self._set_status(f"✓ connected {name} — {res.get('tool_count', 0)} tools", ok=True)
         elif st == "auth_required":
-            self._set_status(f"{name}: keys saved — sign-in needed (Enter)", ok=None)
+            self._set_status(f"{name}: saved — finish signing in in your browser", ok=None)
+            from ..mcp.scope import invalidate_mcp_prompt_cache
+            invalidate_mcp_prompt_cache()
+            self._refresh_rows()
+            self._sign_in(name)
+            return
         else:
             self._set_status(f"{name}: {res.get('error') or res.get('message') or 'not connected'}", ok=False)
         from ..mcp.scope import invalidate_mcp_prompt_cache
@@ -653,6 +1121,11 @@ class MCPModalScreen(TuiModalScreen[None]):
             if health.get("status") == "auth":
                 self._sign_in(name)
                 return
+        if not mcp_registry.is_connected(name) and mcp_registry.get_server_health(
+            name, config.get_server(name)
+        ).get("needs_credentials"):
+            self.action_keys()
+            return
         if mcp_registry.is_connected(name):
             err = mcp_registry.disconnect(name)
             if err:
@@ -879,7 +1352,7 @@ class MCPModalScreen(TuiModalScreen[None]):
         else:
             self._set_status("nothing to export", ok=False)
 
-    def action_manual_add(self) -> None:
+    def action_manual_add(self, initial: str = "") -> None:
         from .extension_modals import McpAddScreen
 
         def after(result: dict | None) -> None:
@@ -894,7 +1367,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             from ..mcp.scope import invalidate_mcp_prompt_cache
             invalidate_mcp_prompt_cache()
 
-        self.app.push_screen(McpAddScreen(), after)
+        self.app.push_screen(McpAddScreen(initial), after)
 
     def action_delete(self) -> None:
         name = self._selected_name()
@@ -927,4 +1400,8 @@ class MCPModalScreen(TuiModalScreen[None]):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "mcp_filter":
-            self.query_one("#mcp_list", OptionList).focus()
+            # Enter while typing acts on the highlighted row, like a command palette.
+            if self._selected_row()[0]:
+                self._activate()
+            else:
+                self.query_one("#mcp_list", McpList).focus()

@@ -170,9 +170,9 @@ def get_skill(name: str) -> dict[str, Any] | None:
 
 
 def list_mcp_servers(*, query: str = "") -> dict[str, Any]:
-    from ..mcp.install import describe_servers
+    from .extensions_api import mcp_state
 
-    return describe_servers(query)
+    return mcp_state(query)
 
 
 def parse_model_body(data: dict[str, Any]) -> tuple[str, str]:

@@ -306,9 +306,21 @@ def _describe_remote_error(leaves: list[BaseException], config: dict[str, Any]) 
             return "cancelled", str(e) or "Sign-in cancelled"
     for e in leaves:
         if isinstance(e, OAuthRegistrationError):
+            if isinstance(config.get("oauth"), dict):
+                return "error", f"Sign-in with {host} failed: the app's Client ID wasn't accepted. Check it in the MCP dialog."
+            from .catalog import by_alt_url
+
+            alt = by_alt_url(str(config.get("url") or ""))
+            if alt and alt.get("alt_note"):
+                return "error", alt["alt_note"]
+            if "403" in str(e) or "forbidden" in str(e).lower():
+                return "error", (
+                    f"{host} only lets apps it has approved sign in — it refused Jarvis. If the provider lets you "
+                    "create your own OAuth app, add its Client ID / Secret (OAuth app…); otherwise use an API token."
+                )
             return "error", (
-                f"{host} needs an API key or token — it doesn't offer browser sign-in. "
-                "Add one with mcp_add headers (Authorization: Bearer …) or in the MCP dialog."
+                f"{host} only lets registered apps sign in (no automatic sign-up). Create an OAuth app with "
+                f"its provider and add the Client ID / Secret (OAuth app…), or use an API token instead."
             )
         if isinstance(e, (OAuthFlowError, OAuthTokenError)):
             return "error", f"Sign-in with {host} failed: {e}"
@@ -324,9 +336,21 @@ def _describe_remote_error(leaves: list[BaseException], config: dict[str, Any]) 
             return "error", f"{host} answered HTTP {code}."
     for e in leaves:
         if isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout)):
+            from .catalog import by_url
+
+            item = by_url(str(config.get("url") or ""))
+            if item and item.get("auth") == "desktop":
+                steps = (item.get("setup") or {}).get("steps") or []
+                return "error", (
+                    f"The {item['label']} desktop app's MCP server isn't running. "
+                    + " ".join(steps[:3])
+                ).strip()
             return "error", f"Couldn't reach {host}. Check the address and your connection."
         if isinstance(e, (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout, TimeoutError, asyncio.TimeoutError)):
             return "error", f"{host} took too long to answer."
+    for e in leaves:
+        if isinstance(e, RuntimeError) and "sign-in callback" in str(e):
+            return "error", f"Couldn't start the sign-in: {e}. Close whatever uses that port and try again."
     first = leaves[0] if leaves else Exception("unknown error")
     text = str(first).strip() or type(first).__name__
     return "error", f"{type(first).__name__}: {text}"
@@ -669,6 +693,13 @@ class MCPRegistry:
         """
         if interactive is None:
             interactive = not getattr(self._tls, "quiet", False)
+        oauth_missing = mcp_secrets.missing(config.get("oauth")) if isinstance(config.get("oauth"), dict) else []
+        if oauth_missing:
+            # A pre-registered app without its ID / secret would fall back to
+            # self sign-up, which these hosts refuse — say what's missing instead.
+            msg = "needs " + ", ".join(oauth_missing) + " — add it in the MCP dialog"
+            self._record_connect_error(server_name, msg)
+            return msg
         config = mcp_secrets.expand(config)
         transport_type = config.get("type", "stdio")
         # A sign-in that just expired / was cancelled is still winding down for a
@@ -834,7 +865,10 @@ class MCPRegistry:
         headers = dict(config.get("headers") or {}) or None
         auth = None
         if _wants_oauth(config):
-            auth, _storage = build_provider(server_name, url, interactive=mode)
+            oauth = config.get("oauth")
+            auth, _storage = build_provider(
+                server_name, url, interactive=mode, client=oauth if isinstance(oauth, dict) else None,
+            )
         if transport == "sse":
             cm = sse_client(url, headers=headers, auth=auth)
         else:

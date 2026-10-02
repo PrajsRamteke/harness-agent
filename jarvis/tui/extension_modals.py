@@ -238,6 +238,188 @@ class KeysScreen(TuiModalScreen["dict[str, str] | None"]):
         self.dismiss(None)
 
 
+# ── guided setup for a marketplace server ─────────────────────────────────
+
+
+def _open_url(url: str) -> bool:
+    try:
+        import webbrowser
+
+        return bool(webbrowser.open(url))
+    except Exception:
+        return False
+
+
+class ConnectSetupScreen(TuiModalScreen["dict[str, str] | None"]):
+    """Everything a marketplace server needs before it can connect, on one screen.
+
+    API-key servers (GitHub, Render…) get one field and a *Get a token* link;
+    servers that only sign in through a registered app (Slack) get the numbered
+    steps, a link that opens the vendor's page already filled in, the redirect
+    URL to use, and the Client ID / Secret fields. Dismisses with
+    ``{VAR: value}`` for the fields filled in, or ``None``.
+    """
+
+    DEFAULT_CSS = (
+        TUI_MODAL_CHROME_CSS
+        + """
+    ConnectSetupScreen #modal { width: 84%; max-width: 110; max-height: 94%; }
+    ConnectSetupScreen #cs_scroll { height: auto; max-height: 100%; }
+    ConnectSetupScreen #cs_why { color: {ui.FG_MUTE}; padding: 0 1; margin-bottom: 1; height: auto; }
+    ConnectSetupScreen #cs_steps { padding: 0 1; height: auto; margin-bottom: 1; }
+    ConnectSetupScreen #cs_link_row { height: 1; margin-bottom: 1; }
+    ConnectSetupScreen #cs_link_row Button { margin: 0 1 0 0; }
+    ConnectSetupScreen #cs_redirect { padding: 0 1; height: auto; margin-bottom: 1; }
+    ConnectSetupScreen .cs_label { padding: 0 1; height: 1; }
+    ConnectSetupScreen .cs_field { margin-bottom: 1; }
+    ConnectSetupScreen #cs_note { color: {ui.WARN}; padding: 0 1; height: auto; }
+    ConnectSetupScreen #cs_error { color: {ui.ERR}; padding: 0 1; height: auto; }
+    ConnectSetupScreen #cs_buttons { height: 1; margin-top: 1; }
+    ConnectSetupScreen #cs_buttons Button { margin: 0 1 0 0; }
+    """
+    )
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=True),
+        Binding("ctrl+s", "submit", "Connect", show=False),
+        Binding("ctrl+o", "open_link", "Open link", show=False),
+    ]
+
+    def __init__(self, item: dict[str, Any], variables: list[str] | None = None) -> None:
+        super().__init__()
+        self._item = item
+        fields = item.get("fields") or {}
+        self._vars = [v for v in (variables if variables is not None else (item.get("credentials") or list(fields))) if v]
+        self._fields = {v: {"label": v, "hint": "", "secret": True, "placeholder": "", **fields.get(v, {})}
+                        for v in self._vars}
+        self._setup = item.get("setup") or {}
+        self._link = str(self._setup.get("link") or "")
+
+    def compose(self) -> ComposeResult:
+        label = self._item.get("label") or self._item.get("id") or "server"
+        app_mode = self._item.get("auth") == "app"
+        with CenterMiddle():
+            with Vertical(id="modal"):
+                yield Static(f"◈  Connect {label}", id="modal_title")
+                title = self._setup.get("title") or (
+                    f"{label} needs {self._fields[self._vars[0]]['label'].lower()}" if self._vars else f"Connect {label}"
+                )
+                why = self._setup.get("why") or (
+                    "Stored privately in ~/.config/harness-agent/mcp_secrets.json — never written to a "
+                    "config file, never shown to the model."
+                )
+                yield Static(Text.assemble((title + "\n", f"bold {ui.FG}"), (why, ui.FG_MUTE)), id="cs_why")
+                steps = self._setup.get("steps") or []
+                if steps:
+                    from rich.table import Table
+
+                    grid = Table.grid(padding=(0, 2, 0, 0))
+                    grid.add_column(width=3, no_wrap=True)
+                    grid.add_column(ratio=1)
+                    for i, step in enumerate(steps, 1):
+                        grid.add_row(Text(f" {i} ", style=f"bold {ui.ACCENT} reverse"), Text(step, style=ui.FG))
+                    yield Static(grid, id="cs_steps")
+                if self._link:
+                    with Horizontal(id="cs_link_row"):
+                        yield Button(f"{self._setup.get('link_label') or 'Open'} ↗", id="cs_open",
+                                     variant="primary", compact=True)
+                        yield Button("Copy link", id="cs_copy", compact=True)
+                if app_mode and self._item.get("redirect_url"):
+                    yield Static(
+                        Text.assemble(("Redirect URL  ", ui.FG_DIM), (self._item["redirect_url"], ui.ACCENT),
+                                      ("   already set in the pre-filled app", ui.FG_DIM)),
+                        id="cs_redirect",
+                    )
+                for i, var in enumerate(self._vars):
+                    meta = self._fields[var]
+                    yield Static(
+                        Text.assemble((meta["label"], f"bold {ui.FG}"),
+                                      (f"   {meta['hint']}" if meta.get("hint") else "", ui.FG_DIM)),
+                        classes="cs_label",
+                    )
+                    yield Input(
+                        password=bool(meta.get("secret", True)),
+                        placeholder=meta.get("placeholder") or ("paste it here (hidden)" if meta.get("secret", True) else "paste it here"),
+                        id=f"cs_{i}",
+                        classes="cs_field",
+                    )
+                if self._setup.get("note"):
+                    yield Static(f"ⓘ  {self._setup['note']}", id="cs_note")
+                yield Static("", id="cs_error")
+                with Horizontal(id="cs_buttons"):
+                    yield Button("Connect", id="cs_submit", variant="primary", compact=True)
+                    yield Button("Cancel", id="cs_cancel", compact=True)
+                pairs = [("↵", "next / connect")]
+                if self._link:
+                    pairs.append(("^o", "open link"))
+                pairs.append(("esc", "cancel"))
+                yield Static(hint_line(*pairs), id="modal_hint")
+
+    def on_mount(self) -> None:
+        enable_mouse()
+        if self._vars:
+            self.query_one("#cs_0", Input).focus()
+        else:
+            self.query_one("#cs_submit", Button).focus()
+
+    def on_unmount(self) -> None:
+        disable_mouse()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        {"cs_open": self.action_open_link, "cs_copy": self._copy_link,
+         "cs_submit": self.action_submit, "cs_cancel": self.action_cancel}.get(event.button.id or "", lambda: None)()
+
+    def action_open_link(self) -> None:
+        if not self._link:
+            return
+        if not _open_url(self._link):
+            self._copy_link()
+            self.query_one("#cs_error", Static).update(
+                Text("Couldn't open a browser here — the link is copied; open it on any device.", style=ui.WARN))
+        self._focus_next_empty()
+
+    def _focus_next_empty(self) -> None:
+        """Back to the first field still to fill — ready for the paste."""
+        for i in range(len(self._vars)):
+            box = self.query_one(f"#cs_{i}", Input)
+            if not box.value.strip():
+                box.focus()
+                return
+
+    def _copy_link(self) -> None:
+        copier = getattr(self.app, "_copy_text", None)
+        if copier and self._link:
+            copier(self._link)
+            self.query_one("#cs_error", Static).update(Text("✓ link copied", style=ui.OK))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        idx = int((event.input.id or "cs_0").split("_")[1])
+        if not event.input.value.strip():
+            self.query_one("#cs_error", Static).update(
+                Text(f"{self._fields[self._vars[idx]]['label']} is empty.", style=ui.ERR))
+            return
+        self.query_one("#cs_error", Static).update("")
+        if idx + 1 < len(self._vars) and not self.query_one(f"#cs_{idx + 1}", Input).value.strip():
+            self.query_one(f"#cs_{idx + 1}", Input).focus()
+        else:
+            self.action_submit()
+
+    def action_submit(self) -> None:
+        values: dict[str, str] = {}
+        for i, var in enumerate(self._vars):
+            val = self.query_one(f"#cs_{i}", Input).value.strip()
+            if not val:
+                self.query_one("#cs_error", Static).update(
+                    Text(f"{self._fields[var]['label']} is empty.", style=ui.ERR))
+                self.query_one(f"#cs_{i}", Input).focus()
+                return
+            values[var] = val
+        self.dismiss(values)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # ── browser sign-in ────────────────────────────────────────────────────────
 
 

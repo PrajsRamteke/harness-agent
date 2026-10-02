@@ -13,6 +13,7 @@ export const CATALOG = [
   { group: 'Go to', picker: 'agent', cmd: '/agent', label: 'Agent', desc: 'Activate an agent profile', icon: 'sparkles', keys: 'profile persona' },
   { group: 'Go to', picker: 'skill', cmd: '/skill', label: 'Skills', desc: 'Browse installed skill packs', icon: 'book-open' },
   { group: 'Go to', picker: 'mcp', cmd: '/mcp', label: 'MCP servers', desc: 'Connect or disconnect tool servers', icon: 'plug', keys: 'tools servers' },
+  { group: 'Go to', picker: 'mcp', pickerArg: 'market', label: 'Browse MCP marketplace', desc: 'Connect Slack, Notion, Linear, GitHub and 50+ more in a click', icon: 'sparkles', keys: 'mcp add install connect integration slack notion linear github figma jira clickup canva servers marketplace store' },
   { group: 'Go to', picker: 'command', cmd: '/command', label: 'Custom commands', desc: 'Make your own slash commands from prompts you reuse', icon: 'terminal', keys: 'commands template templates prompt snippet macro custom new create edit shortcut' },
   { group: 'Go to', action: 'inspector-changes', label: 'File changes', desc: 'Files Jarvis created, edited or deleted, with diffs', icon: 'file-diff', keys: 'diff review git patch files edited changed side panel' },
   { group: 'Go to', action: 'attach', label: 'Attach files', desc: 'Photos, video, audio, PDFs or documents (or drop / paste them)', icon: 'paperclip', keys: 'upload image photo picture screenshot file media document pdf video camera' },

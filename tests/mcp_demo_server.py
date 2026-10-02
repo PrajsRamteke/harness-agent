@@ -1,6 +1,10 @@
 """Tiny MCP server for tests: streamable HTTP / SSE, optionally with in-memory OAuth.
 
-Usage: python mcp_demo_server.py PORT [oauth|open|sse] [access-token-ttl-seconds]
+Usage: python mcp_demo_server.py PORT [oauth|app|open|sse] [access-token-ttl-seconds] [app-redirect-uri]
+
+``app`` is OAuth *without* dynamic client registration (like Slack): only the
+pre-registered client ``demo-app`` / ``demo-secret`` may sign in, and only back
+to ``app-redirect-uri``.
 """
 import secrets, sys, time
 from mcp.server.auth.provider import (AccessToken, AuthorizationCode, AuthorizationParams,
@@ -10,8 +14,9 @@ from mcp.server.fastmcp import FastMCP
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8931
-MODE = sys.argv[2] if len(sys.argv) > 2 else "oauth"      # oauth | open | sse | bearer
+MODE = sys.argv[2] if len(sys.argv) > 2 else "oauth"      # oauth | app | open | sse | bearer
 TTL = int(sys.argv[3]) if len(sys.argv) > 3 else 3600
+APP_REDIRECT = sys.argv[4] if len(sys.argv) > 4 else "http://localhost:3118/callback"
 
 
 class Provider:
@@ -66,11 +71,18 @@ class Provider:
 
 base = f"http://127.0.0.1:{PORT}"
 kwargs = dict(host="127.0.0.1", port=PORT)
-if MODE == "oauth":
+if MODE in ("oauth", "app"):
+    provider = Provider()
+    if MODE == "app":
+        provider.clients["demo-app"] = OAuthClientInformationFull(
+            client_id="demo-app", client_secret="demo-secret", redirect_uris=[APP_REDIRECT],
+            grant_types=["authorization_code", "refresh_token"], response_types=["code"],
+            token_endpoint_auth_method="client_secret_post", scope="user")
     kwargs.update(
-        auth_server_provider=Provider(),
+        auth_server_provider=provider,
         auth=AuthSettings(issuer_url=base, resource_server_url=f"{base}/mcp",
-                          client_registration_options=ClientRegistrationOptions(enabled=True, valid_scopes=["user"], default_scopes=["user"]),
+                          client_registration_options=ClientRegistrationOptions(
+                              enabled=MODE == "oauth", valid_scopes=["user"], default_scopes=["user"]),
                           required_scopes=["user"]))
 app = FastMCP("demo", **kwargs)
 

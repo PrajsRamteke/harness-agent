@@ -1,8 +1,12 @@
 """Browser sign-in (OAuth) for remote MCP servers — what the *Authenticate* button drives.
 
 A remote server that answers ``401`` is signed in with the MCP SDK's
-``OAuthClientProvider`` (discovery, dynamic client registration, PKCE). This
-module supplies the parts around it that are Jarvis-specific:
+``OAuthClientProvider`` (discovery, dynamic client registration, PKCE). A
+server that doesn't offer dynamic registration (Slack) signs in with a
+*pre-registered app* instead: the config's ``oauth: {clientId, clientSecret?,
+callbackPort?, scopes?}`` (Claude Code's shape) is handed to the SDK as the
+client, and the browser comes back to that fixed port. This module supplies the
+parts around it that are Jarvis-specific:
 
 * ``FileTokenStorage`` — tokens + the registered client, per server, mode 600
   under ``~/.config/harness-agent/mcp-auth/``. Expired access tokens refresh
@@ -34,7 +38,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
-from mcp.client.auth import OAuthClientProvider
+import httpx
+from mcp.client.auth import OAuthClientProvider, OAuthTokenError
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 logger = logging.getLogger("jarvis.mcp.auth")
@@ -66,9 +71,17 @@ def _key(server_name: str, server_url: str) -> str:
 class FileTokenStorage:
     """``TokenStorage`` for the SDK: one JSON file per (server name, url)."""
 
-    def __init__(self, server_name: str, server_url: str, redirect_uri: str) -> None:
+    def __init__(
+        self,
+        server_name: str,
+        server_url: str,
+        redirect_uri: str,
+        static_client: OAuthClientInformationFull | None = None,
+    ) -> None:
         self.path = AUTH_DIR / f"{_key(server_name, server_url)}.json"
         self.redirect_uri = redirect_uri
+        # A pre-registered app: always this client, never registered or stored.
+        self.static_client = static_client
 
     def _read(self) -> dict[str, Any]:
         try:
@@ -116,6 +129,8 @@ class FileTokenStorage:
         self._write(data)
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
+        if self.static_client is not None:
+            return self.static_client
         raw = self._read().get("client_info")
         if not raw:
             return None
@@ -129,6 +144,8 @@ class FileTokenStorage:
         return info
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        if self.static_client is not None:
+            return
         data = self._read()
         data["client_info"] = client_info.model_dump(mode="json", exclude_none=True)
         self._write(data)
@@ -197,6 +214,8 @@ class AuthCoordinator:
         self._server: ThreadingHTTPServer | None = None
         self._port = 0
         self._server_error = ""
+        # Pre-registered apps come back to the exact port they registered.
+        self._fixed: dict[int, ThreadingHTTPServer] = {}
 
     # ── listeners (the UIs) ──────────────────────────────────────────────
 
@@ -221,13 +240,41 @@ class AuthCoordinator:
 
     # ── loopback listener ────────────────────────────────────────────────
 
-    def redirect_uri(self, *, start: bool = True) -> str:
+    def redirect_uri(self, *, start: bool = True, port: int | None = None) -> str:
         """The address the browser returns to. Starts the listener on first use
-        (``start=False`` only names the address, e.g. for a startup connect)."""
+        (``start=False`` only names the address, e.g. for a startup connect).
+
+        ``port`` pins it (a pre-registered app's redirect URL): that exact port
+        or nothing — falling back to another one would only make the provider
+        refuse the redirect."""
+        if port:
+            if start and not self._ensure_fixed(int(port)):
+                return ""
+            return f"http://localhost:{int(port)}{CALLBACK_PATH}"
         if start:
             self._ensure_listener()
-        port = self._port or int(os.getenv("HARNESS_MCP_OAUTH_PORT", "") or DEFAULT_PORT)
+        port = self._port or preferred_port()
         return f"http://localhost:{port}{CALLBACK_PATH}" if (self._port or not start) else ""
+
+    def _ensure_fixed(self, port: int) -> bool:
+        with self._lock:
+            if (self._server is not None and self._port == port) or port in self._fixed:
+                return True
+        if port == preferred_port():
+            self._ensure_listener()
+            with self._lock:
+                if self._server is not None and self._port == port:
+                    return True
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", port), _make_handler(self))
+        except OSError as exc:
+            self._server_error = f"port {port} is already in use ({exc.strerror or exc})"
+            return False
+        server.daemon_threads = True
+        with self._lock:
+            self._fixed[port] = server
+        threading.Thread(target=server.serve_forever, daemon=True, name=f"jarvis-mcp-oauth-{port}").start()
+        return True
 
     def listening(self) -> bool:
         return self._server is not None
@@ -236,7 +283,7 @@ class AuthCoordinator:
         with self._lock:
             if self._server is not None:
                 return
-            preferred = int(os.getenv("HARNESS_MCP_OAUTH_PORT", "") or DEFAULT_PORT)
+            preferred = preferred_port()
             server = None
             for port in (preferred, 0):
                 try:
@@ -254,10 +301,13 @@ class AuthCoordinator:
     def stop_listener(self) -> None:
         with self._lock:
             server, self._server, self._port = self._server, None, 0
-        if server is not None:
+            fixed, self._fixed = list(self._fixed.values()), {}
+        for srv in [server, *fixed]:
+            if srv is None:
+                continue
             try:
-                server.shutdown()
-                server.server_close()
+                srv.shutdown()
+                srv.server_close()
             except Exception:
                 pass
 
@@ -285,9 +335,9 @@ class AuthCoordinator:
         req = self.get(name)
         return req is not None and req.status in _LIVE
 
-    def begin(self, name: str, url: str) -> AuthRequest:
+    def begin(self, name: str, url: str, redirect_uri: str = "") -> AuthRequest:
         """The SDK produced an authorize URL: publish it to the UIs."""
-        req = AuthRequest(name, url, self.redirect_uri())
+        req = AuthRequest(name, url, redirect_uri or self.redirect_uri())
         with self._lock:
             old = self._requests.get(name)
             self._requests[name] = req
@@ -447,19 +497,111 @@ def _make_handler(coord: AuthCoordinator) -> type[BaseHTTPRequestHandler]:
 coordinator = AuthCoordinator()
 
 
+def preferred_port() -> int:
+    try:
+        return int(os.getenv("HARNESS_MCP_OAUTH_PORT", "") or DEFAULT_PORT)
+    except ValueError:
+        return DEFAULT_PORT
+
+
 # ── provider for the SDK ──────────────────────────────────────────────────
 
 
+def _fix_token_payload(data: Any) -> tuple[dict[str, Any] | None, str]:
+    """Bring a token endpoint's answer into RFC 6749 shape. ``(payload, error)``.
+
+    Providers that predate OAuth-for-MCP answer in their own dialect — Slack
+    replies HTTP 200 with ``{"ok": false, "error": …}`` on failure and calls its
+    user token ``token_type: "user"`` (the SDK only accepts ``Bearer``)."""
+    if not isinstance(data, dict):
+        return None, "the token endpoint didn't answer with JSON"
+    if data.get("ok") is False or (data.get("error") and not data.get("access_token")):
+        err = str(data.get("error_description") or data.get("error") or "unknown error")
+        return None, err
+    out = dict(data)
+    if not out.get("access_token"):
+        nested = out.get("authed_user") if isinstance(out.get("authed_user"), dict) else {}
+        for key in ("access_token", "refresh_token", "expires_in", "scope"):
+            if nested.get(key) and not out.get(key):
+                out[key] = nested[key]
+    if not out.get("access_token"):
+        return None, "no access token in the answer"
+    out["token_type"] = "Bearer"
+    if isinstance(out.get("expires_in"), str) and out["expires_in"].isdigit():
+        out["expires_in"] = int(out["expires_in"])
+    return {k: out[k] for k in ("access_token", "token_type", "expires_in", "scope", "refresh_token") if out.get(k) is not None}, ""
+
+
+async def _normalized(response: httpx.Response, *, refresh: bool = False) -> httpx.Response:
+    if response.status_code != 200:
+        return response
+    body = await response.aread()
+    try:
+        data = json.loads(body.decode("utf-8") or "null")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return response
+    fixed, err = _fix_token_payload(data)
+    if fixed is None:
+        if refresh:
+            return httpx.Response(400, content=body, request=response.request)
+        raise OAuthTokenError(f"sign-in was refused: {err}")
+    return httpx.Response(
+        200,
+        content=json.dumps(fixed).encode(),
+        headers={"content-type": "application/json"},
+        request=response.request,
+    )
+
+
 class _Provider(OAuthClientProvider):
-    """Same as the SDK's, but a stored token's real expiry is honoured after a
-    restart (so it refreshes instead of being sent expired and re-running the
-    whole browser sign-in)."""
+    """Same as the SDK's, plus:
+
+    * a stored token's real expiry is honoured after a restart (so it refreshes
+      instead of being sent expired and re-running the whole browser sign-in);
+    * a pre-registered app can pin the scopes it asks for;
+    * token answers in a provider's own dialect are accepted (``_fix_token_payload``).
+    """
+
+    forced_scope: str | None = None
 
     async def _initialize(self) -> None:
         await super()._initialize()
         expires = getattr(self.context.storage, "expires_at", lambda: None)()
         if expires and self.context.current_tokens:
             self.context.token_expiry_time = expires
+
+    async def _perform_authorization(self) -> httpx.Request:
+        if self.forced_scope:
+            self.context.client_metadata.scope = self.forced_scope
+        return await super()._perform_authorization()
+
+    async def _handle_token_response(self, response: httpx.Response) -> None:
+        await super()._handle_token_response(await _normalized(response))
+
+    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
+        return await super()._handle_refresh_response(await _normalized(response, refresh=True))
+
+
+def client_settings(oauth: Any) -> dict[str, Any] | None:
+    """``{client_id, client_secret, port, scope}`` from a config's ``oauth`` block
+    (already ``${VAR}``-expanded), or ``None`` for automatic registration."""
+    if not isinstance(oauth, dict):
+        return None
+    low = {str(k).lower().replace("_", ""): v for k, v in oauth.items()}
+    client_id = str(low.get("clientid") or "").strip()
+    if not client_id or "${" in client_id:
+        return None
+    secret = str(low.get("clientsecret") or "").strip()
+    if "${" in secret:
+        secret = ""
+    try:
+        port = int(low.get("callbackport") or 0) or preferred_port()
+    except (TypeError, ValueError):
+        port = preferred_port()
+    scopes = low.get("scopes") if low.get("scopes") is not None else low.get("scope")
+    if isinstance(scopes, list):
+        scopes = " ".join(str(x) for x in scopes)
+    return {"client_id": client_id, "client_secret": secret, "port": port, "scope": str(scopes or "").strip()}
 
 
 def build_provider(
@@ -468,27 +610,43 @@ def build_provider(
     *,
     interactive: bool | Callable[[], bool] = True,
     coord: AuthCoordinator | None = None,
+    client: dict[str, Any] | None = None,
 ) -> tuple[OAuthClientProvider, FileTokenStorage]:
     """``httpx`` auth for ``name`` at ``url``.
 
     ``interactive`` (a bool, or a callable read each time a sign-in is needed)
     false — a startup auto-connect — raises ``AuthNeeded`` instead of publishing
     a sign-in, so opening Jarvis never spawns sign-in requests.
+
+    ``client`` is the server's ``oauth`` block: with a client id the SDK signs
+    in as that pre-registered app (no dynamic registration) and the browser
+    returns to its fixed ``callbackPort``.
     """
     coord = coord or coordinator
+    app = client_settings(client)
 
     def allowed() -> bool:
         return bool(interactive()) if callable(interactive) else bool(interactive)
 
-    redirect_uri = coord.redirect_uri(start=allowed())
+    redirect_uri = coord.redirect_uri(start=allowed(), port=app["port"] if app else None)
     if not redirect_uri:
         raise RuntimeError(f"can't listen for the sign-in callback ({coord._server_error or 'no port'})")
-    storage = FileTokenStorage(name, url, redirect_uri)
+    static = None
+    if app:
+        static = OAuthClientInformationFull(
+            client_id=app["client_id"],
+            client_secret=app["client_secret"] or None,
+            redirect_uris=[redirect_uri],  # type: ignore[list-item]
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            token_endpoint_auth_method="client_secret_post" if app["client_secret"] else "none",
+        )
+    storage = FileTokenStorage(name, url, redirect_uri, static_client=static)
 
     async def redirect_handler(auth_url: str) -> None:
         if not allowed():
             raise AuthNeeded(name)
-        coord.begin(name, auth_url)
+        coord.begin(name, auth_url, redirect_uri)
 
     async def callback_handler() -> tuple[str, str | None]:
         req = coord.get(name)
@@ -534,6 +692,8 @@ def build_provider(
         callback_handler=callback_handler,
         timeout=FLOW_TTL,
     )
+    if app and app["scope"]:
+        provider.forced_scope = app["scope"]
     return provider, storage
 
 

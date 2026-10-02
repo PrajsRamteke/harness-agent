@@ -45,7 +45,9 @@ def _extensions_re() -> re.Pattern:
     """Installing skills / MCP servers: the words, launchers, or "add linear"."""
     from ..mcp.catalog import CATALOG
 
-    names = "|".join(re.escape(c["id"]) for c in CATALOG)
+    # Ids that are everyday words ("add time", "connect git") don't count on their own.
+    generic = {"time", "git", "fetch", "memory", "close", "jam", "filesystem", "sequential-thinking"}
+    names = "|".join(re.escape(c["id"]) for c in CATALOG if c["id"] not in generic)
     return re.compile(
         r"\b(mcp|mcps|mcp[- ]server|modelcontextprotocol|\.mcp\.json|skills?|skill\.md|npx -y|uvx|claude mcp add|"
         r"authenticate|sign[- ]?in to|oauth)\b"

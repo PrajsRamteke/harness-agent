@@ -130,18 +130,30 @@ def _spec(name: str, entry: dict[str, Any], *notes: str, scope_hint: str = "", c
     }
 
 
+def _catalog_oauth(item: dict[str, Any]) -> dict[str, Any] | None:
+    """A pre-registered app's ``oauth`` block, pinned to the port its redirect URL names."""
+    if not isinstance(item.get("oauth"), dict):
+        return None
+    return {**item["oauth"], "callbackPort": catalog.oauth_port()}
+
+
 def _from_catalog(item: dict[str, Any]) -> dict[str, Any]:
     entry: dict[str, Any]
     if item.get("url"):
         entry = {"type": guess_remote_type(item["url"]), "url": item["url"]}
         if item.get("headers"):
             entry["headers"] = dict(item["headers"])
+        oauth = _catalog_oauth(item)
+        if oauth:
+            entry["oauth"] = oauth
     else:
         entry = {
             "type": "stdio",
             "command": item["command"],
             "args": [str(a).replace("${CWD}", str(os.getcwd())) for a in item.get("args", [])],
         }
+        if item.get("env"):
+            entry["env"] = dict(item["env"])
     return _spec(item["id"], entry, item.get("note", ""), credentials=list(item.get("credentials") or []))
 
 
@@ -426,6 +438,10 @@ def _augment_from_catalog(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             sp["credentials"] = sorted(set(sp.get("credentials") or []) | set(known.get("credentials") or []))
             if known.get("note"):
                 sp["notes"].append(known["note"])
+        # Slack & co. only sign in through a registered app — keep asking for its ID.
+        if known and known.get("oauth") and not isinstance(entry.get("oauth"), dict) and not entry.get("headers"):
+            entry["oauth"] = _catalog_oauth(known)
+            sp["credentials"] = sorted(set(sp.get("credentials") or []) | set(known.get("credentials") or []))
     return specs
 
 
@@ -697,7 +713,18 @@ def summarize(results: list[dict[str, Any]]) -> str:
         elif st == "auth_required":
             lines.append(f"✓ {nm}{where} added — sign-in needed: the user clicks the Authenticate button (it's showing in the UI) to finish")
         elif st == "needs_credentials":
-            lines.append(f"✓ {nm}{where} added — needs {', '.join(r.get('missing', []))}; the user enters it in the MCP dialog")
+            item = catalog.lookup(str(nm or ""))
+            if item and item.get("auth") == "app":
+                setup = item.get("setup") or {}
+                steps = " ".join(f"{i}) {step}" for i, step in enumerate(setup.get("steps") or [], 1))
+                lines.append(
+                    f"✓ {nm}{where} added — it needs the user's own {item['label']} app first ({setup.get('why', '')}). "
+                    f"Tell the user to open /mcp, pick {item['label']} and follow the setup: {steps} "
+                    f"Pre-filled link: {catalog.setup_link(item)} — then they paste the Client ID / Secret there "
+                    "(never ask them to paste secrets into chat)."
+                )
+            else:
+                lines.append(f"✓ {nm}{where} added — needs {', '.join(r.get('missing', []))}; the user enters it in the MCP dialog")
         elif st == "added":
             lines.append(f"✓ {nm}{where} added (not connected yet)")
         elif st == "failed":
@@ -791,7 +818,86 @@ def set_credentials(name: str, values: dict[str, str], *, connect: bool = True) 
     return res
 
 
+def set_oauth_app(name: str, client_id: str, client_secret: str = "", *, connect: bool = True) -> dict[str, Any]:
+    """Sign ``name`` in through a pre-registered OAuth app (servers without
+    dynamic client registration). The ID goes in the config, the secret in
+    the secrets store (``${MCP_<NAME>_CLIENT_SECRET}``)."""
+    client_id = (client_id or "").strip()
+    if not client_id:
+        return {"ok": False, "error": "Client ID is empty."}
+    cfg = get_config().get_server(name)
+    if cfg is None:
+        return {"ok": False, "error": f"No MCP server named '{name}' in the current scope."}
+    if not cfg.get("url"):
+        return {"ok": False, "error": f"'{name}' runs on this computer — it has no sign-in."}
+    here = [loc for loc in locate_server(name) if loc["editable"] == "yes"]
+    if not here:
+        src = get_config().get_source(name) or "another tool"
+        return {"ok": False, "error": f"'{name}' comes from {SOURCE_LABELS.get(src, src)} — change it there."}
+    oauth: dict[str, Any] = {k: v for k, v in (cfg.get("oauth") if isinstance(cfg.get("oauth"), dict) else {}).items()
+                             if k not in ("clientId", "clientSecret")}
+    item = catalog.for_server(name, cfg)
+    id_ref = next((v for v in (item or {}).get("credentials", []) if v.endswith("CLIENT_ID")), "")
+    secret_ref = next((v for v in (item or {}).get("credentials", []) if v.endswith("CLIENT_SECRET")), "")
+    if id_ref:
+        mcp_secrets.set_secret(id_ref, client_id)
+        oauth["clientId"] = "${" + id_ref + "}"
+    else:
+        oauth["clientId"] = client_id
+    if client_secret.strip():
+        var = secret_ref or mcp_secrets.var_name(name, "client_secret")
+        mcp_secrets.set_secret(var, client_secret.strip())
+        oauth["clientSecret"] = "${" + var + "}"
+    oauth.setdefault("callbackPort", catalog.oauth_port())
+    entry = {k: v for k, v in cfg.items() if k != "oauth"}
+    entry["oauth"] = oauth
+    try:
+        write_server(name, entry, scope=here[0]["scope"], replace=True)
+    except (ValueError, OSError) as exc:
+        return {"ok": False, "error": str(exc)}
+    reload_config()
+    if mcp_registry.is_connected(name):
+        mcp_registry.disconnect(name)
+    res = server_status(name, connect=connect)
+    res["ok"] = res.get("status") in ("connected", "auth_required", "added", "needs_credentials")
+    return res
+
+
 # ── listing (the one list every screen shows) ─────────────────────────────
+
+
+def _catalog_names(servers: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """catalog id → the configured server that came from it."""
+    out: dict[str, str] = {}
+    for name in sorted(servers):
+        item = catalog.for_server(name, servers[name] or {})
+        if item:
+            out.setdefault(item["id"], name)
+    return out
+
+
+def describe_market(query: str = "", category: str = "") -> list[dict[str, Any]]:
+    """The marketplace: every catalog entry matching ``query``, plus whether it
+    is already added (``installed`` = its server name) and how it's doing."""
+    servers = get_config().list_servers()
+    added = _catalog_names(servers)
+    rows: list[dict[str, Any]] = []
+    for item in catalog.search(query, category):
+        row = catalog.public_item(item)
+        nm = added.get(item["id"], "")
+        row["installed"] = nm
+        if nm:
+            health = mcp_registry.get_server_health(nm, servers[nm])
+            row["status"] = health.get("status", "idle")
+            row["tool_count"] = health.get("tool_count", 0)
+            row["needs_credentials"] = health.get("needs_credentials") or []
+        else:
+            row["status"] = ""
+            row["tool_count"] = 0
+            row["needs_credentials"] = []
+        rows.append(row)
+    return rows
+
 
 
 def describe_servers(query: str = "") -> dict[str, Any]:
@@ -829,6 +935,8 @@ def describe_servers(query: str = "") -> dict[str, Any]:
             "needs_credentials": health.get("needs_credentials") or [],
             "signed_in": bool(remote and cfg.get("url") and has_saved_login(name, str(cfg["url"]))),
             "oauth": bool(remote and not _has_auth_header(cfg) and cfg.get("oauth") is not False),
+            "oauth_app": bool(isinstance(cfg.get("oauth"), dict)),
+            **_catalog_fields(name, cfg),
         })
     return {
         "servers": rows,
@@ -838,8 +946,23 @@ def describe_servers(query: str = "") -> dict[str, Any]:
         "global_config_path": str(scope_path("global")),
         "project_config_exists": scope_path("project").exists(),
         "pending_auth": auth_coordinator.pending(),
-        "catalog": catalog.public(),
+        "catalog": describe_market(),
+        "categories": catalog.CATEGORIES,
     }
+
+
+def _catalog_fields(name: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    """What the UIs borrow from the marketplace entry a server came from."""
+    item = catalog.for_server(name, cfg)
+    if not item:
+        return {"catalog_id": "", "label": name, "desc": "", "color": "", "monogram": catalog.monogram(name),
+                "fields": {}, "setup": {}, "alt_note": ""}
+    pub = catalog.public_item(item)
+    out = {k: pub[k] for k in ("label", "desc", "color", "monogram", "fields", "setup")} | {"catalog_id": item["id"]}
+    # An address the catalog moved away from (Figma's hosted one) says why.
+    if cfg.get("url") and catalog.by_alt_url(str(cfg["url"])) is item:
+        out["alt_note"] = item.get("alt_note", "")
+    return out
 
 
 def _has_auth_header(cfg: dict[str, Any]) -> bool:

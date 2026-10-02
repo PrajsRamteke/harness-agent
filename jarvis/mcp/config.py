@@ -158,11 +158,48 @@ def _normalize_claude_code_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
             headers.setdefault("Authorization", "Bearer ${%s}" % cfg["bearer_token_env_var"])
         if headers:
             entry["headers"] = headers
-        if cfg.get("oauth") is False:
-            entry["oauth"] = False
+        oauth = oauth_settings(cfg)
+        if oauth is not None:
+            entry["oauth"] = oauth
         return entry
 
     return None
+
+
+def oauth_settings(cfg: dict[str, Any]) -> dict[str, Any] | bool | None:
+    """A server's sign-in settings in Jarvis's shape, from any tool's config.
+
+    ``False`` = never sign in (``"oauth": false``). A dict = a pre-registered
+    app: Claude Code ``oauth: {clientId, clientSecret?, callbackPort?, scopes?}``
+    or Cursor ``auth: {CLIENT_ID, CLIENT_SECRET?, scopes?}``. ``None`` = the
+    usual automatic sign-in (dynamic client registration).
+    """
+    raw = cfg.get("oauth")
+    if raw is False:
+        return False
+    if not isinstance(raw, dict):
+        raw = cfg.get("auth") if isinstance(cfg.get("auth"), dict) else None
+    if not raw:
+        return None
+    low = {str(k).lower().replace("_", ""): v for k, v in raw.items()}
+    client_id = low.get("clientid")
+    if not client_id:
+        return None
+    out: dict[str, Any] = {"clientId": str(client_id)}
+    if low.get("clientsecret"):
+        out["clientSecret"] = str(low["clientsecret"])
+    port = low.get("callbackport")
+    if port not in (None, ""):
+        try:
+            out["callbackPort"] = int(port)
+        except (TypeError, ValueError):
+            pass
+    scopes = low.get("scopes") if low.get("scopes") is not None else low.get("scope")
+    if isinstance(scopes, list):
+        scopes = " ".join(str(x) for x in scopes)
+    if scopes:
+        out["scopes"] = str(scopes)
+    return out
 
 
 def _descend(data: Any, pointer: str) -> Any:

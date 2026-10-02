@@ -44,10 +44,10 @@ def demo(ext_env, monkeypatch):
     monkeypatch.setenv("HARNESS_MCP_OAUTH_PORT", str(free_port()))
     coordinator.stop_listener()
 
-    def start(mode: str, ttl: int = 3600) -> str:
+    def start(mode: str, ttl: int = 3600, redirect: str = "") -> str:
         port = free_port()
         p = subprocess.Popen(
-            [sys.executable, str(DEMO), str(port), mode, str(ttl)],
+            [sys.executable, str(DEMO), str(port), mode, str(ttl)] + ([redirect] if redirect else []),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         procs.append(p)
@@ -173,6 +173,82 @@ def test_oauth_flow_end_to_end(demo, ext_env):
     assert not list((ext_env.home / ".config/harness-agent/mcp-auth").glob("*.json"))
     with mcp_registry.startup_connect():
         assert needs_auth(mcp_registry.connect("hosted", cfg))
+
+
+def test_pre_registered_app_signs_in_without_dynamic_registration(demo, ext_env):
+    """Slack-style: no registration endpoint, only a known client may sign in,
+    and only back to the exact callback port it registered."""
+    from jarvis.mcp import secrets as mcp_secrets
+
+    cb = free_port()
+    base = demo("app", redirect=f"http://localhost:{cb}/callback")
+
+    # No app configured: a plain "registered apps only" message, not "needs an API key".
+    err = mcp_registry.connect("noapp", {"type": "http", "url": f"{base}/mcp"}, interactive=True)
+    assert err and "registered apps" in err and "API key" not in err.split(".")[0]
+
+    mcp_secrets.set_secret("DEMO_CLIENT_ID", "demo-app")
+    mcp_secrets.set_secret("DEMO_CLIENT_SECRET", "demo-secret")
+    cfg = {"type": "http", "url": f"{base}/mcp",
+           "oauth": {"clientId": "${DEMO_CLIENT_ID}", "clientSecret": "${DEMO_CLIENT_SECRET}", "callbackPort": cb}}
+    res = mcp_registry.authenticate("app1", cfg)
+    assert res["ok"], res
+    assert "client_id=demo-app" in res["url"]
+    assert res["redirect_uri"] == f"http://localhost:{cb}/callback"
+
+    page = browser(res["url"])
+    assert "Signed in to app1" in page.text
+    assert wait_for(lambda: mcp_registry.is_connected("app1"))
+    assert "9" in mcp_registry._call_mcp_tool("app1", "add", {"a": 4, "b": 5})
+
+    # The app is never "registered" or written next to the tokens.
+    saved = list((ext_env.home / ".config/harness-agent/mcp-auth").glob("app1-*.json"))
+    assert saved and "client_info" not in json.loads(saved[0].read_text())
+
+    # Restart: the saved login connects silently; refresh uses the same app.
+    mcp_registry.disconnect("app1")
+    data = json.loads(saved[0].read_text())
+    data["expires_at"] = time.time() - 60
+    saved[0].write_text(json.dumps(data))
+    with mcp_registry.startup_connect():
+        assert mcp_registry.connect("app1", cfg) is None
+
+
+def test_wrong_app_secret_is_reported(demo, ext_env):
+    cb = free_port()
+    base = demo("app", redirect=f"http://localhost:{cb}/callback")
+    cfg = {"type": "http", "url": f"{base}/mcp",
+           "oauth": {"clientId": "demo-app", "clientSecret": "nope", "callbackPort": cb}}
+    res = mcp_registry.authenticate("bad", cfg)
+    assert res["ok"]
+    browser(res["url"])
+    assert wait_for(lambda: (mcp_registry.get_server_health("bad", cfg).get("last_connect_error") or "") != "", 20)
+    assert not mcp_registry.is_connected("bad")
+
+
+def test_token_answers_in_a_providers_own_dialect():
+    fix = mcp_auth._fix_token_payload
+    # Slack: 200 + ok:false on failure
+    assert fix({"ok": False, "error": "invalid_code"}) == (None, "invalid_code")
+    # Slack user token: token_type "user", extra fields dropped
+    got, err = fix({"ok": True, "access_token": "xoxp-1", "token_type": "user", "scope": "chat:write", "team": {}})
+    assert not err and got == {"access_token": "xoxp-1", "token_type": "Bearer", "scope": "chat:write"}
+    # oauth.v2.access shape: the user token sits under authed_user
+    got, _ = fix({"ok": True, "authed_user": {"access_token": "xoxp-2", "refresh_token": "r", "expires_in": 43200}})
+    assert got["access_token"] == "xoxp-2" and got["refresh_token"] == "r" and got["expires_in"] == 43200
+    assert fix({"token_type": "bearer"})[0] is None
+
+
+def test_config_files_keep_a_pre_registered_app(ext_env):
+    from jarvis.mcp.config import oauth_settings
+
+    # Claude Code
+    assert oauth_settings({"oauth": {"clientId": "1.2", "callbackPort": 3118}}) == {"clientId": "1.2", "callbackPort": 3118}
+    # Cursor
+    assert oauth_settings({"auth": {"CLIENT_ID": "3.4", "CLIENT_SECRET": "${S}", "scopes": ["a", "b"]}}) == {
+        "clientId": "3.4", "clientSecret": "${S}", "scopes": "a b"}
+    assert oauth_settings({"oauth": False}) is False
+    assert oauth_settings({"url": "x"}) is None
 
 
 def test_sign_in_finished_on_another_device_by_pasting(demo):

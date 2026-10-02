@@ -279,7 +279,12 @@ def test_sidebar_rows_are_clickable(env, monkeypatch):
 
             await pilot.click(SidebarBody, offset=(3, row_y("mcp-add")))
             await pilot.pause(0.4)
-            assert isinstance(app.screen, McpAddScreen)
+            # "+ add MCP server" lands on the marketplace, search box ready
+            from jarvis.tui.mcp_modal import MCPModalScreen
+
+            assert isinstance(app.screen, MCPModalScreen)
+            assert app.screen.focused is app.screen.query_one("#mcp_filter")
+            assert app.screen._selected_row()[0] == "cat"
 
     _run(run())
 
@@ -573,3 +578,157 @@ def test_agent_mcp_add_asks_for_a_missing_key_with_a_hidden_input(env, monkeypat
     cfg = (env.project / ".mcp.json").read_text()
     assert "ghp_hidden" not in cfg and "${GITHUB_PERSONAL_ACCESS_TOKEN}" in cfg
     assert out and "connected" in out[0]
+
+
+# ── marketplace ───────────────────────────────────────────────────────────
+
+
+def test_marketplace_search_then_enter_adds_and_signs_in(env, monkeypatch):
+    import jarvis.mcp.install as install
+    from jarvis.mcp.auth import coordinator
+    from jarvis.mcp.registry import AUTH_REQUIRED_MSG
+    from jarvis.tui.extension_modals import McpSignInScreen
+    from jarvis.tui.mcp_modal import MCPModalScreen
+
+    def fake_connect(name, cfg, **kw):
+        coordinator.begin(name, "https://mcp.notion.com/authorize?state=n1")
+        return AUTH_REQUIRED_MSG
+
+    monkeypatch.setattr(install.mcp_registry, "connect", fake_connect)
+    opened: list[str] = []
+    monkeypatch.setattr(coordinator, "open_browser", lambda name: opened.append(name) or True)
+
+    async def run():
+        app = env.app_cls()
+        async with app.run_test(size=(160, 48)) as pilot:
+            await pilot.pause(0.4)
+            app.push_screen(MCPModalScreen())
+            await pilot.pause(0.4)
+            screen = app.screen
+            assert screen.focused is screen.query_one("#mcp_filter")  # no servers yet → typing searches
+            for ch in "notion":
+                await pilot.press(ch)
+            await pilot.pause(0.2)
+            assert screen._selected_row() == ("cat", "notion")
+            assert [r for r in screen._row_ids if r.startswith("cat::")] == ["cat::notion"]
+            await pilot.press("enter")
+            await pilot.pause(1.5)
+            assert isinstance(app.screen, McpSignInScreen)
+            assert opened == ["notion"]
+
+    _run(run())
+    data = json.loads((env.home / "mcp.json").read_text())
+    assert data["servers"]["notion"]["url"] == "https://mcp.notion.com/mcp"
+
+
+def test_marketplace_slack_walks_through_its_app_setup(env, monkeypatch):
+    import jarvis.mcp.install as install
+    import jarvis.tui.extension_modals as em
+    from jarvis.mcp.auth import coordinator
+    from jarvis.mcp.registry import AUTH_REQUIRED_MSG
+    from jarvis.mcp.secrets import get_secret
+    from jarvis.tui.extension_modals import ConnectSetupScreen, McpSignInScreen
+    from jarvis.tui.mcp_modal import MCPModalScreen
+
+    seen_cfg: list[dict] = []
+
+    def fake_connect(name, cfg, **kw):
+        seen_cfg.append(cfg)
+        coordinator.begin(name, "https://slack.com/oauth/v2_user/authorize?state=s1")
+        return AUTH_REQUIRED_MSG
+
+    monkeypatch.setattr(install.mcp_registry, "connect", fake_connect)
+    monkeypatch.setattr(coordinator, "open_browser", lambda name: True)
+    links: list[str] = []
+    monkeypatch.setattr(em, "_open_url", lambda url: links.append(url) or True)
+
+    async def run():
+        app = env.app_cls()
+        async with app.run_test(size=(160, 50)) as pilot:
+            await pilot.pause(0.4)
+            app.push_screen(MCPModalScreen(query="slack"))
+            await pilot.pause(0.4)
+            await pilot.press("enter")
+            await pilot.pause(0.4)
+            setup = app.screen
+            assert isinstance(setup, ConnectSetupScreen)
+            assert setup.query_one("#cs_0").password is False    # Client ID is not secret
+            assert setup.query_one("#cs_1").password is True     # Client Secret is
+            await pilot.click("#cs_open")
+            await pilot.pause(0.2)
+            assert links and links[0].startswith("https://api.slack.com/apps?new_app=1&manifest_json=")
+            await pilot.press("enter")                            # empty → stays, says so
+            await pilot.pause(0.2)
+            assert app.screen is setup and "empty" in str(setup.query_one("#cs_error").render())
+            for ch in "123.456":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            for ch in "s3cr3t":
+                await pilot.press(ch)
+            await pilot.press("enter")
+            await pilot.pause(1.5)
+            assert isinstance(app.screen, McpSignInScreen)
+
+    _run(run())
+    assert get_secret("SLACK_CLIENT_ID") == "123.456" and get_secret("SLACK_CLIENT_SECRET") == "s3cr3t"
+    raw = (env.home / "mcp.json").read_text()
+    assert "s3cr3t" not in raw
+    assert seen_cfg and seen_cfg[0]["oauth"]["clientId"] == "${SLACK_CLIENT_ID}"
+
+
+def test_click_selects_your_server_but_only_enter_toggles_it(env, monkeypatch):
+    from jarvis.tui.mcp_modal import MCPModalScreen
+
+    env.write_servers(DEMO)
+    toggled: list[str] = []
+    monkeypatch.setattr(MCPModalScreen, "action_toggle", lambda self: toggled.append(self._selected_name()))
+
+    async def run():
+        app = env.app_cls()
+        async with app.run_test(size=(160, 48)) as pilot:
+            await pilot.pause(0.4)
+            app.push_screen(MCPModalScreen())
+            await pilot.pause(0.4)
+            screen = app.screen
+            assert screen._row_ids[1] == "srv::demo"
+            await pilot.click("#mcp_list", offset=(12, 1))
+            await pilot.pause(0.3)
+            assert screen._selected_row() == ("srv", "demo") and toggled == []
+            screen.query_one("#mcp_list").focus()
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            assert toggled == ["demo"]
+            # the marketplace hides what you already have; categories filter it
+            assert "cat::slack" in screen._row_ids
+            await pilot.press("right")   # All → Popular
+            await pilot.pause(0.2)
+            cats = [r for r in screen._row_ids if r.startswith("cat::")]
+            assert cats and len(cats) <= 12
+
+    _run(run())
+
+
+def test_desktop_server_shows_its_steps_before_connecting(env, monkeypatch):
+    import jarvis.mcp.install as install
+    from jarvis.tui.extension_modals import ConnectSetupScreen
+    from jarvis.tui.mcp_modal import MCPModalScreen
+
+    calls: list[str] = []
+    monkeypatch.setattr(install.mcp_registry, "connect", lambda name, cfg, **kw: calls.append(cfg["url"]) or None)
+    monkeypatch.setattr(install.mcp_registry, "get_server_tools", lambda name: [])
+
+    async def run():
+        app = env.app_cls()
+        async with app.run_test(size=(160, 48)) as pilot:
+            await pilot.pause(0.4)
+            app.push_screen(MCPModalScreen(query="figma"))
+            await pilot.pause(0.4)
+            await pilot.press("enter")
+            await pilot.pause(0.4)
+            assert isinstance(app.screen, ConnectSetupScreen)
+            assert not app.screen.query("Input")           # nothing to paste
+            await pilot.press("enter")                     # Connect is focused
+            await pilot.pause(1.2)
+
+    _run(run())
+    assert calls == ["http://127.0.0.1:3845/mcp"]

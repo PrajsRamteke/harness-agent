@@ -190,6 +190,84 @@ def test_sign_in_routes_for_a_server_that_isnt_waiting(remote):
     assert call("/api/mcp/connect", {"name": "nobody"})["ok"] is False
 
 
+# ─── MCP: marketplace ──────────────────────────────────────────────────────
+
+
+def test_marketplace_rows_carry_what_the_dialog_shows(remote):
+    _env, _bridge, call = remote
+    data = call("/api/mcp")
+    assert "Popular" in data["categories"] and "Communication" in data["categories"]
+    assert data["oauth_redirect_url"].startswith("http://localhost:") and data["oauth_redirect_url"].endswith("/callback")
+    rows = {c["id"]: c for c in data["catalog"]}
+    assert len(rows) >= 40
+    for c in rows.values():
+        assert {"id", "label", "desc", "category", "auth", "color", "monogram", "installed", "popular"} <= set(c), c["id"]
+        assert c["installed"] == ""
+    slack = rows["slack"]
+    assert slack["auth"] == "app" and slack["popular"] is True
+    assert slack["fields"]["SLACK_CLIENT_ID"]["label"] == "Client ID"
+    assert slack["fields"]["SLACK_CLIENT_SECRET"]["secret"] is True
+    assert slack["setup"]["link"].startswith("https://api.slack.com/apps?new_app=1&manifest_json=")
+    assert slack["setup"]["steps"] and slack["redirect_url"] == data["oauth_redirect_url"]
+    assert rows["github"]["auth"] == "key" and rows["github"]["setup"]["link"].startswith("https://github.com/")
+
+    # Added from the marketplace: the row says so, and the server card borrows its name and tile.
+    call("/api/mcp/add", {"source": "memory", "scope": "project", "connect": False})
+    data = call("/api/mcp")
+    assert {c["id"]: c for c in data["catalog"]}["memory"]["installed"] == "memory"
+    (sv,) = data["servers"]
+    assert sv["catalog_id"] == "memory" and sv["label"] == "Memory" and sv["color"].startswith("#")
+
+
+def test_marketplace_slack_keeps_its_app_secret_out_of_the_file(remote):
+    env, _bridge, call = remote
+    res = call("/api/mcp/add", {
+        "source": "slack", "scope": "global", "connect": False,
+        "credentials": {"SLACK_CLIENT_ID": "111.222", "SLACK_CLIENT_SECRET": "shh-secret"},
+    })
+    assert res["ok"], res
+    raw = (env.home / ".config" / "harness-agent" / "mcp.json").read_text()
+    assert "shh-secret" not in raw and "111.222" not in raw
+    oauth = json.loads(raw)["servers"]["slack"]["oauth"]
+    assert oauth["clientId"] == "${SLACK_CLIENT_ID}" and oauth["clientSecret"] == "${SLACK_CLIENT_SECRET}"
+    assert isinstance(oauth["callbackPort"], int)
+    secrets = json.loads((env.home / ".config" / "harness-agent" / "mcp_secrets.json").read_text())
+    assert secrets["SLACK_CLIENT_ID"] == "111.222" and secrets["SLACK_CLIENT_SECRET"] == "shh-secret"
+
+
+def test_oauth_app_route_saves_the_app_for_a_hosted_server(remote, monkeypatch):
+    import jarvis.mcp.install as install
+
+    env, _bridge, call = remote
+    tried = []
+    monkeypatch.setattr(install.mcp_registry, "connect", lambda name, cfg, **kw: tried.append(cfg) or "no network in tests")
+    call("/api/mcp/add", {"source": "https://mcp.example.com/mcp", "name": "hub", "scope": "project", "connect": False})
+
+    assert call("/api/mcp/app", {"name": "hub", "client_id": "  "})["ok"] is False
+    assert call("/api/mcp/app", {"name": "nobody", "client_id": "x"})["ok"] is False
+    res = call("/api/mcp/app", {"name": "hub", "client_id": "app-123", "client_secret": "s3cr3t"})
+    assert res["status"] == "failed" and tried  # saved, then it tried to connect with it
+    raw = (env.proj / ".mcp.json").read_text()
+    assert "s3cr3t" not in raw
+    oauth = json.loads(raw)["mcpServers"]["hub"]["oauth"]
+    assert oauth["clientId"] == "app-123" and oauth["clientSecret"].startswith("${")
+    listed = call("/api/mcp")["servers"][0]
+    assert listed["oauth_app"] is True
+
+
+def test_marketplace_is_wired_in_the_page():
+    mcp = (STATIC / "js" / "mcp.js").read_text()
+    for ident in ('id="mk-q"', 'id="mk-cats"', 'id="mk-list"', 'id="mk-custom"', "'mcp/app'", "mk-tabs"):
+        assert ident in mcp, ident
+    assert "chipsHtml" not in mcp  # the old wall of quick-add chips is gone
+    for kind in ("oauth", "open", "key", "app", "desktop", "local"):
+        assert f"  {kind}: {{ label:" in mcp, kind
+    assert "pickerArg: 'market'" in (STATIC / "js" / "catalog.js").read_text()
+    assert "item.pickerArg" in (STATIC / "js" / "palette.js").read_text()
+    css = (STATIC / "css" / "extensions.css").read_text()
+    assert ".mk-list" in css and ".mk-tile" in css and ".ex-errline" in css
+
+
 # ─── Skills ────────────────────────────────────────────────────────────────
 
 
