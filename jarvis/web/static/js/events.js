@@ -3,6 +3,7 @@ import { loadSnapshot, store } from './store.js';
 import {
   appendMessage,
   appendDiff,
+  appendStats,
   renderSnapshot,
   streamDelta,
   streamEnd,
@@ -85,6 +86,11 @@ export function handleEvent(evt) {
 
     case 'diff':
       appendDiff(data);
+      break;
+
+    case 'stats':
+      // /stats: numbers as data, drawn as a card (chat.js).
+      appendStats(data);
       break;
 
     case 'status':

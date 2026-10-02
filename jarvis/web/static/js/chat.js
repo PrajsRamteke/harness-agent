@@ -366,6 +366,112 @@ function appendNotice(text) {
   chat().appendChild(markNew(el));
 }
 
+// ─── /stats card ──────────────────────────────────────────────────────────
+
+/** 39 → "39s", 252 → "4m 12s", 3780 → "1h 03m" */
+function statsElapsed(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  if (s < 60) return `${s}s`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h) return `${h}h ${String(m).padStart(2, '0')}m`;
+  return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+}
+
+/** Whole cents once there's real money; four places for fractions of a cent. */
+function statsCost(v) {
+  const n = Number(v) || 0;
+  return `$${n === 0 || n >= 0.01 ? n.toFixed(2) : n.toFixed(4)}`;
+}
+
+const statsNum = (v) => (Number(v) || 0).toLocaleString();
+
+/** "/Users/me/x/y" → "~/x/y" when the home folder is recognisable. */
+function statsPath(p) {
+  return String(p || '').replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~');
+}
+
+/** Same lines as the terminal panel, for Copy. */
+function statsText(d) {
+  return [
+    'Session stats',
+    `Elapsed      ${statsElapsed(d.elapsed_s)}`,
+    `Messages     ${d.messages ?? 0}`,
+    `Tool calls   ${d.tool_calls ?? 0}`,
+    `Tokens       ${d.tokens_in ?? 0} in / ${d.tokens_out ?? 0} out / ${d.tokens_total ?? 0} total`,
+    `Est. cost    ${statsCost(d.cost)}`,
+    `Model        ${d.model || '—'}${d.provider ? ` (${d.provider})` : ''}`,
+    `Folder       ${d.cwd || '—'}`,
+    `Internals    ${d.internals ? 'shown' : 'hidden'}`,
+  ].join('\n');
+}
+
+/** `/stats` from the terminal or this page: a card instead of the panel as text. */
+export function appendStats(data) {
+  removeTyping();
+  const d = data || {};
+  const tin = Number(d.tokens_in) || 0;
+  const tout = Number(d.tokens_out) || 0;
+  const total = Number(d.tokens_total) || tin + tout;
+  const split = tin + tout;
+  const inPct = split ? (tin / split) * 100 : 0;
+  const at = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const tile = (ic, label, value, title = '') => `
+    <div class="stat"${title ? ` title="${escapeHtml(title)}"` : ''}>
+      <span class="stat-label">${icon(ic)}${escapeHtml(label)}</span>
+      <span class="stat-value">${escapeHtml(value)}</span>
+    </div>`;
+  const row = (ic, label, value, { mono = false, title = '' } = {}) => `
+    <div class="stats-row">
+      <dt>${icon(ic)}${escapeHtml(label)}</dt>
+      <dd class="${mono ? 'is-mono' : ''}"${title ? ` title="${escapeHtml(title)}"` : ''}>${value}</dd>
+    </div>`;
+
+  const el = document.createElement('div');
+  el.className = 'stats-entry';
+  el.innerHTML = `
+    <section class="stats-card" aria-label="Session stats">
+      <header class="stats-head">
+        <span class="stats-glyph" aria-hidden="true">${icon('chart-column')}</span>
+        <div class="stats-title">
+          <strong>Session stats</strong>
+          <span>As of ${escapeHtml(at)}</span>
+        </div>
+      </header>
+      <div class="stats-grid">
+        ${tile('timer', 'Elapsed', statsElapsed(d.elapsed_s))}
+        ${tile('message-square', 'Messages', statsNum(d.messages))}
+        ${tile('wrench', 'Tool calls', statsNum(d.tool_calls))}
+        ${tile('zap', 'Est. cost', statsCost(d.cost), `$${(Number(d.cost) || 0).toFixed(6)}`)}
+      </div>
+      <div class="stats-tokens">
+        <div class="stats-tokens-head">
+          <span class="stat-label">${icon('arrow-right-left')}Tokens</span>
+          <span class="stats-tokens-total"><b>${escapeHtml(statsNum(total))}</b> total</span>
+        </div>
+        <div class="stats-bar${split ? '' : ' is-empty'}" role="img" aria-label="${escapeHtml(`${statsNum(tin)} input, ${statsNum(tout)} output tokens`)}">
+          <span class="stats-fill"><i class="is-in" style="width:${inPct.toFixed(2)}%"></i><i class="is-out" style="width:${split ? (100 - inPct).toFixed(2) : 0}%"></i></span>
+        </div>
+        <div class="stats-legend">
+          <span><i class="is-in"></i>Input <b>${escapeHtml(statsNum(tin))}</b></span>
+          <span><i class="is-out"></i>Output <b>${escapeHtml(statsNum(tout))}</b></span>
+        </div>
+      </div>
+      <dl class="stats-meta">
+        ${row('cpu', 'Model', `<span class="stats-model">${escapeHtml(d.model || '—')}</span>${d.provider ? `<span class="stats-sub">${escapeHtml(d.provider)}</span>` : ''}`, { title: d.model || '' })}
+        ${row('folder', 'Folder', escapeHtml(statsPath(d.cwd) || '—'), { mono: true, title: d.cwd || '' })}
+        ${row(d.internals ? 'eye' : 'eye-off', 'Internals', d.internals ? 'Shown' : 'Hidden')}
+      </dl>
+    </section>`;
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+  actions.append(copyAction(() => statsText(d)));
+  el.appendChild(actions);
+  chat().appendChild(markNew(el));
+  noteUnseen();
+  afterAppend();
+}
+
 // ─── Tool rows ────────────────────────────────────────────────────────────
 
 function toolsContainer() {

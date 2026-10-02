@@ -83,17 +83,24 @@ def handle_control(c: str, arg: str):
         )
         return True, None
     if c == "/stats":
-        import pathlib
+        stats = session_stats()
         t = Table(show_header=False, box=None, padding=(0, 2))
-        t.add_row("⏱  elapsed", fmt_duration(time.time() - state.session_start))
-        t.add_row("◈ messages", str(len(state.messages)))
-        t.add_row("⚙ tool calls", str(state.tool_calls_count))
-        t.add_row("⚙  internals", "shown" if state.show_internal else "hidden")
-        t.add_row("⇅ tokens in/out/total", f"{state.total_in} / {state.total_out} / {state.total_tokens}")
-        t.add_row("✦ est. cost", f"${estimated_cost():.4f}")
-        t.add_row("✦ model", state.MODEL)
-        t.add_row("▣ cwd", str(pathlib.Path.cwd()))
-        console.print(Panel(t, title="◆ session stats", border_style="cyan"))
+        t.add_row("⏱  elapsed", fmt_duration(stats["elapsed_s"]))
+        t.add_row("◈ messages", str(stats["messages"]))
+        t.add_row("⚙ tool calls", str(stats["tool_calls"]))
+        t.add_row("⚙  internals", "shown" if stats["internals"] else "hidden")
+        t.add_row("⇅ tokens in/out/total",
+                  f"{stats['tokens_in']} / {stats['tokens_out']} / {stats['tokens_total']}")
+        t.add_row("✦ est. cost", f"${stats['cost']:.4f}")
+        t.add_row("✦ model", stats["model"])
+        t.add_row("▣ cwd", stats["cwd"])
+        panel = Panel(t, title="◆ session stats", border_style="cyan")
+        # Web remote: a native stats card instead of the panel as text.
+        show_stats = getattr(console, "show_stats", None)
+        if callable(show_stats):
+            show_stats(panel, stats)
+        else:
+            console.print(panel)
         return True, None
     if c in ("/model", "/mode"):
         _handle_model(arg)
@@ -105,6 +112,24 @@ def handle_control(c: str, arg: str):
         _handle_provider(arg)
         return True, None
     return False, None
+
+
+def session_stats() -> dict:
+    """What /stats shows, as plain values (the terminal panel and the web card)."""
+    import pathlib
+    return {
+        "elapsed_s": max(0, int(time.time() - state.session_start)),
+        "messages": len(state.messages),
+        "tool_calls": state.tool_calls_count,
+        "internals": bool(state.show_internal),
+        "tokens_in": state.total_in,
+        "tokens_out": state.total_out,
+        "tokens_total": state.total_tokens,
+        "cost": estimated_cost(),
+        "model": state.MODEL,
+        "provider": provider_label(state.provider) if state.provider else "",
+        "cwd": str(pathlib.Path.cwd()),
+    }
 
 
 def _handle_plan(arg: str = "") -> None:

@@ -242,6 +242,12 @@ class WebMuxConsole:
         if (plan or "").strip():
             self._bridge.emit("message", {"role": "assistant", "title": "proposed plan", "text": plan.strip()})
 
+    def show_stats(self, renderable: Any, stats: dict[str, Any]) -> None:
+        """/stats: the terminal keeps its panel, web clients get a stats card."""
+        self._primary.print(renderable)
+        if self._should_broadcast():
+            self._bridge.emit("stats", dict(stats))
+
     def show_reply(self, text: str, flagged: bool = False) -> None:
         fn = getattr(self._primary, "show_reply", None)
         if callable(fn):

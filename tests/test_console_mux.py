@@ -304,3 +304,52 @@ def test_opening_snapshot_lists_the_prompts_still_waiting(remote, transport):
 
     assert bridge.resolve_prompt(prompt_id, "y")
     assert _opening_snapshot(bridge, port, transport)["prompts"] == []
+
+
+def test_stats_reach_web_as_a_card_and_terminal_keeps_the_panel(monkeypatch):
+    """/stats: the terminal prints its panel, web clients get the numbers."""
+    import jarvis.commands.control as control
+
+    printed: list = []
+
+    class _Printer:
+        def print(self, *objects, **kwargs):
+            printed.extend(objects)
+
+    bridge = WebBridge()
+    sub = _attach_subscriber(bridge)
+    monkeypatch.setattr(control, "console", WebMuxConsole(_Printer(), bridge))
+    monkeypatch.setattr(state, "total_in", 1200)
+    monkeypatch.setattr(state, "total_out", 300)
+    monkeypatch.setattr(state, "total_tokens", 1500)
+    monkeypatch.setattr(state, "tool_calls_count", 4)
+
+    assert control.handle_control("/stats", "") == (True, None)
+
+    from rich.panel import Panel
+    assert len(printed) == 1 and isinstance(printed[0], Panel)
+    events = []
+    while not sub.empty():
+        events.append(json.loads(sub.get_nowait()))
+    # The card replaces the panel-as-text log line.
+    assert [e["type"] for e in events] == ["stats"]
+    data = events[0]["data"]
+    assert data["tokens_in"] == 1200 and data["tokens_out"] == 300
+    assert data["tokens_total"] == 1500 and data["tool_calls"] == 4
+    assert data["model"] == state.MODEL and isinstance(data["cost"], float)
+    assert {"elapsed_s", "messages", "internals", "provider", "cwd"} <= set(data)
+
+
+def test_stats_without_web_print_the_panel(monkeypatch):
+    import jarvis.commands.control as control
+
+    printed: list = []
+
+    class _Printer:
+        def print(self, *objects, **kwargs):
+            printed.extend(objects)
+
+    monkeypatch.setattr(control, "console", _Printer())
+    control.handle_control("/stats", "")
+    from rich.panel import Panel
+    assert len(printed) == 1 and isinstance(printed[0], Panel)
