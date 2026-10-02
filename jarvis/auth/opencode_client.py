@@ -858,6 +858,8 @@ class _OpenCodeMessages:
         )
         if reasoning_options:
             kwargs.update(reasoning_options)
+        if owner is not None and model in owner.effort_refused:
+            kwargs.pop("reasoning_effort", None)
 
         oai_tools = _anthropic_tools_to_openai(tools) if tools else []
         # Free Harness Agent tier gate: the Zen gateway 403s (FreeTierError)
@@ -885,19 +887,35 @@ class _OpenCodeMessages:
 
         try:
             response = self._create_completion(**kwargs)
-        except Exception as e:
-            err = str(e)
-            # Don't silently swallow reasoning_content errors — they need
-            # the above fix, not a tool-removal retry.
-            if oai_tools and ("reasoning_content" not in err.lower() and
-                              ("invalid_request" in err or
-                               "tool" in err.lower() or
-                               "function" in err.lower())):
-                # Model doesn't support tool use — retry without tools
-                kwargs.pop("tools", None)
-                response = self._create_completion(**kwargs)
-            else:
-                raise
+        except Exception as first:
+            response, e = None, first
+            if "reasoning_effort" in kwargs and getattr(e, "status_code", None) == 400:
+                # Some upstreams 400 a reasoning_effort they don't take — "none"
+                # (thinking off, and every prompt enhance) on fledge-alpha-free /
+                # space-bunny-free, 2026-10. Retry without it, tools kept.
+                kwargs.pop("reasoning_effort")
+                try:
+                    response = self._create_completion(**kwargs)
+                except Exception as second:
+                    e = second
+                else:
+                    if owner is not None:
+                        owner.effort_refused.add(model)
+            if response is None:
+                err = str(e)
+                # Don't silently swallow reasoning_content errors — they need
+                # the above fix, not a tool-removal retry. Never on the free
+                # tier: without its bash/read gate tools it 403s FreeTierError,
+                # hiding the real error.
+                if oai_tools and not gate and ("reasoning_content" not in err.lower() and
+                                               ("invalid_request" in err or
+                                                "tool" in err.lower() or
+                                                "function" in err.lower())):
+                    # Model doesn't support tool use — retry without tools
+                    kwargs.pop("tools", None)
+                    response = self._create_completion(**kwargs)
+                else:
+                    raise e
 
         stream = _OpenCodeStream(
             response,
@@ -950,6 +968,9 @@ class OpenCodeClient:
         # supplied none. Used by the free Harness Agent tier, whose gateway
         # only accepts requests carrying tools named "bash"+"read".
         self.gate_tools: list[dict] = list(gate_tools) if gate_tools else []
+        # Models whose upstream 400'd a reasoning_effort and took the request
+        # without it: never sent to them again this session.
+        self.effort_refused: set[str] = set()
         hdrs = dict(default_headers or {})
         self._oai = OpenAI(
             api_key=api_key,

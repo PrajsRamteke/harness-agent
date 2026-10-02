@@ -111,3 +111,65 @@ class OpenCodeThinkingOptionsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── an upstream that refuses reasoning_effort (fledge-alpha / space-bunny free) ──
+
+class _BadRequest(Exception):
+    status_code = 400
+
+
+class _EmptyStream:
+    def __iter__(self):
+        return iter(())
+
+    def close(self):
+        pass
+
+
+def _stream_once(client, fail, calls):
+    from jarvis.auth.opencode_client import _OpenCodeMessages
+
+    def fake(self, **kw):
+        calls.append(dict(kw))
+        if fail(kw):
+            raise _BadRequest("Error code: 400 - {'error': {'type': 'invalid_request_error'}}")
+        return _EmptyStream()
+
+    with mock.patch.object(_OpenCodeMessages, "_create_completion", fake):
+        with client.messages.stream(model="space-bunny-free", tools=[], thinking={"type": "disabled"},
+                                    messages=[{"role": "user", "content": "hi"}]) as s:
+            s.get_final_message()
+
+
+def _free_tier_client():
+    from jarvis.auth.harness_agent import build_harness_agent_client
+
+    return build_harness_agent_client()
+
+
+def _tool_names(kw):
+    return sorted(t["function"]["name"] for t in kw.get("tools") or [])
+
+
+def test_refused_effort_is_retried_without_it_and_not_sent_again():
+    """Thinking off sends reasoning_effort "none"; some free models 400 it (prompt
+    enhance always failed on them). Retry without it — tools kept — and remember."""
+    client, calls = _free_tier_client(), []
+    _stream_once(client, lambda kw: "reasoning_effort" in kw, calls)
+    assert [c.get("reasoning_effort") for c in calls] == ["none", None]
+    assert _tool_names(calls[1]) == ["bash", "read"]  # the free tier's gate stays
+    calls.clear()
+    _stream_once(client, lambda kw: "reasoning_effort" in kw, calls)
+    assert len(calls) == 1 and "reasoning_effort" not in calls[0]
+
+
+def test_free_tier_never_retries_without_its_gate_tools():
+    """Dropping tools on the free tier only ever got a 403 FreeTierError, which
+    hid the real error."""
+    import pytest
+
+    client, calls = _free_tier_client(), []
+    with pytest.raises(_BadRequest):
+        _stream_once(client, lambda kw: True, calls)
+    assert calls and all(_tool_names(c) == ["bash", "read"] for c in calls)

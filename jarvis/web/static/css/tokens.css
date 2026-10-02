@@ -289,24 +289,183 @@ body.is-offline .glow { opacity: 0.15; }
 
 @keyframes glowpulse { 50% { opacity: 0.72; } }
 
+/* ─── Frosted surface (Appearance → Frosted glass) ───────────────────────
+   Opt-in via data-surface="glass", so the default look is untouched.
+   It composes with soft contrast: the attribute is independent of
+   data-variant, so "light + soft + glass" all work together.
+
+   The rules that matter, and why the effect stays professional:
+     - The ambient mesh is a WHISPER (0.055-0.08 alpha). It exists so the
+       blur has something to refract, not to tint the UI. Anything stronger
+       and the whole app reads as a green/purple gradient wash.
+     - Surfaces stay dense and neutral. Glass in a dark UI is mostly an
+       opaque near-black; the translucency is subtle, never a colour cast.
+     - Depth comes from a specular hairline at the top edge plus a wide,
+       low-opacity shadow — never from a coloured halo.
+     - State dots lose their glow. Colour alone carries the state; a halo
+       around an 8px dot is what made the old UI look lit from inside. */
+:root[data-surface="glass"] {
+  --glass: rgba(18, 20, 25, 0.72);
+  --glass-strong: rgba(16, 18, 23, 0.86);
+  --card: rgba(255, 255, 255, 0.04);
+  --card-hover: rgba(255, 255, 255, 0.07);
+  --card-sunk: rgba(0, 0, 0, 0.32);
+  --tile: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.02));
+  --line: rgba(255, 255, 255, 0.1);
+  --line-2: rgba(255, 255, 255, 0.17);
+  --highlight: rgba(255, 255, 255, 0.12);
+  --grid-dot: rgba(255, 255, 255, 0.045);
+
+  --blur: 26px;
+  --blur-strong: 40px;
+  --sat: 150%;
+  --sat-strong: 170%;
+  --shadow: 0 18px 46px -24px rgba(0, 0, 0, 0.78);
+  --shadow-lg: 0 34px 90px -28px rgba(0, 0, 0, 0.84);
+
+  /* Ambient mesh: barely there. Dark themes get a cool neutral wash; the
+     accent barely registers so no mode turns green. */
+  --amb-1: color-mix(in oklab, var(--accent) 11%, transparent);
+  --amb-2: rgba(96, 130, 255, 0.11);
+  --amb-3: rgba(176, 110, 255, 0.085);
+}
+
+:root[data-surface="glass"][data-theme="dim"] {
+  --glass: rgba(40, 43, 51, 0.74);
+  --glass-strong: rgba(38, 41, 49, 0.88);
+  --card: rgba(255, 255, 255, 0.05);
+  --card-hover: rgba(255, 255, 255, 0.08);
+  --card-sunk: rgba(0, 0, 0, 0.24);
+  --tile: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025));
+  --line: rgba(255, 255, 255, 0.1);
+  --line-2: rgba(255, 255, 255, 0.17);
+  --highlight: rgba(255, 255, 255, 0.13);
+  --amb-1: color-mix(in oklab, var(--accent) 11%, transparent);
+  --amb-2: rgba(96, 130, 255, 0.11);
+  --amb-3: rgba(176, 110, 255, 0.085);
+}
+
+/* Light glass is milky and bright. The specular edge flips to a dark
+   bottom lip — a bright top edge on white reads as a rendering bug. */
+:root[data-surface="glass"][data-theme="light"] {
+  --glass: rgba(255, 255, 255, 0.78);
+  --glass-strong: rgba(255, 255, 255, 0.9);
+  --card: rgba(255, 255, 255, 0.62);
+  --card-hover: rgba(255, 255, 255, 0.88);
+  --card-sunk: rgba(15, 20, 35, 0.05);
+  --tile: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.52));
+  --line: rgba(15, 20, 35, 0.09);
+  --line-2: rgba(15, 20, 35, 0.16);
+  --highlight: rgba(255, 255, 255, 0.95);
+  --grid-dot: rgba(15, 20, 35, 0.06);
+  --shadow: 0 16px 38px -22px rgba(20, 28, 50, 0.28);
+  --shadow-lg: 0 34px 76px -30px rgba(20, 28, 50, 0.36);
+
+  --amb-1: color-mix(in oklab, var(--accent) 9%, transparent);
+  --amb-2: rgba(120, 150, 255, 0.13);
+  --amb-3: rgba(196, 140, 255, 0.1);
+}
+
+:root[data-surface="glass"][data-theme="light"][data-variant="soft"] {
+  --glass: rgba(255, 253, 248, 0.82);
+  --glass-strong: rgba(255, 253, 248, 0.92);
+  --card: rgba(255, 253, 248, 0.62);
+  --card-hover: rgba(255, 254, 250, 0.9);
+  --card-sunk: rgba(70, 60, 40, 0.06);
+  --tile: linear-gradient(180deg, rgba(255, 254, 250, 0.94), rgba(255, 254, 250, 0.55));
+  --line: rgba(60, 54, 42, 0.11);
+  --line-2: rgba(60, 54, 42, 0.19);
+  --grid-dot: rgba(60, 54, 42, 0.055);
+
+  --amb-1: color-mix(in oklab, var(--accent) 8%, transparent);
+  --amb-2: rgba(150, 170, 230, 0.12);
+  --amb-3: rgba(220, 170, 200, 0.095);
+}
+
+/* The specular edge, per polarity. Applied via the token so the many
+   `inset 0 1px 0 var(--highlight)` call sites all pick it up at once. */
+:root[data-surface="glass"] {
+  --edge-specular: inset 0 1px 0 var(--highlight);
+}
+:root[data-surface="glass"][data-theme="light"] {
+  --edge-specular: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(15, 20, 35, 0.05);
+}
+:root[data-surface="glass"][data-theme="light"][data-variant="soft"] {
+  --edge-specular: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(60, 54, 42, 0.06);
+}
+
+/* Backdrop: a soft, low-contrast mesh placed mostly off-screen, so it
+   shows as light at the edges rather than colour behind the content. */
+:root[data-surface="glass"] .glow {
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  border-radius: 0;
+  background:
+    radial-gradient(52vw 40vh at 4% -8%, var(--amb-1), transparent 58%),
+    radial-gradient(48vw 38vh at 102% 2%, var(--amb-2), transparent 56%),
+    radial-gradient(60vw 40vh at 50% 110%, var(--amb-3), transparent 60%);
+  opacity: 1;
+}
+
+:root[data-surface="glass"] .grid {
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+  background-size: 30px 30px;
+  mask-image: radial-gradient(ellipse 78% 60% at 50% 0%, #000 10%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse 78% 60% at 50% 0%, #000 10%, transparent 72%);
+}
+
+/* Backing off the neon: state reads by colour alone. */
+:root[data-surface="glass"] .status-dot,
+:root[data-surface="glass"] .now-dot::before {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+:root[data-surface="glass"] .status-pill.is-busy .status-dot,
+:root[data-surface="glass"] .status-pill.is-waiting .status-dot,
+:root[data-surface="glass"] .act-now.is-busy .now-dot::before,
+:root[data-surface="glass"] .act-now.is-waiting .now-dot::before,
+:root[data-surface="glass"] .typing-dot {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+:root[data-surface="glass"] .mark::before {
+  box-shadow: none;
+}
+:root[data-surface="glass"] .mark {
+  box-shadow: var(--edge-specular), 0 8px 20px -12px rgba(0, 0, 0, 0.7);
+}
+:root[data-surface="glass"] .btn-primary {
+  box-shadow: 0 6px 18px -12px rgba(0, 0, 0, 0.6);
+}
+:root[data-surface="glass"][data-theme="light"] .btn-primary {
+  box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.4);
+}
+:root[data-surface="glass"] .recent-row.is-active .rr-dot,
+:root[data-surface="glass"] .assistant-mark-active .mark::before {
+  box-shadow: none;
+}
+
 /* ─── Glass ───────────────────────────────────────────────────────────── */
 .glass, .glass-strong {
   position: relative;
   border: 1px solid var(--line);
-  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow);
+  /* --edge-specular is only set when frosted glass is on; it falls back to
+     the same hairline as before, so the default look is byte-identical. */
+  box-shadow: var(--edge-specular, inset 0 1px 0 var(--highlight)), var(--shadow);
 }
 
 .glass {
   background: var(--glass);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(160%);
-  backdrop-filter: blur(var(--blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat, 160%));
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat, 160%));
 }
 
 .glass-strong {
   background: var(--glass-strong);
-  -webkit-backdrop-filter: blur(var(--blur-strong)) saturate(170%);
-  backdrop-filter: blur(var(--blur-strong)) saturate(170%);
-  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-lg);
+  -webkit-backdrop-filter: blur(var(--blur-strong)) saturate(var(--sat-strong, 170%));
+  backdrop-filter: blur(var(--blur-strong)) saturate(var(--sat-strong, 170%));
+  box-shadow: var(--edge-specular, inset 0 1px 0 var(--highlight)), var(--shadow-lg);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

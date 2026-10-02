@@ -15,10 +15,11 @@
   <script>
     // Apply the saved appearance before first paint (no flash). See js/theme.js.
     (function () {
-      var mode = 'dark', soft = null, accent = 'green';
+      var mode = 'dark', soft = null, accent = 'green', glass = null;
       try {
         mode = localStorage.getItem('jarvis-theme') || 'dark';
         soft = localStorage.getItem('jarvis-soft');
+        glass = localStorage.getItem('jarvis-glass');
         accent = localStorage.getItem('jarvis-accent') || 'green';
       } catch (e) {}
       // Old builds saved the soft themes as modes ('dim', 'soft').
@@ -28,6 +29,8 @@
       // Soft light is the light palette + data-variant="soft"; soft dark is "dim".
       document.documentElement.dataset.theme = light ? 'light' : (soft === '1' ? 'dim' : 'dark');
       if (light && soft === '1') document.documentElement.dataset.variant = 'soft';
+      // Frosted glass rides on its own attribute, independent of theme/variant.
+      if (glass === '1') document.documentElement.dataset.surface = 'glass';
       document.documentElement.dataset.accent = accent;
       // Custom accent: the raw colour now; theme.js tunes it for the theme.
       try {
@@ -463,6 +466,11 @@
           <span class="sw-icon" data-icon="contrast"></span>
           <span class="sw-text"><strong>Soft contrast</strong><span id="soft-sub">Warm paper in light, charcoal in dark</span></span>
           <input type="checkbox" class="switch" id="sw-soft" role="switch">
+        </label>
+        <label class="switch-row soft-row" for="sw-glass">
+          <span class="sw-icon" data-icon="copy"></span>
+          <span class="sw-text"><strong>Frosted glass</strong><span id="glass-sub">Translucent panels over a soft ambient backdrop</span></span>
+          <input type="checkbox" class="switch" id="sw-glass" role="switch">
         </label>
       </div>
       <div class="setting-block">
