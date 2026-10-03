@@ -1,4 +1,4 @@
-"""Pinned context modal — preview, append, and clear standing instructions."""
+"""Pinned context modal — preview, append, edit and clear standing instructions."""
 from __future__ import annotations
 
 from textual.app import ComposeResult
@@ -16,6 +16,8 @@ from . import theme as ui
 
 
 class _AddPinScreen(TuiModalScreen[str | None]):
+    """Append (empty box) or edit (``initial`` = all pinned text) — ⌃S saves."""
+
     DEFAULT_CSS = TUI_MODAL_CHROME_CSS + """
     _AddPinScreen #modal { width: 72%; max-width: 100; max-height: 58%; }
     _AddPinScreen TextArea { height: 1fr; min-height: 6; margin-bottom: 1; }
@@ -23,29 +25,41 @@ class _AddPinScreen(TuiModalScreen[str | None]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=True),
-        Binding("ctrl+s", "submit", "Append", show=True),
+        Binding("ctrl+s", "submit", "Save", show=True),
     ]
 
+    def __init__(self, initial: str | None = None) -> None:
+        super().__init__()
+        self._initial = initial
+        self._editing = initial is not None
+
     def compose(self) -> ComposeResult:
+        verb = "save" if self._editing else "append"
         with CenterMiddle():
             with Vertical(id="modal"):
-                yield Static("➕  Append Pinned Context", id="modal_title")
+                yield Static("✎  Edit Pinned Context" if self._editing else "➕  Append Pinned Context",
+                             id="modal_title")
                 yield Static(
-                    f"Appended to every system prompt · saved in [{ui.FG_DIM}]{PIN_FILE}[/]",
+                    (f"One instruction per line · delete a line to unpin it · [{ui.FG_DIM}]{PIN_FILE}[/]"
+                     if self._editing else
+                     f"Appended to every system prompt · saved in [{ui.FG_DIM}]{PIN_FILE}[/]"),
                     id="modal_status",
                 )
-                yield TextArea("", id="pin_input", show_line_numbers=False)
+                yield TextArea(self._initial or "", id="pin_input", show_line_numbers=self._editing)
                 yield Static(
-                    f"[bold {ui.FG_MUTE}]ctrl+s[/] append   [bold {ui.FG_MUTE}]esc[/] cancel",
+                    f"[bold {ui.FG_MUTE}]ctrl+s[/] {verb}   [bold {ui.FG_MUTE}]esc[/] cancel",
                     id="modal_hint",
                 )
 
     def on_mount(self) -> None:
-        self.query_one("#pin_input", TextArea).focus()
+        area = self.query_one("#pin_input", TextArea)
+        area.focus()
+        if self._editing:
+            area.move_cursor(area.document.end)
 
     def action_submit(self) -> None:
         text = self.query_one("#pin_input", TextArea).text.strip()
-        if not text:
+        if not text and not self._editing:
             return
         self.dismiss(text)
 
@@ -106,6 +120,7 @@ class PinModalScreen(TuiModalScreen[None]):
     BINDINGS = [
         Binding("escape", "dismiss_cancel", "Close", show=True),
         Binding("a", "add", "Add", show=True),
+        Binding("e", "edit", "Edit", show=True),
         Binding("t", "toggle", "Toggle", show=True),
         Binding("c", "clear", "Clear", show=True),
         Binding("r", "refresh", "Refresh", show=True),
@@ -120,7 +135,8 @@ class PinModalScreen(TuiModalScreen[None]):
                     yield Static("", id="pin_preview")
                 yield Static("", id="modal_meta")
                 yield Static(
-                    f"[bold {ui.FG_MUTE}]a[/] append   [bold {ui.FG_MUTE}]t[/] enable/disable   "
+                    f"[bold {ui.FG_MUTE}]a[/] append   [bold {ui.FG_MUTE}]e[/] edit   "
+                    f"[bold {ui.FG_MUTE}]t[/] enable/disable   "
                     f"[bold {ui.FG_MUTE}]c[/] clear   [bold {ui.FG_MUTE}]r[/] refresh   "
                     f"[bold {ui.FG_MUTE}]esc[/] close",
                     id="modal_hint",
@@ -204,6 +220,20 @@ class PinModalScreen(TuiModalScreen[None]):
             self._refresh()
 
         self.app.push_screen(_AddPinScreen(), after)
+
+    def action_edit(self) -> None:
+        if not pin_store.pin_text():
+            self.action_add()
+            return
+
+        def after(text: str | None) -> None:
+            if text is None:
+                return
+            lines, chars = pin_store.set_pin_text(text)
+            self._notify(f"saved · {lines} lines · {chars} chars" if lines else "cleared")
+            self._refresh()
+
+        self.app.push_screen(_AddPinScreen(pin_store.pin_text()), after)
 
     def action_clear(self) -> None:
         if not pin_store.pin_text():

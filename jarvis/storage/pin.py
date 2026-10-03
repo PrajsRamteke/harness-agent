@@ -95,3 +95,56 @@ def preview_lines(text: str | None = None, *, max_lines: int | None = None) -> l
     if max_lines is not None and len(rows) > max_lines:
         return rows[:max_lines]
     return rows
+
+
+def set_pin_text(text: str) -> tuple[int, int]:
+    """Replace all pinned context (the editor's save). Returns ``(lines, chars)``."""
+    state.pinned_context = (text or "").strip()
+    _persist()
+    return pin_stats()
+
+
+def pin_items(text: str | None = None) -> list[dict]:
+    """One row per non-blank line: ``{"line": n, "text": s}`` (``n`` is 1-based)."""
+    return [{"line": n, "text": s} for n, s in preview_lines(text) if s.strip()]
+
+
+def _edit_line(line_no: int, expect: str | None, new: str | None) -> bool:
+    """Replace (``new``) or drop (``None``) line ``line_no`` if it still reads ``expect``."""
+    lines = pin_text().splitlines()
+    i = int(line_no) - 1
+    if not 0 <= i < len(lines):
+        return False
+    if expect is not None and lines[i].strip() != expect.strip():
+        return False  # changed elsewhere meanwhile (terminal, another tab)
+    if new is None:
+        del lines[i]
+    else:
+        lines[i:i + 1] = [ln for ln in new.strip().splitlines() if ln.strip()] or []
+    state.pinned_context = "\n".join(lines).strip()
+    _persist()
+    return True
+
+
+def update_line(line_no: int, text: str, *, expect: str | None = None) -> bool:
+    """Rewrite one pinned line (empty text removes it). False = it moved or changed."""
+    return _edit_line(line_no, expect, (text or "").strip() or None)
+
+
+def remove_line(line_no: int, *, expect: str | None = None) -> bool:
+    return _edit_line(line_no, expect, None)
+
+
+def public() -> dict:
+    """What the web Pin dialog shows."""
+    text = pin_text()
+    _, chars = pin_stats(text)
+    items = pin_items(text)
+    return {
+        "text": text,
+        "items": items,
+        "enabled": is_enabled(),
+        "lines": len(items),  # non-blank lines: one pin each
+        "chars": chars,
+        "file": str(PIN_FILE),
+    }

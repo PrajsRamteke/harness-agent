@@ -57,19 +57,6 @@
 .dock-chip.is-waiting .ic { color: var(--warn); }
 .dock-chip.is-waiting strong { font-weight: 600; }
 
-.dock-chip.is-queued .dock-chip-num {
-  display: grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border-radius: var(--r-pill);
-  background: var(--card-hover);
-  color: var(--text);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
 .composer {
   border-radius: 24px;
   padding: 12px 10px 10px 16px;

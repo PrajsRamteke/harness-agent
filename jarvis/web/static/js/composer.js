@@ -9,6 +9,7 @@ import { CATALOG, LOCAL_PICKERS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchI
 import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
 import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
+import { editLastQueued } from './queue.js';
 
 const HISTORY_KEY = 'jarvis-prompt-history';
 const HISTORY_MAX = 50;
@@ -139,8 +140,9 @@ export async function submitPrompt(text) {
     if (files.length) clearTray();
     if (value) remember(value);
     if (LAPTOP_COMMANDS.has(value)) showToast('Opened in the terminal on your computer');
-    // /loop isn't queued: it starts now and its first run waits for this turn.
-    else if (wasBusy && !/^\/loop(\s|$)/.test(value)) showToast('Queued — sends when Jarvis is free');
+    // Queued while busy: it shows up in the queue panel above (queue.js), with
+    // Send now / Edit / Remove — no toast needed. (/loop isn't queued at all.)
+    else if (wasBusy && !/^\/loop(\s|$)/.test(value)) haptic(8);
     scrollToBottom(true);
   } catch (err) {
     if (files.length) lockTray(false);  // the files stay in the tray for another try
@@ -525,6 +527,12 @@ function onKeyDown(e) {
   if (e.key === 'Escape' && store.busy && !el.value) {
     e.preventDefault();
     stopTurn();
+    return;
+  }
+
+  // ↑ in an empty box while Jarvis works: edit the newest queued message (as in the terminal).
+  if (e.key === 'ArrowUp' && store.busy && el.value === '' && editLastQueued()) {
+    e.preventDefault();
     return;
   }
 

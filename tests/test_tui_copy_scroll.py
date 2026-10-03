@@ -678,7 +678,8 @@ def test_big_paste_collapses_and_queued_message_is_editable(hermetic_app):
             try:
                 await pilot.press("up")
                 assert prompt.text == "queued idea"
-                assert not state.prompt_queue
+                # it keeps its place in the queue, marked as being edited
+                assert [(it.text, it.held) for it in state.prompt_queue] == [("queued idea", True)]
             finally:
                 app._busy = False
                 state.prompt_queue.clear()

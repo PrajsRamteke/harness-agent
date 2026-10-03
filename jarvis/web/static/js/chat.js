@@ -259,10 +259,19 @@ function copyAction(getText) {
   });
 }
 
-function appendUser(text, files = []) {
+function appendUser(text, files = [], { steered = false } = {}) {
   removeTyping();
   const row = document.createElement('div');
   row.className = 'turn-you';
+  if (steered) {
+    // "Send now": it reached Jarvis between two steps of the running reply.
+    row.classList.add('is-steered');
+    const tag = document.createElement('div');
+    tag.className = 'you-steer';
+    tag.innerHTML = `${icon('corner-down-right')}<span>Sent while Jarvis worked</span>`;
+    tag.title = 'Jarvis read this between two steps, without waiting for its reply to finish';
+    row.appendChild(tag);
+  }
   if (files.length) {
     // Photos and files sit above the text, like a message with attachments.
     row.classList.add('has-files');
@@ -807,7 +816,7 @@ function appendEntry(entry) {
   const text = String(entry.text ?? '').trim();
   switch (role) {
     case 'you':
-      if (text || entry.attachments?.length) appendUser(text, entry.attachments || []);
+      if (text || entry.attachments?.length) appendUser(text, entry.attachments || [], { steered: !!entry.steered });
       break;
     case 'assistant':
       if (text) appendAssistant(text, entry.title);
@@ -827,7 +836,7 @@ function appendEntry(entry) {
 }
 
 /** A committed message from the session (live). `attachments`: files sent with a prompt. */
-export function appendMessage(role, text, title, attachments) {
+export function appendMessage(role, text, title, attachments, { steered = false } = {}) {
   const r = normalizeRole(role);
   const value = String(text ?? '').trim();
   const files = r === 'you' && Array.isArray(attachments) ? attachments : [];
@@ -839,7 +848,7 @@ export function appendMessage(role, text, title, attachments) {
     return;
   }
   if (r === 'you') finalizeLive();
-  appendEntry({ role: r, text: value, title, attachments: files });
+  appendEntry({ role: r, text: value, title, attachments: files, steered });
   if (r !== 'thinking') noteUnseen();
   afterAppend({ scroll: true });
   if (r === 'you') scrollToBottom(true);

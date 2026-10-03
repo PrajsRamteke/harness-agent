@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from rich.markup import escape as _rich_escape
 
-from ... import state
+from ... import prompt_queue, state
 from .. import theme as ui
 
 # Jobs that finish within this window share one wake-up turn.
@@ -72,7 +72,7 @@ class BgJobsMixin:
         """Start a turn with the output of finished, unread jobs — only when
         idle. Returns True when one started. Re-run from ``_turn_done``."""
         self._bg_wake_timer = None
-        if self._busy or state.prompt_queue:
+        if self._busy or prompt_queue.pending():
             return False  # the current / queued work first; retried at turn end
         from ...tools import background as bg
 

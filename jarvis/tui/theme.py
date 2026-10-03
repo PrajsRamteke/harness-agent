@@ -649,14 +649,17 @@ Screen {{
     background: {BG_0};
 }}
 
+/* Queued messages (tui/queue_bar.py): header + one row per message, each
+   with ⚡ send now · ✎ edit · ✕ buttons on the right. */
 #queuebar {{
     height: auto;
-    max-height: 8;
-    color: {FG_MUTE};
-    background: {BG_0};
+    max-height: 9;
+    background: {BG_1};
+    border-left: outer {ACCENT};
     padding: 0 1;
-    margin: 0 0 0 0;
+    margin: 1 0 1 0;
     overflow-y: auto;
+    scrollbar-size-vertical: 1;
 }}
 #queuebar.hidden, #askbar.hidden, #popup.hidden {{
     display: none;

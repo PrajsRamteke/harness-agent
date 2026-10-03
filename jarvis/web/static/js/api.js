@@ -347,3 +347,14 @@ export async function providerPost(path, data = {}) {
     return { ok: false, error: 'Jarvis is not reachable' };
   }
 }
+
+// ─── Pinned context + the message queue ───────────────────────────────────
+/** `{ text, items: [{line, text}], enabled, lines, chars, file }` (jarvis/web/pin_api.py). */
+export const fetchPin = () => api('/api/pin');
+
+/** `op`: add · save · update · remove · toggle · clear → `{ ok, error?, code?, pin? }` (never throws). */
+export const pinPost = (data) => extPost('pin', data);
+
+/** A queued message: `op` edit · remove · steer (send now) · unsteer · clear →
+ * `{ ok, error?, code?, items, entries }` (never throws). */
+export const queuePost = (data) => extPost('queue', data);

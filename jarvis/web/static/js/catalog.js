@@ -39,7 +39,7 @@ export const CATALOG = [
 
   { group: 'Memory', cmd: '/memory', label: 'Memory', desc: 'Personal facts Jarvis remembers', icon: 'database', laptop: true },
   { group: 'Memory', cmd: '/lesson', label: 'Lessons', desc: 'Lessons the agent has saved', icon: 'graduation-cap', laptop: true },
-  { group: 'Memory', cmd: '/pin', label: 'Pinned context', desc: 'Context added to every prompt', icon: 'pin', laptop: true },
+  { group: 'Memory', picker: 'pin', cmd: '/pin', label: 'Pinned context', desc: 'Rules sent with every message: add, edit or unpin them', icon: 'pin', keys: 'pin pinned unpin context rules instructions always standing system prompt' },
   { group: 'Memory', cmd: '/scan', label: 'Scan project', desc: 'Deep scan of identity and docs', icon: 'scan-search' },
 
   { group: 'On your computer', cmd: '/settings', label: 'All settings', desc: 'Every preference, in the terminal', icon: 'sliders-horizontal', laptop: true },
@@ -66,6 +66,8 @@ export const LOCAL_PICKERS = {
   '/mcp': 'mcp',
   '/command': 'command',
   '/commands': 'command',
+  '/pin': 'pin',
+  '/pins': 'pin',
   '/provider': 'provider',
   '/providers': 'provider',
   '/login': 'provider',

@@ -1,6 +1,5 @@
-/** Connection, busy/activity state, queue chips, the top bar, favicon */
+/** Connection, busy/activity state, the top bar, favicon (the queue panel is queue.js) */
 import { $, escapeHtml, formatElapsed, truncate, animateEl } from './utils.js';
-import { icon } from './icons.js';
 import { patchStore, store, subscribe } from './store.js';
 import { settleTools, syncTyping, markTurnDone } from './chat.js';
 import { replyReady, isAlertTitle } from './theme.js';
@@ -83,8 +82,11 @@ function showBackOnline() {
   }, 1500);
 }
 
-export function setQueue(items) {
-  patchStore({ queue: items || [] });
+/** `items`: labels; `entries`: the queue panel's rows (queue.js), when sent. */
+export function setQueue(items, entries) {
+  const patch = { queue: items || [] };
+  if (Array.isArray(entries)) patch.queueItems = entries;
+  patchStore(patch);
 }
 
 function statusText(s) {
@@ -207,38 +209,10 @@ function tickElapsed() {
   el.textContent = store.busy && store.busySince ? formatElapsed((Date.now() - store.busySince) / 1000) : '';
 }
 
-let lastQueueSig = '';
-
-function renderQueue(s) {
-  const box = $('queue-chips');
-  if (!box) return;
-  const items = s.queue || [];
-  const sig = items.join('\u0000');
-  if (sig === lastQueueSig) return;
-  lastQueueSig = sig;
-  if (!items.length) {
-    box.innerHTML = '';
-    return;
-  }
-  const shown = items.slice(0, 2).map((t, i) => `
-    <div class="dock-chip is-queued" title="${escapeHtml(t)}">
-      <span class="dock-chip-num">${i + 1}</span>
-      <span class="dock-chip-text">${escapeHtml(truncate(t, 60))}</span>
-    </div>`);
-  if (items.length > 2) {
-    shown.push(`<div class="dock-chip is-queued"><span class="dock-chip-text">${items.length - 2} more queued</span></div>`);
-  }
-  box.innerHTML = `
-    <div class="dock-chip is-queued" aria-label="Queued messages">
-      ${icon('list-ordered')}<span class="dock-chip-text">Sends when Jarvis is free</span>
-    </div>${shown.join('')}`;
-}
-
 export function initStatus() {
   subscribe((s) => {
     renderTop(s);
     renderActivity(s);
-    renderQueue(s);
   });
   renderTop(store);
   renderActivity(store);

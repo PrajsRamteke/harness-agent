@@ -222,6 +222,9 @@ class WelcomeBlock(Block):
 _USER_MAX_LINES = 24
 
 
+STEER_BADGE = "↳ sent while working"
+
+
 class UserBlock(Block):
     """The user's message: tinted box with a heavy accent bar (opencode)."""
 
@@ -243,14 +246,22 @@ class UserBlock(Block):
     UserBlock.-loop {
         border-left: heavy $jv-accent-3;
     }
+    UserBlock.-steer {
+        border-left: heavy $jv-accent-2;
+    }
     """
 
     def __init__(self, text: str, *, shell: bool = False, flash: bool = False,
-                 badge: str = "") -> None:
+                 badge: str = "", steer: bool = False) -> None:
         super().__init__()
         self.text = text or ""
-        self.badge = badge  # e.g. "⟳ loop #3" for /loop runs
-        if badge:
+        # e.g. "⟳ loop #3" for /loop runs; a message sent with "send now"
+        # joined the running turn between two steps.
+        self.badge = badge or (STEER_BADGE if steer else "")
+        self.steer = steer
+        if steer:
+            self.add_class("-steer")
+        elif badge:
             self.add_class("-loop")
         self.phase = ""  # live spinner label (slash commands like /upgrade)
         self._frame = 0
@@ -298,7 +309,8 @@ class UserBlock(Block):
             lines = lines[: _USER_MAX_LINES - 4]
         out = Text()
         if self.badge:
-            out.append(f"{self.badge}  ", style=f"bold {ui.ACCENT_3}")
+            color = ui.ACCENT_2 if self.steer else ui.ACCENT_3
+            out.append(f"{self.badge}  ", style=f"bold {color}")
         for n, line in enumerate(lines):
             if n:
                 out.append("\n")

@@ -14,6 +14,7 @@ import { openProviders } from './providers.js';
 import { openMcp } from './mcp.js';
 import { openSkills } from './skills.js';
 import { openCommands } from './commands.js';
+import { openPin } from './pin.js';
 import {
   pickerAction,
   fetchSessions,
@@ -142,6 +143,11 @@ function open(kind, arg = '') {
   if (kind === 'command') {
     if (isModalOpen('picker')) closePicker();
     openCommands(arg);
+    return;
+  }
+  if (kind === 'pin') {
+    if (isModalOpen('picker')) closePicker();
+    openPin(arg);
     return;
   }
   const spec = SPECS[kind];

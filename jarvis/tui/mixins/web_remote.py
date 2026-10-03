@@ -453,10 +453,9 @@ class WebRemoteMixin:
         bridge = self._web_bridge
         if bridge is None:
             return
-        from ...media import queue_label
+        from ... import prompt_queue
 
-        items = [queue_label(msg) for msg in state.prompt_queue]
-        bridge.emit("queue", {"items": [i for i in items if i]})
+        bridge.emit("queue", {"items": prompt_queue.labels(), "entries": prompt_queue.public()})
 
     def _handle_web_submit(self, text: str, files: list[str] | None = None) -> None:
         text = (text or "").strip()
@@ -553,6 +552,9 @@ class WebRemoteMixin:
 
     def _handle_web_action(self, action: str, data: dict) -> dict:
         from ...web.actions_api import run_web_action
+
+        if action == "queue":  # edit / remove / send now a queued message
+            return self._handle_web_queue(data)
 
         mux = getattr(self, "_web_mux", None)
         ctx = mux.suppress_broadcast() if mux is not None else nullcontext()

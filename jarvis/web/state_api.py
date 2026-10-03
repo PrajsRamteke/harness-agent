@@ -225,6 +225,7 @@ def snapshot_messages() -> list[dict[str, Any]]:
     """
     from .. import state
     from ..media import attachments_in
+    from ..prompt_queue import strip_steer
 
     out: list[dict[str, Any]] = []
     trace = bool(state.show_internal)
@@ -238,11 +239,18 @@ def snapshot_messages() -> list[dict[str, Any]]:
         if role == "user":
             shown, files = attachments_in(content)
             if files:
-                out.append({"role": "you", "text": shown, "title": "You", "attachments": files})
+                shown, steered = strip_steer(shown)
+                entry = {"role": "you", "text": shown, "title": "You", "attachments": files}
+                if steered:
+                    entry["steered"] = True
+                out.append(entry)
                 continue
-            text = _content_text(content)
+            text, steered = strip_steer(_content_text(content))
             if text:
-                out.append({"role": "you", "text": text, "title": "You"})
+                entry = {"role": "you", "text": text, "title": "You"}
+                if steered:
+                    entry["steered"] = True  # "send now": joined the turn mid-way
+                out.append(entry)
             continue
 
         if role == "assistant":
@@ -340,10 +348,11 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
     Cheap enough to poll every second (``StateWatcher``); pass
     ``session_title`` to skip the database read when it is already known.
     """
-    from .. import state
-    from ..media import queue_label
+    from .. import state, prompt_queue
+    from ..storage import pin as pin_store
 
-    queue_items = [queue_label(item) for item in list(state.prompt_queue)]
+    _, pin_chars = pin_store.pin_stats()
+    pin_lines = len(pin_store.pin_items())  # rules, not blank lines
 
     return {
         "message_count": len(state.messages),
@@ -355,7 +364,9 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "global_skills": bool(getattr(state, "global_skills", False)),
         "global_mcp": bool(getattr(state, "global_mcp", False)),
         "busy": busy,
-        "queue": [q for q in queue_items if q],
+        "queue": prompt_queue.labels(),
+        "queue_items": prompt_queue.public(),
+        "pin": {"lines": pin_lines, "enabled": pin_store.is_enabled(), "chars": pin_chars},
         "model": state.MODEL,
         "vision": _model_sees_images(),
         "session_id": state.current_session_id,

@@ -51,6 +51,7 @@
   <link rel="stylesheet" href="/static/css/dialogs.css">
   <link rel="stylesheet" href="/static/css/inspector.css">
   <link rel="stylesheet" href="/static/css/media.css">
+  <link rel="stylesheet" href="/static/css/queue-pin.css">
 </head>
 <body>
   <div class="backdrop" aria-hidden="true">
@@ -231,6 +232,7 @@
           <div class="chip-slot" id="changes-chip"></div>
           <div class="chip-slot" id="queue-chips"></div>
         </div>
+        <section class="queue-panel glass" id="queue-panel" aria-label="Queued messages" hidden></section>
         <div class="composer glass" id="composer">
           <div class="slash-menu glass-strong" id="slash-menu" role="listbox" hidden></div>
           <div class="activity" id="activity" hidden>
@@ -466,6 +468,23 @@
       <div class="dlg-bar" id="commands-bar"></div>
       <div class="pv-body dlg-body ex-body" id="commands-body"></div>
       <div class="dlg-foot" id="commands-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="pin" hidden>
+    <div class="modal-card glass-strong ext-card pin-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="pin-title">
+      <div class="picker-head">
+        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
+        <span class="picker-icon"><span data-icon="pin"></span></span>
+        <div class="picker-titles">
+          <h2 id="pin-title">Pinned context</h2>
+          <p id="pin-sub-title">Sent with every message, in every chat</p>
+        </div>
+        <button class="icon-btn" data-close="pin" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="dlg-bar" id="pin-bar"></div>
+      <div class="pv-body dlg-body ex-body" id="pin-body"></div>
+      <div class="dlg-foot" id="pin-foot"></div>
     </div>
   </div>
 

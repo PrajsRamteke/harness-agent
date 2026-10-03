@@ -20,6 +20,8 @@ import { initProviders } from './providers.js';
 import { initMcp } from './mcp.js';
 import { initSkills } from './skills.js';
 import { initCommands } from './commands.js';
+import { initPin } from './pin.js';
+import { initQueue } from './queue.js';
 import { initPrompts } from './prompts.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initQuickbar } from './quickbar.js';
@@ -50,6 +52,12 @@ function renderStarters() {
       else fillPrompt(s.text);
     });
   });
+}
+
+/** Put `text` in the message box without losing what's already typed there. */
+function keepDraftAndFill(text) {
+  const now = $('prompt')?.value.trim();
+  fillPrompt(now ? `${now}\n\n${text}` : text);
 }
 
 function showGate(title, text) {
@@ -132,6 +140,8 @@ function boot() {
   initMcp();
   initSkills();
   initCommands();
+  initPin();
+  initQueue({ onFill: keepDraftAndFill });
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
   initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector });

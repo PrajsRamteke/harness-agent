@@ -459,6 +459,11 @@ class WebHandler(BaseHTTPRequestHandler):
             fid = self._query_str(qs, "id") or None
             self._send_json(200, {"patch": file_changes.patch_text(fid)})
             return
+        if path == "/api/pin":
+            from ..storage import pin as pin_store
+
+            self._send_json(200, pin_store.public())
+            return
         if path == "/api/providers":
             from .providers_api import list_providers
 
@@ -620,6 +625,28 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if path == "/api/prompt":
             self._handle_prompt(data)
+            return
+
+        if path == "/api/pin":
+            # Pinned context: runs on the terminal's thread; every page refreshes.
+            result = self.bridge.request_action("pin", data)
+            if not isinstance(result, dict):
+                result = {"ok": False, "error": "invalid response"}
+            if result.get("pin") is not None:
+                self.bridge.emit("pin", result["pin"])
+            self._send_json(200, result)
+            return
+
+        if path == "/api/queue":
+            # Edit / remove / "send now" a queued message (``prompt_queue.apply_op``).
+            result = self.bridge.request_action("queue", data)
+            if not isinstance(result, dict):
+                result = {"ok": False, "error": "invalid response"}
+            from .. import prompt_queue
+
+            body = {**result, "items": prompt_queue.labels(), "entries": prompt_queue.public()}
+            self.bridge.emit("queue", {"items": body["items"], "entries": body["entries"]})
+            self._send_json(200, body)
             return
 
         if path == "/api/upload/remove":

@@ -7,7 +7,7 @@ Layout
     │ message / tool call — see transcript.py)     │ (wide screens,│
     │                                              │  ⌃B toggles)  │
     ├──────────────────────────────────────────────┴───────────────┤
-    │ queued prompts (FIFO, only while busy)                        │
+    │ queued messages: ⚡ send now · ✎ edit · ✕  (only while busy)    │
     │ ask-user choices (LLM multiple choice)                        │
     │ ✻ Activity…  (12s · ↓ 1.2k tokens · esc to interrupt)         │
     │ /command · @file completion popup                             │
@@ -140,6 +140,8 @@ from .mixins.loop import LoopMixin  # noqa: E402
 from .mixins.bg_jobs import BgJobsMixin  # noqa: E402
 from .mixins.enhance import EnhanceMixin  # noqa: E402
 from .mixins.mcp_auth import McpAuthMixin  # noqa: E402
+from .mixins.queue import QueueMixin  # noqa: E402
+from .queue_bar import QueueBar  # noqa: E402
 from .mcp_auth_bar import McpAuthBar  # noqa: E402
 from .enhance_button import EnhanceButton  # noqa: E402
 from .web_button import WebButton  # noqa: E402
@@ -160,7 +162,7 @@ from .transcript import (  # noqa: E402
 
 _SIDEBAR_MIN_WIDTH = 150
 _PLACEHOLDER = "Ask anything…"
-_BUSY_PLACEHOLDER = "Type a follow-up — it's queued for when Jarvis finishes · esc interrupts"
+_BUSY_PLACEHOLDER = "Type a follow-up — it queues (⚡ send now hands it over mid-turn) · esc interrupts"
 # Shown in place of the default placeholder every few turns.
 _TIPS = (
     "Tip: ⇧⇥ toggles plan mode — research first, approve changes after",
@@ -179,7 +181,7 @@ _TIPS = (
 # ─── App ─────────────────────────────────────────────────────────────────
 
 
-class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMixin,
+class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMixin,
                 BgJobsMixin, EnhanceMixin, McpAuthMixin, FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
@@ -322,7 +324,7 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
 
     def _compose_dock(self) -> ComposeResult:
         with Vertical(id="dock"):
-            yield Static("", id="queuebar", markup=True, shrink=False, classes="hidden")
+            yield QueueBar(id="queuebar")
             yield Static("", id="askbar", markup=True, shrink=False, classes="hidden")
             yield McpAuthBar(id="mcp_auth")
             yield ActivityLine(id="activity", classes="-idle")
@@ -768,52 +770,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             return
         self._sidebar_pref = sb.has_class("hidden")
         self._apply_sidebar_visibility()
-
-    # ─── prompt stash (FIFO queue above the composer) ────────────────
-    @staticmethod
-    def _stash_preview(msg, max_len: int = 56) -> str:
-        from ..media import queue_label
-
-        preview = queue_label(msg).replace("\n", " ").strip()
-        if len(preview) > max_len:
-            preview = preview[: max_len - 1] + "…"
-        return _rich_escape(preview)
-
-    def _refresh_queue_bar(self) -> None:
-        try:
-            bar = self.query_one("#queuebar", Static)
-        except Exception:
-            return
-        q = state.prompt_queue
-        if not q:
-            bar.add_class("hidden")
-            bar.update("")
-            self._sync_web_queue()
-            return
-        bar.remove_class("hidden")
-        rows: list[str] = []
-        for i, msg in enumerate(q[:5], 1):
-            tag = "next" if i == 1 else f"#{i}"
-            rows.append(
-                f"[{ui.FG_DIM}]↳ {tag:<4}[/] [{ui.FG_MUTE}]{self._stash_preview(msg, 96)}[/]"
-            )
-        if len(q) > 5:
-            rows.append(f"[{ui.FG_DIM}]  … +{len(q) - 5} more queued[/]")
-        bar.update(Text.from_markup("\n".join(rows)))
-        self._sync_web_queue()
-
-    def _stash_prompt(self, text: str, *, files: list[str] | None = None) -> None:
-        """Queue a prompt while the agent is busy (FIFO; shown in #queuebar).
-
-        ``files``: upload ids from the web remote (``jarvis/media.py``).
-        """
-        from ..prompt_attachments import snapshot_registry
-
-        if files:
-            state.prompt_queue.append((text, snapshot_registry(), list(files)))
-        else:
-            state.prompt_queue.append((text, snapshot_registry()))
-        self._refresh_queue_bar()
 
     # ─── attachments ─────────────────────────────────────────────────
     def _run_attachment_tokenize(self) -> None:
@@ -1346,6 +1302,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             return
         if self._enhance_cancel():
             return
+        if self._queue_edit_cancel():  # editing a queued message: it stays as it was
+            return
         if self._busy:
             self._cancel_turn()
             return
@@ -1397,8 +1355,10 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         """
         if not self._busy:
             return ""
-        dropped = len(state.prompt_queue)
-        state.prompt_queue.clear()
+        from .. import prompt_queue
+
+        self._queue_edit_abandon()
+        dropped = prompt_queue.clear()
         self._refresh_queue_bar()
         self._cancel_turn()
         note = "stopped the running reply"
@@ -1432,6 +1392,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self.close_file_ref_picker()
         self._sync_composer_mode()
         if not text:
+            if self._queue_edit_submit(""):  # emptied a queued message: it's dropped
+                return
             from ..prompt_attachments import reset_registry
             reset_registry()
             return
@@ -1442,6 +1404,10 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         text = expand_chips(text)
         reset_chips()
         self._history.add(text)
+
+        # Editing a queued message: ↵ puts it back in its place in the queue.
+        if self._queue_edit_submit(text):
+            return
 
         if self._open_modal_for(text):
             return
@@ -1469,26 +1435,6 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             return
 
         self._begin_turn(text, display=display)
-
-    def _pop_queued_for_edit(self) -> bool:
-        """Move the newest queued prompt back into the composer (↑ while busy)."""
-        if not state.prompt_queue:
-            return False
-        item = state.prompt_queue[-1]
-        if isinstance(item, tuple) and len(item) > 2 and item[2]:
-            # Its files live on the web side; the terminal can't re-attach them.
-            self._set_status("the last queued message has web attachments — it stays queued")
-            return False
-        state.prompt_queue.pop()
-        text = item[0] if isinstance(item, tuple) else str(item)
-        prompt = self.query_one("#prompt", PromptArea)
-        self._popup_suppressed_for = text
-        prompt.text = text
-        lines = text.split("\n")
-        prompt.move_cursor((len(lines) - 1, len(lines[-1])))
-        self._refresh_queue_bar()
-        self._set_status("editing a queued message — ↵ queues it again")
-        return True
 
     def _begin_turn(self, inp: str, *, echo: bool = True, display: str | None = None,
                     badge: str = "", attachments: list[str] | None = None) -> None:
@@ -1599,13 +1545,16 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
             if role == "user":
                 from ..media import attachments_in, summary_line
 
+                from ..prompt_queue import strip_steer
+
                 shown, files = attachments_in(content)
                 if files:  # sent from the web with attachments: names, not paths
+                    shown, steered = strip_steer(shown)
                     text = f"{shown}\n{summary_line(files, limit=4)}".strip()
                 else:
-                    text = self._content_text(content).strip()
+                    text, steered = strip_steer(self._content_text(content).strip())
                 if text:
-                    blocks.append(UserBlock(text))
+                    blocks.append(UserBlock(text, steer=steered))
                 continue
             if role != "assistant":
                 continue
@@ -1814,6 +1763,8 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
                     break
                 if stale() or state.turn_cancelled():
                     raise KeyboardInterrupt()
+                # "⚡ send now" messages join the tool results the model reads next.
+                self._inject_steered()
                 if state.current_session_id and state.messages and state.messages[-1] is not asst_msg:
                     db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
         except KeyboardInterrupt:
@@ -1907,21 +1858,19 @@ class JarvisTUI(WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMix
         self._slow_refresh()
         self._loop_after_turn(cancelled=self._turn_cancelled)
 
-        if state.prompt_queue:
-            item = state.prompt_queue.pop(0)
-            web_files: list[str] = []
-            if isinstance(item, tuple):
-                next_prompt = item[0]
-                if len(item) > 1 and isinstance(item[1], tuple):
-                    attachments, llm_paths = item[1]
-                else:
-                    attachments, llm_paths = item[1], None
+        from .. import prompt_queue
+
+        item = prompt_queue.pop_next()
+        if item is not None:
+            web_files = item.files
+            next_prompt = item.text
+            if isinstance(item[1], tuple):
+                attachments, llm_paths = item[1]
+            else:
+                attachments, llm_paths = item[1], None
+            if isinstance(attachments, dict):
                 from ..prompt_attachments import restore_registry
                 restore_registry(attachments, llm_paths)
-                if len(item) > 2 and isinstance(item[2], list):
-                    web_files = item[2]
-            else:
-                next_prompt = item
             next_prompt = next_prompt.strip()
             self._refresh_queue_bar()
 

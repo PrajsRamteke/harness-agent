@@ -30,7 +30,12 @@ export const store = {
   },
   /** This device only: show thinking in the transcript */
   showThoughts: true,
+  /** Labels of the queued messages (the activity line counts them). */
   queue: [],
+  /** The queue panel's rows: `{ id, text, label, files, steer, steerable, command, editing }`. */
+  queueItems: [],
+  /** Pinned context summary (`{ lines, enabled, chars }`): an open Pin dialog reloads when it changes. */
+  pin: { lines: 0, enabled: true },
   /** Pending agent prompt (approval / question / input) awaiting an answer */
   activePrompt: null,
   pendingToggle: null,
@@ -86,6 +91,8 @@ export function loadSnapshot(data) {
   }
   if (Object.keys(patch).length) patchSession(patch);
   if ('queue' in data) patchStore({ queue: data.queue || [] });
+  if (Array.isArray(data.queue_items)) patchStore({ queueItems: data.queue_items });
+  if (data.pin && typeof data.pin === 'object') patchStore({ pin: { ...store.pin, ...data.pin } });
 }
 
 export function loadUiPrefs() {

@@ -19,7 +19,7 @@ import time
 from rich.markup import escape
 
 from ... import loop as loop_state
-from ... import state
+from ... import prompt_queue, state
 from .. import theme as ui
 
 # "/loop" then whitespace (a space or a newline) or nothing — not "/loopy".
@@ -95,7 +95,7 @@ class LoopMixin:
         loop = loop_state.active()
         if loop is None:
             return
-        if self._busy or state.prompt_queue:
+        if self._busy or prompt_queue.pending():
             self._loop_pending = True  # the user's turn first; runs right after
             return
         self._loop_pending = False
