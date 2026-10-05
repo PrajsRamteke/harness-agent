@@ -10,6 +10,7 @@ import { initMedia, openFilePicker } from './media.js';
 import { initStatus, setConnected } from './status.js';
 import { initSidebar } from './sidebar.js';
 import { initProjects, projectGone, serverLost } from './projects.js';
+import { initFolders } from './folders.js';
 import { initInspector, toggleInspector } from './inspector.js';
 import { initChanges } from './changes.js';
 import { initActivity } from './activity.js';
@@ -133,6 +134,7 @@ function boot() {
   initMedia({ onOpenPicker: openPickerByKind });
   initSidebar({ onOpenPicker: openPickerByKind });
   initProjects({ onEvent: handleEvent });
+  initFolders();
   initInspector();
   initChanges();
   initActivity();

@@ -299,6 +299,18 @@ def _session_title(session_id: Any) -> str:
         return ""
 
 
+def _cwd_fields() -> dict[str, Any]:
+    """The folder this Jarvis works in (the page's folder chip) and whether it has a terminal."""
+    from .. import state
+    from .fs_api import display
+
+    try:
+        cwd = os.getcwd()
+    except OSError:
+        cwd = ""
+    return {"cwd": cwd, "cwd_display": display(cwd) if cwd else "", "headless": bool(state.headless)}
+
+
 def _project_name() -> str:
     try:
         return os.path.basename(os.getcwd().rstrip(os.sep)) or os.getcwd()
@@ -360,6 +372,7 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
             _session_title(state.current_session_id) if session_title is None else session_title
         ),
         "project": _project_name(),
+        **_cwd_fields(),
         "global_agents": bool(getattr(state, "global_agents", False)),
         "global_skills": bool(getattr(state, "global_skills", False)),
         "global_mcp": bool(getattr(state, "global_mcp", False)),

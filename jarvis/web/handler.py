@@ -772,6 +772,34 @@ class WebHandler(BaseHTTPRequestHandler):
             self._forward_to_project(foreign)
             return
 
+        if path == "/api/projects/launch":
+            from . import launcher
+
+            found = launcher.launch_status(self._query_str(qs, "id"))
+            if found is None:
+                self._send_json(404, {"ok": False, "error": "That launch is no longer known."})
+            else:
+                self._send_json(200, {"ok": True, "launch": found})
+            return
+
+        if path == "/api/fs/dirs":
+            from . import fs_api
+
+            try:
+                self._send_json(200, fs_api.list_dirs(
+                    self._query_str(qs, "path"), show_hidden=self._query_str(qs, "hidden") == "1",
+                ))
+            except fs_api.FsError as exc:
+                self._send_json(200, {"ok": False, "code": exc.code, "error": str(exc)})
+            return
+
+        if path == "/api/fs/start":
+            from . import fs_api
+
+            self._send_json(200, {"ok": True, "home": str(fs_api.home()), "recent": fs_api.recent_dirs(),
+                                  "shortcuts": fs_api.shortcuts()})
+            return
+
         if path == "/api/projects":
             self._send_json(200, hub.projects_payload(
                 self.instance_id,
@@ -820,6 +848,34 @@ class WebHandler(BaseHTTPRequestHandler):
             return
 
         data = self._read_json()
+
+        if path in ("/api/projects/open", "/api/projects/stop"):
+            # Start / stop another Jarvis — this server's job, whichever project is shown.
+            from . import launcher
+
+            if path.endswith("/open"):
+                result = launcher.open_project(str(data.get("path") or ""), reuse=bool(data.get("reuse", True)))
+            else:
+                result = launcher.stop_project(str(data.get("id") or ""))
+            self._send_json(200, result)
+            return
+
+        if path == "/api/cwd":
+            # "Move this chat here": not while a turn runs (its tools work in the old folder).
+            if self._busy():
+                self._send_json(200, {"ok": False, "code": "busy",
+                                      "error": "Jarvis is working. Wait for it to finish, or stop it first."})
+                return
+            result = self.bridge.request_action("cwd_change", {"path": str(data.get("path") or "")})
+            if not isinstance(result, dict):
+                result = {"ok": False, "error": "invalid response"}
+            if result.get("ok") and not result.get("unchanged"):
+                try:
+                    self.bridge.emit("state", state_fields(busy=self._busy()))
+                except Exception:
+                    pass
+            self._send_json(200, result)
+            return
 
         if path.startswith("/api/"):
             self._handle_api_post(path, data)

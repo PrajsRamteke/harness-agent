@@ -600,6 +600,13 @@ class WebRemoteMixin:
                     result["stopped"] = stopped
                     self._tui_console.print(f"[{ui.FG_DIM}]⏹ web · {stopped}[/]")
 
+            if action == "cwd_change":  # the terminal shows the folder too (footer, context strip)
+                try:
+                    self._render_footer()
+                    self._slow_refresh()
+                except Exception:
+                    pass
+
             provider_change = action.startswith("provider_")
             if action == "model_select" or provider_change:
                 self._write_status_line(busy=False)

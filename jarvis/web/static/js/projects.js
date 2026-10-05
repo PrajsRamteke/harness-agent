@@ -17,7 +17,7 @@
  * this link belongs to closes, the page moves to another running Jarvis.
  */
 import { $, escapeHtml, readToken, showToast, BASE, setBase } from './utils.js';
-import { fetchProjects, fetchStateAt, switchTransport } from './api.js';
+import { fetchProjects, fetchStateAt, switchTransport, stopProjectById } from './api.js';
 import { store, patchStore } from './store.js';
 import { closeAllModals } from './modal.js';
 import { syncPrompts } from './prompts.js';
@@ -26,6 +26,8 @@ import { resetChanges } from './changes.js';
 import { handleCommandsEvent } from './commands.js';
 import { handleMcpEvent } from './mcp.js';
 import { setProjectItems } from './catalog.js';
+import { icon } from './icons.js';
+import { openFolders } from './folders.js';
 
 const POLL_MS = 10_000;         // the fallback; `projects` events carry changes as they happen
 const POLL_ALONE_MS = 20_000;
@@ -53,6 +55,7 @@ const idFromPath = (path) => (path.match(/^\/p\/([A-Za-z0-9_-]+)/) || [])[1] || 
 export const currentProjectId = () => (BASE ? BASE.slice(3) : hostId);
 const baseFor = (id) => (id && id !== hostId ? `/p/${id}` : '');
 const find = (id) => projects.find((p) => p.id === id);
+export const findProject = find;
 const nameOf = (p) => p?.project || 'project';
 
 function hrefFor(id) {
@@ -125,15 +128,20 @@ function renderList(cur) {
     const detail = p.session_title || (p.model ? p.model : 'New chat');
     const meta = st.text ? `${st.text} · ${detail}` : detail;
     const active = p.id === (switching || cur);
+    const stop = p.headless
+      ? `<button type="button" class="pr-stop" data-stop="${escapeHtml(p.id)}" aria-label="Stop ${escapeHtml(nameOf(p))}" title="Stop this Jarvis (opened from the web)">${icon('power')}</button>`
+      : '';
     return `
-      <a class="project-row ${st.cls}${active ? ' is-active' : ''}" role="listitem" href="${escapeHtml(hrefFor(p.id))}"
-         data-id="${escapeHtml(p.id)}" ${active ? 'aria-current="page"' : ''} title="${escapeHtml(p.cwd || p.project)}">
-        <span class="pr-dot" aria-hidden="true"></span>
-        <span class="pr-body">
-          <span class="pr-title">${escapeHtml(nameOf(p))}${n > 1 ? ` <span class="pr-n">${n}</span>` : ''}</span>
-          <span class="pr-meta">${escapeHtml(meta)}</span>
-        </span>
-      </a>`;
+      <div class="project-item${p.headless ? ' has-stop' : ''}" role="listitem">
+        <a class="project-row ${st.cls}${active ? ' is-active' : ''}" href="${escapeHtml(hrefFor(p.id))}"
+           data-id="${escapeHtml(p.id)}" ${active ? 'aria-current="page"' : ''} title="${escapeHtml(p.cwd || p.project)}${p.headless ? ' · opened from the web' : ''}">
+          <span class="pr-dot" aria-hidden="true"></span>
+          <span class="pr-body">
+            <span class="pr-title">${escapeHtml(nameOf(p))}${n > 1 ? ` <span class="pr-n">${n}</span>` : ''}${p.headless ? ' <span class="pr-web" title="Opened from the web — no terminal">web</span>' : ''}</span>
+            <span class="pr-meta">${escapeHtml(meta)}</span>
+          </span>
+        </a>${stop}
+      </div>`;
   }).join('');
 }
 
@@ -155,12 +163,13 @@ function render({ force = false } = {}) {
   const cur = currentProjectId();
   const many = projects.length > 1;
   const section = $('projects-sec');
-  if (section) section.hidden = !many;
+  // Always there once known: it holds "Open folder", even with one project.
+  if (section) section.hidden = !projects.length;
   const next = JSON.stringify([cur, switching, [...unseen], projects.map((p) =>
-    [p.id, p.project, p.session_id, p.session_title, p.model, p.busy, p.needs_approval])]);
+    [p.id, p.project, p.session_id, p.session_title, p.model, p.busy, p.needs_approval, p.headless, p.cwd])]);
   if (next === sig && !force) return;
   sig = next;
-  if (many) renderList(cur);
+  if (projects.length) renderList(cur);
   renderBanner(cur);
   setProjectItems(many ? projects.filter((p) => p.id !== cur).map((p) => ({
     group: 'Projects',
@@ -342,7 +351,58 @@ export async function serverLost() {
   lost = false; // nothing to move to: try again on the next failure
 }
 
+// ─── Stopping a project opened from the web ───────────────────────────────
+
+async function stopProject(btn) {
+  const id = btn.dataset.stop;
+  const p = find(id);
+  if (!p) return;
+  if (btn.dataset.confirm !== '1') {
+    // Two clicks: the first one asks, right where you clicked.
+    btn.dataset.confirm = '1';
+    btn.classList.add('is-confirm');
+    btn.innerHTML = `<span>${p.busy ? 'Working — stop?' : 'Stop?'}</span>`;
+    clearTimeout(btn._revert);
+    btn._revert = setTimeout(() => {
+      if (!btn.isConnected) return;
+      btn.dataset.confirm = '';
+      btn.classList.remove('is-confirm');
+      btn.innerHTML = icon('power');
+    }, 3500);
+    return;
+  }
+  clearTimeout(btn._revert);
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+  // Leave it first if it's on screen, so the page never points at a stopped Jarvis.
+  if (id === currentProjectId() && id !== hostId) {
+    const other = find(hostId) || projects.find((x) => x.id !== id);
+    goneHandled.add(id);
+    if (other) await switchProject(other.id);
+  }
+  let res;
+  try {
+    res = await stopProjectById(id);
+  } catch (err) {
+    res = { ok: false, error: err?.status === 401 ? 'This link has expired.' : 'Jarvis is not reachable right now.' };
+  }
+  if (!res?.ok) {
+    showToast(res?.error || `Couldn’t stop ${nameOf(p)}`, true);
+    sig = '';
+    render({ force: true });
+    return;
+  }
+  rememberClosed(p);
+  showToast(`${nameOf(p)} stopped${res.forced ? ' (it had to be forced)' : ''} — its chat is in Recent sessions`);
+  refresh();
+}
+
 // ─── Polling ──────────────────────────────────────────────────────────────
+
+/** Re-read the list now (after opening / stopping a project). */
+export function refreshProjects() {
+  return refresh();
+}
 
 async function refresh() {
   clearTimeout(timer);
@@ -382,6 +442,12 @@ export function initProjects({ onEvent }) {
   const list = $('projects-list');
   const isPlainClick = (e) => !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0);
   list?.addEventListener('click', (e) => {
+    const stop = e.target.closest('.pr-stop');
+    if (stop) {
+      e.preventDefault();
+      stopProject(stop);
+      return;
+    }
     const row = e.target.closest('.project-row');
     if (!row || !isPlainClick(e)) return; // ⌘-click: the browser opens it in a new tab
     e.preventDefault();
@@ -391,6 +457,10 @@ export function initProjects({ onEvent }) {
   const warm = (e) => prefetch(e.target.closest?.('.project-row')?.dataset.id);
   list?.addEventListener('pointerover', warm);
   list?.addEventListener('focusin', warm);
+  $('open-folder')?.addEventListener('click', () => {
+    document.body.classList.remove('side-open');
+    openFolders();
+  });
   $('proj-banner')?.addEventListener('click', (e) => {
     if (!isPlainClick(e)) return;
     e.preventDefault();

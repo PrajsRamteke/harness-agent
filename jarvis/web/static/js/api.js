@@ -405,6 +405,37 @@ export async function fetchProjects() {
   return res.json();
 }
 
+/** JSON from the server this page was loaded from (folders, starting / stopping projects) —
+ * not the project on screen, hence no `BASE`. Errors carry `status`. */
+async function hostJson(path, method = 'GET', payload) {
+  const opts = { method, headers: { ...authHeaders() }, cache: 'no-store' };
+  if (payload !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(payload);
+  }
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => null);
+  if (!res.ok && !(data && typeof data === 'object' && 'ok' in data)) {
+    const err = new Error(data?.error || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+/** Sub-folders of `path` ("" = home) for the folder picker. */
+export const fetchDirs = (path, hidden = false) =>
+  hostJson(`/api/fs/dirs?path=${encodeURIComponent(path || '')}${hidden ? '&hidden=1' : ''}`);
+/** Recent folders + places (Desktop, Documents …) for the picker's "Jump to" strip. */
+export const fetchFsStart = () => hostJson('/api/fs/start');
+/** Start a Jarvis in `path` (`reuse`: switch to one already running there instead). */
+export const openProjectAt = (path, reuse = true) => hostJson('/api/projects/open', 'POST', { path, reuse });
+export const fetchLaunch = (id) => hostJson(`/api/projects/launch?id=${encodeURIComponent(id)}`);
+/** Stop a Jarvis that was opened from the web. */
+export const stopProjectById = (id) => hostJson('/api/projects/stop', 'POST', { id });
+/** "Move this chat here": the project on screen changes folder. */
+export const moveChat = (path) => api('/api/cwd', 'POST', { path });
+
 /** A project's snapshot before switching to it (`base`: "" or "/p/<id>"). Errors carry `status`. */
 export async function fetchStateAt(base, { signal } = {}) {
   const res = await fetch(`${base}/api/state`, { headers: authHeaders(), cache: 'no-store', signal });

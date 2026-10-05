@@ -14,6 +14,11 @@ export const store = {
     session_id: '',
     session_title: '',
     project: '',
+    /** The folder this Jarvis works in, and `~/…` for showing it (the top bar's folder chip). */
+    cwd: '',
+    cwd_display: '',
+    /** Opened from the web (no terminal): the Projects list can stop it. */
+    headless: false,
     provider: '',
     think_mode: true,
     think_effort: 'high',

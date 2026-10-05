@@ -72,6 +72,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--headless",
+        action="store_true",
+        help=argparse.SUPPRESS,  # a project opened from the web remote (jarvis/web/launcher.py)
+    )
+    parser.add_argument(
         "--web-port",
         type=int,
         default=None,
@@ -213,6 +218,12 @@ def main() -> None:
     state.web_tunnel = bool(args.tunnel or tunnel_env)
     state.web_enabled = bool(args.web or web_enabled_from_env() or state.web_tunnel)
     state.web_port = args.web_port if args.web_port is not None else default_web_port()
+    if args.headless:
+        # Opened from the browser ("Open a folder"): no terminal, reached only
+        # through the web remote — which it must have; never a tunnel of its own.
+        state.headless = True
+        state.web_enabled = True
+        state.web_tunnel = False
 
     from .bootstrap import ensure_harness_agent_defaults
     ensure_harness_agent_defaults()

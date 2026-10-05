@@ -153,7 +153,8 @@ function renderTop(s) {
   const meta = $('session-meta');
   if (meta) {
     const parts = [];
-    if (s.session.project) parts.push(`<span>${escapeHtml(s.session.project)}</span>`);
+    // The folder is the chip beside this (folders.js); without one (an older Jarvis) show the name.
+    if (s.session.project && !s.session.cwd_display) parts.push(`<span>${escapeHtml(s.session.project)}</span>`);
     if (s.session.session_id) parts.push(`<span>Session ${escapeHtml(String(s.session.session_id))}</span>`);
     meta.innerHTML = parts.join('');
   }

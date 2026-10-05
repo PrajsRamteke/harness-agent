@@ -92,6 +92,7 @@ def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
             "model": str(state.MODEL or ""),
             "busy": bool(getattr(app, "_busy", False)),
             "needs_approval": bool(bridge.pending_events()),
+            "headless": bool(state.headless),  # opened from the web: the web may stop it
         }
 
     return info
@@ -155,6 +156,9 @@ def start_web_server(
     )
     registration.start()
     server.registration = registration  # type: ignore[attr-defined]
+    from . import fs_api
+
+    fs_api.remember_dir(os.getcwd())  # the folder picker's "Recent" list
     urls = _local_urls(bound_port, bridge.token)
     return server, urls, bound_port
 

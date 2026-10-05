@@ -26,6 +26,15 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
 
         return apply_op(data)
 
+    if action == "cwd_change":
+        # "Move this chat here" (folder picker): the /cd command, done fully.
+        from .fs_api import change_cwd
+
+        result = change_cwd(str(data.get("path") or ""))
+        if result.get("ok") and not result.get("unchanged"):
+            console_print(f"[green]📁 moved to {result['display']}[/] [dim](from the web)[/]")
+        return result
+
     if action == "session_resume":
         sid = int(data.get("session_id") or 0)
         if sid <= 0:

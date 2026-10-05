@@ -110,6 +110,15 @@ def get(instance_id: str) -> dict[str, Any] | None:
     return None
 
 
+def forget(instance_id: str) -> None:
+    """Drop an entry whose process was killed (it never got to remove its own)."""
+    if valid_id(instance_id):
+        try:
+            _path(instance_id).unlink()
+        except OSError:
+            pass
+
+
 class Registration:
     """This process's entry: written now, refreshed by a daemon thread, removed on stop."""
 

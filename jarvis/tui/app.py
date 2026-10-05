@@ -405,6 +405,21 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         if state.startup_prompt:
             self.set_timer(0.05, self._submit_startup_prompt)
 
+        if state.headless:
+            self._headless_signals()
+
+    def _headless_signals(self) -> None:
+        """No terminal to press Ctrl+C in: SIGTERM / SIGHUP (web "Stop", logout) exit cleanly."""
+        import asyncio
+        import signal
+
+        try:
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGTERM, signal.SIGHUP):
+                loop.add_signal_handler(sig, self.exit)
+        except (NotImplementedError, RuntimeError, ValueError):
+            pass
+
     def on_unmount(self) -> None:
         self._bg_detach()
         self._mcp_auth_detach()
@@ -522,7 +537,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
 
     def _finish_welcome_intro(self) -> None:
         self._auto_connect_mcp_background()
-        self._check_for_updates_background()
+        if not state.headless:  # an update re-exec belongs to a terminal the user started
+            self._check_for_updates_background()
         self._warm_model_catalogs_background()
         self._pet_mount()
 
@@ -2083,7 +2099,11 @@ def run():
 
     app = JarvisTUI()
     try:
-        app.run(mouse=app._mouse_enabled)
+        if state.headless:
+            # Opened from the web remote: the same app, drawn nowhere.
+            app.run(headless=True, size=(120, 40))
+        else:
+            app.run(mouse=app._mouse_enabled)
     except KeyboardInterrupt:
         pass
     finally:

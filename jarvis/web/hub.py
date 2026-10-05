@@ -52,6 +52,7 @@ def project_rows(self_id: str | None) -> list[dict[str, Any]]:
             "model": rec.get("model") or "",
             "busy": bool(rec.get("busy")),
             "needs_approval": bool(rec.get("needs_approval")),
+            "headless": bool(rec.get("headless")),  # opened from the web: the page may stop it
             "version": rec.get("version") or "",
         })
     return rows
