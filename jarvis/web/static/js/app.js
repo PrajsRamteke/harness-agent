@@ -1,5 +1,5 @@
 /** Application bootstrap */
-import { $, escapeHtml, showToast } from './utils.js';
+import { $, escapeHtml, showToast, BASE } from './utils.js';
 import { icon, hydrateIcons } from './icons.js';
 import { store, loadUiPrefs } from './store.js';
 import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
@@ -9,6 +9,7 @@ import { initComposer, fillPrompt, submitPrompt, insertQuote, enhanceMessage } f
 import { initMedia, openFilePicker } from './media.js';
 import { initStatus, setConnected } from './status.js';
 import { initSidebar } from './sidebar.js';
+import { initProjects, projectGone, serverLost } from './projects.js';
 import { initInspector, toggleInspector } from './inspector.js';
 import { initChanges } from './changes.js';
 import { initActivity } from './activity.js';
@@ -83,10 +84,10 @@ async function recoverToken() {
       sessionStorage.setItem(KEY, String(Date.now()));
     } catch { /* ignore */ }
     try {
-      const res = await fetch('/', { redirect: 'follow', cache: 'no-store' });
+      const res = await fetch(`${BASE}/`, { redirect: 'follow', cache: 'no-store' });
       const fresh = new URL(res.url).searchParams.get('token');
       if (res.ok && fresh && fresh !== new URLSearchParams(location.search).get('token')) {
-        location.replace(`/?token=${encodeURIComponent(fresh)}`);
+        location.replace(`${BASE}/?token=${encodeURIComponent(fresh)}`);
         return;
       }
     } catch { /* server down — fall through */ }
@@ -131,6 +132,7 @@ function boot() {
   initComposer({ onCatalogItem: runItem, onOpenPicker: openPickerByKind });
   initMedia({ onOpenPicker: openPickerByKind });
   initSidebar({ onOpenPicker: openPickerByKind });
+  initProjects({ onEvent: handleEvent });
   initInspector();
   initChanges();
   initActivity();
@@ -158,6 +160,8 @@ function boot() {
     },
     onResync: invalidateSnapshot,
     onUnauthorized: recoverToken,
+    onGone: projectGone,
+    onServerLost: serverLost,
   });
 
   // Focus the composer on desktop so typing just works.

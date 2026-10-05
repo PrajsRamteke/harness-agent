@@ -110,11 +110,20 @@ export function wantCustomItems() {
   refresher?.();
 }
 
-/** Everything the ⌘K palette lists: "Go to", then the user's commands, then the rest. */
+// ─── Other running projects (projects.js fills this) ──────────────────────
+
+let projectItems = [];
+
+/** `{ group: 'Projects', label, desc, icon, keys, run }` — one per other running Jarvis. */
+export function setProjectItems(items) {
+  projectItems = Array.isArray(items) ? items : [];
+}
+
+/** Everything the ⌘K palette lists: "Go to", then other projects, the user's commands, then the rest. */
 export function allItems() {
-  if (!customItems.length) return CATALOG;
+  if (!customItems.length && !projectItems.length) return CATALOG;
   const at = CATALOG.findIndex((it) => it.group !== 'Go to');
-  return [...CATALOG.slice(0, at), ...customItems, ...CATALOG.slice(at)];
+  return [...CATALOG.slice(0, at), ...projectItems, ...customItems, ...CATALOG.slice(at)];
 }
 
 export const LAPTOP_COMMANDS = new Set(

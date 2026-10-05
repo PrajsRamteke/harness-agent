@@ -24,6 +24,7 @@ import { handleCommandsEvent } from './commands.js';
 import { handlePinEvent } from './pin.js';
 import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
+import { handleProjectsEvent } from './projects.js';
 
 let runningTools = 0;
 
@@ -169,6 +170,11 @@ export function handleEvent(evt) {
     case 'skills':
       handleSkillsEvent();
       break;
+    case 'projects':
+      // Another Jarvis opened or closed, got busy, finished or asks for approval.
+      handleProjectsEvent(data);
+      break;
+
     case 'commands':
       // A command was made, edited or removed (this tab or another): reload the slash menu.
       handleCommandsEvent();

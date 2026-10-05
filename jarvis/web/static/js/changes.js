@@ -626,6 +626,11 @@ export function applyChange(evt) {
 }
 
 /** A full list (snapshot on connect / reconnect / session switch). */
+/** Another project is shown: forget this one's files before its snapshot lands. */
+export function resetChanges() {
+  resetSession(undefined);
+}
+
 export function loadChanges(payload, sessionId) {
   if (!payload) return;
   if (sessionId !== undefined && sessionId !== S.sessionId) resetSession(sessionId);

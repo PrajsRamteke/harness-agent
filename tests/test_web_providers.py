@@ -442,7 +442,9 @@ def test_provider_command_opens_in_the_browser_not_on_the_computer():
     for cmd in ("/provider", "/login", "/key"):
         assert f"'{cmd}': 'provider'" in catalog
     html = (STATIC / "index.html").read_text()
-    assert 'id="providers"' in html and 'id="providers-card"' in html
+    # the dialog exists; the sidebar card that used to open it is gone (⌘K, /provider
+    # and the model picker's "Add a provider" row still do)
+    assert 'id="providers"' in html and 'id="providers-card"' not in html
 
 
 # ─── Providers from models.dev ──────────────────────────────────────────

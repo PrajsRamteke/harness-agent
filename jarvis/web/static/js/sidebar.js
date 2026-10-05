@@ -1,4 +1,4 @@
-/** Sidebar: model + agent, reasoning and transcript switches, recent sessions, usage */
+/** Sidebar: reasoning and transcript switches, recent sessions, usage */
 import { $, escapeHtml, formatCount, debounce, countTo, animateEl, SPRING } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
@@ -12,18 +12,8 @@ import {
   toggleSetting,
 } from './actions.js';
 import { toggleTheme, isLightTheme, openAppearance } from './theme.js';
-import { onProvidersChange } from './providers.js';
 import { closeInspector, isDocked, isInspectorOpen } from './inspector.js';
-
-const PROVIDER_LABELS = {
-  anthropic: 'Anthropic',
-  openrouter: 'OpenRouter',
-  opencode: 'OpenCode Go',
-  opencode_zen: 'OpenCode Zen',
-  openai_codex: 'ChatGPT (Codex)',
-};
-/** Filled from /api/providers: "Claude Pro / Max" rather than "Anthropic". */
-let activeProviderLabel = '';
+import { closedProjectFor, projectForSession, switchProject } from './projects.js';
 
 let openPicker = () => {};
 let recentSig = '';
@@ -93,17 +83,6 @@ function renderSwitches(s) {
   if (sub) sub.textContent = s.session.show_internal ? 'Only on this device' : 'Turn on tool trace first';
 }
 
-function renderCards(s) {
-  const model = s.session.model || '—';
-  $('model-name').textContent = model;
-  $('model-name').title = model;
-  $('model-provider').textContent = activeProviderLabel || PROVIDER_LABELS[s.session.provider] || s.session.provider || '';
-
-  const agent = s.session.agent;
-  $('agent-name').textContent = agent || 'No agent';
-  $('agent-sub').textContent = agent ? 'Active profile' : 'Base system prompt';
-}
-
 function renderUsage(s) {
   // The first numbers (page load, a resumed session) just appear; only
   // changes while connected count up.
@@ -134,7 +113,6 @@ function renderThemeButton() {
 }
 
 function render(s) {
-  renderCards(s);
   renderSwitches(s);
   renderEffort(s);
   renderUsage(s);
@@ -146,23 +124,6 @@ function render(s) {
     refreshRecent();
   }
   markActiveRecent(s.session.session_id);
-}
-
-function renderProviders(data) {
-  const connected = (data.providers || []).filter((p) => p.connected && p.kind !== 'free');
-  activeProviderLabel = data.active_label || '';
-  $('model-provider').textContent = activeProviderLabel || PROVIDER_LABELS[store.session.provider] || '';
-  const name = $('providers-name');
-  const line = $('providers-line');
-  if (!name || !line) return;
-  if (!connected.length) {
-    name.textContent = 'Add a provider';
-    line.textContent = 'Free tier now · sign in or paste a key';
-  } else {
-    name.textContent = `${connected.length} connected`;
-    line.textContent = connected.map((p) => p.label).join(', ');
-  }
-  $('providers-card').title = connected.length ? `Connected: ${line.textContent}` : 'Sign in or paste an API key';
 }
 
 // ─── Recent sessions ──────────────────────────────────────────────────────
@@ -179,26 +140,41 @@ async function loadRecent() {
   if (!list.childElementCount) list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
   try {
     const data = await fetchSessions(5);
-    const sessions = data.sessions || [];
-    const sig = JSON.stringify(sessions.map((x) => [x.id, x.title, x.msg_count, x.updated_label]));
+    const sessions = (data.sessions || []).map((x) => ({
+      ...x,
+      // Still the live chat of another running project: open it there, never twice.
+      openIn: projectForSession(x.id),
+      // Its project was closed: say where it came from.
+      from: closedProjectFor(x.id),
+    }));
+    const sig = JSON.stringify(sessions.map((x) => [x.id, x.title, x.msg_count, x.updated_label, x.openIn?.id, x.from]));
     if (sig === recentSig && list.querySelector('.recent-row')) return;
     recentSig = sig;
     if (!sessions.length) {
       list.innerHTML = '<p class="recent-empty">Saved sessions show up here.</p>';
       return;
     }
-    list.innerHTML = sessions.map((x, i) => `
-      <button type="button" class="recent-row" role="listitem" data-sid="${x.id}" title="${escapeHtml(x.title)}" style="--i:${i}">
+    list.innerHTML = sessions.map((x, i) => {
+      const tag = x.openIn
+        ? `<span class="rr-tag is-live" title="Open in ${escapeHtml(x.openIn.project)} — click to switch there">${escapeHtml(x.openIn.project)}</span>`
+        : x.from ? `<span class="rr-tag" title="From ${escapeHtml(x.from)}, which was closed">${escapeHtml(x.from)}</span>` : '';
+      return `
+      <button type="button" class="recent-row" role="listitem" data-sid="${x.id}" ${x.openIn ? `data-project="${escapeHtml(x.openIn.id)}"` : ''} title="${escapeHtml(x.title)}" style="--i:${i}">
         <span class="rr-dot" aria-hidden="true"></span>
         <span class="rr-body">
           <span class="rr-title">${escapeHtml(x.title)}</span>
-          <span class="rr-meta">${escapeHtml(x.updated_label || '')}${x.msg_count ? `, ${x.msg_count} messages` : ''}</span>
+          <span class="rr-meta">${tag}${escapeHtml(x.updated_label || '')}${x.msg_count ? `, ${x.msg_count} messages` : ''}</span>
         </span>
-      </button>`).join('');
+      </button>`;
+    }).join('');
     list.querySelectorAll('.recent-row').forEach((row) => {
       row.addEventListener('click', async () => {
         if (row.dataset.sid === String(store.session.session_id)) {
           closeOnNarrow();
+          return;
+        }
+        if (row.dataset.project) {
+          switchProject(row.dataset.project);
           return;
         }
         row.classList.add('is-active');
@@ -233,9 +209,6 @@ export function initSidebar({ onOpenPicker }) {
       $('prompt')?.focus();
     }
   });
-  $('model-card')?.addEventListener('click', () => { closeOnNarrow(); openPicker('model'); });
-  $('agent-card')?.addEventListener('click', () => { closeOnNarrow(); openPicker('agent'); });
-  $('providers-card')?.addEventListener('click', () => { closeOnNarrow(); openPicker('provider'); });
   $('all-sessions')?.addEventListener('click', () => { closeOnNarrow(); openPicker('session'); });
   $('open-skills')?.addEventListener('click', () => { closeOnNarrow(); openPicker('skill'); });
   $('open-commands')?.addEventListener('click', () => { closeOnNarrow(); openPicker('command'); });
@@ -256,5 +229,4 @@ export function initSidebar({ onOpenPicker }) {
   subscribe(render);
   render(store);
   renderThemeButton();
-  onProvidersChange(renderProviders);
 }

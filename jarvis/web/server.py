@@ -6,9 +6,10 @@ import os
 import socket
 import threading
 from http.server import ThreadingHTTPServer
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from .. import file_changes
+from . import registry
 from .bridge import WebBridge
 from .handler import WebHandler
 from .sync import StateWatcher
@@ -71,23 +72,55 @@ def _local_urls(port: int, token: str) -> list[str]:
     return urls
 
 
+def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
+    """What the project switcher shows about this instance (read every few seconds)."""
+    cache: dict[Any, str] = {}
+
+    def info() -> dict[str, Any]:
+        from .. import state
+        from . import state_api
+
+        key = (state.current_session_id, len(state.messages))
+        if key not in cache:  # the title only changes with the session or a new message
+            cache.clear()
+            cache[key] = state_api._session_title(state.current_session_id)
+        return {
+            "cwd": os.getcwd(),
+            "project": state_api._project_name(),
+            "session_id": state.current_session_id,
+            "session_title": cache[key],
+            "model": str(state.MODEL or ""),
+            "busy": bool(getattr(app, "_busy", False)),
+            "needs_approval": bool(bridge.pending_events()),
+        }
+
+    return info
+
+
 def start_web_server(
     *,
     bridge: WebBridge,
     app: JarvisTUI,
     port: int,
     host: str = "0.0.0.0",
+    instance_id: str | None = None,
 ) -> tuple[_JarvisHTTPServer, list[str], int]:
+    instance_id = instance_id or str(os.getpid())
     handler = type(
         "JarvisWebHandler",
         (WebHandler,),
-        {"bridge": bridge, "app": app},
+        {"bridge": bridge, "app": app, "instance_id": instance_id},
     )
     bound_port = resolve_web_port(host, port)
     server = _JarvisHTTPServer((host, bound_port), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="jarvis-web")
     thread.start()
-    watcher = StateWatcher(bridge, busy=lambda: bool(getattr(app, "_busy", False)))
+    from . import hub
+
+    watcher = StateWatcher(
+        bridge, busy=lambda: bool(getattr(app, "_busy", False)),
+        projects=lambda: hub.project_rows(instance_id),
+    )
     watcher.start()
     server.state_watcher = watcher  # type: ignore[attr-defined]
 
@@ -114,6 +147,14 @@ def start_web_server(
     from .. import media
 
     media.prune_in_background()
+    # Listed for the project switcher: every page of every running Jarvis
+    # reaches this one through its own link.
+    registration = registry.Registration(
+        instance_id=instance_id, port=bound_port, token=bridge.token,
+        info=_instance_info(app, bridge),
+    )
+    registration.start()
+    server.registration = registration  # type: ignore[attr-defined]
     urls = _local_urls(bound_port, bridge.token)
     return server, urls, bound_port
 
@@ -124,6 +165,9 @@ def stop_web_server(server: _JarvisHTTPServer | None, bridge: WebBridge | None) 
         bridge.close()
     if server is None:
         return
+    registration = getattr(server, "registration", None)
+    if registration is not None:
+        registration.stop()
     watcher = getattr(server, "state_watcher", None)
     if watcher is not None:
         watcher.stop()

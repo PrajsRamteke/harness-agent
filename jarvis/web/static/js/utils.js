@@ -45,6 +45,18 @@ export function readToken() {
   return new URLSearchParams(location.search).get('token') || '';
 }
 
+/**
+ * "/p/<id>" while the page shows another project than the server it was loaded
+ * from, else "". Every request to the *shown* project's API goes through
+ * `BASE + '/api/…'`; the server in front forwards it to that project's Jarvis.
+ * A live binding: projects.js switches it in place (`setBase`).
+ */
+export let BASE = (location.pathname.match(/^\/p\/[A-Za-z0-9_-]+/) || [''])[0];
+
+export function setBase(next) {
+  BASE = next || '';
+}
+
 export function truncate(str, max = 72) {
   const s = String(str || '');
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;

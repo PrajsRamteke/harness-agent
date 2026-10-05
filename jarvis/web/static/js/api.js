@@ -1,5 +1,5 @@
 /** HTTP + SSE client for the Jarvis web remote */
-import { readToken } from './utils.js';
+import { readToken, BASE } from './utils.js';
 
 const token = readToken;
 
@@ -18,7 +18,7 @@ export async function api(path, method = 'GET', payload) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(payload);
   }
-  const res = await fetch(path, opts);
+  const res = await fetch(BASE + path, opts);
   const ct = res.headers.get('content-type') || '';
   const data = ct.includes('application/json') ? await res.json() : await res.text();
   if (!res.ok) {
@@ -72,7 +72,7 @@ function deliver(evt) {
 // ── SSE ──────────────────────────────────────────────────────────────────
 function openSse() {
   sseHeardAnything = false;
-  eventSource = new EventSource(`/api/events?token=${encodeURIComponent(token())}`);
+  eventSource = new EventSource(`${BASE}/api/events?token=${encodeURIComponent(token())}`);
   eventSource.onopen = () => {
     attempt = 0;
     lastEventAt = Date.now();
@@ -89,8 +89,10 @@ function openSse() {
     deliver(evt);
   };
   eventSource.onerror = () => {
-    dropTransport();
-    scheduleReconnect();
+    // Ask the server first: a project that was closed is not a lost connection.
+    eventSource?.close();
+    eventSource = null;
+    scheduleReconnect({ reportDown: true });
   };
 }
 
@@ -99,11 +101,15 @@ async function pollLoop(gen) {
   while (gen === pollGen && !paused) {
     try {
       pollAbort = new AbortController();
-      const url = `/api/poll?cid=${clientId}&cursor=${encodeURIComponent(cursor)}`;
+      const url = `${BASE}/api/poll?cid=${clientId}&cursor=${encodeURIComponent(cursor)}`;
       const res = await fetch(url, { headers: authHeaders(), signal: pollAbort.signal, cache: 'no-store' });
       if (gen !== pollGen) return;
       if (res.status === 401) {
         handlers.onUnauthorized?.();
+        return;
+      }
+      if (projectGone(res)) {
+        handlers.onGone?.();
         return;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -165,20 +171,59 @@ function dropTransport({ quiet = false } = {}) {
   if (!quiet || wasOpen) handlers.onDisconnect?.();
 }
 
-async function scheduleReconnect() {
+// Requests that never reached the server in a row (it is gone, not just slow).
+let unreachable = 0;
+
+/** The shown project closed (its terminal quit): this server says so instead of answering. */
+const projectGone = (res) => !!BASE && (res.status === 404 || res.status === 502);
+
+async function scheduleReconnect({ reportDown = false } = {}) {
   clearTimeout(reconnectTimer);
+  const base = BASE;
+  const down = reportDown;
   try {
-    const res = await fetch('/api/state', { headers: authHeaders() });
+    const res = await fetch(`${base}/api/state`, { headers: authHeaders() });
+    if (base !== BASE) return; // switched project meanwhile: that switch reconnected
+    unreachable = 0;
     if (res.status === 401) {
       handlers.onUnauthorized?.();
       return;
     }
-  } catch { /* server down — keep retrying */ }
+    if (projectGone(res)) {
+      handlers.onGone?.();
+      return;
+    }
+  } catch {
+    // The server this page came from is down (its terminal closed?). Keep
+    // retrying — it may come back — and let the page look for another Jarvis.
+    if (base !== BASE) return;
+    unreachable += 1;
+    if (unreachable === 2) handlers.onServerLost?.();
+  }
+  if (down) handlers.onDisconnect?.();
   attempt += 1;
   const delay = Math.min(10_000, 500 * 2 ** Math.min(attempt, 4));
   reconnectTimer = setTimeout(() => {
     if (!paused) openTransport();
   }, delay);
+}
+
+/**
+ * Another project is now shown (`BASE` changed): close the old stream without
+ * reporting a lost connection and open one to the new project.
+ */
+export function switchTransport() {
+  if (!handlers) return;
+  attempt = 0;
+  unreachable = 0;
+  clearTimeout(reconnectTimer);
+  eventSource?.close();
+  eventSource = null;
+  pollGen += 1;
+  pollAbort?.abort();
+  pollAbort = null;
+  pollConnected = false;
+  if (!paused) openTransport();
 }
 
 /** Drop whatever we have and reconnect now (fresh snapshot included). */
@@ -261,7 +306,7 @@ export const fetchState = () => api('/api/state');
 /** Picker mutation. Always resolves to `{ok, error?, state?}`. */
 export async function pickerAction(action, data = {}) {
   try {
-    const res = await fetch('/api/action', {
+    const res = await fetch(`${BASE}/api/action`, {
       method: 'POST',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, data }),
@@ -314,7 +359,7 @@ export const fetchMcpAuth = (name) => api(`/api/mcp/auth?name=${encodeURICompone
  * the reply also carries the fresh `mcp` / `skills` list. */
 export async function extPost(path, data = {}) {
   try {
-    const res = await fetch(`/api/${path}`, {
+    const res = await fetch(`${BASE}/api/${path}`, {
       method: 'POST',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -335,7 +380,7 @@ export const fetchOAuthStatus = (flow) => api(`/api/providers/oauth?flow=${encod
  * Always resolves to `{ok, error?, message?, providers?, state?}`. */
 export async function providerPost(path, data = {}) {
   try {
-    const res = await fetch(`/api/providers/${path}`, {
+    const res = await fetch(`${BASE}/api/providers/${path}`, {
       method: 'POST',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -351,6 +396,25 @@ export async function providerPost(path, data = {}) {
 // ─── Pinned context + the message queue ───────────────────────────────────
 /** `{ text, items: [{line, text}], enabled, lines, chars, file }` (jarvis/web/pin_api.py). */
 export const fetchPin = () => api('/api/pin');
+
+/** Every running Jarvis (the project switcher). Asked of the server the page was loaded
+ * from, not of the project being shown — hence no `BASE`. */
+export async function fetchProjects() {
+  const res = await fetch('/api/projects', { headers: authHeaders(), cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/** A project's snapshot before switching to it (`base`: "" or "/p/<id>"). Errors carry `status`. */
+export async function fetchStateAt(base, { signal } = {}) {
+  const res = await fetch(`${base}/api/state`, { headers: authHeaders(), cache: 'no-store', signal });
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
 
 /** `op`: add · save · update · remove · toggle · clear → `{ ok, error?, code?, pin? }` (never throws). */
 export const pinPost = (data) => extPost('pin', data);

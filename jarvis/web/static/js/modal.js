@@ -11,6 +11,11 @@ export function isModalOpen(id) {
   return stack.some((m) => m.id === id);
 }
 
+/** Close every open dialog (switching to another project: they show the old one's data). */
+export function closeAllModals() {
+  for (const { id } of [...stack].reverse()) closeModal(id, 'switch');
+}
+
 export function topModal() {
   return stack[stack.length - 1]?.id || null;
 }

@@ -8,7 +8,9 @@ what changed:
 
 * ``state`` — the new fields (no transcript), for small changes;
 * ``snapshot`` — the whole transcript when the conversation itself was
-  swapped out (another session, ``/new`` / ``/reset``, trace toggled).
+  swapped out (another session, ``/new`` / ``/reset``, trace toggled);
+* ``projects`` — the running Jarvis list (``hub.project_rows``) changed: one
+  opened or closed, got busy, finished, or is waiting for an approval.
 """
 from __future__ import annotations
 
@@ -30,9 +32,12 @@ class StateWatcher:
         busy: Callable[[], bool],
         *,
         interval: float = 1.0,
+        projects: Callable[[], Any] | None = None,
     ) -> None:
         self._bridge = bridge
         self._busy = busy
+        self._projects = projects
+        self._last_projects: Any = None
         self._interval = interval
         self._stop = threading.Event()
         self._last: dict[str, Any] | None = None
@@ -69,12 +74,26 @@ class StateWatcher:
         self._title = fields["session_title"]
         return fields
 
+    def _tick_projects(self) -> None:
+        if self._projects is None:
+            return
+        try:
+            rows = self._projects()
+        except Exception:
+            return
+        # The page fetched the list when it loaded: only changes are news.
+        if self._last_projects is not None and rows != self._last_projects:
+            self._bridge.emit("projects", {"projects": rows})
+        self._last_projects = rows
+
     def tick(self) -> str | None:
         """One poll. Returns the event type broadcast (for tests), if any."""
         if not self._bridge.has_subscribers():
             # Clients get a full snapshot when they connect; start fresh then.
             self._last = None
+            self._last_projects = None
             return None
+        self._tick_projects()
         cur = self._current()
         last = self._last
         self._last = cur

@@ -52,6 +52,7 @@
   <link rel="stylesheet" href="/static/css/inspector.css">
   <link rel="stylesheet" href="/static/css/media.css">
   <link rel="stylesheet" href="/static/css/queue-pin.css">
+  <link rel="stylesheet" href="/static/css/projects.css">
 </head>
 <body>
   <div class="backdrop" aria-hidden="true">
@@ -90,34 +91,9 @@
       </button>
 
       <div class="side-scroll">
-        <section class="side-sec" aria-label="Model and agent">
-          <button class="select-card" id="model-card" type="button">
-            <span class="sc-icon" data-icon="cpu"></span>
-            <span class="sc-body">
-              <span class="sc-label">Model</span>
-              <strong class="sc-value" id="model-name">—</strong>
-              <span class="sc-sub" id="model-provider"></span>
-            </span>
-            <span class="sc-chev" data-icon="chevrons-up-down"></span>
-          </button>
-          <button class="select-card" id="agent-card" type="button">
-            <span class="sc-icon" data-icon="sparkles"></span>
-            <span class="sc-body">
-              <span class="sc-label">Agent</span>
-              <strong class="sc-value" id="agent-name">No agent</strong>
-              <span class="sc-sub" id="agent-sub">Base system prompt</span>
-            </span>
-            <span class="sc-chev" data-icon="chevrons-up-down"></span>
-          </button>
-          <button class="select-card" id="providers-card" type="button">
-            <span class="sc-icon" data-icon="key-round"></span>
-            <span class="sc-body">
-              <span class="sc-label">Providers</span>
-              <strong class="sc-value" id="providers-name">Add a provider</strong>
-              <span class="sc-sub" id="providers-line">Sign in or paste an API key</span>
-            </span>
-            <span class="sc-chev" data-icon="chevron-right"></span>
-          </button>
+        <section class="side-sec" id="projects-sec" aria-label="Projects" hidden>
+          <h2 class="sec-title">Projects</h2>
+          <div class="projects" id="projects-list" role="list"></div>
         </section>
 
         <section class="side-sec">
@@ -207,6 +183,12 @@
         <span class="cb-ok" data-icon="wifi" aria-hidden="true"></span>
         <span id="conn-banner-text">Lost connection to Jarvis. Reconnecting…</span>
       </div>
+
+      <a class="proj-banner" id="proj-banner" href="#" role="status" hidden>
+        <span class="pb-dot" aria-hidden="true"></span>
+        <span id="proj-banner-text"></span>
+        <span class="pb-go">Open</span>
+      </a>
 
 
       <div class="chat-scroll" id="chat-scroll">

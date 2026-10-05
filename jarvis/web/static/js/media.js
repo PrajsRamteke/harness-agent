@@ -7,7 +7,7 @@
  * localStorage). The server has the final say on size and type; its reason
  * is shown on the tile, with Retry where retrying can help.
  */
-import { $, escapeHtml, showToast, storageGet, storageSet, haptic, animateEl, SPRING, readToken } from './utils.js';
+import { $, escapeHtml, showToast, storageGet, storageSet, haptic, animateEl, SPRING, readToken, BASE } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
 import { openModal, closeModal, topModal } from './modal.js';
@@ -71,7 +71,7 @@ export function mediaUrl(id, { variant = '', download = false } = {}) {
   const qs = new URLSearchParams({ token: readToken() });
   if (variant) qs.set('v', variant);
   if (download) qs.set('dl', '1');
-  return `/api/media/${encodeURIComponent(id)}?${qs}`;
+  return `${BASE}/api/media/${encodeURIComponent(id)}?${qs}`;
 }
 
 export function fmtSize(n) {
@@ -285,7 +285,7 @@ function upload(it) {
       fail(it, `“${it.name}” stopped uploading. Check the connection and retry.`);
     }, STALL_MS);
   };
-  xhr.open('POST', '/api/upload');
+  xhr.open('POST', `${BASE}/api/upload`);
   xhr.setRequestHeader('Authorization', `Bearer ${readToken()}`);
   xhr.setRequestHeader('X-File-Name', encodeURIComponent(it.name));
   xhr.setRequestHeader('Content-Type', it.file.type || 'application/octet-stream');
@@ -344,7 +344,7 @@ export function removeAttachment(key) {
   if (it.preview?.startsWith('blob:')) URL.revokeObjectURL(it.preview);
   if (it.id) {
     // Never sent: free the copy on the computer (fire and forget).
-    fetch('/api/upload/remove', {
+    fetch(`${BASE}/api/upload/remove`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${readToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: it.id }),

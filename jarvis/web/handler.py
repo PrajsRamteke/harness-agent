@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import hub, registry
 from .bridge import CLOSE_SENTINEL, WebBridge
 from .pickers_api import (
     get_skill,
@@ -65,6 +66,8 @@ def _normalize_answers(result: dict[str, Any]) -> dict[str, Any]:
 class WebHandler(BaseHTTPRequestHandler):
     bridge: WebBridge
     app: JarvisTUI | None = None
+    instance_id: str | None = None  # this server's entry in ``registry`` (None: not listed)
+    _base = ""  # "/p/<id>" while serving a page opened through the project switcher
 
     def log_message(self, *_args: Any) -> None:
         return
@@ -160,6 +163,39 @@ class WebHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         qs = urllib.parse.parse_qs(parsed.query)
         return path, qs
+
+    def _resolve_project(self, path: str) -> tuple[str, str]:
+        """Strip ``/p/<id>``: ``(path, id of another project or "")``.
+
+        Sets ``_base`` so redirects keep the prefix. ``/p/<this server's id>``
+        is just this server; ``/static`` is shared by every project.
+        """
+        self._base = ""
+        project = hub.split_project_path(path)
+        if project is None:
+            return path, ""
+        pid, rest = project
+        if rest.startswith("/static/"):
+            return rest, ""
+        self._base = f"/p/{pid}"
+        return (rest.rstrip("/") or "/"), ("" if pid == self.instance_id else pid)
+
+    def _request_hostname(self) -> str | None:
+        """The host name this request was sent to, without the port (``[::1]`` kept bracketed)."""
+        host = (self.headers.get("Host") or "").strip()
+        if host.startswith("["):
+            end = host.find("]")
+            name = host[: end + 1] if end > 0 else ""
+        else:
+            name = host.split(":", 1)[0]
+        return name if re.fullmatch(r"[A-Za-z0-9.\-]+|\[[0-9A-Fa-f:.]+\]", name or "") else None
+
+    def _forward_to_project(self, pid: str, *, close: bool = False) -> None:
+        record = registry.get(pid)
+        if record is None:
+            self._send_json(404, {"error": "That project is no longer running."}, close=close)
+            return
+        hub.forward(self, record, self.path[len(f"/p/{pid}"):])
 
     def _query_str(self, qs: dict[str, list[str]], key: str, default: str = "") -> str:
         return (qs.get(key) or [default])[0]
@@ -700,17 +736,26 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path, qs = self._parse_query()
+        path, foreign = self._resolve_project(path)
 
         if path.startswith("/static/"):
             self._serve_static(path)
             return
 
         if path == "/":
+            if foreign and registry.get(foreign) is None:
+                # That project closed since the link was made: back to this one.
+                query = urllib.parse.urlparse(self.path).query
+                self.send_response(302)
+                self.send_header("Location", f"/?{query}" if query else "/")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if not self._authorized():
                 if self._may_hand_out_token():
                     # Same network: redirect so the local QR can omit the token.
                     self.send_response(302)
-                    self.send_header("Location", f"/?token={self.bridge.token}")
+                    self.send_header("Location", f"{self._base}/?token={self.bridge.token}")
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
@@ -721,6 +766,18 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if not self._authorized():
             self._send_json(401, {"error": "unauthorized"})
+            return
+
+        if foreign:
+            self._forward_to_project(foreign)
+            return
+
+        if path == "/api/projects":
+            self._send_json(200, hub.projects_payload(
+                self.instance_id,
+                direct_host=self._request_hostname() if self._may_hand_out_token() else None,
+                link=str(getattr(self.app, "_web_public_link", "") or getattr(self.app, "_web_primary_url", "") or ""),
+            ))
             return
 
         if path == "/api/events":
@@ -748,9 +805,14 @@ class WebHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path, _qs = self._parse_query()
+        path, foreign = self._resolve_project(path)
 
         if not self._authorized():
             self._send_json(401, {"error": "unauthorized"}, close=path == "/api/upload")
+            return
+
+        if foreign:  # the body is streamed to that project, not read here
+            self._forward_to_project(foreign, close=True)
             return
 
         if path == "/api/upload":  # raw file body, not JSON
