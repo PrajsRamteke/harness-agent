@@ -11,6 +11,10 @@ prints:
 The tunnel only forwards to ``127.0.0.1:<port>``. Requests arriving through it
 never get the token handed out (see ``handler._may_hand_out_token``), so the
 public link must carry ``?token=`` — the QR / link built by ``public_link``.
+
+While a tunnel runs on macOS it also holds a ``caffeinate`` assertion, so the
+Mac stays awake (the *display* may still turn off) and Wi-Fi + the tunnel
+survive an idle sleep. Closing the lid still sleeps the Mac.
 """
 from __future__ import annotations
 
@@ -32,6 +36,16 @@ INSTALL_HINTS = {
     "ngrok": "brew install ngrok && ngrok config add-authtoken <token>",
 }
 START_TIMEOUT = 40.0
+
+
+def keep_awake_command(pid: int | None = None) -> list[str] | None:
+    """``caffeinate`` that blocks idle sleep (``-i``; plugged in, also ``-s``)
+    for as long as process ``pid`` lives — so a crashed Jarvis can never leave
+    the Mac awake. ``None`` where there is no ``caffeinate`` (not macOS)."""
+    exe = shutil.which("caffeinate")
+    if not exe:
+        return None
+    return [exe, "-i", "-s", "-w", str(pid or os.getpid())]
 
 _CLOUDFLARE_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 _NGROK_URL = re.compile(r"https://[a-zA-Z0-9.-]+\.ngrok(?:-free)?\.(?:app|dev|io)")
@@ -131,11 +145,38 @@ class Tunnel:
     provider: str
     port: int
     on_change: Callable[["Tunnel"], None] | None = None
+    keep_awake: bool = True
     status: str = "starting"
     url: str = ""
     error: str = ""
     _proc: subprocess.Popen | None = field(default=None, repr=False)
     _stopped: bool = field(default=False, repr=False)
+    _awake: subprocess.Popen | None = field(default=None, repr=False)
+
+    @property
+    def awake(self) -> bool:
+        """True while this tunnel is holding the Mac awake."""
+        return self._awake is not None and self._awake.poll() is None
+
+    def _hold_awake(self) -> None:
+        cmd = keep_awake_command() if self.keep_awake else None
+        if cmd is None:
+            return
+        try:
+            self._awake = subprocess.Popen(
+                cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, start_new_session=True,
+            )
+        except OSError:
+            self._awake = None  # best effort — the tunnel works without it
+
+    def _release_awake(self) -> None:
+        proc, self._awake = self._awake, None
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 
     def start(self) -> None:
         try:
@@ -152,6 +193,7 @@ class Tunnel:
         except OSError as exc:
             self._fail(f"could not start {_BINARIES[self.provider]}: {exc}")
             return
+        self._hold_awake()
         # Never leave a public tunnel running after Jarvis exits.
         atexit.register(self.stop)
         threading.Thread(target=self._read, daemon=True, name=f"tunnel-{self.provider}").start()
@@ -219,6 +261,7 @@ class Tunnel:
             return
         self.status = "error"
         self.error = message
+        self._release_awake()
         self._changed()
 
     def _changed(self) -> None:
@@ -230,6 +273,7 @@ class Tunnel:
 
     def stop(self, *, keep_status: bool = False) -> None:
         self._stopped = True
+        self._release_awake()
         proc = self._proc
         if proc is not None and proc.poll() is None:
             try:

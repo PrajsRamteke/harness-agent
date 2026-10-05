@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import email.message
+import os
 import stat
 import time
 
@@ -91,6 +92,55 @@ def test_tunnel_goes_live_and_stop_kills_the_process(fake_cloudflared):
     t.stop()
     assert t.status == "stopped"
     assert _wait(lambda: proc.poll() is not None)
+
+
+def _fake_caffeinate(tmp_path, monkeypatch):
+    log = tmp_path / "caffeinate.args"
+    script = tmp_path / "caffeinate"
+    script.write_text(f"#!/bin/sh\necho \"$@\" > {log}\nexec sleep 30\n")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(tun.shutil, "which", lambda n: str(script) if n == "caffeinate" else None)
+    return log
+
+
+def test_tunnel_holds_the_mac_awake_until_stopped(fake_cloudflared, tmp_path, monkeypatch):
+    log = _fake_caffeinate(tmp_path, monkeypatch)
+    t = tun.Tunnel(provider="cloudflare", port=8765)
+    t.start()
+    assert _wait(lambda: t.status == "live" and t.awake)
+    assert _wait(log.exists)
+    args = log.read_text().split()
+    assert args[:2] == ["-i", "-s"] and args[2] == "-w" and args[3] == str(os.getpid())
+    awake = t._awake
+    t.stop()
+    assert not t.awake
+    assert _wait(lambda: awake.poll() is not None)
+
+
+def test_keep_awake_can_be_turned_off(fake_cloudflared, tmp_path, monkeypatch):
+    log = _fake_caffeinate(tmp_path, monkeypatch)
+    t = tun.Tunnel(provider="cloudflare", port=8765, keep_awake=False)
+    t.start()
+    assert _wait(lambda: t.status == "live")
+    assert not t.awake and not log.exists()
+    t.stop()
+
+
+def test_failed_tunnel_lets_the_mac_sleep_again(tmp_path, monkeypatch):
+    _fake_caffeinate(tmp_path, monkeypatch)
+    script = tmp_path / "cloudflared"
+    script.write_text("#!/bin/sh\nexit 1\n")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setattr(tun, "binary_for", lambda p: str(script))
+    t = tun.Tunnel(provider="cloudflare", port=8765)
+    t.start()
+    assert _wait(lambda: t.status == "error")
+    assert not t.awake
+
+
+def test_no_caffeinate_means_no_hold(monkeypatch):
+    monkeypatch.setattr(tun.shutil, "which", lambda n: None)
+    assert tun.keep_awake_command() is None
 
 
 def test_tunnel_that_exits_early_reports_why(tmp_path, monkeypatch):

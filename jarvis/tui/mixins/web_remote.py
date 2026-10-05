@@ -126,6 +126,14 @@ class WebRemoteMixin:
         except Exception:
             return "auto"
 
+    def _keep_awake_pref(self) -> bool:
+        try:
+            from ...storage.settings import get_settings
+
+            return bool(get_settings().get("web.keep_awake", True))
+        except Exception:
+            return True
+
     def _on_ui_thread(self, fn, *args) -> None:
         """Run ``fn`` on the UI thread from anywhere (tunnel threads call this)."""
         if threading.get_ident() == getattr(self, "_thread_id", None):
@@ -151,6 +159,7 @@ class WebRemoteMixin:
         tunnel = Tunnel(
             provider=provider,
             port=int(state.web_port),
+            keep_awake=self._keep_awake_pref(),
             on_change=lambda t: self._on_ui_thread(self._on_tunnel_change, t),
         )
         self._web_tunnel = tunnel
@@ -172,7 +181,9 @@ class WebRemoteMixin:
             esc = _rich_escape(self._web_public_link)
             self._tui_console.print(
                 f"[{ui.OK}]🌍 anywhere[/]  [link={esc}]{esc}[/link]  "
-                f"[{ui.FG_DIM}]· works from any network · /web local turns it off[/]"
+                f"[{ui.FG_DIM}]· works from any network"
+                f"{' · Mac kept awake (display may sleep)' if tunnel.awake else ''}"
+                f" · /web local turns it off[/]"
             )
             self.notify("Anywhere link is live — scan it from /web", timeout=3)
         elif tunnel.status == "error":
