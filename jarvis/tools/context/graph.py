@@ -25,6 +25,7 @@ from .extract import (
     _parse_file_for_graph,
     _rel_path,
     _scan_source_files,
+    check_cancelled,
 )
 
 # ── module-level cache ─────────────────────────────────────────────────────────
@@ -158,6 +159,7 @@ def build_graph(
 
     def _work(args: Tuple[pathlib.Path, Dict[str, str], Dict[str, str]]):
         f, mod_idx, pth_idx = args
+        check_cancelled()  # Esc stops indexing within a file or two
         return _parse_file_for_graph(f, mod_idx, pth_idx)
 
     parsed: List[Tuple[str, List[str], List[str], List[str]]] = []

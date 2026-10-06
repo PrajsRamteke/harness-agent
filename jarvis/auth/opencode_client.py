@@ -372,6 +372,7 @@ class _OpenCodeStream:
         self._collected_text: list[str] = []
         self._collected_reasoning: list[str] = []
         self._collected_tool_calls: dict[int, dict] = {}
+        self._tool_deltas: list[tuple] = []  # (index, name, args delta) from the last chunk
         self._usage_obj = None
         self._chunk_queue: queue.Queue = queue.Queue()
         self._reader_started = False
@@ -452,6 +453,9 @@ class _OpenCodeStream:
                         entry["name"] += tc_chunk.function.name
                     if tc_chunk.function.arguments:
                         entry["arguments"] += tc_chunk.function.arguments
+                        self._tool_deltas.append((idx, entry["name"], tc_chunk.function.arguments))
+                    elif tc_chunk.function.name:
+                        self._tool_deltas.append((idx, entry["name"], ""))
         return text, reasoning
 
     def _build_final(self) -> _FakeMessage:
@@ -513,11 +517,14 @@ class _OpenCodeStream:
             chunk, last_progress = self._take_next_chunk(last_progress=last_progress)
             if chunk is None:
                 break
+            self._tool_deltas = []
             text, reasoning = self._process_chunk(chunk)
             if reasoning:
                 yield "thinking", reasoning
             if text:
                 yield "text", text
+            for tool_delta in self._tool_deltas:
+                yield "tool_input", tool_delta
         self._final = self._build_final()
 
     @property
@@ -624,11 +631,19 @@ class _OpenCodeResponsesStream:
                 slot = self._tool_calls.setdefault(
                     item_id, {"id": item_id, "name": "", "arguments": ""}
                 )
-                slot["arguments"] += getattr(event, "delta", "") or ""
+                piece = getattr(event, "delta", "") or ""
+                slot["arguments"] += piece
+                if piece:
+                    yield "tool_input", (item_id, slot.get("name", ""), piece)
             elif etype in ("response.output_item.added", "response.output_item.done"):
                 item = getattr(event, "item", None)
                 if item is not None and getattr(item, "type", "") == "function_call":
                     self._record_function_call(item)
+                    if etype == "response.output_item.added":
+                        yield "tool_input", (
+                            getattr(item, "id", "") or getattr(item, "call_id", ""),
+                            getattr(item, "name", "") or "", "",
+                        )
             elif etype == "response.completed":
                 resp = getattr(event, "response", None)
                 usage = getattr(resp, "usage", None) if resp is not None else None

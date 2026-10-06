@@ -24,47 +24,8 @@ def _fmt_tokens(n: int) -> str:
     return str(n)
 
 
-_CTX_CACHE: dict[str, int | None] = {}
-
-
-def _catalog_context(model: str) -> int | None:
-    """Context window models.dev lists for ``model`` on the active provider."""
-    try:
-        from ..auth import models_dev
-
-        m = models_dev.find_model(model, state.provider or "")
-    except Exception:
-        return None
-    return (m.context or None) if m is not None else None
-
-
-def context_window(model: str) -> int | None:
-    """Best-known context window for ``model`` (None when unknown)."""
-    # The active provider's own listing wins (memoised in models_dev); the
-    # same id can carry a different window on another provider.
-    found = _catalog_context(model)
-    if found:
-        return found
-    if model in _CTX_CACHE:
-        return _CTX_CACHE[model]
-    ctx: int | None = None
-    low = (model or "").lower()
-    if low.startswith("claude"):
-        ctx = 200_000
-    else:
-        try:
-            from ..auth import catalog_cache
-            from ..auth.openrouter_catalog import CACHE_NAME
-
-            payload, _fresh = catalog_cache.read(CACHE_NAME)
-            for row in payload or []:
-                if isinstance(row, dict) and row.get("id") == model:
-                    ctx = int(row.get("context_length") or 0) or None
-                    break
-        except Exception:
-            ctx = None
-    _CTX_CACHE[model] = ctx
-    return ctx
+# One lookup for the sidebar, the footer and the request guard.
+from ..repl.context_budget import context_window  # noqa: E402,F401
 
 
 def meter(fraction: float, width: int = 16) -> Text:

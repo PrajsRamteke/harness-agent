@@ -82,7 +82,7 @@ SEARCH_DEFAULT_MAX_RESULTS = 8
 SEARCH_MATCH_CAP = 50
 
 # Connected Context Pack — max chars for the resolve_context / read_bundle output
-CONTEXT_BUNDLE_MAX_CHARS = _env_int("HARNESS_BUNDLE_MAX_CHARS", 120_000, 8_000, 500_000)
+CONTEXT_BUNDLE_MAX_CHARS = _env_int("HARNESS_BUNDLE_MAX_CHARS", 80_000, 8_000, 500_000)
 CONTEXT_BUNDLE_PER_FILE_MAX = _env_int("HARNESS_BUNDLE_PER_FILE_MAX", 20_000, 500, 100_000)
 # full | skeleton | manifest — used when the tool omits an explicit mode
 BUNDLE_DEFAULT_MODE = (os.getenv("HARNESS_BUNDLE_MODE", "skeleton") or "skeleton").strip().lower()

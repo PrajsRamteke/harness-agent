@@ -15,7 +15,8 @@ from ...constants import (
     MAX_PARALLEL_TOOLS,
 )
 from ...path_resolve import robust_resolve
-from .extract import FileGraph
+from .extract import FileGraph, ScanCancelled
+from . import extract as _extract
 from . import graph as _graphmod
 
 # Token tokenizer for tasks
@@ -447,6 +448,40 @@ def _sort_connected_items(connected: Dict[str, str]) -> List[Tuple[str, str]]:
 #  PUBLIC API
 # =============================================================================
 
+def _pack_cap(requested: int) -> int:
+    """Pack size for the current model and the room left in the conversation
+    (repl/context_budget.py) — a pack can no longer overflow the window."""
+    try:
+        requested = int(requested or 0)
+    except (TypeError, ValueError):
+        requested = 0
+    try:
+        from ...repl.context_budget import pack_char_cap
+
+        return pack_char_cap(requested, CONTEXT_BUNDLE_MAX_CHARS)
+    except Exception:
+        return requested if requested > 0 else CONTEXT_BUNDLE_MAX_CHARS
+
+
+def _unscannable_root() -> str:
+    """Refuse to index a home folder or the filesystem root — that walk never
+    ends in time, and it's never the project the user means."""
+    import pathlib
+
+    try:
+        root = pathlib.Path(_graphmod.CWD).resolve()
+        home = pathlib.Path.home().resolve()
+    except Exception:
+        return ""
+    if root == home or root == pathlib.Path(root.anchor) or root == home.parent:
+        return (
+            f"ERROR: resolve_context indexes a project folder, but Jarvis is running in {root}. "
+            "Ask the user which project to work in (they can /cd into it), or use read_file / "
+            "read_bundle / search_code with specific paths."
+        )
+    return ""
+
+
 def resolve_context(task: str, mode: str = "", max_chars: int = 0) -> str:
     """Resolve a coding task and return a budget-aware Connected Context Pack.
 
@@ -455,7 +490,10 @@ def resolve_context(task: str, mode: str = "", max_chars: int = 0) -> str:
     ``mode=manifest`` for a path list only (then ``read_bundle`` on key paths).
     """
     mode = _normalize_mode(mode, BUNDLE_DEFAULT_MODE)
-    cap = max_chars if max_chars > 0 else CONTEXT_BUNDLE_MAX_CHARS
+    cap = _pack_cap(max_chars)
+    refused = _unscannable_root()
+    if refused:
+        return refused
 
     cache_key = hashlib.sha256(
         f"resolve|{task}|{mode}|{cap}|{_graphmod._graph_fingerprint()}".encode()
@@ -466,8 +504,11 @@ def resolve_context(task: str, mode: str = "", max_chars: int = 0) -> str:
 
     try:
         graph = _graphmod._get_or_build_graph()
+    except ScanCancelled:
+        return "ERROR: cancelled while indexing the repo"
     except Exception as e:
         return f"Error building repo graph: {e}"
+    partial = _extract.last_scan_limit
 
     try:
         targets = _resolve_target_files(task, graph)
@@ -497,6 +538,11 @@ def resolve_context(task: str, mode: str = "", max_chars: int = 0) -> str:
         f"Root files: {', '.join(targets)}",
         f"Connected files: {len(connected)} total",
     ]
+    if partial:
+        header.append(
+            f"NOTE: repo index is partial ({partial}) — files outside it are missing here. "
+            "Use read_bundle / read_file with known paths, or search_code, for the rest."
+        )
     result = _build_bundle(
         items,
         mode=mode,
@@ -519,7 +565,7 @@ def read_bundle(paths: List[str], mode: str = "", max_chars: int = 0) -> str:
         return "ERROR: no paths provided"
 
     mode = _normalize_mode(mode, BUNDLE_DEFAULT_MODE_READ)
-    cap = max_chars if max_chars > 0 else CONTEXT_BUNDLE_MAX_CHARS
+    cap = _pack_cap(max_chars)
     paths = list(dict.fromkeys(paths))[:20]
 
     path_sig = []

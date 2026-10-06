@@ -3,8 +3,9 @@
 Strategy:
   - Keep the last KEEP_TURNS full user+assistant pairs always intact.
   - For older tool-result messages, replace the content with a short stub.
-  - NEVER stub Connected Context Pack results (they contain ALL the file
-    content the model needs to work with — stubbing breaks the workflow).
+  - Never stub Connected Context Pack results here — repl/context_budget.py
+    owns them (older packs collapse to a file list per turn; everything is
+    fitted to the model's window before sending).
   - Never drop user or assistant text messages — only collapses old tool outputs.
 
 This is a lossy compression: old tool outputs are replaced with a stub.

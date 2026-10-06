@@ -15,7 +15,9 @@ CONTEXT_TOOLS = [
         "  6. Verify with run_bash (tests/lint)\n\n"
         "Modes (default skeleton): full = all bodies (capped); skeleton = full root "
         "targets + symbol/import summaries for related files; manifest = file list only "
-        "(then read_bundle on 3–8 paths). Budget is split across files — not read-all-then-truncate."
+        "(then read_bundle on 3–8 paths). Budget is split across files — not read-all-then-truncate.\n"
+        "Packs from earlier turns are later shrunk to their file list to keep the conversation "
+        "inside the context window — re-read files with read_bundle when you need them again."
     ),
      "input_schema": {"type": "object", "properties": {
         "task": {"type": "string", "description": (
@@ -25,7 +27,7 @@ CONTEXT_TOOLS = [
         "mode": {"type": "string", "enum": ["full", "skeleton", "manifest"],
                  "description": "Bundle density. Default skeleton."},
         "max_chars": {"type": "integer",
-                      "description": "Output cap (default ~120K). Rarely needed."},
+                      "description": "Output cap (default ~80K chars, and never more than the model's context window allows). Rarely needed."},
      }, "required": ["task"]}},
     {"name": "read_bundle", "description": (
         "PREFERRED for 2–20 known paths: one budget-aware bundle with parallel I/O. "
@@ -38,7 +40,7 @@ CONTEXT_TOOLS = [
         "mode": {"type": "string", "enum": ["full", "skeleton", "manifest"],
                  "description": "Default full for explicit path lists."},
         "max_chars": {"type": "integer",
-                      "description": "Output cap (default ~120K). Rarely needed."},
+                      "description": "Output cap (default ~80K chars, and never more than the model's context window allows). Rarely needed."},
      }, "required": ["paths"]}},
 ]
 

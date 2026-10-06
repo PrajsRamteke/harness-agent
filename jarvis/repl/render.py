@@ -224,6 +224,18 @@ def _should_flush_parallel_batch(batch, new_block) -> bool:
     return False
 
 
+# Tool calls whose arguments must not be used (cut off by the output limit,
+# or streamed as invalid JSON): id → why. Filled by repl/stream.py when a reply
+# finishes; the call gets an error result instead of running on half its input
+# (a write_file cut mid-content would otherwise write a truncated file).
+_UNUSABLE_TOOL_CALLS: dict[str, str] = {}
+
+
+def mark_tool_call_unusable(tool_id: str, reason: str) -> None:
+    if tool_id:
+        _UNUSABLE_TOOL_CALLS[tool_id] = reason
+
+
 def _run_tool(b):
     # Normalise free-tier wire aliases to Jarvis tool names first, so grouping,
     # icons, plan-mode gating and FUNC lookup all use the real name.
@@ -270,6 +282,9 @@ def _run_tool(b):
     # instead of trying to invoke the tool with garbage.
     if isinstance(b.input, dict) and "__stream_error__" in b.input:
         return _finish(f"ERROR: {b.input['__stream_error__']}")
+    unusable = _UNUSABLE_TOOL_CALLS.pop(getattr(b, "id", "") or "", None)
+    if unusable:
+        return _finish(f"ERROR: {unusable}")
 
     # Strip unknown kwargs that some models hallucinate (e.g. `language`,
     # `description`) which would otherwise crash the tool with a confusing

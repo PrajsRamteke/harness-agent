@@ -97,19 +97,70 @@ def _rel_path(p: pathlib.Path) -> str:
         return str(p)
 
 
+class ScanCancelled(Exception):
+    """The user stopped the turn while the repo was being scanned/indexed."""
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+# A repo graph over more than this many files (or taking longer than this to
+# walk) stops there and is marked partial — a monorepo or a home folder used to
+# keep resolve_context busy for minutes with no way out.
+SCAN_MAX_FILES = _env_int("HARNESS_CONTEXT_MAX_FILES", 20_000)
+SCAN_MAX_SECONDS = _env_int("HARNESS_CONTEXT_SCAN_SECONDS", 10)
+
+# Why the last scan stopped early ("" = it saw everything).
+last_scan_limit = ""
+
+
+def check_cancelled() -> None:
+    try:
+        from ... import state
+
+        if state.turn_cancelled():
+            raise ScanCancelled()
+    except ScanCancelled:
+        raise
+    except Exception:
+        pass
+
+
 def _scan_source_files(root: pathlib.Path) -> List[pathlib.Path]:
     """Walk root and return all code/ config/ test files, skipping undesirables.
 
     Uses os.walk with in-place dir pruning so we skip heavy dirs at traversal
     time instead of iterating every file inside them (works on Python 3.10+).
+    Stops at SCAN_MAX_FILES files or SCAN_MAX_SECONDS (``last_scan_limit``
+    says which), and raises ScanCancelled when the user pressed Esc.
     """
+    import time as _time
+
+    global last_scan_limit
+    last_scan_limit = ""
+    deadline = _time.monotonic() + SCAN_MAX_SECONDS
     files = []
-    for root_dir, dirs, file_names in os.walk(root, topdown=True):
+    for n_dir, (root_dir, dirs, file_names) in enumerate(os.walk(root, topdown=True)):
         # Prune skip dirs in-place so walk() never descends into them
         # (must match _SKIP_DIR_NAMES and SKIP_DIRS from dirs.py)
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIR_NAMES]
+        dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIR_NAMES)
+        if n_dir % 50 == 0:
+            check_cancelled()
+            if _time.monotonic() > deadline:
+                last_scan_limit = f"stopped after {SCAN_MAX_SECONDS}s of scanning ({len(files):,} files)"
+                break
+        if len(files) >= SCAN_MAX_FILES:
+            last_scan_limit = f"stopped at {SCAN_MAX_FILES:,} files"
+            break
 
         for name in file_names:
+            if len(files) >= SCAN_MAX_FILES:
+                last_scan_limit = f"stopped at {SCAN_MAX_FILES:,} files"
+                break
             p = pathlib.Path(root_dir) / name
             ext = p.suffix.lower()
             if ext in _SKIP_EXTS:

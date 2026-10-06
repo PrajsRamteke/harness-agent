@@ -157,9 +157,31 @@ class _FakeMessage:
     usage: _Usage = field(default_factory=_Usage)
 
 
+class CodexResponseError(Exception):
+    """The Codex backend ended a streamed response with an error event
+    (``response.failed`` / ``error``) — e.g. ``context_length_exceeded``."""
+
+    def __init__(self, message: str, code: str = ""):
+        super().__init__(f"{code}: {message}" if code else message)
+        self.code = code
+
+
+def _event_error(event: Any) -> tuple[str, str]:
+    """(code, message) from a ``response.failed`` or ``error`` event."""
+    err = getattr(event, "error", None)
+    if err is None:
+        resp = getattr(event, "response", None)
+        err = getattr(resp, "error", None) if resp is not None else None
+    src = err if err is not None else event
+    code = str(getattr(src, "code", "") or "")
+    message = str(getattr(src, "message", "") or "") or "the response failed"
+    return code, message
+
+
 class _CodexStream:
     def __init__(self, response_iter, model: str):
         self._iter = response_iter
+        self._drained = False
         self._model = model
         self._text_parts: list[str] = []
         self._tool_calls: dict[str, dict] = {}
@@ -169,13 +191,24 @@ class _CodexStream:
 
     @property
     def text_stream(self) -> Generator[str, None, None]:
+        for kind, chunk in self.delta_stream:
+            if kind == "text":
+                yield chunk
+
+    @property
+    def delta_stream(self) -> Generator[tuple[str, Any], None, None]:
+        """``("text", chunk)`` and ``("tool_input", (id, name, args delta))`` —
+        the latter so a long write_file shows progress instead of silence."""
         for event in self._iter:
             etype = getattr(event, "type", "")
+            if etype in ("response.failed", "error"):
+                code, message = _event_error(event)
+                raise CodexResponseError(message, code)
             if etype == "response.output_text.delta":
                 delta = getattr(event, "delta", "") or ""
                 if delta:
                     self._text_parts.append(delta)
-                    yield delta
+                    yield "text", delta
             elif etype == "response.function_call_arguments.delta":
                 item_id = getattr(event, "item_id", "") or ""
                 delta = getattr(event, "delta", "") or ""
@@ -184,6 +217,17 @@ class _CodexStream:
                     {"id": item_id, "name": "", "arguments": ""},
                 )
                 slot["arguments"] += delta
+                if delta:
+                    yield "tool_input", (item_id, slot.get("name", ""), delta)
+            elif etype == "response.output_item.added":
+                item = getattr(event, "item", None)
+                if item is not None and getattr(item, "type", "") == "function_call":
+                    item_id = getattr(item, "id", "") or getattr(item, "call_id", "")
+                    slot = self._tool_calls.setdefault(
+                        item_id, {"id": item_id, "name": "", "arguments": ""}
+                    )
+                    slot["name"] = getattr(item, "name", "") or slot["name"]
+                    yield "tool_input", (item_id, slot["name"], "")
             elif etype == "response.output_item.done":
                 item = getattr(event, "item", None)
                 if item is not None:
@@ -203,10 +247,16 @@ class _CodexStream:
                     self._usage.output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
                     details = getattr(usage, "input_tokens_details", None)
                     self._usage.cached_input_tokens = int(getattr(details, "cached_tokens", 0) or 0)
+        self._drained = True
 
     def get_final_message(self) -> _FakeMessage:
         if self._final is not None:
             return self._final
+        if not self._drained:
+            # Nobody consumed the stream (live reply streaming off): read the
+            # events now — the reply used to come back empty.
+            for _ in self.delta_stream:
+                pass
         blocks: list[_ContentBlock] = []
         text = "".join(self._text_parts).strip()
         if text:
