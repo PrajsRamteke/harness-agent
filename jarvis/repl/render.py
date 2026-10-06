@@ -124,6 +124,21 @@ from ..mcp.registry import is_mcp_tool
 
 # Context tools get a much higher output limit since they bundle many files at once.
 _CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle", "lesson_list", "lesson_search"}
+# Tools that bound their own output (and say where to continue) — the generic
+# cap below would silently cut them mid-file.
+_SELF_LIMITED_TOOLS = _CONTEXT_TOOL_NAMES | {"read_file"}
+
+
+def _cap_tool_output(name: str, out: str) -> str:
+    """Bound one tool result for the model, saying so when it was cut."""
+    if name in _SELF_LIMITED_TOOLS or len(out) <= MAX_TOOL_OUTPUT:
+        return out
+    return (
+        out[:MAX_TOOL_OUTPUT]
+        + f"\n[output truncated — showing the first {MAX_TOOL_OUTPUT:,} of "
+        f"{len(out):,} chars. Narrow the request (a more specific pattern or "
+        f"path, offset/limit) to see the rest.]"
+    )
 
 _FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
 
@@ -131,6 +146,48 @@ _FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
 # ("bash"/"read") on the wire — see auth/harness_agent.py. Map any such name
 # back to Jarvis's real handler before the rest of the dispatcher sees it.
 _FREE_TIER_TOOL_ALIASES = {"bash": "run_bash", "read": "read_file"}
+
+# Tool names other harnesses use (Claude Code, OpenCode, Cline, Aider, …) that
+# models trained on them keep emitting. Matched case-insensitively, and only
+# when the name isn't a real tool here. Argument names are fixed afterwards by
+# the repair layer (file_path → path, old_string → old_str, command → cmd …).
+_TOOL_NAME_ALIASES = {
+    "read": "read_file", "readfile": "read_file", "view": "read_file",
+    "view_file": "read_file", "open_file": "read_file", "cat": "read_file",
+    "write": "write_file", "writefile": "write_file", "create_file": "write_file",
+    "write_to_file": "write_file",
+    "edit": "edit_file", "editfile": "edit_file", "str_replace": "edit_file",
+    "replace_in_file": "edit_file", "search_replace": "edit_file",
+    "multiedit": "multi_edit", "multi_edit_file": "multi_edit",
+    "bash": "run_bash", "shell": "run_bash", "run_shell_command": "run_bash",
+    "execute_command": "run_bash", "run_command": "run_bash", "terminal": "run_bash",
+    "exec": "run_bash",
+    "grep": "search_code", "rg": "search_code", "ripgrep": "search_code",
+    "grep_search": "search_code", "search_files": "search_code",
+    "glob": "glob_files", "find_files": "glob_files", "file_search": "glob_files",
+    "ls": "list_dir", "list_directory": "list_dir", "list_files": "list_dir",
+    "listdir": "list_dir",
+    "webfetch": "fetch_url", "web_fetch": "fetch_url", "fetch": "fetch_url",
+    "websearch": "web_search", "search_web": "web_search",
+}
+
+
+def _resolve_tool_alias(name: str) -> str | None:
+    """The real tool a foreign tool name stands for, or None."""
+    if not name or name in FUNC:
+        return None
+    key = name.strip().lower().replace("-", "_")
+    target = _TOOL_NAME_ALIASES.get(key) or _TOOL_NAME_ALIASES.get(key.replace("_", ""))
+    if target is None and key in FUNC:
+        target = key  # "Read_File" → read_file
+    return target if target in FUNC else None
+
+
+def _unknown_tool_hint(name: str) -> str:
+    import difflib
+
+    close = difflib.get_close_matches(name.lower(), list(FUNC), n=3, cutoff=0.6)
+    return f" Did you mean: {', '.join(close)}?" if close else ""
 _DISCOVERY_TOOLS = frozenset({"glob_files", "list_dir", "search_code", "fast_find", "rank_files"})
 
 _tool_pool: ThreadPoolExecutor | None = None
@@ -172,6 +229,11 @@ def _run_tool(b):
     # icons, plan-mode gating and FUNC lookup all use the real name.
     if b.name in _FREE_TIER_TOOL_ALIASES:
         b.name = _FREE_TIER_TOOL_ALIASES[b.name]
+    alias_note = None
+    real_name = _resolve_tool_alias(b.name)
+    if real_name:
+        alias_note = f"tool '{b.name}' doesn't exist here — ran '{real_name}' instead"
+        b.name = real_name
     # Stream-level JSON repair marker injected by the provider adapters when
     # malformed tool arguments were recovered. Pop it so it never reaches the
     # tool or the conversation history; surface it through the same
@@ -223,6 +285,8 @@ def _run_tool(b):
     call_input, repair_log = repair_tool_input(b.name, call_input)
     if stream_repair_note:
         repair_log = [stream_repair_note, *repair_log]
+    if alias_note:
+        repair_log = [alias_note, *repair_log]
     if not isinstance(call_input, dict):
         return _finish(
             f"ERROR: tool '{b.name}' received non-object arguments that could "
@@ -246,7 +310,10 @@ def _run_tool(b):
                     "Open /mcp and connect the server before calling MCP tools."
                 )
         else:
-            out = f"ERROR: tool '{b.name}' is not available in this session"
+            out = (
+                f"ERROR: tool '{b.name}' is not available in this session."
+                + _unknown_tool_hint(b.name)
+            )
         return _finish(str(out))
 
     # Plan mode guard — the router withholds mutating schemas, but a model can
@@ -489,7 +556,7 @@ def render_assistant(resp) -> bool:
                 out_str = "ERROR: tool execution cancelled before completion"
             # Context tools (resolve_context, read_bundle) return the FULL
             # output — no truncation. Everything else gets the standard cap.
-            capped = out_str if b.name in _CONTEXT_TOOL_NAMES else out_str[:MAX_TOOL_OUTPUT]
+            capped = _cap_tool_output(b.name, out_str)
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": b.id,

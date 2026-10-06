@@ -185,6 +185,29 @@ def ask_approval(cmd: str) -> str | None:
     return None
 
 
+_CMD_ECHO_MAX = 1500
+
+
+def _format_result(cmd: str, code: int, out: str) -> str:
+    """``$ cmd`` / ``exit=N`` / output, kept within MAX_TOOL_OUTPUT. Long output
+    keeps its start and its end (first errors *and* the final summary) with a
+    note in between, instead of silently keeping only the tail."""
+    if len(cmd) > _CMD_ECHO_MAX:
+        cmd = cmd[:1000] + f" … [command truncated, {len(cmd):,} chars]"
+    header = f"$ {cmd}\nexit={code}\n"
+    budget = max(2000, MAX_TOOL_OUTPUT - len(header))
+    if len(out) > budget:
+        note_room = 120
+        head_n = (budget - note_room) // 3
+        tail_n = budget - note_room - head_n
+        omitted = len(out) - head_n - tail_n
+        out = (
+            f"{out[:head_n]}\n… [{omitted:,} chars of output omitted — rerun "
+            f"piped through grep / head / tail to see them] …\n{out[-tail_n:]}"
+        )
+    return header + out
+
+
 def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
     if is_dangerous(cmd):
         return "BLOCKED: dangerous command"
@@ -205,7 +228,7 @@ def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
             finally:
                 settle_changes()
             out = (stdout or "") + (f"\n[stderr]\n{stderr}" if stderr else "")
-            return f"$ {cmd}\nexit={code}\n{out[-MAX_TOOL_OUTPUT:]}"
+            return _format_result(cmd, code, out)
         except subprocess.TimeoutExpired:
             return f"TIMEOUT after {timeout}s"
         except _Cancelled:

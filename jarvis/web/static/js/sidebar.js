@@ -90,8 +90,22 @@ function renderUsage(s) {
   countTo($('use-in'), s.session.tokens_in, formatCount, animate);
   countTo($('use-out'), s.session.tokens_out, formatCount, animate);
   countTo($('use-tools'), s.session.tool_calls, formatCount, animate);
-  $('use-in').title = `${s.session.tokens_in} input tokens`;
   $('use-out').title = `${s.session.tokens_out} output tokens`;
+  // Prompt cache (Anthropic, Codex): how much of the latest prompt was
+  // served from cache — cheaper and faster than sending it fresh.
+  const tin = Number(s.session.tokens_in) || 0;
+  const cached = Number(s.session.tokens_cache_read) || 0;
+  const pct = cached && tin ? Math.min(100, Math.floor((cached * 100) / tin)) : 0;
+  const tip = pct
+    ? `${tin} input tokens in the latest prompt — ${cached} (${pct}%) read from the prompt cache`
+    : `${tin} input tokens`;
+  $('use-in').title = tip;
+  const badge = $('use-in-cache');
+  if (badge) {
+    badge.hidden = !pct;
+    badge.textContent = pct ? `⚡${pct}%` : '';
+    badge.title = tip;
+  }
 }
 
 function renderThemeButton() {

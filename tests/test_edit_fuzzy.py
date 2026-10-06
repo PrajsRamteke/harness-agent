@@ -80,12 +80,31 @@ class ApplyTextEditTests(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(new_txt, "ALPHA\nbeta\n")
 
-    def test_leading_indent_difference_is_not_matched(self):
-        """Leading whitespace is meaningful — fuzzy match must not ignore it."""
-        txt = "    indented\n    next\n"
+    def test_leading_indent_is_not_ignored_by_whitespace_fuzzy(self):
+        """Leading whitespace is meaningful — the trailing-whitespace fuzzy
+        match must not ignore it."""
+        self.assertEqual(_whitespace_tolerant_spans("    indented\n    next\n", "indented\nnext"), [])
+
+    def test_consistent_indent_shift_reindents_new_str(self):
+        """old_str off by the same indent on every line → new_str gets the
+        file's indentation, so structure is kept."""
+        txt = "def f():\n    if a:\n        b()\n    return 1\n"
+        new_txt, err, n, note = _apply_text_edit(txt, "if a:\n    b()", "if a:\n    c()")
+        self.assertIsNone(err)
+        self.assertEqual(new_txt, "def f():\n    if a:\n        c()\n    return 1\n")
+        self.assertIn("indentation", note)
+
+    def test_inconsistent_indent_is_not_matched(self):
+        txt = "    indented\n        next\n"
         new_txt, err, n, note = _apply_text_edit(txt, "indented\nnext", "x\ny")
         self.assertIsNone(new_txt)
         self.assertIsNotNone(err)
+
+    def test_indent_shift_ambiguous_is_refused(self):
+        txt = "    a()\n    b()\n\n        a()\n        b()\n"
+        new_txt, err, n, note = _apply_text_edit(txt, "a()\nb()", "z()")
+        self.assertIsNone(new_txt)
+        self.assertIn("2 locations", err)
 
 
 class WhitespaceTolerantSpanTests(unittest.TestCase):

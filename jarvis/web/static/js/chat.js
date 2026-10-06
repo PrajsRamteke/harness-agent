@@ -431,6 +431,13 @@ function statsPath(p) {
   return String(p || '').replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~');
 }
 
+/** Share of the latest prompt read from the prompt cache, 0–100. */
+function statsCachePct(d) {
+  const tin = Number(d.tokens_in) || 0;
+  const read = Number(d.cache_read) || 0;
+  return tin && read ? Math.min(100, Math.floor((read * 100) / tin)) : 0;
+}
+
 /** Same lines as the terminal panel, for Copy. */
 function statsText(d) {
   return [
@@ -439,6 +446,7 @@ function statsText(d) {
     `Messages     ${d.messages ?? 0}`,
     `Tool calls   ${d.tool_calls ?? 0}`,
     `Tokens       ${d.tokens_in ?? 0} in / ${d.tokens_out ?? 0} out / ${d.tokens_total ?? 0} total`,
+    ...(Number(d.cache_read) ? [`Prompt cache ${statsCachePct(d)}% of the last prompt (${d.cache_read} read / ${d.cache_write ?? 0} written)`] : []),
     `Est. cost    ${statsCost(d.cost)}`,
     `Model        ${d.model || '—'}${d.provider ? ` (${d.provider})` : ''}`,
     `Folder       ${d.cwd || '—'}`,
@@ -495,6 +503,7 @@ export function appendStats(data) {
         <div class="stats-legend">
           <span><i class="is-in"></i>Input <b>${escapeHtml(statsNum(tin))}</b></span>
           <span><i class="is-out"></i>Output <b>${escapeHtml(statsNum(tout))}</b></span>
+          ${statsCachePct(d) ? `<span class="stats-cache" title="${escapeHtml(`${statsNum(d.cache_read)} of the latest prompt's ${statsNum(tin)} tokens were read from the prompt cache`)}">${icon('zap')}From cache <b>${statsCachePct(d)}%</b></span>` : ''}
         </div>
       </div>
       <dl class="stats-meta">

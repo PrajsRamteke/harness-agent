@@ -22,6 +22,11 @@ VERSION = "0.3.1"
 MODEL = os.getenv("CLAUDE_MODEL", HARNESS_AGENT_FALLBACK_MODEL)
 MAX_TOOL_OUTPUT = 6000   # trimmed from 15000 — cuts tool-result token cost ~60%
 MAX_FILE_READ = 200_000
+# What one read_file call hands the model: numbered lines, at most this many
+# lines / characters (a note says where to continue), very long lines clipped.
+READ_MAX_LINES = _env_int("HARNESS_READ_MAX_LINES", 2000, 50, 20_000)
+READ_MAX_CHARS = _env_int("HARNESS_READ_MAX_CHARS", 60_000, 4_000, 400_000)
+READ_LINE_MAX_CHARS = 2000
 MAX_PARALLEL_TOOLS = _env_int("HARNESS_MAX_PARALLEL_TOOLS", 64, 1, 64)
 
 # ── Numeric / behavior constants ───────────────────────────────────────────────

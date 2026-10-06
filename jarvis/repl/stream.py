@@ -41,6 +41,7 @@ from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refre
 from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
+from . import prompt_cache
 from ..media import materialize_uploads
 from .trim import (
     _content_chars, _total_chars, anthropic_wire_messages, prune_tool_images, trim_messages,
@@ -610,7 +611,15 @@ def _usage_or_estimate(final, messages) -> tuple[int, int]:
     same chars/4 estimate a resumed session uses, so the counters never sit at
     0 while a session runs."""
     usage = getattr(final, "usage", None)
-    in_tok = int(getattr(usage, "input_tokens", 0) or 0)
+    # Anthropic reports cached prompt tokens separately from input_tokens;
+    # the prompt's real size is all three (the OpenAI-style clients' usage
+    # objects carry no cache fields, so this is just input_tokens there).
+    uncached, cache_read, cache_write = prompt_cache.usage_counts(usage)
+    # OpenAI-style usage counts cached tokens inside input_tokens; Codex
+    # reports how many separately, for display only.
+    state.cache_read_tokens = cache_read or int(getattr(usage, "cached_input_tokens", 0) or 0)
+    state.cache_write_tokens = cache_write
+    in_tok = uncached + cache_read + cache_write
     out_tok = int(getattr(usage, "output_tokens", 0) or 0)
     if in_tok or out_tok:
         return in_tok, out_tok
@@ -636,19 +645,26 @@ def _call_claude_stream():
     if state.show_internal and not getattr(console, "renders_tool_rows", False):
         console.print(f"[dim]tool schemas: {len(tools)} selected[/]")
     vision = model_supports_images(state.MODEL)
-    messages = prune_tool_images(trim_messages(state.messages), vision=vision)
-    # Web attachments are references in history; the newest become real images now.
-    messages = materialize_uploads(messages, vision=vision)
-    if state.provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER) or (
-        is_catalog_provider(state.provider) and isinstance(state.client, Anthropic)
-    ):
-        # History may hold another provider's replies (switched mid-session).
-        messages = anthropic_wire_messages(messages)
+
+    def _wire_messages() -> list:
+        messages = prune_tool_images(trim_messages(state.messages), vision=vision)
+        # Web attachments are references in history; the newest become real images now.
+        messages = materialize_uploads(messages, vision=vision)
+        if state.provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER) or (
+            is_catalog_provider(state.provider) and isinstance(state.client, Anthropic)
+        ):
+            # History may hold another provider's replies (switched mid-session).
+            messages = anthropic_wire_messages(messages)
+        return messages
+
+    messages = _wire_messages()
     kwargs: Dict[str, Any] = dict(
         model=state.MODEL, max_tokens=API_MAX_TOKENS, system=build_system(),
         messages=messages,
         tools=tools,
     )
+    if prompt_cache.enabled_for(state.provider, state.MODEL, state.client):
+        prompt_cache.apply(kwargs)
     if state.provider == PROVIDER_ANTHROPIC and claude_uses_adaptive_thinking(state.MODEL):
         # Claude 5: adaptive thinking + effort; budget_tokens is a 400 there.
         kwargs.update(claude_thinking_kwargs(state.think_mode, state.think_effort))
@@ -670,6 +686,8 @@ def _call_claude_stream():
     claude_version_retried = False
     openrouter_model_retried = False
     codex_model_retried = False
+    cache_retried = False
+    thinking_retried = False
     panel_title = f"jarvis · {assistant_model_label()}"
     for attempt in range(len(delays) + 1):
         try:
@@ -724,6 +742,34 @@ def _call_claude_stream():
             _stop_on_rate_limit(str(e))
             raise
         except APIStatusError as e:
+            if (
+                e.status_code == 400 and not cache_retried
+                and prompt_cache.has_markers(kwargs) and prompt_cache.refused_markers(e)
+            ):
+                # The endpoint doesn't take cache_control: send it plain, and
+                # stop adding markers for the rest of this process.
+                cache_retried = True
+                prompt_cache.disable(str(e)[:200])
+                prompt_cache.strip(kwargs)
+                console.print("[dim]provider refused prompt-cache markers — retrying without caching[/]")
+                continue
+            if (
+                e.status_code == 400 and not thinking_retried
+                and prompt_cache.thinking_binding_error(e)
+            ):
+                # Replayed thinking the API won't accept (history edited, or
+                # blocks from another model). Documented recovery: drop the
+                # old thinking blocks and send again — the turn goes on.
+                thinking_retried = True
+                if prompt_cache.drop_thinking_blocks(state.messages):
+                    console.print(
+                        "[dim]earlier thinking blocks no longer valid for this "
+                        "conversation — dropped them, retrying…[/]"
+                    )
+                    kwargs["messages"] = _wire_messages()
+                    if prompt_cache.enabled_for(state.provider, state.MODEL, state.client):
+                        prompt_cache.apply(kwargs)
+                    continue
             if is_catalog_provider(state.provider) and e.status_code in (401, 402, 403, 404):
                 _report_catalog_error(e.status_code, e)  # Anthropic-style catalog provider
             if e.status_code == 401:

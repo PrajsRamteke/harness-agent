@@ -30,6 +30,7 @@ export const store = {
     tokens_in: 0,
     tokens_out: 0,
     tokens_total: 0,
+    tokens_cache_read: 0,
     tool_calls: 0,
     message_count: 0,
   },

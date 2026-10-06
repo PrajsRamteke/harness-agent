@@ -33,6 +33,10 @@ def tool_row_fields(name: str, tool_input: Any, output: Any = None) -> dict[str,
             fields["output_chars"] = len(full)
             fields["has_full"] = bool(full.strip())
             lines, is_err = tool_summary(name, tool_input, full, 120)
+            if len(lines) > 4 and lines[0].startswith("… +"):
+                # A tail summary ("… +N lines" + the last lines): keep the
+                # end — that's where a command's result is.
+                lines = [lines[0]] + lines[-3:]
             fields["summary"] = "\n".join(lines[:4])
             fields["summary_error"] = bool(is_err)
     except Exception:

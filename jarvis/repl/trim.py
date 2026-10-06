@@ -20,6 +20,12 @@ import copy
 
 # Number of recent user/assistant exchanges to preserve in full.
 KEEP_TURNS = 10
+# The trim point moves in steps of this many user messages rather than one
+# per request: each move rewrites history (old tool output → stub), which
+# costs a prompt-cache miss from that point on (and, on Claude 5 models,
+# the thinking blocks after it). Between moves the request prefix is stable.
+# Never keeps fewer than KEEP_TURNS — only up to TRIM_STEP - 1 more.
+TRIM_STEP = 8
 
 # Approximate token budget at which we start trimming.
 # A rough heuristic: each character ≈ 0.25 tokens.
@@ -180,7 +186,11 @@ def trim_messages(messages: List[Dict]) -> List[Dict]:
     if len(user_indices) <= KEEP_TURNS:
         return messages  # not enough history to trim anything
 
-    cutoff_idx = user_indices[-KEEP_TURNS]  # first index of the "keep" window
+    # First index of the "keep" window, snapped back to a TRIM_STEP boundary.
+    pos = len(user_indices) - KEEP_TURNS
+    cutoff_idx = user_indices[(pos // TRIM_STEP) * TRIM_STEP]
+    if cutoff_idx <= user_indices[0]:
+        return messages
 
     trimmed = []
     for i, msg in enumerate(messages):

@@ -392,6 +392,7 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "tokens_in": state.total_in,
         "tokens_out": state.total_out,
         "tokens_total": state.total_tokens,
+        "tokens_cache_read": state.cache_read_tokens,
         "tool_calls": state.tool_calls_count,
         "jobs": jobs_fields(),
     }

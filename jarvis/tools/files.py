@@ -1,10 +1,18 @@
 """File tools: read_file, write_file, edit_file."""
+import ast
+import difflib
+import json
 import pathlib
+import re
 import threading
+import warnings
 from collections import OrderedDict
 from contextlib import contextmanager
 
-from ..constants import CWD, MAX_FILE_READ, MAX_FILE_SIZE_BYTES, MAX_FILE_CHUNK_BYTES
+from ..constants import (
+    CWD, MAX_FILE_READ, MAX_FILE_SIZE_BYTES, MAX_FILE_CHUNK_BYTES,
+    READ_MAX_LINES, READ_MAX_CHARS, READ_LINE_MAX_CHARS,
+)
 from .. import state
 from .dirs import SKIP_DIRS
 from ..path_resolve import project_scope_error, robust_resolve
@@ -77,6 +85,85 @@ def _cache_put(p: pathlib.Path, content: str) -> None:
 
 def _cache_invalidate(p: pathlib.Path) -> None:
     _read_cache.pop(str(p.resolve()), None)
+
+
+# What the model last saw of each file: (mtime_ns, size) right after its last
+# read_file / write / edit. A file that differs now was changed by someone else
+# (the user, a formatter, a shell command) since the model looked at it.
+_seen: dict[str, tuple[int, int]] = {}
+
+
+def _stat_key(p: pathlib.Path) -> tuple[int, int] | None:
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _remember_seen(p: pathlib.Path) -> None:
+    key = _stat_key(p)
+    if key is not None:
+        _seen[str(p.resolve())] = key
+
+
+def _changed_since_seen(p: pathlib.Path) -> bool:
+    """True only when the model saw this file before and it differs now."""
+    seen = _seen.get(str(p.resolve()))
+    return seen is not None and _stat_key(p) != seen
+
+
+_warn_lock = threading.Lock()
+
+
+def _syntax_problem(p: pathlib.Path, text: str) -> str | None:
+    """A one-line parse error for Python / JSON / TOML / YAML text, else None."""
+    ext = p.suffix.lower()
+    try:
+        if ext in (".py", ".pyi"):
+            with _warn_lock, warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                ast.parse(text, filename=p.name)
+        elif ext == ".json":
+            if text.strip():
+                json.loads(text)
+        elif ext == ".toml":
+            try:
+                import tomllib
+            except ImportError:
+                return None
+            tomllib.loads(text)
+        elif ext in (".yaml", ".yml"):
+            try:
+                import yaml
+            except ImportError:
+                return None
+            list(yaml.safe_load_all(text))
+        else:
+            return None
+    except SyntaxError as e:
+        where = f" at line {e.lineno}" if e.lineno else ""
+        bad = (e.text or "").strip()
+        return f"SyntaxError{where}: {e.msg}" + (f" → {bad[:120]}" if bad else "")
+    except json.JSONDecodeError as e:
+        return f"invalid JSON at line {e.lineno} col {e.colno}: {e.msg}"
+    except Exception as e:  # tomllib / yaml errors
+        return f"{type(e).__name__}: {str(e).splitlines()[0][:200] if str(e) else 'parse error'}"
+    return None
+
+
+def _syntax_note(p: pathlib.Path, before: str | None, after: str) -> str:
+    """Warn when a write/edit leaves a file unparseable that parsed before
+    (a new file counts as parsing before). Files already broken stay quiet."""
+    try:
+        if before is not None and _syntax_problem(p, before):
+            return ""
+        problem = _syntax_problem(p, after)
+    except Exception:
+        return ""
+    if not problem:
+        return ""
+    return f"\n[warning: {p.name} no longer parses — {problem}. Fix this before moving on.]"
 
 
 def _emit_diff(path: str, before: str, after: str, *, action: str) -> None:
@@ -197,6 +284,90 @@ def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -
         return txt[:MAX_FILE_READ]
 
 
+def _as_int(value, default: int = 0) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return default
+
+
+def _file_lines(text: str) -> list[str]:
+    """Lines as an editor numbers them (split on \\n only, CR dropped)."""
+    if not text:
+        return []
+    lines = text.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return [ln[:-1] if ln.endswith("\r") else ln for ln in lines]
+
+
+def _clip_line(line: str) -> str:
+    if len(line) > READ_LINE_MAX_CHARS:
+        return line[:READ_LINE_MAX_CHARS] + f" … [line truncated: {len(line):,} chars]"
+    return line
+
+
+def read_file_tool(path: str, offset: int = 0, limit: int = 0, force: bool = False) -> str:
+    """``read_file`` as the model calls it: numbered lines (``N<TAB>text``),
+    bounded to READ_MAX_LINES / READ_MAX_CHARS, with a closing note saying
+    where to continue whenever it stops before the end. ``read_file`` itself
+    stays the raw reader other code relies on."""
+    offset, limit = _as_int(offset), _as_int(limit)
+    res = read_file(path, offset=offset, limit=limit, force=force)
+    if res.startswith("ERROR"):
+        return res
+    p = robust_resolve(path)
+    try:
+        size = p.stat().st_size
+    except OSError:
+        size = 0
+
+    if size > MAX_FILE_SIZE_BYTES and (offset or limit):
+        # Huge file paged with offset/limit: read_file streamed just that
+        # slice (already numbered) — bound it, total line count unknown.
+        rows = res.split("\n") if res else []
+        total = None
+        start = offset
+        numbered = [r if len(r) <= READ_LINE_MAX_CHARS else _clip_line(r) for r in rows]
+        wanted = len(rows)
+    else:
+        text = _cache_get(p)
+        if text is None:
+            try:
+                text = p.read_text(errors="ignore")
+            except OSError as e:
+                return f"ERROR: {path}: {e}"
+            _cache_put(p, text)
+        lines = _file_lines(text)
+        total = len(lines)
+        start = offset
+        if total == 0:
+            _remember_seen(p)
+            return "[empty file]"
+        if start >= total:
+            return f"[offset {offset} is past the end — {path} has {total} lines]"
+        end = min(total, start + limit) if limit else total
+        numbered = [f"{i + 1}\t{_clip_line(lines[i])}" for i in range(start, end)]
+        wanted = end - start
+
+    out: list[str] = []
+    used = 0
+    for row in numbered:
+        if len(out) >= READ_MAX_LINES or (out and used + len(row) + 1 > READ_MAX_CHARS):
+            break
+        out.append(row)
+        used += len(row) + 1
+    _remember_seen(p)
+    if len(out) < wanted:
+        shown_end = start + len(out)
+        of_total = f" of {total}" if total is not None else ""
+        out.append(
+            f"[showing lines {start + 1}–{shown_end}{of_total} — call read_file "
+            f"with offset={shown_end} to continue]"
+        )
+    return "\n".join(out)
+
+
 def write_file(path: str, content: str, allow_outside_project: bool = False) -> str:
     p = robust_resolve(path)
     if not allow_outside_project:
@@ -205,13 +376,20 @@ def write_file(path: str, content: str, allow_outside_project: bool = False) -> 
             return scope_err
     with _path_lock(p):
         existed = p.exists()
+        if existed and _changed_since_seen(p):
+            return (
+                f"ERROR: {path} changed on disk since you last read or wrote it "
+                "(edited by the user, a formatter or a command). Read it again "
+                "before overwriting it, so those changes aren't lost."
+            )
         before = p.read_text(errors="ignore") if existed else ""
         _save_backup(p)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         _cache_invalidate(p)
+        _remember_seen(p)
     _emit_diff(str(p), before, content, action="write" if existed else "create")
-    return f"WROTE {p} ({len(content)} bytes)"
+    return f"WROTE {p} ({len(content)} bytes)" + _syntax_note(p, before if existed else None, content)
 
 
 # Invisible characters that commonly differ between model output and file
@@ -264,17 +442,151 @@ def _whitespace_tolerant_spans(txt: str, old_str: str) -> list[tuple[int, int]]:
     return spans
 
 
+_LINE_NO_RE = re.compile(r"^ *(\d+)(?:\t|→)")
+
+
+def _looks_line_numbered(text: str) -> bool:
+    """Every line starts with read_file's ``N<TAB>`` prefix (or ``N→``), numbered
+    consecutively — i.e. the model pasted read_file output, prefixes and all."""
+    lines = _file_lines(text)
+    if not lines:
+        return False
+    prev = None
+    for line in lines:
+        m = _LINE_NO_RE.match(line)
+        if not m:
+            return False
+        n = int(m.group(1))
+        if prev is not None and n != prev + 1:
+            return False
+        prev = n
+    return True
+
+
+def _strip_line_numbers(text: str) -> str:
+    out = [_LINE_NO_RE.sub("", line, count=1) for line in text.split("\n")]
+    return "\n".join(out)
+
+
+def _leading_ws(line: str) -> str:
+    return line[: len(line) - len(line.lstrip(" \t"))]
+
+
+def _indent_shift_edit(txt: str, old_str: str, new_str: str) -> tuple[str | None, str | None]:
+    """Match old_str ignoring a consistent indentation shift (the model added
+    or dropped the same leading whitespace on every line) and re-indent
+    new_str by that same shift. Returns (new_text, error) — (None, None) when
+    there is no such match. Only a single, unambiguous match is applied."""
+    old_lines = old_str.split("\n")
+    trailing_nl = old_lines[-1] == ""
+    if trailing_nl:
+        old_lines.pop()
+    keys = [_norm_match_line(ln).strip() for ln in old_lines]
+    if not any(keys):
+        return None, None
+    file_lines = txt.splitlines(keepends=True)
+    file_keys = [_norm_match_line(ln.rstrip("\r\n")).strip() for ln in file_lines]
+    n = len(keys)
+    hits = [i for i in range(len(file_lines) - n + 1) if file_keys[i:i + n] == keys]
+    if not hits:
+        return None, None
+    if len(hits) > 1:
+        return None, (
+            f"old_str not found exactly; ignoring indentation it matches "
+            f"{len(hits)} locations — add more context"
+        )
+    i = hits[0]
+    window = [ln.rstrip("\r\n") for ln in file_lines[i:i + n]]
+    pairs = [(_leading_ws(o), _leading_ws(f)) for o, f, k in zip(old_lines, window, keys) if k]
+    o0, f0 = pairs[0]
+    if f0.endswith(o0) and len(f0) > len(o0):
+        mode, delta = "add", f0[: len(f0) - len(o0)]
+    elif o0.endswith(f0) and len(o0) > len(f0):
+        mode, delta = "remove", o0[: len(o0) - len(f0)]
+    else:
+        return None, None
+    for o, f in pairs:
+        if (mode == "add" and f != delta + o) or (mode == "remove" and o != delta + f):
+            return None, None
+    shifted: list[str] = []
+    for line in new_str.split("\n"):
+        if not line.strip():
+            shifted.append(line)
+        elif mode == "add":
+            shifted.append(delta + line)
+        elif line.startswith(delta):
+            shifted.append(line[len(delta):])
+        else:
+            return None, None
+    new_block = "\n".join(shifted)
+    start = sum(len(ln) for ln in file_lines[:i])
+    last = file_lines[i + n - 1]
+    end = start + sum(len(ln) for ln in file_lines[i:i + n])
+    if not trailing_nl:
+        end -= len(last) - len(last.rstrip("\r\n"))
+    return txt[:start] + new_block + txt[end:], None
+
+
+def _closest_match_hint(txt: str, old_str: str) -> str:
+    """Show the region of the file most like old_str, numbered, so the model
+    can fix its old_str without re-reading the whole file."""
+    try:
+        if len(txt) > 2_000_000 or not old_str.strip():
+            return ""
+        file_lines = _file_lines(txt)
+        old_lines = _file_lines(old_str) or [old_str]
+        n = len(old_lines)
+        stripped = [ln.strip() for ln in file_lines]
+        anchors = sorted(
+            ((k, ln.strip()) for k, ln in enumerate(old_lines) if len(ln.strip()) >= 4),
+            key=lambda kv: -len(kv[1]),
+        )[:5]
+        starts: set[int] = set()
+        for k, a in anchors:
+            for i, fl in enumerate(stripped):
+                if fl == a:
+                    starts.add(i - k)
+        if not starts and anchors:
+            k, a = anchors[0]
+            for m in difflib.get_close_matches(a, stripped, n=3, cutoff=0.6):
+                for i, fl in enumerate(stripped):
+                    if fl == m:
+                        starts.add(i - k)
+        best, best_ratio = None, 0.0
+        for c in sorted(starts)[:40]:
+            c = max(0, c)
+            window = "\n".join(file_lines[c:c + n])
+            r = difflib.SequenceMatcher(None, window, old_str, autojunk=False).ratio()
+            if r > best_ratio:
+                best, best_ratio = c, r
+        if best is None or best_ratio < 0.5:
+            return ""
+        lo, hi = max(0, best - 2), min(len(file_lines), best + n + 2)
+        hi = min(hi, lo + 40)
+        snippet = "\n".join(f"{j + 1}\t{_clip_line(file_lines[j])}" for j in range(lo, hi))
+        return (
+            f"\nClosest match (lines {best + 1}–{min(best + n, len(file_lines))}, "
+            f"{int(best_ratio * 100)}% similar) — copy old_str from here, without "
+            f"the line-number prefixes:\n{snippet}"
+        )
+    except Exception:
+        return ""
+
+
 def _apply_text_edit(
     txt: str,
     old_str: str,
     new_str: str,
     replace_all: bool = False,
+    _numbers_stripped: bool = False,
 ) -> tuple[str | None, str | None, int, str | None]:
     """Return (new_text, error_message, match_count, note).
 
-    Matching is exact first; if that fails, falls back to a whitespace-
-    tolerant line match (trailing whitespace / CRLF / non-breaking spaces)
-    and reports the fallback via *note*.
+    Matching is exact first; if that fails, falls back to (in order) a
+    whitespace-tolerant line match (trailing whitespace / CRLF / non-breaking
+    spaces), old_str pasted with read_file's line-number prefixes, and a
+    consistent indentation shift — each reported via *note*. When nothing
+    matches, the error carries the closest region of the file.
     """
     if not old_str:
         return None, "old_str is empty — provide the exact text to replace", 0, None
@@ -284,10 +596,31 @@ def _apply_text_edit(
     if n == 0:
         spans = _whitespace_tolerant_spans(txt, old_str)
         if not spans:
+            if not _numbers_stripped and _looks_line_numbered(old_str):
+                plain_new = _strip_line_numbers(new_str) if _looks_line_numbered(new_str) else new_str
+                res = _apply_text_edit(
+                    txt, _strip_line_numbers(old_str), plain_new, replace_all, _numbers_stripped=True,
+                )
+                if res[1] is None:
+                    note = "removed read_file line-number prefixes from old_str"
+                    if res[3]:
+                        note += "; " + res[3]
+                    return res[0], None, res[2], note
+                return res
+            shifted, shift_err = _indent_shift_edit(txt, old_str, new_str)
+            if shifted is not None:
+                return (
+                    shifted, None, 1,
+                    "matched with a consistent indentation shift — new_str was "
+                    "re-indented to match the file",
+                )
+            if shift_err:
+                return None, shift_err, 0, None
             return (
                 None,
                 "old_str not found — re-read the file and copy the exact text "
-                "(check indentation, tabs vs spaces, and line endings)",
+                "(check indentation, tabs vs spaces, and line endings)"
+                + _closest_match_hint(txt, old_str),
                 0,
                 None,
             )
@@ -339,6 +672,7 @@ def edit_file(
     with _path_lock(p):
         if not p.exists():
             return f"ERROR: {path} not found"
+        stale = _changed_since_seen(p)
         txt = p.read_text(errors="ignore")
         new_txt, err, n, note = _apply_text_edit(txt, old_str, new_str, replace_all)
         if err:
@@ -346,11 +680,17 @@ def edit_file(
         _save_backup(p)
         p.write_text(new_txt)
         _cache_invalidate(p)
+        _remember_seen(p)
     _emit_diff(str(p), txt, new_txt, action="edit")
     msg = f"EDITED {p} ({n} replacement{'s' if n > 1 else ''})"
     if note:
         msg += f"\n[{note}]"
-    return msg
+    if stale:
+        msg += (
+            "\n[note: the file had changed on disk since you last read it — "
+            "re-read it if later edits depend on the parts that changed]"
+        )
+    return msg + _syntax_note(p, txt, new_txt)
 
 
 _MULTI_EDIT_MAX = 30
@@ -417,6 +757,7 @@ def multi_edit(
 
             txt = p.read_text(errors="ignore")
             before_txt = txt
+            stale = _changed_since_seen(p)
             backed_up = False
             for k, edit in enumerate(block):
                 idx = i + k + 1
@@ -451,9 +792,18 @@ def multi_edit(
             if backed_up:
                 p.write_text(txt)
                 _cache_invalidate(p)
+                _remember_seen(p)
 
         if backed_up:
             _emit_diff(str(p), before_txt, txt, action="edit")
+            if stale:
+                lines.append(
+                    f"[note: {path} had changed on disk since you last read it — "
+                    "re-read it if later edits depend on the parts that changed]"
+                )
+            warn = _syntax_note(p, before_txt, txt)
+            if warn:
+                lines.append(warn.strip())
 
         i = j
 

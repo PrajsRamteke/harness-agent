@@ -224,6 +224,13 @@
 /* A counter that just went up glows in the accent, then settles (countTo). */
 .usage-num.is-bumped { color: var(--accent); transition: color 0.1s; }
 .usage-lbl { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.usage-cell:has(.usage-badge) { position: relative; }
+.usage-badge {
+  position: absolute; top: 7px; right: 8px;
+  font-size: 10px; font-weight: 600; color: var(--accent);
+  font-variant-numeric: tabular-nums; cursor: help;
+}
+.usage-badge[hidden] { display: none; }
 
 .foot-actions { display: flex; gap: 6px; align-items: center; }
 .foot-actions .chip-btn { flex: 1 1 auto; justify-content: center; padding: 0 10px; }

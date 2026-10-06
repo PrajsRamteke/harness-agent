@@ -37,10 +37,15 @@ _cached_cwd_branch: str = ""
 _cached_ctx_key: str = ""
 
 
+# The prompt as sent for the current user turn (see build_system).
+_turn_prompt: dict = {"turn": None, "critical": None, "value": None}
+
+
 def invalidate_system_cache() -> None:
     """Force the system prompt body to rebuild on the next turn."""
     global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key
     global _cached_mcp_key, _cached_agents_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
+    _turn_prompt["value"] = None
     _cached_body = ""
     _cached_mem_key = ""
     _cached_sk_key = ""
@@ -250,8 +255,38 @@ def _build_static_body() -> str:
     return body
 
 
+def _turn_anchor() -> int:
+    """Index of the message that started the current user turn — the newest
+    user message carrying anything besides tool results — or -1."""
+    msgs = state.messages or []
+    for i in range(len(msgs) - 1, -1, -1):
+        m = msgs[i]
+        if not isinstance(m, dict) or m.get("role") != "user":
+            continue
+        content = m.get("content")
+        if not isinstance(content, list):
+            return i
+        for block in content:
+            kind = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+            if kind != "tool_result":
+                return i
+    return -1
+
+
+def _critical_key() -> tuple:
+    """Settings that must reach the model mid-turn (plan approved, model or
+    agent switched, folder changed): any change rebuilds the prompt at once."""
+    from pathlib import Path
+
+    agent = state.active_agent.get("name") if state.active_agent else state.active_agent_name
+    return (
+        state.MODEL, state.provider, state.auth_mode, bool(state.plan_mode),
+        agent, bool(getattr(state, "harness_agent_free", False)), str(Path.cwd()),
+    )
+
+
 def build_system() -> Union[str, List[Dict]]:
-    """System prompt + live date/time + active agent addon + pinned user context.
+    """System prompt + today's date + active agent addon + pinned user context.
 
     The active agent's body is appended as an addon when set. Default
     (no active agent) uses the base prompt only.
@@ -259,13 +294,35 @@ def build_system() -> Union[str, List[Dict]]:
     When authenticated via OAuth, Anthropic requires the FIRST system block to be
     exactly the OAuth identity string — so we return a 2-block list in that
     case and keep our real instructions in the second block.
+
+    Stable for a whole user turn: every request of one tool loop gets the same
+    prompt, so the provider's prompt cache keeps hitting (and Claude 5's
+    thinking blocks stay valid — they are bound to the system prompt). Things
+    that change mid-turn — background-job timers, a saved memory or lesson, the
+    loop countdown — show up from the next user turn; plan/model/agent/folder
+    changes apply at once (_critical_key).
     """
+    turn = (state.current_session_id, _turn_anchor())
+    critical = _critical_key()
+    frozen = _turn_prompt
+    if (frozen["value"] is not None and turn[1] >= 0
+            and frozen["turn"] == turn and frozen["critical"] == critical):
+        value = frozen["value"]
+        return [dict(b) for b in value] if isinstance(value, list) else value
+    value = _build_system_now()
+    frozen.update(turn=turn, critical=critical, value=value)
+    return [dict(b) for b in value] if isinstance(value, list) else value
+
+
+def _build_system_now() -> Union[str, List[Dict]]:
     now = datetime.now()
+    # Date only: a clock time here changed the prompt every minute, which made
+    # every request a prompt-cache miss.
     date_line = (
-        f"\n\nCURRENT DATE & TIME: {now.strftime('%A, %B %d, %Y')} "
-        f"at {now.strftime('%I:%M %p')} "
-        f"(timezone: {datetime.now().astimezone().tzname()})\n"
-        f"Never assume or guess the date — the above is the real current date injected at runtime."
+        f"\n\nCURRENT DATE: {now.strftime('%A, %B %d, %Y')} "
+        f"(timezone: {now.astimezone().tzname()})\n"
+        "Never assume or guess the date — the above is the real current date injected at runtime. "
+        "The time of day is not included; run `date` when the exact time matters."
     )
 
     body = _selected_model_block() + _build_static_body()

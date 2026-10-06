@@ -179,6 +179,10 @@ class SidebarBody(Widget):
         if total and not window:
             line(f"↑ {_fmt_tokens(int(state.total_in or 0))}  ↓ {_fmt_tokens(int(state.total_out or 0))}",
                  ui.FG_DIM)
+        cached = int(getattr(state, "cache_read_tokens", 0) or 0)
+        prompt = int(state.total_in or 0)
+        if cached and prompt:
+            line(f"⚡ {min(100, cached * 100 // prompt)}% of prompt from cache", ui.FG_DIM)
         try:
             from ..constants import model_pricing
 

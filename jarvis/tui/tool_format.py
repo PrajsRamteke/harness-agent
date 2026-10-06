@@ -367,6 +367,22 @@ def _head(lines: list[str], n: int, width: int) -> list[str]:
     return out
 
 
+_READ_MORE_RE = re.compile(r"\[showing lines (\d+)–(\d+)( of \d+)? — call read_file")
+
+
+def _edit_notes(text: str, width: int) -> list[str]:
+    """Warnings a write/edit result carries (files/tools.py) worth a row line."""
+    notes = []
+    m = re.search(r"\[warning: (\S+) no longer parses — (.*?)\. Fix this before moving on\.\]", text, re.S)
+    if m:
+        notes.append(clip(f"⚠ {m.group(1)} no longer parses — {m.group(2)}", width))
+    if "changed on disk since you last read it" in text:
+        notes.append("⚠ file had changed on disk since it was read")
+    if "matched with a consistent indentation shift" in text:
+        notes.append("re-indented to match the file")
+    return notes
+
+
 def is_error_output(out: str) -> bool:
     s = (out or "").lstrip()
     return s.startswith(("ERROR", "BLOCKED", "TIMEOUT", "USER DENIED"))
@@ -439,20 +455,27 @@ def tool_summary(name: str, raw_input: Any, output: str, width: int = 100) -> tu
     if name == "bg_kill":
         return ([clip(lines[0], width)] if lines else ["stopped"], False)
     if name == "read_file":
+        if stripped == "[empty file]":
+            return (["Empty file"], False)
+        m = _READ_MORE_RE.search(stripped)
+        if m:
+            return ([f"Read lines {m.group(1)}–{m.group(2)}{m.group(3) or ''} · more with offset"], False)
+        if stripped.startswith("[offset"):
+            return ([clip(stripped.strip("[]"), width)], False)
         return ([f"Read {_plural(len(lines), 'line')}"], False)
     if name == "write_file":
         n = len(str(d.get("content") or "").splitlines())
-        return ([f"Wrote {_plural(n, 'line')}" if n else "Written"], False)
+        return ([f"Wrote {_plural(n, 'line')}" if n else "Written"] + _edit_notes(stripped, width), False)
     if name == "edit_file":
         m = re.search(r"\((\d+) replacements?\)", stripped)
         n = int(m.group(1)) if m else 1
-        return ([f"Applied {_plural(n, 'edit')}"], False)
+        return ([f"Applied {_plural(n, 'edit')}"] + _edit_notes(stripped, width), False)
     if name == "multi_edit":
         m = re.search(r"(\d+) succeeded,\s*(\d+) failed", stripped)
         if m:
             ok, bad = int(m.group(1)), int(m.group(2))
             msg = f"Applied {_plural(ok, 'edit')}" + (f", {bad} failed" if bad else "")
-            return ([msg], bad > 0 and ok == 0)
+            return ([msg] + _edit_notes(stripped, width), bad > 0 and ok == 0)
         return (["Applied edits"], False)
     if name in ("glob_files", "list_dir", "fast_find", "rank_files"):
         if stripped.startswith("no matches"):

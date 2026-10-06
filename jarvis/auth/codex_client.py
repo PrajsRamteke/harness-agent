@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import contextlib
 import json
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Generator, Optional
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 from ..constants.providers import CODEX_BASE_URL
 from ..utils.json_repair import repair_json_arguments
@@ -112,6 +113,9 @@ def _anthropic_messages_to_responses_input(messages: list[dict]) -> list[dict]:
 class _Usage:
     input_tokens: int = 0
     output_tokens: int = 0
+    # Part of input_tokens served from OpenAI's prompt cache (already counted
+    # in input_tokens — informational only).
+    cached_input_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -197,6 +201,8 @@ class _CodexStream:
                 if usage is not None:
                     self._usage.input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
                     self._usage.output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+                    details = getattr(usage, "input_tokens_details", None)
+                    self._usage.cached_input_tokens = int(getattr(details, "cached_tokens", 0) or 0)
 
     def get_final_message(self) -> _FakeMessage:
         if self._final is not None:
@@ -258,6 +264,22 @@ class _CodexStream:
         self.close()
 
 
+# One id per process; with the session id it names a conversation for the
+# backend's prompt cache (requests with the same key are routed to the same
+# cache, as the official Codex CLI does with its conversation id).
+_PROCESS_TAG = uuid.uuid4().hex[:12]
+_cache_key_refused = False
+
+
+def _prompt_cache_key() -> str | None:
+    if _cache_key_refused:
+        return None
+    from .. import state
+
+    sid = getattr(state, "current_session_id", None)
+    return f"jarvis-{_PROCESS_TAG}-{sid if sid is not None else 0}"
+
+
 class _CodexMessages:
     def __init__(self, client: OpenAI):
         self._client = client
@@ -291,7 +313,18 @@ class _CodexMessages:
             effort = str(thinking.get("effort") or "high")
             payload["reasoning"] = {"effort": effort}
 
-        response = self._client.responses.create(**payload)
+        cache_key = _prompt_cache_key()
+        if cache_key:
+            payload["prompt_cache_key"] = cache_key
+        try:
+            response = self._client.responses.create(**payload)
+        except BadRequestError as e:
+            if "prompt_cache_key" not in payload or "prompt_cache_key" not in str(e):
+                raise
+            global _cache_key_refused
+            _cache_key_refused = True
+            payload.pop("prompt_cache_key", None)
+            response = self._client.responses.create(**payload)
         stream = _CodexStream(response, model)
         try:
             yield stream

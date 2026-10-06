@@ -654,6 +654,8 @@
 .stats-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .stats-legend i { width: 8px; height: 8px; border-radius: 2px; }
 .stats-legend b { font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.stats-legend .stats-cache { margin-left: auto; color: var(--text-3); }
+.stats-legend .stats-cache svg { width: 12px; height: 12px; color: var(--accent); }
 
 .stats-meta { margin: 0; padding: 2px 16px; border-top: 1px solid var(--line); }
 .stats-row {

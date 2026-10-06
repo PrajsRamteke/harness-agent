@@ -66,6 +66,11 @@ def handle_control(c: str, arg: str):
         return True, None
     if c == "/tokens":
         console.print(f"in:{state.total_in}  out:{state.total_out}  total:{state.total_tokens}")
+        if state.cache_read_tokens or state.cache_write_tokens:
+            console.print(
+                f"[dim]last request — cache read:{state.cache_read_tokens}  "
+                f"cache write:{state.cache_write_tokens}[/]"
+            )
         return True, None
     if c == "/cost":
         console.print(f"[green]≈ ${estimated_cost():.4f}[/] "
@@ -91,6 +96,11 @@ def handle_control(c: str, arg: str):
         t.add_row("⚙  internals", "shown" if stats["internals"] else "hidden")
         t.add_row("⇅ tokens in/out/total",
                   f"{stats['tokens_in']} / {stats['tokens_out']} / {stats['tokens_total']}")
+        if stats["cache_read"] or stats["cache_write"]:
+            pct = stats["cache_read"] * 100 // max(1, stats["tokens_in"])
+            t.add_row("⚡ prompt cache",
+                      f"{pct}% of the last prompt read from cache "
+                      f"({stats['cache_read']} read / {stats['cache_write']} written)")
         t.add_row("✦ est. cost", f"${stats['cost']:.4f}")
         t.add_row("✦ model", stats["model"])
         t.add_row("▣ cwd", stats["cwd"])
@@ -125,6 +135,8 @@ def session_stats() -> dict:
         "tokens_in": state.total_in,
         "tokens_out": state.total_out,
         "tokens_total": state.total_tokens,
+        "cache_read": state.cache_read_tokens,
+        "cache_write": state.cache_write_tokens,
         "cost": estimated_cost(),
         "model": state.MODEL,
         "provider": provider_label(state.provider) if state.provider else "",

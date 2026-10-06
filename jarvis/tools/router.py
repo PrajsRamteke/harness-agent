@@ -142,16 +142,58 @@ def _dedupe_tools(groups: Iterable[str]) -> list[dict]:
     return out
 
 
+# Groups added by what the conversation is about (or by the model using them).
+# Once one is in, it stays for the rest of the session: the tool list is the
+# very start of every request, so a group dropping out (its trigger word scrolled
+# past the last few messages) and coming back used to throw away the whole
+# prompt cache — and on Claude 5 models invalidate earlier thinking — for a few
+# hundred tokens of schema. Order is fixed by _GROUP_ORDER, never by arrival.
+_STICKY_GROUPS = (
+    "context", "internet", "mac", "vision", "background", "ocr", "memory",
+    "lessons", "extensions",
+)
+_GROUP_ORDER = (
+    "core", "context", "skills", "internet", "mac", "vision", "loop",
+    "background", "ocr", "memory", "lessons", "extensions", "mcp", "plan",
+)
+_sticky: dict = {"key": None, "groups": set()}
+
+
+def _conversation_key(messages: list[dict]) -> tuple:
+    """Same session and same opening message = same conversation (history
+    only ever grows at the end, so the first message never changes)."""
+    first = messages[0] if messages else None
+    opening = _block_to_text(first.get("content")) if isinstance(first, dict) and isinstance(
+        first.get("content"), str) else _latest_text(messages[:1]) if messages else ""
+    return (state.current_session_id, opening[:500])
+
+
+def _sticky_groups(messages: list[dict]) -> set[str]:
+    """This conversation's sticky groups (reset for a new / resumed one)."""
+    key = _conversation_key(messages)
+    if _sticky["key"] != key or not messages:
+        _sticky["key"] = key
+        _sticky["groups"] = set()
+    return _sticky["groups"]
+
+
+def reset_sticky_groups() -> None:
+    _sticky["key"] = None
+    _sticky["groups"] = set()
+
+
 def select_tools(messages: list[dict]) -> list[dict]:
     """Return only the tool groups likely needed for this turn.
 
     Core file/code tools are always available. Specialized groups are added
-    from the latest user/task text and from recent tool_use blocks so a
-    multi-step tool loop keeps the tools it already started using.
+    from the latest user/task text and from recent tool_use blocks, and then
+    stay for the rest of the session (see _STICKY_GROUPS).
     """
     text = _latest_text(messages)
     groups = ["core"]
     active = _recent_tool_groups(messages)
+    sticky = _sticky_groups(messages)
+    active |= sticky
 
     # Context-pack tools — coding-only. Exposed solely while the coding agent is
     # active (or mid tool-loop if it already started using them). This keeps the
@@ -210,6 +252,13 @@ def select_tools(messages: list[dict]) -> list[dict]:
     # machine, repo, or stored data (writes, shell, mac control, MCP).
     if state.plan_mode:
         groups.append("plan")
+
+    sticky.update(g for g in groups if g in _STICKY_GROUPS)
+    for g in sticky:
+        if g not in groups:
+            groups.append(g)
+    rank = {g: i for i, g in enumerate(_GROUP_ORDER)}
+    groups.sort(key=lambda g: rank.get(g, len(rank)))
 
     # Defense in depth: sanitize every tool schema right before it leaves
     # the process. Anthropic rejects top-level oneOf/anyOf/allOf, and some

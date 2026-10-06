@@ -50,6 +50,9 @@ show_internal: bool = True
 total_in: int = 0
 total_out: int = 0
 total_tokens: int = 0
+# Prompt-cache tokens of the latest request (Anthropic): read from / written to cache.
+cache_read_tokens: int = 0
+cache_write_tokens: int = 0
 
 # Cancel processing flag — set when user presses Escape, checked at every
 # checkpoint (stream start, tool execution, between turn iterations).

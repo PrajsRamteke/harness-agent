@@ -89,15 +89,18 @@ CORE_TOOLS = [
         },
      }, "required": ["questions"]}},
     {"name":"read_file","description":(
-        "Read ONE text file (or a line range via offset/limit). For 2–20 known "
-        "paths use read_bundle instead — faster and higher output cap. Refuses "
+        "Read ONE text file (or a line range via offset/limit). Each line comes "
+        "back as `N<TAB>text` (N = 1-based line number, not part of the file — "
+        "never copy it into old_str/new_str). Up to 2000 lines per call; a "
+        "closing [showing lines …] note gives the offset to continue from. "
+        "For 2–20 known paths use read_bundle instead. Refuses "
         "node_modules/.venv/build/dist/caches, binary files, files > 2MB, and "
         "outside-project paths. Avoid rereading files already in context. "
         "Only pass force=true if the user explicitly asked for that blocked file."),
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},
-        "offset":{"type":"integer","description":"0-indexed starting line"},
-        "limit":{"type":"integer","description":"number of lines; 0 = all"},
+        "offset":{"type":"integer","description":"0-indexed starting line (offset=100 starts at line 101)"},
+        "limit":{"type":"integer","description":"number of lines; 0 = to the end (max 2000 per call)"},
         "force":{"type":"boolean","description":"bypass binary/skip-dir guards; use sparingly"}},
         "required":["path"]}},
     {"name":"read_document","description":(
@@ -237,7 +240,7 @@ OCR_TOOLS = [
 ]
 
 INTERNET_TOOLS = [
-    {"name":"web_search","description":"Search the web using DuckDuckGo (no browser opened, no API key needed). Returns titles, URLs, and snippets for the top results. Use this to look up current information, news, docs, prices, weather, etc. IMPORTANT: do NOT hardcode years like '2024' or '2025' in your query — rely on the CURRENT DATE & TIME injected in the system prompt. Use recency words ('latest', 'current', 'today') and the tool will auto-append the actual current year; otherwise omit year entirely.",
+    {"name":"web_search","description":"Search the web using DuckDuckGo (no browser opened, no API key needed). Returns titles, URLs, and snippets for the top results. Use this to look up current information, news, docs, prices, weather, etc. IMPORTANT: do NOT hardcode years like '2024' or '2025' in your query — rely on the CURRENT DATE injected in the system prompt. Use recency words ('latest', 'current', 'today') and the tool will auto-append the actual current year; otherwise omit year entirely.",
      "input_schema":{"type":"object","properties":{
         "query":{"type":"string","description":"Search query string"},
         "max_results":{"type":"integer","description":"Max number of results to return (default 8)"}},"required":["query"]}},
@@ -254,7 +257,7 @@ INTERNET_TOOLS = [
         "level. Use this instead of web_search whenever accuracy matters — news, health, "
         "science, facts, prices, current events. Never trust a single source. "
         "IMPORTANT: do NOT hardcode years (e.g. '2024', '2025') in the query — "
-        "use the CURRENT DATE & TIME from the system prompt. Recency words "
+        "use the CURRENT DATE from the system prompt. Recency words "
         "('latest', 'current', 'today') auto-inject the real current year."
     ),
      "input_schema":{"type":"object","properties":{
