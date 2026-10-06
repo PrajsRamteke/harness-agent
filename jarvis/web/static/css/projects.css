@@ -16,24 +16,135 @@
 }
 .project-row:hover { background: var(--card); }
 .project-row:active { transform: scale(0.985); }
-.project-row.is-active { background: var(--card-hover); box-shadow: inset 0 0 0 1px var(--line); }
+/* The chat on screen: a bar on the left (state lives in the indicator, not here). */
+.project-row { position: relative; }
+.project-row.is-active { background-color: var(--card-hover); box-shadow: inset 0 0 0 1px var(--line); }
+.project-row.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--text);
+}
 .project-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-.pr-dot {
-  width: 7px;
-  height: 7px;
-  margin-top: 6px;
+/* Working / waiting rows carry a faint wash of their colour, so they stand out at a glance. */
+.project-row.is-busy { background-image: linear-gradient(90deg, var(--accent-soft), transparent 75%); }
+.project-row.is-ask { background-image: linear-gradient(90deg, var(--warn-soft), transparent 75%); }
+
+/* State indicator: ○ idle · spinning ring = working · amber shield = needs approval · ● = new reply */
+.pr-ind {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
   flex-shrink: 0;
   border-radius: 50%;
-  background: var(--line-2);
-  transition: background 0.3s, box-shadow 0.3s;
 }
-.project-row.is-active .pr-dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-.project-row.is-busy .pr-dot { background: var(--accent); animation: pr-pulse 1.4s ease-in-out infinite; }
-.project-row.is-ask .pr-dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); animation: pr-pulse 1s ease-in-out infinite; }
+.project-row.is-idle .pr-ind::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-2);
+}
+.project-row.is-busy .pr-ind {
+  border: 2px solid var(--accent-line);
+  border-top-color: var(--accent);
+  animation: pr-spin 0.9s linear infinite;
+}
+.project-row.is-busy .pr-ind::after {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.project-row.is-ask .pr-ind { color: var(--warn); animation: pr-pulse 1s ease-in-out infinite; }
+.project-row.is-ask .pr-ind .ic { width: 14px; height: 14px; }
+.project-row.is-new .pr-ind::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 8px var(--accent);
+}
+
 .pr-body { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.3; }
-.pr-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pr-meta { font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.project-row.is-ask .pr-meta { color: var(--warn); }
+.pr-title { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13.5px; font-weight: 600; }
+.pr-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-n {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--card-hover);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 15px;
+}
+.pr-src { display: inline-grid; flex-shrink: 0; color: var(--text-3); opacity: 0.7; }
+.pr-src .ic { width: 12px; height: 12px; }
+.project-row.is-idle:not(.is-active) .pr-name { color: var(--text-2); font-weight: 500; }
+.pr-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.pr-state { flex-shrink: 0; font-weight: 600; }
+.pr-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pr-sep { flex-shrink: 0; opacity: 0.6; }
+.pr-time { font-weight: 500; font-variant-numeric: tabular-nums; opacity: 0.8; }
+.project-row.is-busy .pr-state { color: var(--accent); }
+.project-row.is-ask .pr-state { color: var(--warn); }
+.project-row.is-new .pr-state { color: var(--accent); }
+
+/* Several chats in one folder: the folder once, its chats hanging off a rail. */
+.proj-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px 4px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.proj-group:not(:first-child) { margin-top: 4px; }
+.pg-ic { display: inline-grid; color: var(--text-3); }
+.pg-ic .ic { width: 14px; height: 14px; }
+.pg-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); }
+.pg-count { flex-shrink: 0; color: var(--text-3); font-size: 11.5px; }
+.pg-live {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+}
+.pg-live.is-ask { background: var(--warn-soft); color: var(--warn); }
+.proj-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 16px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+.proj-children .project-row { padding-top: 7px; padding-bottom: 7px; }
 
 .proj-banner {
   display: flex;
@@ -56,28 +167,15 @@
 .proj-banner .pb-go { padding: 2px 10px; border-radius: var(--r-pill); background: var(--warn); color: #000; font-weight: 600; }
 
 @keyframes pr-pulse { 50% { opacity: 0.35; } }
+@keyframes pr-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .project-row.is-busy .pr-dot, .project-row.is-ask .pr-dot, .proj-banner .pb-dot { animation: none; }
+  .project-row.is-busy .pr-ind, .project-row.is-ask .pr-ind, .proj-banner .pb-dot { animation: none; }
 }
 
 /* Switching in place: the old project's transcript dims for the moment it takes. */
 .chat-scroll { transition: opacity 0.18s var(--ease); }
 body.is-switching .chat-scroll { opacity: 0.35; transition-duration: 0.08s; }
-body.is-switching .project-row.is-active .pr-dot { animation: pr-pulse 0.7s ease-in-out infinite; }
-
-.project-row.is-new .pr-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-.project-row.is-new .pr-meta { color: var(--text-2); }
-.pr-n {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 0 5px;
-  border-radius: var(--r-pill);
-  background: var(--card-hover);
-  color: var(--text-3);
-  font-size: 10.5px;
-  font-weight: 600;
-  vertical-align: 1px;
-}
+body.is-switching .project-row.is-active .pr-ind { animation: pr-pulse 0.7s ease-in-out infinite; }
 
 /* Recent sessions: where a chat lives (another running project) or came from (a closed one). */
 .rr-tag {

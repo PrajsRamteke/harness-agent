@@ -220,7 +220,7 @@ export function initSidebar({ onOpenPicker }) {
     const res = await newChat();
     if (res.ok) {
       closeOnNarrow();
-      $('prompt')?.focus();
+      if (!res.beside) $('prompt')?.focus(); // beside: the "Starting a new chat" dialog is up
     }
   });
   $('all-sessions')?.addEventListener('click', () => { closeOnNarrow(); openPicker('session'); });

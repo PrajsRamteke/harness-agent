@@ -18,6 +18,10 @@
  * to it once it's ready; the two run side by side (the Projects list). A
  * folder that already has a Jarvis offers "Switch to it". "Move this chat
  * here" keeps the current chat and points it at the folder (the /cd command).
+ *
+ * New chat while a reply is running (`newChatBeside`) uses the same launch:
+ * one Jarvis holds one chat, so the new chat gets its own Jarvis in this
+ * folder and the running reply keeps going in the old one (under Projects).
  */
 import { $, escapeHtml, showToast, debounce, haptic } from './utils.js';
 import { icon } from './icons.js';
@@ -26,6 +30,7 @@ import { openModal, closeModal, isModalOpen } from './modal.js';
 import { setView, section, empty } from './dialog.js';
 import { fetchDirs, fetchFsStart, openProjectAt, fetchLaunch, moveChat } from './api.js';
 import { switchProject, refreshProjects, currentProjectId, findProject } from './projects.js';
+import { runAction } from './actions.js';
 
 const ID = 'folders';
 const POLL_MS = 350;
@@ -311,13 +316,16 @@ function renderLaunch() {
   if (!L || !body || !foot) return;
   const failed = L.status === 'failed';
   const at = STAGES.findIndex(([k]) => k === (L.status === 'ready' ? 'ready' : L.stage));
+  const title = L.beside
+    ? (failed ? 'Couldn’t start a new chat' : L.status === 'ready' ? 'New chat is ready' : 'Starting a new chat')
+    : (failed ? `Couldn’t open ${escapeHtml(L.name)}` : L.status === 'ready' ? `${escapeHtml(L.name)} is ready` : `Opening ${escapeHtml(L.name)}`);
   body.innerHTML = `
     <div class="fl-wrap${failed ? ' is-failed' : ''}${L.status === 'ready' ? ' is-ready' : ''}">
       <div class="fl-hero" aria-hidden="true">
         <span class="fl-orbit"></span>
         <span class="fl-tile">${icon(failed ? 'circle-alert' : L.status === 'ready' ? 'check' : 'folder-open')}</span>
       </div>
-      <h3 class="fl-title">${failed ? `Couldn’t open ${escapeHtml(L.name)}` : L.status === 'ready' ? `${escapeHtml(L.name)} is ready` : `Opening ${escapeHtml(L.name)}`}</h3>
+      <h3 class="fl-title">${title}</h3>
       <p class="fl-path">${escapeHtml(L.display || '')}</p>
       ${failed ? `
         <p class="fl-error" role="alert">${escapeHtml(L.error || 'Something went wrong.')}</p>
@@ -329,10 +337,19 @@ function renderLaunch() {
           </li>`).join('')}</ol>
         <p class="fl-time">${L.elapsed ? `${Math.round(L.elapsed)} s` : ''}</p>`}
     </div>`;
+  if (failed && L.beside) {
+    // No second Jarvis: the old way is still on offer (stops the running reply).
+    foot.innerHTML = `<div class="fd-actions is-wide"><button type="button" class="btn" data-act="launch-replace">${icon('square')}<span>Stop the reply and start here</span></button>
+       <button type="button" class="btn btn-primary" data-act="launch-retry">${icon('rotate-ccw')}<span>Try again</span></button></div>`;
+    return;
+  }
+  const note = L.beside
+    ? 'The running reply keeps going — it’s under Projects.'
+    : 'Keeps running if you close this — it shows up under Projects.';
   foot.innerHTML = failed
     ? `<div class="fd-actions is-wide"><button type="button" class="btn" data-act="launch-back">${icon('arrow-left')}<span>Back to folders</span></button>
        <button type="button" class="btn btn-primary" data-act="launch-retry">${icon('rotate-ccw')}<span>Try again</span></button></div>`
-    : `<div class="fd-actions is-wide"><span class="fd-here-note">${icon('info')}<span>Keeps running if you close this — it shows up under Projects.</span></span>
+    : `<div class="fd-actions is-wide"><span class="fd-here-note">${icon('info')}<span>${note}</span></span>
        <button type="button" class="btn" data-act="launch-hide">Hide</button></div>`;
 }
 
@@ -374,9 +391,9 @@ async function followLaunch(misses = 0) {
     return;
   }
   if (F.launch !== L) return;
-  F.launch = { ...next };
+  F.launch = { ...next, beside: L.beside };
   if (isModalOpen(ID)) renderLaunch();
-  if (next.status === 'ready') return arrive(next);
+  if (next.status === 'ready') return arrive(F.launch);
   if (next.status === 'failed') {
     haptic([20, 40, 20]);
     if (!isModalOpen(ID)) showToast(`Couldn’t open ${next.name}: ${next.error}`, true);
@@ -393,7 +410,7 @@ async function arrive(launch) {
   if (!open) {
     F.launch = null;
     setLaunching(false);
-    showToast(`${launch.name} is ready — it’s under Projects`);
+    showToast(launch.beside ? 'New chat is ready — it’s under Projects' : `${launch.name} is ready — it’s under Projects`);
     return;
   }
   haptic(12);
@@ -404,7 +421,10 @@ async function arrive(launch) {
   setView(ID, null);
   closeModal(ID);
   await switchProject(launch.instance_id);
-  showToast(`${launch.name} is open — your other projects keep running`);
+  showToast(launch.beside
+    ? 'New chat · the running reply keeps going under Projects'
+    : `${launch.name} is open — your other projects keep running`);
+  if (launch.beside) $('prompt')?.focus();
 }
 
 async function openHere(path, { reuse = true } = {}) {
@@ -490,6 +510,8 @@ function onClick(e) {
   else if (act === 'open-new') openHere(F.path, { reuse: false });
   else if (act === 'move') moveHere(F.path, F.data?.display);
   else if (act === 'launch-back') leaveLaunch();
+  else if (act === 'launch-replace') replaceChat();
+  else if (act === 'launch-retry' && F.launch?.beside) newChatBeside();
   else if (act === 'launch-retry') {
     const path0 = F.launch?.path;
     leaveLaunch();
@@ -558,6 +580,52 @@ function onKey(e) {
     el.focus();
     el.scrollIntoView({ block: 'nearest' });
   }
+}
+
+// ─── New chat beside a running one ────────────────────────────────────────
+
+/** New chat while a reply runs: start it in another Jarvis in this folder and switch there. */
+export async function newChatBeside() {
+  const path = store.session.cwd || '';
+  const display = store.session.cwd_display || path;
+  if (F.launch && F.launch.status !== 'failed') {
+    openFolders(); // one already starting: show it
+    return { ok: true, beside: true };
+  }
+  stopFollowing();
+  F.launch = { id: '', name: splitDisplay(display).name, display, path, stage: 'spawn', status: 'starting', beside: true };
+  openModal(ID, { onClose });
+  setLaunching(true);
+  setView(ID, { title: 'New chat', sub: display, back: () => closeModal(ID), backLabel: 'chat' });
+  renderLaunch();
+  let res;
+  try {
+    res = await openProjectAt(path, false);
+  } catch (err) {
+    res = { ok: false, error: err?.status === 401 ? 'This link has expired.' : 'Jarvis is not reachable right now.' };
+  }
+  if (!F.launch?.beside || F.launch.id) return { ok: true, beside: true }; // superseded
+  if (!res?.ok || !res.launch) {
+    F.launch = { ...F.launch, status: 'failed', error: res?.error || 'Could not start another Jarvis here.' };
+    if (isModalOpen(ID)) renderLaunch();
+    else showToast(`Couldn’t start a new chat: ${F.launch.error}`, true);
+    return { ok: false, beside: true };
+  }
+  F.launch = { ...res.launch, beside: true };
+  if (isModalOpen(ID)) renderLaunch();
+  F.launchTimer = setTimeout(() => followLaunch(0), POLL_MS);
+  return { ok: true, beside: true };
+}
+
+/** Fallback when no second Jarvis can start: the old New chat (stops the running reply). */
+async function replaceChat() {
+  stopFollowing();
+  F.launch = null;
+  setLaunching(false);
+  setView(ID, null);
+  closeModal(ID);
+  const res = await runAction('session_new', {});
+  if (res.ok) showToast(res.stopped ? `New chat · ${res.stopped}` : 'New chat started');
 }
 
 // ─── Open / init ──────────────────────────────────────────────────────────

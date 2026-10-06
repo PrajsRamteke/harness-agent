@@ -50,18 +50,6 @@
 
 .project-item { position: relative; }
 .project-item.has-stop .project-row { padding-right: 40px; }
-.pr-web {
-  display: inline-block;
-  margin-left: 5px;
-  padding: 0 5px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--line-2);
-  color: var(--text-3);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  vertical-align: 1px;
-}
 .pr-stop {
   position: absolute;
   top: 50%;

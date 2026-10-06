@@ -14,6 +14,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
+import time
 import urllib.parse
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -41,7 +42,9 @@ def split_project_path(path: str) -> tuple[str, str] | None:
 def project_rows(self_id: str | None) -> list[dict[str, Any]]:
     """One row per running Jarvis — no tokens or ports (safe to broadcast)."""
     rows: list[dict[str, Any]] = []
+    now = time.time()
     for rec in registry.list_instances():
+        since = rec.get("busy_since")
         rows.append({
             "id": rec.get("id"),
             "self": rec.get("id") == self_id,
@@ -51,6 +54,8 @@ def project_rows(self_id: str | None) -> list[dict[str, Any]]:
             "session_title": rec.get("session_title") or "",
             "model": rec.get("model") or "",
             "busy": bool(rec.get("busy")),
+            # Seconds the running reply has taken (worked out here: every instance shares this clock, a phone may not).
+            "busy_for": max(0, int(now - since)) if rec.get("busy") and isinstance(since, (int, float)) else None,
             "needs_approval": bool(rec.get("needs_approval")),
             "headless": bool(rec.get("headless")),  # opened from the web: the page may stop it
             "version": rec.get("version") or "",

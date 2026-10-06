@@ -213,6 +213,23 @@ def test_project_rows_never_carry_secrets(pair):
     assert all(set(r) >= {"id", "project", "session_id", "busy", "needs_approval"} for r in rows)
 
 
+def test_project_rows_say_how_long_a_reply_has_run(instances_dir):
+    instances_dir.mkdir(parents=True)
+    now = time.time()
+
+    def write(name, **fields):
+        rec = {"id": name, "pid": os.getpid(), "port": 1, "token": "t", "started": now, "updated": now, **fields}
+        (instances_dir / f"{name}.json").write_text(json.dumps(rec))
+
+    write("working", busy=True, busy_since=now - 75)
+    write("idle", busy=False, busy_since=None)
+    write("old", busy=True)  # an instance from before busy_since existed
+    rows = {r["id"]: r for r in hub.project_rows(None)}
+    assert 74 <= rows["working"]["busy_for"] <= 80
+    assert rows["idle"]["busy_for"] is None
+    assert rows["old"]["busy_for"] is None
+
+
 def test_another_projects_api_is_reached_through_this_link(pair):
     a, b = pair
     own = json.loads(_get(a.url("/api/state"))[1])

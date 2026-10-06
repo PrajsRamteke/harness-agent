@@ -5,6 +5,7 @@ import errno
 import os
 import socket
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -75,6 +76,7 @@ def _local_urls(port: int, token: str) -> list[str]:
 def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
     """What the project switcher shows about this instance (read every few seconds)."""
     cache: dict[Any, str] = {}
+    since: list[float | None] = [None]  # when the running turn started (read every second)
 
     def info() -> dict[str, Any]:
         from .. import state
@@ -84,13 +86,19 @@ def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
         if key not in cache:  # the title only changes with the session or a new message
             cache.clear()
             cache[key] = state_api._session_title(state.current_session_id)
+        busy = bool(getattr(app, "_busy", False))
+        if busy and since[0] is None:
+            since[0] = time.time()
+        elif not busy:
+            since[0] = None
         return {
             "cwd": os.getcwd(),
             "project": state_api._project_name(),
             "session_id": state.current_session_id,
             "session_title": cache[key],
             "model": str(state.MODEL or ""),
-            "busy": bool(getattr(app, "_busy", False)),
+            "busy": busy,
+            "busy_since": since[0],
             "needs_approval": bool(bridge.pending_events()),
             "headless": bool(state.headless),  # opened from the web: the web may stop it
         }

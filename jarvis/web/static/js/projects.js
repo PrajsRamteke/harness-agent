@@ -38,6 +38,7 @@ let onSnapshot = () => {};
 let hostId = '';        // the server this page was loaded from
 let hubLink = '';       // its shareable link (QR / copy link while another project is shown)
 let projects = [];
+let receivedAt = 0;     // when `projects` arrived (each `busy_for` counts from then)
 let directLinks = {};   // id → that Jarvis's own link (only on this computer / LAN)
 let timer = 0;
 let sig = '';
@@ -110,39 +111,119 @@ const sessionsChanged = () => document.dispatchEvent(new Event('jarvis:sessions-
 // ─── Rendering ────────────────────────────────────────────────────────────
 
 function status(p) {
-  if (p.needs_approval) return { cls: 'is-ask', text: 'Needs your approval' };
-  if (p.busy) return { cls: 'is-busy', text: 'Working…' };
+  if (p.needs_approval) return { cls: 'is-ask', text: 'Needs approval' };
+  if (p.busy) return { cls: 'is-busy', text: 'Working' };
   if (unseen.has(p.id)) return { cls: 'is-new', text: 'New reply' };
-  return { cls: '', text: '' };
+  return { cls: 'is-idle', text: '' };
+}
+
+/** 42 → "42s", 130 → "2m", 3900 → "1h 5m" */
+function elapsed(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+const busyFor = (p) => (p.busy_for == null ? null : p.busy_for + (Date.now() - receivedAt) / 1000);
+
+/** Chats grouped by folder, in list order: [{ key, name, cwd, rows }] */
+function groupByFolder(rows) {
+  const groups = new Map();
+  for (const p of rows) {
+    const key = p.cwd || p.project || p.id;
+    if (!groups.has(key)) groups.set(key, { key, name: nameOf(p), cwd: p.cwd, rows: [] });
+    groups.get(key).rows.push(p);
+  }
+  return [...groups.values()];
+}
+
+/** What a chat is called: its title, plus a number when two read the same → { text, n } */
+function chatLabels(rows) {
+  const seen = new Map();
+  const out = new Map();
+  for (const p of rows) {
+    const text = p.session_title || 'New chat';
+    const n = (seen.get(text) || 0) + 1;
+    seen.set(text, n);
+    out.set(p.id, { text, n });
+  }
+  return out;
+}
+
+const labelText = ({ text, n }) => (n > 1 ? `${text} (${n})` : text);
+
+/** "harness" alone in its folder; "“Fix the tests” in harness" when it shares it. */
+function describe(p) {
+  const group = groupByFolder(projects).find((g) => g.rows.includes(p));
+  if (!group || group.rows.length < 2) return nameOf(p);
+  return `“${labelText(chatLabels(group.rows).get(p.id))}” in ${nameOf(p)}`;
+}
+
+function rowHtml(p, { title, n = 1, sub, active, child }) {
+  const st = status(p);
+  const secs = p.busy ? busyFor(p) : null;
+  const time = secs != null ? ` <span class="pr-time" data-id="${escapeHtml(p.id)}">${elapsed(secs)}</span>` : '';
+  const meta = [
+    st.text ? `<span class="pr-state">${st.text}${time}</span>` : '',
+    sub ? `<span class="pr-sub">${escapeHtml(sub)}</span>` : '',
+  ].filter(Boolean).join('<span class="pr-sep" aria-hidden="true">·</span>');
+  const where = p.headless ? 'Opened from the web' : 'Running in a terminal';
+  const stop = p.headless
+    ? `<button type="button" class="pr-stop" data-stop="${escapeHtml(p.id)}" aria-label="Stop ${escapeHtml(title)}" title="Stop this Jarvis (opened from the web)">${icon('power')}</button>`
+    : '';
+  return `
+    <div class="project-item${p.headless ? ' has-stop' : ''}${child ? ' is-child' : ''}" role="listitem">
+      <a class="project-row ${st.cls}${active ? ' is-active' : ''}" href="${escapeHtml(hrefFor(p.id))}"
+         data-id="${escapeHtml(p.id)}" ${active ? 'aria-current="page"' : ''} title="${escapeHtml(p.cwd || p.project)} · ${where}">
+        <span class="pr-ind" aria-hidden="true">${st.cls === 'is-ask' ? icon('shield') : ''}</span>
+        <span class="pr-body">
+          <span class="pr-title"><span class="pr-name">${escapeHtml(title)}</span>${n > 1 ? `<span class="pr-n" title="Another chat here has the same title">${n}</span>` : ''}<span class="pr-src" title="${where}">${icon(p.headless ? 'globe' : 'terminal')}</span></span>
+          ${meta ? `<span class="pr-meta">${meta}</span>` : ''}
+        </span>
+      </a>${stop}
+    </div>`;
 }
 
 function renderList(cur) {
   const list = $('projects-list');
   if (!list) return;
-  // Two chats in one folder: tell them apart.
-  const seen = new Map();
-  list.innerHTML = projects.map((p) => {
-    const n = (seen.get(p.project) || 0) + 1;
-    seen.set(p.project, n);
-    const st = status(p);
-    const detail = p.session_title || (p.model ? p.model : 'New chat');
-    const meta = st.text ? `${st.text} · ${detail}` : detail;
-    const active = p.id === (switching || cur);
-    const stop = p.headless
-      ? `<button type="button" class="pr-stop" data-stop="${escapeHtml(p.id)}" aria-label="Stop ${escapeHtml(nameOf(p))}" title="Stop this Jarvis (opened from the web)">${icon('power')}</button>`
-      : '';
+  const shown = switching || cur;
+  // Several chats in one folder: a folder header, then each chat by its title
+  // (not "harness", "harness 2", "harness 3" that all read the same).
+  list.innerHTML = groupByFolder(projects).map((g) => {
+    if (g.rows.length === 1) {
+      const p = g.rows[0];
+      return rowHtml(p, { title: g.name, sub: p.session_title || p.model || 'New chat', active: p.id === shown });
+    }
+    const labels = chatLabels(g.rows);
+    const working = g.rows.filter((p) => p.busy).length;
+    const asking = g.rows.filter((p) => p.needs_approval).length;
+    const live = asking ? `<span class="pg-live is-ask">${asking} waiting</span>`
+      : working ? `<span class="pg-live">${working} working</span>` : '';
+    // A chat's own line: its state while it has one, else its model (the folder's already above).
     return `
-      <div class="project-item${p.headless ? ' has-stop' : ''}" role="listitem">
-        <a class="project-row ${st.cls}${active ? ' is-active' : ''}" href="${escapeHtml(hrefFor(p.id))}"
-           data-id="${escapeHtml(p.id)}" ${active ? 'aria-current="page"' : ''} title="${escapeHtml(p.cwd || p.project)}${p.headless ? ' · opened from the web' : ''}">
-          <span class="pr-dot" aria-hidden="true"></span>
-          <span class="pr-body">
-            <span class="pr-title">${escapeHtml(nameOf(p))}${n > 1 ? ` <span class="pr-n">${n}</span>` : ''}${p.headless ? ' <span class="pr-web" title="Opened from the web — no terminal">web</span>' : ''}</span>
-            <span class="pr-meta">${escapeHtml(meta)}</span>
-          </span>
-        </a>${stop}
-      </div>`;
+      <div class="proj-group" role="presentation" title="${escapeHtml(g.cwd || g.name)}">
+        <span class="pg-ic" aria-hidden="true">${icon('folder')}</span>
+        <span class="pg-name">${escapeHtml(g.name)}</span>
+        <span class="pg-count">${g.rows.length} chats</span>${live}
+      </div>
+      <div class="proj-children">${g.rows.map((p) => rowHtml(p, {
+        ...labels.get(p.id),
+        title: labels.get(p.id).text,
+        sub: status(p).text ? '' : p.model || '',
+        active: p.id === shown,
+        child: true,
+      })).join('')}</div>`;
   }).join('');
+}
+
+/** Working times tick on their own; the list is redrawn only when something else changes. */
+function tickTimes() {
+  for (const el of document.querySelectorAll('#projects-list .pr-time')) {
+    const secs = busyFor(find(el.dataset.id) || {});
+    if (secs != null) el.textContent = elapsed(secs);
+  }
 }
 
 function renderBanner(cur) {
@@ -153,7 +234,7 @@ function renderBanner(cur) {
     banner.hidden = true;
     return;
   }
-  $('proj-banner-text').textContent = `${nameOf(waiting)} needs your approval`;
+  $('proj-banner-text').textContent = `${describe(waiting)} needs your approval`;
   banner.href = hrefFor(waiting.id);
   banner.dataset.id = waiting.id;
   banner.hidden = false;
@@ -173,7 +254,7 @@ function render({ force = false } = {}) {
   renderBanner(cur);
   setProjectItems(many ? projects.filter((p) => p.id !== cur).map((p) => ({
     group: 'Projects',
-    label: nameOf(p),
+    label: describe(p),
     desc: status(p).text || p.session_title || p.cwd || 'Switch to this project',
     icon: 'folder',
     keys: `project switch ${p.cwd || ''}`,
@@ -202,6 +283,7 @@ function applyList(rows) {
   const sessionsMoved = JSON.stringify(projects.map((p) => [p.id, p.session_id]))
     !== JSON.stringify(rows.map((p) => [p.id, p.session_id]));
   projects = rows;
+  receivedAt = Date.now();
   render();
   if (closed || sessionsMoved) sessionsChanged();
   // The project on screen is no longer running.
@@ -262,12 +344,12 @@ export async function switchProject(id, { push = true } = {}) {
     document.body.classList.remove('is-switching');
     prefetched.delete(id);
     if (err?.status === 404 || err?.status === 502) {
-      showToast(`${nameOf(find(id))} was just closed`, true);
+      showToast(`${describe(find(id))} was just closed`, true);
       refresh();
     } else if (err?.status === 401) {
       showToast('This link has expired — open the new one from your terminal', true);
     } else {
-      showToast(`Could not reach ${nameOf(find(id))}. Try again.`, true);
+      showToast(`Could not reach ${describe(find(id))}. Try again.`, true);
     }
     render({ force: true });
     return;
@@ -387,13 +469,13 @@ async function stopProject(btn) {
     res = { ok: false, error: err?.status === 401 ? 'This link has expired.' : 'Jarvis is not reachable right now.' };
   }
   if (!res?.ok) {
-    showToast(res?.error || `Couldn’t stop ${nameOf(p)}`, true);
+    showToast(res?.error || `Couldn’t stop ${describe(p)}`, true);
     sig = '';
     render({ force: true });
     return;
   }
   rememberClosed(p);
-  showToast(`${nameOf(p)} stopped${res.forced ? ' (it had to be forced)' : ''} — its chat is in Recent sessions`);
+  showToast(`${describe(p)} stopped${res.forced ? ' (it had to be forced)' : ''} — its chat is in Recent sessions`);
   refresh();
 }
 
@@ -471,6 +553,7 @@ export function initProjects({ onEvent }) {
     if (id !== currentProjectId()) switchProject(id, { push: false });
   });
   refresh();
+  setInterval(() => { if (!document.hidden) tickTimes(); }, 1000);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) clearTimeout(timer);
     else refresh();

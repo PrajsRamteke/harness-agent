@@ -9,7 +9,7 @@ import { icon } from './icons.js';
 import { store } from './store.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
 import { footer as dlgFooter, empty as dlgEmpty, section as dlgSection } from './dialog.js';
-import { runAction } from './actions.js';
+import { runAction, newChat } from './actions.js';
 import { openProviders } from './providers.js';
 import { openMcp } from './mcp.js';
 import { openSkills } from './skills.js';
@@ -266,7 +266,14 @@ const sessionSpec = {
     });
   },
   verb: 'resume',
-  action: { label: 'New chat', ic: 'plus', run: () => pickAndClose('session_new', {}, 'New chat started') },
+  action: {
+    label: 'New chat',
+    ic: 'plus',
+    run: async () => {
+      if (isModalOpen('picker')) closePicker();
+      return newChat();
+    },
+  },
 };
 
 // Providers folded in the model list (this browser only; a search shows everything).

@@ -127,6 +127,15 @@ export async function submitPrompt(text) {
     return;
   }
 
+  // /new while a reply runs: a new chat beside it (as the New chat button),
+  // not a queued /new that waits for the reply to end.
+  if (store.busy && !withFiles && value.toLowerCase() === '/new') {
+    if (text === undefined && el) setPromptValue('');
+    const { newChat } = await import('./actions.js');
+    newChat();
+    return;
+  }
+
   const wasBusy = store.busy;
   const files = withFiles ? tray.ready : [];
   sending = true;
