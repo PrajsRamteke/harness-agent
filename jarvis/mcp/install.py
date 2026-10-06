@@ -27,6 +27,7 @@ from typing import Any, Callable
 from .. import state
 from . import catalog
 from . import secrets as mcp_secrets
+from . import toggle as mcp_toggle
 from .auth import coordinator as auth_coordinator, has_saved_login
 from .config import (
     _json_to_server_candidates,
@@ -581,6 +582,9 @@ def server_status(name: str, *, connect: bool = True, note: str = "") -> dict[st
     out: dict[str, Any] = {"name": name}
     if cfg is None:
         return {**out, "status": "failed", "error": "not visible in the current scope (turn global scope on, or check the project folder)"}
+    off = mcp_toggle.off_reason(name)
+    if off:
+        return {**out, "status": "off", "message": off}
     missing = mcp_secrets.missing(cfg)
     if missing:
         return {**out, "status": "needs_credentials", "missing": missing,
@@ -698,7 +702,7 @@ def add_mcp(
         results.append(res)
 
     _invalidate_prompt()
-    ok = bool(results) and all(r.get("status") in ("connected", "auth_required", "added", "needs_credentials", "exists") for r in results)
+    ok = bool(results) and all(r.get("status") in ("connected", "auth_required", "added", "needs_credentials", "exists", "off") for r in results)
     return {"ok": ok, "servers": results, "message": summarize(results)}
 
 
@@ -727,6 +731,8 @@ def summarize(results: list[dict[str, Any]]) -> str:
                 lines.append(f"✓ {nm}{where} added — needs {', '.join(r.get('missing', []))}; the user enters it in the MCP dialog")
         elif st == "added":
             lines.append(f"✓ {nm}{where} added (not connected yet)")
+        elif st == "off":
+            lines.append(f"✓ {nm}{where} added — not connected: {r.get('message', 'turned off')}")
         elif st == "failed":
             lines.append(f"✗ {nm}{where}: {r.get('error', 'failed')}")
         elif st == "denied":
@@ -771,6 +777,8 @@ def remove_mcp(name: str, scope: str | None = None, *, forget_login: bool = True
     except Exception:
         pass
     delete_server(nm, scope=target["scope"])
+    if not locate_server(nm):
+        mcp_toggle.forget(nm)
     reload_config()
     _invalidate_prompt()
     # still defined somewhere else? keep it visible.
@@ -863,6 +871,69 @@ def set_oauth_app(name: str, client_id: str, client_secret: str = "", *, connect
     return res
 
 
+# ── on / off ───────────────────────────────────────────────────────────────
+
+
+def set_server_enabled(name: str, on: bool, *, connect: bool = True) -> dict[str, Any]:
+    """Switch one server on or off. Off disconnects it (its tools go away) and
+    keeps it from ever connecting; on connects it straight away — quietly: a
+    server that needs a sign-in shows its Authenticate button instead of
+    opening a browser. Works for servers from any tool's config."""
+    nm = (name or "").strip()
+    if get_config().get_server(nm) is None:
+        return {"ok": False, "error": f"No MCP server named '{nm}' in the current scope."}
+    was_on = mcp_toggle.server_enabled(nm)
+    mcp_toggle.set_server_enabled(nm, on)
+    out: dict[str, Any] = {"ok": True, "name": nm, "enabled": bool(on), "mcp_enabled": mcp_toggle.mcp_enabled()}
+    if not on:
+        mcp_registry.disconnect(nm)  # also stops a sign-in still waiting
+        out.update(status="off", message=f"Turned {nm} off — Jarvis won't connect it or use its tools.")
+    elif not mcp_toggle.mcp_enabled():
+        out.update(status="off", message=f"Turned {nm} on — it connects once MCP is turned back on.")
+    else:
+        with mcp_registry.startup_connect():
+            res = server_status(nm, connect=connect)
+        out.update({k: v for k, v in res.items() if k not in ("ok", "name")})
+        st = res.get("status")
+        out["message"] = {
+            "connected": f"Turned {nm} on — connected, {res.get('tool_count', 0)} tools.",
+            "auth_required": f"Turned {nm} on — sign in to finish connecting.",
+            "needs_credentials": f"Turned {nm} on — it needs " + ", ".join(res.get("missing") or []) + ".",
+            "added": f"Turned {nm} on.",
+        }.get(st, f"Turned {nm} on — couldn't connect: {res.get('error', '')}".rstrip(": "))
+    if was_on != bool(on):
+        mcp_registry.notify("toggled", nm)
+    _invalidate_prompt()
+    return out
+
+
+def set_mcp_enabled(on: bool) -> dict[str, Any]:
+    """MCP as a whole. Off disconnects every server (and stops waiting sign-ins);
+    on connects the auto-connect servers that are switched on, as at startup."""
+    was = mcp_toggle.mcp_enabled()
+    mcp_toggle.set_mcp_enabled(on)
+    connected: list[str] = []
+    failed: list[tuple[str, str]] = []
+    if not on:
+        with mcp_registry._lock:
+            names = set(mcp_registry._servers) | set(mcp_registry._pending)
+        for nm in sorted(names):
+            mcp_registry.disconnect(nm)
+        message = "MCP is off — every server is disconnected and Jarvis has no MCP tools."
+    else:
+        from .scope import apply_mcp_scope_change
+
+        res = apply_mcp_scope_change()
+        connected, failed = res.get("connected", []), res.get("failed", [])
+        message = "MCP is on" + (f" — connected {len(connected)} server{'s' if len(connected) != 1 else ''}" if connected else "") + (
+            f", {len(failed)} couldn't connect" if failed else "") + "."
+    if was != bool(on):
+        mcp_registry.notify("toggled", "*")
+    _invalidate_prompt()
+    return {"ok": True, "mcp_enabled": bool(on), "connected": connected,
+            "failed": [{"name": n, "error": e} for n, e in failed], "message": message}
+
+
 # ── listing (the one list every screen shows) ─────────────────────────────
 
 
@@ -925,6 +996,7 @@ def describe_servers(query: str = "") -> dict[str, Any]:
             "source_label": SOURCE_LABELS.get(source, source),
             "also_labels": [SOURCE_LABELS.get(s, s) for s in config.get_also(name)],
             "removable": source in ("project", "jarvis"),
+            "enabled": mcp_toggle.server_enabled(name),
             "auto_connect": name in auto,
             "transport": (state_obj.transport if state_obj and state_obj.transport else transport),
             "remote": remote,
@@ -941,6 +1013,7 @@ def describe_servers(query: str = "") -> dict[str, Any]:
     return {
         "servers": rows,
         "global_mcp": bool(getattr(state, "global_mcp", False)),
+        "mcp_enabled": mcp_toggle.mcp_enabled(),
         "counts": mcp_registry.health_counts(names),
         "project_config_path": str(scope_path("project")),
         "global_config_path": str(scope_path("global")),

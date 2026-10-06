@@ -15,6 +15,8 @@ Routes (see ``handler.py``)::
     POST /api/mcp/move               {name, scope}
     POST /api/mcp/connect            {name}
     POST /api/mcp/disconnect         {name}
+    POST /api/mcp/enable             {name, enabled}  switch one server on / off (off = never connects, no tools)
+    POST /api/mcp/power              {enabled}        MCP as a whole on / off
     POST /api/mcp/auth/start         {name}  → {url}  (the Authenticate button)
     POST /api/mcp/auth/paste         {name, address}  sign-in finished on another device
     POST /api/mcp/auth/cancel        {name}
@@ -40,7 +42,7 @@ from ..storage import skill_install as skills_install
 _MCP_ACTIONS = {
     "/api/mcp/parse", "/api/mcp/add", "/api/mcp/remove", "/api/mcp/move", "/api/mcp/connect",
     "/api/mcp/disconnect", "/api/mcp/auth/start", "/api/mcp/auth/paste", "/api/mcp/auth/cancel",
-    "/api/mcp/signout", "/api/mcp/credentials", "/api/mcp/app",
+    "/api/mcp/signout", "/api/mcp/credentials", "/api/mcp/app", "/api/mcp/enable", "/api/mcp/power",
 }
 _SKILL_ACTIONS = {
     "/api/skills/inspect", "/api/skills/install", "/api/skills/remove", "/api/skills/move", "/api/skills/update",
@@ -128,6 +130,17 @@ def run_mcp(path: str, data: dict[str, Any]) -> dict[str, Any]:
         if not client_id:
             return _err("Client ID is empty.")
         return mcp_install.set_oauth_app(name, client_id, str(data.get("client_secret") or ""))
+
+    if path == "/api/mcp/enable":
+        if not isinstance(data.get("enabled"), bool):
+            return _err("enabled must be true or false")
+        reload_config()
+        return mcp_install.set_server_enabled(name, data["enabled"])
+
+    if path == "/api/mcp/power":
+        if not isinstance(data.get("enabled"), bool):
+            return _err("enabled must be true or false")
+        return mcp_install.set_mcp_enabled(data["enabled"])
 
     if path == "/api/mcp/auth/paste":
         return auth_coordinator.submit(name, str(data.get("address") or ""))

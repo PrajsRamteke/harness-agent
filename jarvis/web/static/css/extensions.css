@@ -154,6 +154,67 @@
 .ex-st.is-connecting { color: var(--accent); }
 .ex-st.is-connecting .ex-dot { background: var(--accent); animation: breathe 1.2s ease-in-out infinite; }
 
+/* ─── On / off (mcp.js) ───────────────────────────────────────────────── */
+/* A server's switch sits beside its action; "off" keeps the card but quiets it. */
+.ex-switch { display: inline-grid; place-items: center; min-width: 44px; min-height: 32px; cursor: pointer; }
+.ex-switch .switch { width: 34px; height: 20px; }
+.ex-switch .switch::after { width: 14px; height: 14px; }
+.ex-switch .switch:checked::after { transform: translateX(14px); }
+.ex-switch .switch:checked:active:not(:disabled)::after { transform: translateX(9px); }
+.ex-switch .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ex-switch.is-busy .switch { opacity: 0.55; cursor: progress; }
+.ex-switch.is-busy .switch::after { animation: breathe 1s ease-in-out infinite; }
+/* Server on, but MCP as a whole is off: its knob stays right, colour drains. */
+.ex-switch.is-muted .switch:checked { background: var(--line-2); }
+
+.ex-st.is-off { color: var(--text-3); }
+.ex-st.is-off .ex-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.ex-row.is-off { background: transparent; border-style: dashed; }
+.ex-row.is-off .pv-head .pv-mark,
+.ex-row.is-off .pv-head .mk-tile { filter: grayscale(1); opacity: 0.5; }
+.ex-row.is-off .ex-name { color: var(--text-2); }
+.ex-row.is-switching { transition: opacity 0.2s; opacity: 0.75; }
+.ex-off-note .ic { color: var(--text-3); }
+.ex-list.is-mcp-off .ex-row { border-style: dashed; }
+.mk-state.is-off { color: var(--text-3); }
+.mk-state.is-off .ic { width: 13px; height: 13px; }
+
+/* The MCP master switch on top of Your servers. */
+.mcp-power {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 12px 10px 12px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-card);
+  background: linear-gradient(135deg, var(--accent-soft), transparent 70%), var(--card);
+  transition: border-color 0.25s, background 0.25s;
+}
+.mcp-power.is-off { border-color: var(--warn-line); background: linear-gradient(135deg, var(--warn-soft), transparent 70%), var(--card); }
+.mcp-power-ic {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  transition: color 0.25s, background 0.25s, transform 0.35s var(--spring);
+}
+.mcp-power-ic .ic { width: 17px; height: 17px; }
+.mcp-power.is-off .mcp-power-ic { color: var(--warn); background: var(--warn-soft); }
+.mcp-power:has(.switch:active) .mcp-power-ic { transform: scale(0.92); }
+.mcp-power-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.35; }
+.mcp-power-text strong { font-size: 14px; font-weight: 600; }
+.mcp-power-text span { font-size: 12.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; }
+.mcp-power.is-off .mcp-power-text span { color: var(--warn); }
+.ex-switch.is-lg .switch { width: 42px; height: 24px; }
+.ex-switch.is-lg .switch::after { width: 18px; height: 18px; }
+.ex-switch.is-lg .switch:checked::after { transform: translateX(18px); }
+.ex-switch.is-lg .switch:checked:active:not(:disabled)::after { transform: translateX(13px); }
+
 .pv-side .row-btn:not(.is-icon) { display: inline-flex; align-items: center; gap: 6px; }
 .pv-side .row-btn .ic { width: 13px; height: 13px; }
 .pv-side .row-btn .spinner { width: 12px; height: 12px; }
@@ -378,6 +439,19 @@
   .ex-sk { grid-template-columns: auto minmax(0, 1fr); }
   .ex-sk-meta { display: none; }
   .ex-row .pv-side .row-btn:not(.is-icon) { padding: 0 10px; }
+  /* Phones: the switch must stay, so the action goes icon-only (its label stays
+     for screen readers), the chevron goes (the whole head opens the card) and
+     the origin badge gives way before the server's name does. */
+  .ex-row .pv-side { gap: 2px; padding-right: 6px; }
+  .ex-row .pv-side .row-btn:not(.is-icon):has(.ic) { width: 34px; padding: 0; justify-content: center; }
+  .ex-row .pv-side .row-btn:has(.ic) > span {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .ex-row .pv-head .pv-chev { display: none; }
+  .ex-row .ex-name { flex: 0 1 auto; min-width: 5ch; }
+  .ex-row .pv-title .badge { flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mcp-power { padding: 10px 8px 10px 12px; gap: 10px; }
+  .mcp-power-text span { white-space: normal; }
   .pv-msg .btn { margin-left: 0; }
   .ex-list-head { align-items: flex-start; }
 }

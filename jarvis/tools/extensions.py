@@ -171,6 +171,8 @@ def mcp_list() -> str:
         return (f"No MCP servers in scope ({where}). Add one with mcp_add — a hosted URL, an npx/uvx command, "
                 "a `claude mcp add …` line, JSON, a GitHub link, or a name like linear/notion/sentry.")
     lines = [f"MCP servers ({'project + global' if data['global_mcp'] else 'project only'}):"]
+    if not data.get("mcp_enabled", True):
+        lines[0] = "MCP is TURNED OFF by the user — nothing connects; they can turn it on in /mcp (or /mcp on). " + lines[0]
     for s in servers:
         h = s["health"]
         st = h.get("status")
@@ -181,6 +183,7 @@ def mcp_list() -> str:
             "warn": "needs attention: " + (h.get("detail") or ""),
             "connecting": "connecting…",
             "idle": "not connected",
+            "off": "TURNED OFF by the user (don't connect it — they turn it on in /mcp)",
         }.get(st, st)
         lines.append(f"  • {s['name']} [{s['scope']}, {s['transport']}] {word}")
         if s["needs_credentials"]:

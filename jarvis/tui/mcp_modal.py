@@ -7,6 +7,8 @@ Your own servers sit on top with their health.
 
 * type          search (servers + marketplace); paste a link / npx … to add it
 * ↑/↓ · Enter   move · connect / disconnect / sign in / set up
+* space · t     switch the highlighted server on / off (or click its ON / OFF pill)
+* T             MCP as a whole on / off (or click the switch in the header)
 * ←/→           marketplace category (while the list has focus)
 * a             add a custom server (link, npx …, claude mcp add …, JSON, GitHub)
 * o             sign out (forget the saved login)      k  enter the keys a server needs
@@ -46,6 +48,7 @@ from ..mcp.config import (
     reload_config,
 )
 from ..mcp.registry import mcp_registry, needs_auth
+from ..mcp import toggle as mcp_toggle
 from ..mcp.sources import SOURCE_ICONS as _SOURCE_ICONS, format_endpoint as _endpoint_text
 from ..utils.origins import tool_tag
 
@@ -93,6 +96,26 @@ def _badge(auth: str) -> tuple[str, str]:
     return text, getattr(ui, tok, ui.FG_DIM)
 
 
+_TAGS_W = 54  # switch · status · where it comes from — the same column on every server row
+
+
+def _switch(on: bool, *, live: bool = True, meta: dict | None = None) -> Text:
+    """An ON / OFF pill. ``live=False`` = on, but MCP as a whole is off.
+    ``meta`` rides on the pill so a click on it can be told apart from the row."""
+    from rich.style import Style
+
+    if on and live:
+        text, style = " ON  ", f"bold {ui.BG_0} on {ui.OK}"
+    elif on:
+        text, style = " ON  ", f"{ui.FG_MUTE} on {ui.BG_4}"
+    else:
+        text, style = " OFF ", f"{ui.FG_DIM} on {ui.BG_3}"
+    t = Text(no_wrap=True)
+    t.append(text, style=Style.parse(style) + Style(meta=meta) if meta else style)
+    t.append(" ")
+    return t
+
+
 def _row_label(
     name: str,
     cfg: dict,
@@ -109,6 +132,8 @@ def _row_label(
     health = health or mcp_registry.get_server_health(name, cfg, connecting=connecting)
     status = health.get("status", "idle")
     tool_count = health.get("tool_count", 0)
+    enabled = mcp_toggle.server_enabled(name)
+    mcp_on = mcp_toggle.mcp_enabled()
 
     if connecting or status == "connecting":
         dot, color, word = spinner, ui.ACCENT, "connecting…"
@@ -118,6 +143,8 @@ def _row_label(
         dot, color, word = "✗", ui.ERR, "failed"
     elif status == "auth":
         dot, color, word = "◐", ui.WARN, "sign in"
+    elif status == "off":
+        dot, color, word = "○", ui.FG_DIM, ("off" if mcp_on else "MCP off")
     elif health.get("needs_credentials"):
         dot, color, word = "◈", ui.WARN, "needs keys"
     elif status == "warn":
@@ -135,19 +162,23 @@ def _row_label(
     else:
         icon, icon_style = _tile(mcp_catalog.monogram(name), "")
         detail = _endpoint_text(cfg)
-    right = Text(no_wrap=True)
+    off = status == "off"
+    right = _switch(enabled, live=mcp_on, meta={"mcp_switch": name})
     right.append(f"{dot} {word}", style=color if status != "idle" or connecting else ui.FG_DIM)
     right.append(f"   {meta}", style=ui.FG_DIM)
+    if off:
+        icon_style = f"{ui.FG_DIM} on {ui.BG_3}"
     return picker_row(
         f" {name}",
         detail=detail,
         right="",
         icon=icon,
         icon_style=icon_style,
-        title_style=f"bold {ui.FG}",
+        title_style=ui.FG_DIM if off else f"bold {ui.FG}",
+        detail_style=ui.FG_DIM,
         title_width=20,
         tags=right,
-        tags_width=min(46, max(30, len(right.plain) + 2)),
+        tags_width=_TAGS_W,  # one width for every row, so the switches line up
     )
 
 
@@ -245,6 +276,18 @@ class CategoryBar(Widget):
                 return
 
 
+class McpHeader(Static):
+    """The scope / counts line — its ``MCP ON`` pill switches MCP as a whole."""
+
+    class MasterClicked(Message):
+        pass
+
+    def on_click(self, event) -> None:
+        if event.style.meta.get("mcp_master"):
+            event.stop()
+            self.post_message(self.MasterClicked())
+
+
 class McpList(OptionList):
     """An ``OptionList`` that says whether a row was picked by mouse or keyboard,
     so a click can connect a marketplace server but never disconnects a live one."""
@@ -255,11 +298,22 @@ class McpList(OptionList):
             self.index = index
             self.by_mouse = by_mouse
 
+    class SwitchClicked(Message):
+        """The ON / OFF pill of a server row was clicked."""
+
+        def __init__(self, name: str) -> None:
+            super().__init__()
+            self.name = name
+
     async def _on_click(self, event) -> None:
         event.prevent_default()  # OptionList's own handler would select it as if by keyboard
         clicked = event.style.meta.get("option")
         if clicked is not None and not self._options[clicked].disabled:
             self.highlighted = clicked
+            switch = event.style.meta.get("mcp_switch")
+            if switch:
+                self.post_message(self.SwitchClicked(str(switch)))
+                return
             self.post_message(self.Activated(clicked, True))
 
     def action_select(self) -> None:
@@ -316,7 +370,9 @@ class MCPModalScreen(TuiModalScreen[None]):
 
     BINDINGS = [
         Binding("escape", "cancel",   "Close",  show=True),
-        Binding("space",  "toggle",   "Toggle", show=True),
+        Binding("space",  "switch",   "On/off", show=True),
+        Binding("t",      "switch",   "On/off", show=False),
+        Binding("T",      "switch_all", "All MCP", show=True),
         Binding("g",      "toggle_global", "Global", show=True),
         Binding("i",      "import_global", "Import", show=True),
         Binding("e",      "export_global", "Export", show=True),
@@ -356,7 +412,7 @@ class MCPModalScreen(TuiModalScreen[None]):
         with CenterMiddle():
             with Vertical(id="modal"):
                 yield Static("▧  MCP servers & marketplace", id="modal_title")
-                yield Static("", id="mcp_header")
+                yield McpHeader("", id="mcp_header")
                 yield Input(
                     value=self._filter,
                     placeholder=f"Search {len(mcp_catalog.CATALOG)}+ servers — Slack, Notion, GitHub…  or paste a link / npx command",
@@ -368,13 +424,14 @@ class MCPModalScreen(TuiModalScreen[None]):
                 yield Static("", id="mcp_status")
                 with Horizontal(id="mcp_buttons"):
                     yield Button("Connect", id="mcp_primary", variant="primary", compact=True)
+                    yield Button("Turn off", id="mcp_switch", compact=True)
                     yield Button("Keys…", id="mcp_keys", compact=True)
                     yield Button("OAuth app…", id="mcp_app", compact=True)
                     yield Button("+ Custom server", id="mcp_add", compact=True)
                 yield Static(
-                    hint_line(("↵", "connect"), ("↑↓", "move"), ("←→", "category"), ("/", "search"),
-                              ("a", "custom"), ("d", "remove"), ("o", "sign out"), ("g", "global"),
-                              ("esc", "close")),
+                    hint_line(("↵", "connect"), ("space", "on/off"), ("T", "all MCP"), ("↑↓", "move"),
+                              ("←→", "category"), ("/", "search"), ("a", "custom"), ("d", "remove"),
+                              ("g", "global"), ("esc", "close")),
                     id="modal_hint",
                 )
 
@@ -498,6 +555,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             "warn": ui.WARN,
             "connecting": ui.WARN,
             "auth": ui.WARN,
+            "off": ui.FG_DIM,
         }.get(status, ui.FG_MUTE)
 
     def _header_health_bits(self, names: list[str]) -> Text:
@@ -515,6 +573,8 @@ class MCPModalScreen(TuiModalScreen[None]):
             parts.append((f"{counts['warn']} warn", "yellow"))
         if counts.get("idle"):
             parts.append((f"{counts['idle']} idle", "dim"))
+        if counts.get("off"):
+            parts.append((f"{counts['off']} off", "dim"))
         if not parts:
             return Text("")
         segs: list[tuple[str, str]] = [(" · ", "dim")]
@@ -580,7 +640,10 @@ class MCPModalScreen(TuiModalScreen[None]):
         item = mcp_catalog.for_server(name, cfg or {})
         detail = health.get("detail") or health.get("summary", "")
         hint = ""
-        if health["status"] == "auth":
+        if health["status"] == "off":
+            hint = (" — space turns it back on" if mcp_toggle.mcp_enabled()
+                    else " — press T (or Enter) to turn MCP back on")
+        elif health["status"] == "auth":
             hint = " — press Enter to sign in"
         elif health.get("needs_credentials"):
             hint = " — press Enter (or k) to add " + ", ".join(self._field_labels(name, health["needs_credentials"]))
@@ -640,19 +703,30 @@ class MCPModalScreen(TuiModalScreen[None]):
         auto_connect = set(config.get_auto_connect())
         spinner = self._spinner_char()
 
-        # Header line
+        # Header line — the MCP master switch first, then scope and counts
+        mcp_on = mcp_toggle.mcp_enabled()
+        master = Text.assemble(("MCP ", f"bold {ui.FG}"),
+                               _switch(mcp_on, meta={"mcp_master": True}), ("  ", ""))
         connecting_count = len(self._connecting_names)
         scope_bits = (
             ("◉ global on", f"bold {ui.ACCENT}") if config.include_global() else ("▣ project only", f"bold {ui.ACCENT_2}")
         )
-        if connecting_count:
+        if not mcp_on:
             scope_text = Text.assemble(
+                master,
+                ("all servers off — nothing connects, Jarvis gets no MCP tools", ui.WARN),
+                ("   T or click to turn on", ui.FG_DIM),
+            )
+        elif connecting_count:
+            scope_text = Text.assemble(
+                master,
                 ("scope ", ui.FG_DIM), scope_bits, ("   ", ""),
                 (f"{spinner} connecting {connecting_count} server", f"bold {ui.WARN}"),
                 ("s…" if connecting_count != 1 else "…", f"bold {ui.WARN}"),
             )
         else:
             scope_text = Text.assemble(
+                master,
                 ("scope ", ui.FG_DIM), scope_bits, ("   ", ""),
                 (f"{len(servers)} server{'s' if len(servers) != 1 else ''}", ui.FG_MUTE),
                 self._header_health_bits(sorted(servers.keys())),
@@ -798,6 +872,12 @@ class MCPModalScreen(TuiModalScreen[None]):
         elif kind == "add":
             self.action_manual_add(self._filter.strip() if key == "source" else "")
         elif kind == "srv":
+            if not mcp_toggle.mcp_enabled():
+                self.action_switch_all()
+                return
+            if not mcp_toggle.server_enabled(key):
+                self.action_switch()
+                return
             health = mcp_registry.get_server_health(key, get_config().get_server(key))
             if health.get("needs_credentials") and not mcp_registry.is_connected(key):
                 self.action_keys()
@@ -810,6 +890,7 @@ class MCPModalScreen(TuiModalScreen[None]):
             primary = self.query_one("#mcp_primary", Button)
             keys = self.query_one("#mcp_keys", Button)
             app_btn = self.query_one("#mcp_app", Button)
+            switch_btn = self.query_one("#mcp_switch", Button)
         except Exception:
             return
 
@@ -823,6 +904,7 @@ class MCPModalScreen(TuiModalScreen[None]):
 
         keys.display = False
         app_btn.display = False
+        switch_btn.display = False
         if item:
             set_label({"app": "Set up", "desktop": "Set up", "key": "Connect…"}.get(item.get("auth", ""), "Connect"))
             return
@@ -834,6 +916,13 @@ class MCPModalScreen(TuiModalScreen[None]):
             return
         health = health or mcp_registry.get_server_health(name, get_config().get_server(name))
         status = health.get("status")
+        if not mcp_toggle.mcp_enabled():
+            set_label("Turn MCP on")
+            return
+        if not mcp_toggle.server_enabled(name):
+            set_label("Turn on")
+            return
+        switch_btn.display = True
         set_label(
             "Authenticate" if status == "auth"
             else "Disconnect" if health.get("connected")
@@ -853,6 +942,8 @@ class MCPModalScreen(TuiModalScreen[None]):
             self._activate()
         elif bid == "mcp_add":
             self.action_manual_add()
+        elif bid == "mcp_switch":
+            self.action_switch()
         elif bid == "mcp_keys":
             self.action_keys()
         elif bid == "mcp_app":
@@ -1115,6 +1206,9 @@ class MCPModalScreen(TuiModalScreen[None]):
         name = self._selected_name()
         if not name or name in self._connecting_names or self._scope_busy:
             return
+        if not mcp_toggle.is_enabled(name):
+            self._activate()  # turns it (or MCP) on first
+            return
         config = get_config()
         if not mcp_registry.is_connected(name):
             health = mcp_registry.get_server_health(name, config.get_server(name))
@@ -1230,6 +1324,90 @@ class MCPModalScreen(TuiModalScreen[None]):
                 self._set_status("global scope ON", ok=True)
         else:
             self._set_status("global scope OFF — project servers only", ok=True)
+        self._refresh_rows()
+
+    # ── on / off ─────────────────────────────────────────────────────────
+
+    def on_mcp_list_switch_clicked(self, event: McpList.SwitchClicked) -> None:
+        event.stop()
+        self._switch_server(event.name)
+
+    def on_mcp_header_master_clicked(self, event: McpHeader.MasterClicked) -> None:
+        event.stop()
+        self.action_switch_all()
+
+    def action_switch(self) -> None:
+        """Space / t / the ON-OFF pill: switch the highlighted server on or off."""
+        name = self._selected_name()
+        if name:
+            self._switch_server(name)
+
+    def _switch_server(self, name: str) -> None:
+        if name in self._connecting_names or self._scope_busy:
+            return
+        on = not mcp_toggle.server_enabled(name)
+        if on and mcp_toggle.mcp_enabled():
+            self._connecting_names.add(name)
+            self._connect_status_msg = f"turning {name} on…"
+            self._start_connect_spinner()
+            self._set_status(f"{self._spinner_char()} turning {name} on…", connecting=True)
+        self._switch_worker(name, on)
+        self._refresh_rows()
+
+    @work(thread=True, exclusive=False, group="mcp-switch")
+    def _switch_worker(self, name: str, on: bool) -> None:
+        from ..mcp.install import set_server_enabled
+
+        try:
+            res = set_server_enabled(name, on)
+        except Exception as exc:  # never leave the row spinning
+            res = {"ok": False, "error": str(exc)}
+        self.app.call_from_thread(self._switch_done, name, on, res)
+
+    def _switch_done(self, name: str, on: bool, res: dict) -> None:
+        self._connecting_names.discard(name)
+        if not self._connecting_names and not self._scope_busy and not self._adding:
+            self._stop_connect_spinner()
+            self._connect_status_msg = ""
+        if not self.is_mounted:
+            return
+        st = res.get("status")
+        ok = None if st in ("auth_required", "needs_credentials") else (
+            bool(res.get("ok")) and st != "failed" and "couldn't" not in str(res.get("message", "")))
+        self._set_status(res.get("message") or res.get("error", "could not change it"), ok=ok)
+        self._refresh_rows()
+        if st == "auth_required":
+            self._sign_in(name)
+
+    def action_switch_all(self) -> None:
+        """T / the header pill: MCP as a whole on or off."""
+        if self._scope_busy:
+            return
+        on = not mcp_toggle.mcp_enabled()
+        self._scope_busy = True
+        self._connect_status_msg = "turning MCP on…" if on else "turning MCP off…"
+        self._start_connect_spinner()
+        self._set_status(f"{self._spinner_char()} {self._connect_status_msg}", connecting=True)
+        self._switch_all_worker(on)
+
+    @work(thread=True, exclusive=True, group="mcp-switch-all")
+    def _switch_all_worker(self, on: bool) -> None:
+        from ..mcp.install import set_mcp_enabled
+
+        try:
+            res = set_mcp_enabled(on)
+        except Exception as exc:
+            res = {"ok": False, "message": f"couldn't switch MCP: {exc}"}
+        self.app.call_from_thread(self._switch_all_done, res)
+
+    def _switch_all_done(self, res: dict) -> None:
+        self._scope_busy = False
+        self._connect_status_msg = ""
+        if not self._connecting_names and not self._adding:
+            self._stop_connect_spinner()
+        if not self.is_mounted:
+            return
+        self._set_status(res.get("message", ""), ok=bool(res.get("ok")) and not res.get("failed"))
         self._refresh_rows()
 
     def action_toggle_global(self) -> None:

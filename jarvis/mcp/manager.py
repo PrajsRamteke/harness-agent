@@ -71,6 +71,12 @@ def handle_mcp_command(arg: str) -> Any:
         return _cmd_paths()
     if cmd == "global":
         return _cmd_global(sub_args)
+    if cmd in ("on", "off") and not sub_args:
+        return _cmd_power(cmd == "on")
+    if cmd in ("enable", "disable", "on", "off"):
+        return _cmd_enable(sub_args, cmd in ("enable", "on"))
+    if cmd in ("status", "power") and not sub_args:
+        return _cmd_power(None)
     if cmd in ("help", "--help", "-h"):
         return _usage_panel()
     return Group(
@@ -90,7 +96,11 @@ from .sources import (
 )
 
 
-def _status_cell(connected: bool, tools: int) -> Text:
+def _status_cell(connected: bool, tools: int, name: str = "") -> Text:
+    from .toggle import is_enabled
+
+    if name and not connected and not is_enabled(name):
+        return Text("◌ off", style="dim italic")
     if connected:
         text = Text("● live", style="bold green")
         if tools:
@@ -115,7 +125,7 @@ def _server_table(rows: list[tuple[str, dict, bool]]) -> Table:
         endpoint = _format_endpoint(cfg, max_len=80)
 
         t.add_row(
-            _status_cell(connected, tools),
+            _status_cell(connected, tools, name),
             Text(name, style="bold white"),
             Text("auto", style="cyan") if is_auto else Text("", style="dim"),
             Text(transport, style="dim"),
@@ -135,6 +145,9 @@ def _usage_panel() -> Panel:
         ("/mcp paths",                "show config-file locations across all known tools"),
         ("/mcp global on",            "load servers from Claude Code / OpenCode / Cursor / Windsurf / VS Code"),
         ("/mcp global off",           "project-only — hide globals (default)"),
+        ("/mcp on · /mcp off",        "turn MCP as a whole on / off (off = no server connects, no MCP tools)"),
+        ("/mcp enable <name>",        "switch a server on (connects it)"),
+        ("/mcp disable <name>",       "switch a server off — stays configured, never connects"),
         ("/mcp connect <name>",       "start a configured server"),
         ("/mcp disconnect <name>",    "stop a running server"),
         ("/mcp add <link|command|json|name>", "add a server: https://…, npx -y …, claude mcp add …, JSON, a GitHub link, or “linear”"),
@@ -629,6 +642,41 @@ def _cmd_connect(args: list[str]):
         Text.from_markup(f"  [dim]tools:[/] {sample}") if sample else Text(""),
     )
     return Panel(body, border_style="green", padding=(0, 1))
+
+
+def _cmd_power(on: bool | None):
+    """``/mcp on`` · ``/mcp off`` · ``/mcp status`` — MCP as a whole."""
+    from . import toggle
+    from .install import set_mcp_enabled
+
+    if on is None:
+        off = sorted(n for n in toggle.disabled_servers() if get_config().get_server(n) is not None)
+        line = "[green]● MCP is on[/]" if toggle.mcp_enabled() else "[yellow]○ MCP is off[/] [dim]— /mcp on to turn it back on[/]"
+        if off:
+            line += f"\n  [dim]switched off:[/] {', '.join(off)}"
+        return Text.from_markup(line)
+    res = set_mcp_enabled(on)
+    color = "green" if on else "yellow"
+    return Text.from_markup(f"[{color}]{'●' if on else '○'}[/] {res['message']}")
+
+
+def _cmd_enable(args: list[str], on: bool):
+    """``/mcp enable <name>`` · ``/mcp disable <name>`` — one server's switch."""
+    from .install import set_server_enabled
+
+    if not args:
+        verb = "enable" if on else "disable"
+        return Text.from_markup(f"[red]Usage:[/] [cyan]/mcp {verb} <name>[/]  [dim](or /mcp {'on' if on else 'off'} for all of MCP)[/]")
+    rows = []
+    for name in args:
+        res = set_server_enabled(name, on)
+        if not res.get("ok"):
+            rows.append(Text.from_markup(f"[red]✗[/] {res.get('error', 'could not change it')}"))
+            continue
+        st = res.get("status")
+        mark = "[green]●[/]" if st == "connected" else "[yellow]◐[/]" if on else "[dim]○[/]"
+        rows.append(Text.from_markup(f"{mark} ") + Text(res["message"]))
+    return Group(*rows) if len(rows) > 1 else rows[0]
 
 
 def _cmd_disconnect(args: list[str]):

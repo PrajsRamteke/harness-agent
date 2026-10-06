@@ -237,6 +237,14 @@ class SidebarBody(Widget):
         except Exception:
             servers, source_of = {}, None
         section("MCP", "◈")
+        try:
+            from ..mcp.toggle import mcp_enabled
+
+            mcp_on = mcp_enabled()
+        except Exception:
+            mcp_on = True
+        if not mcp_on and servers:
+            out.append("  off", style=f"italic {ui.FG_DIM}")
         names = list(servers.items())
         for name, cfg in names[:8]:
             try:
@@ -250,6 +258,12 @@ class SidebarBody(Widget):
             }.get(status, ui.FG_DIM)
             out.append("\n")
             hit("mcp", name, status)
+            if status == "off":
+                out.append("○ ", style=ui.FG_DIM)
+                out.append(name, style=ui.FG_DIM)
+                if mcp_on:
+                    out.append("  off", style=ui.FG_DIM)
+                continue
             out.append("◐ " if status == "auth" else "● ", style=color)
             out.append(name, style=ui.FG_MUTE if status != "auth" else f"underline {ui.FG}")
             if status == "auth":

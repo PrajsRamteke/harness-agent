@@ -12,7 +12,7 @@ run ``/settings reload`` (or restart) to pick up changes::
       "model": "sonnet-4-6",
       "theme": "red",
       "skills": { "global": false },
-      "mcp":    { "global": false },
+      "mcp":    { "global": false, "enabled": true, "disabled": [] },
       "think":  { "mode": true, "effort": "high" },
       "trace":  { "on": true }
     }
@@ -58,7 +58,7 @@ DEFAULTS: dict[str, Any] = {
     "theme":  "red",
     "agent":  {"active": "", "global": True},   # global agents visible by default
     "skills": {"global": False},
-    "mcp":    {"global": False},
+    "mcp":    {"global": False, "enabled": True, "disabled": []},  # enabled = MCP as a whole · disabled = servers switched off
     "think":  {"mode": True, "effort": "high"},
     "trace":  {"on": True},   # show thinking + tool panels in TUI transcript
     "pin":    {"enabled": True},  # inject pinned.txt into every system prompt
@@ -182,7 +182,11 @@ def _coerce(path: str, value: Any) -> Any:
         if value not in _VALID_THINK_EFFORTS:
             raise ValueError(f"think.effort must be one of {_VALID_THINK_EFFORTS}")
         return value
-    if path in ("skills.global", "mcp.global", "agent.global", "think.mode", "pin.enabled", "ui.mouse",
+    if path == "mcp.disabled":
+        if not isinstance(value, (list, tuple)) or not all(isinstance(v, str) for v in value):
+            raise ValueError("mcp.disabled must be a list of server names")
+        return sorted({v.strip() for v in value if v.strip()})
+    if path in ("skills.global", "mcp.global", "mcp.enabled", "agent.global", "think.mode", "pin.enabled", "ui.mouse",
                 "ui.sticky_prompt", "pet.enabled", "pet.nudges", "pet.notify", "web.qr", "web.keep_awake"):
         if isinstance(value, str):
             v = value.strip().lower()

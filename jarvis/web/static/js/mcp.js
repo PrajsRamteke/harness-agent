@@ -17,6 +17,10 @@
  * **Your servers**: one card per server with its status and the one thing to
  * do next — Authenticate, Enter key, Connect, Retry, Disconnect, or use your
  * own OAuth app for a host that only lets approved apps sign in.
+ * **On / off**: every card has a switch — off keeps the server configured but
+ * it never connects and Jarvis gets none of its tools —, and the top of
+ * *Your servers* has one for MCP as a whole (`POST /api/mcp/enable` ·
+ * `/api/mcp/power`; the terminal's `/mcp` dialog and `/mcp on|off` share it).
  *
  * A hosted server that needs a browser sign-in also puts a banner above the
  * composer and a dot on the sidebar's MCP button, so the button is one click
@@ -36,8 +40,8 @@ import { fetchMcpServers, fetchMcpAuth, extPost, pickerAction } from './api.js';
 import { btn, rowBtn, moreBtn, seg, mark, patch, field, autosize, msg, spin, plural, tildify, openMenu, closeMenu, hostOf } from './extui.js';
 import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
 
-const TONE = { live: 'accent', auth: 'amber', key: 'amber', warn: 'amber', failed: 'chili', connecting: 'slate', idle: 'slate' };
-const RANK = { auth: 0, key: 1, failed: 2, warn: 3, connecting: 4, live: 5, idle: 6 };
+const TONE = { live: 'accent', auth: 'amber', key: 'amber', warn: 'amber', failed: 'chili', connecting: 'slate', idle: 'slate', off: 'slate' };
+const RANK = { auth: 0, key: 1, failed: 2, warn: 3, connecting: 4, live: 5, idle: 6, off: 7 };
 const SCOPES = [
   { value: 'project', label: 'This project', title: 'Only in this folder (.mcp.json)' },
   { value: 'global', label: 'Global', title: 'Every project on this computer' },
@@ -73,6 +77,7 @@ let pollTimer = 0;
 let previewSeq = 0;
 let tab = ''; // 'market' | 'servers' ('' = pick for the user)
 let svq = ''; // Your servers search
+let powerBusy = false; // MCP as a whole is being switched
 /** The sub-view on show: null (the tabs) | { kind: 'custom' } | { kind: 'setup', id } | { kind: 'app', name }. */
 let view = null;
 const HINTS = [['↑ ↓', 'move'], ['↵', 'connect'], ['esc', 'close']];
@@ -109,9 +114,13 @@ const looksLikeSource = (text) => SOURCE_RE.test(String(text || '').trim());
 
 // ─── Status ───────────────────────────────────────────────────────────────
 
+/** MCP as a whole (the switch at the top of Your servers). */
+const mcpOn = () => data?.mcp_enabled !== false;
+
 function statusOf(s) {
   const h = s.health || {};
   if (h.connected) return 'live';
+  if (h.status === 'off' || s.enabled === false || !mcpOn()) return 'off';
   if (auth[s.name] || h.status === 'auth') return 'auth';
   if (busy[s.name] === 'connect' || h.status === 'connecting') return 'connecting';
   if ((s.needs_credentials || []).length) return 'key';
@@ -131,7 +140,8 @@ function statusText(s, st) {
     case 'failed': return 'Couldn’t connect';
     case 'warn': return 'Check setup';
     case 'connecting': return 'Connecting…';
-    default: return 'Off';
+    case 'off': return s.enabled === false ? 'Turned off' : 'Off · MCP is off';
+    default: return 'Not connected';
   }
 }
 
@@ -176,12 +186,26 @@ function headHtml(s) {
     <span class="pv-chev">${icon('chevron-down')}</span>`;
 }
 
+/** A server's own on / off switch (a real checkbox: Space toggles it, screen readers say "switch"). */
+function switchHtml(s) {
+  const on = s.enabled !== false;
+  const b = busy[s.name] === 'enable';
+  const label = `${displayName(s)} ${on ? 'on' : 'off'}`;
+  const title = !mcpOn()
+    ? `MCP is off — ${on ? 'this server connects once MCP is back on' : 'this server stays off when MCP is back on'}`
+    : on ? 'On — click to turn off (disconnects it, Jarvis loses its tools)' : 'Off — click to turn on and connect';
+  return `<label class="ex-switch${b ? ' is-busy' : ''}${mcpOn() ? '' : ' is-muted'}" title="${escapeHtml(title)}">
+    <input type="checkbox" class="switch" role="switch" data-act="enable" data-name="${escapeHtml(s.name)}" aria-label="${escapeHtml(label)}"${on ? ' checked' : ''}${b ? ' disabled aria-busy="true"' : ''}>
+  </label>`;
+}
+
 function sideHtml(s) {
   const st = statusOf(s);
   const name = s.name;
   const b = busy[name];
   let primary = '';
-  if (b && b !== 'connect') primary = `<span class="pv-side-busy">${spin('')}</span>`;
+  if (st === 'off') primary = '';
+  else if (b && b !== 'connect') primary = `<span class="pv-side-busy">${spin('')}</span>`;
   else if (st === 'auth') {
     const a = auth[name];
     if (a?.starting) primary = rowBtn('auth', 'Opening', { busy: true, data: { name } });
@@ -189,10 +213,10 @@ function sideHtml(s) {
     else primary = rowBtn('auth', 'Authenticate', { cls: 'is-primary', ic: 'log-in', data: { name } });
   } else if (st === 'key') primary = rowBtn('open-key', 'Enter key', { cls: 'is-primary', ic: 'key-round', data: { name } });
   else if (st === 'connecting') primary = `<span class="pv-side-busy">${spin('')}</span>`;
-  else if (st === 'live') primary = rowBtn('disconnect', 'Disconnect', { data: { name } });
-  else if (st === 'failed') primary = rowBtn('connect', 'Retry', { ic: 'refresh-cw', data: { name } });
-  else primary = rowBtn('connect', 'Connect', { cls: 'is-go', data: { name } });
-  return `${primary}${moreBtn(name)}`;
+  else if (st === 'live') primary = rowBtn('disconnect', 'Disconnect', { ic: 'plug', data: { name }, title: 'Disconnect' });
+  else if (st === 'failed') primary = rowBtn('connect', 'Retry', { ic: 'refresh-cw', data: { name }, title: 'Retry' });
+  else primary = rowBtn('connect', 'Connect', { cls: 'is-go', ic: 'plug-zap', data: { name }, title: 'Connect' });
+  return `${primary}${switchHtml(s)}${moreBtn(name)}`;
 }
 
 function factsHtml(s) {
@@ -334,10 +358,22 @@ function toolsHtml(s) {
   </div>`;
 }
 
+function offPanel(s) {
+  if (!mcpOn()) {
+    return `<p class="pv-note ex-off-note">${icon('power')}<span>MCP is off, so no server connects. ${s.enabled === false
+      ? 'This one also stays off when MCP is turned back on.'
+      : 'This one connects again once MCP is back on.'}</span></p>
+      <div class="pv-actions">${btn('power-on', 'Turn MCP on', { cls: 'btn-primary', ic: 'power' })}</div>`;
+  }
+  return `<p class="pv-note ex-off-note">${icon('circle-off')}<span>Turned off. ${escapeHtml(displayName(s))} stays in your config, but Jarvis won’t connect it or use its tools until you turn it back on.</span></p>
+    <div class="pv-actions">${btn('enable-on', 'Turn on', { cls: 'btn-primary', ic: 'power', data: { name: s.name }, busy: busy[s.name] === 'enable' })}</div>`;
+}
+
 function panelHtml(s) {
   const st = statusOf(s);
   let mid = '';
-  if (st === 'auth') mid = authPanel(s);
+  if (st === 'off') mid = offPanel(s);
+  else if (st === 'auth') mid = authPanel(s);
   else if (st === 'key') mid = keyPanel(s);
   else if (st === 'failed') mid = failedPanel(s);
   else if (st === 'warn') mid = warnPanel(s);
@@ -350,7 +386,7 @@ function panelHtml(s) {
 
 function rowClass(s) {
   const st = statusOf(s);
-  return `pv-row ex-row is-${st}${openName === s.name ? ' is-open' : ''}${st === 'live' ? ' is-connected' : ''}`;
+  return `pv-row ex-row is-${st}${openName === s.name ? ' is-open' : ''}${st === 'live' ? ' is-connected' : ''}${busy[s.name] === 'enable' ? ' is-switching' : ''}`;
 }
 
 function rowHtml(s, i, fresh) {
@@ -543,6 +579,7 @@ function mkSideHtml(r) {
       return rowBtn('auth', a?.url ? 'Open again' : 'Sign in', { cls: 'is-primary', ic: 'log-in', data: { name: s.name } });
     }
     if (st === 'connecting') return `<span class="mk-busy">${spin('Connecting')}</span>`;
+    if (st === 'off') return `<span class="mk-state is-off">${icon('circle-off')}Off</span>${rowBtn('mk-manage', 'Manage', { data: { id } })}`;
     if (st === 'key') return rowBtn('mk-manage', 'Enter key', { cls: 'is-primary', ic: 'key-round', data: { id } });
     if (st === 'failed') return rowBtn('mk-manage', 'Fix', { cls: 'is-warn', ic: 'circle-alert', data: { id } });
     return rowBtn('connect', 'Connect', { cls: 'is-go', ic: 'plug-zap', data: { name: s.name } });
@@ -862,14 +899,33 @@ function listSig() {
   return visibleServers().map((s) => s.name).join(',');
 }
 
+/** The MCP master switch on top of Your servers. */
+function powerHtml(all) {
+  const on = mcpOn();
+  const live = all.filter((s) => statusOf(s) === 'live').length;
+  const off = all.filter((s) => s.enabled === false).length;
+  const sub = !on
+    ? 'Off — no server connects and Jarvis has no MCP tools.'
+    : [live ? `${live} connected` : 'Jarvis uses the tools of every server that’s on', off ? `${off} turned off` : ''].filter(Boolean).join(' · ');
+  return `<div class="mcp-power${on ? ' is-on' : ' is-off'}${powerBusy ? ' is-busy' : ''}">
+    <span class="mcp-power-ic" aria-hidden="true">${icon('power')}</span>
+    <span class="mcp-power-text"><strong id="mcp-power-lbl">MCP servers</strong><span>${escapeHtml(sub)}</span></span>
+    ${powerBusy ? `<span class="pv-side-busy">${spin('')}</span>` : ''}
+    <label class="ex-switch is-lg" title="${on ? 'Turn MCP off — disconnects every server' : 'Turn MCP on — connects your servers again'}">
+      <input type="checkbox" class="switch" role="switch" data-act="power" aria-labelledby="mcp-power-lbl"${on ? ' checked' : ''}${powerBusy ? ' disabled aria-busy="true"' : ''}>
+    </label>
+  </div>`;
+}
+
 function renderList() {
   const list = $('mcp-list');
   if (!list || !data) return;
   const all = data.servers || [];
   const servers = visibleServers();
   const live = all.filter((s) => statusOf(s) === 'live').length;
+  list.classList.toggle('is-mcp-off', !mcpOn());
   patch($('sv-head'), all.length
-    ? `${section('Your servers', { count: svq ? `${servers.length} of ${all.length}` : all.length, right: live ? `<span class="mk-state is-live"><i class="ex-dot" aria-hidden="true"></i>${live} connected</span>` : '' })}
+    ? `${powerHtml(all)}${section('Your servers', { count: svq ? `${servers.length} of ${all.length}` : all.length, right: live ? `<span class="mk-state is-live"><i class="ex-dot" aria-hidden="true"></i>${live} connected</span>` : '' })}
       ${data.global_mcp ? '' : '<p class="pv-hint ex-scope-hint">Servers added globally are hidden — choose <strong>Project + global</strong> below to use them too.</p>'}`
     : '');
   keepFocus(list, () => {
@@ -927,7 +983,9 @@ function renderHeader() {
   const need = servers.filter((s) => ['auth', 'key'].includes(statusOf(s))).length;
   setHomeSub('mcp', !servers.length
     ? `${catalogRows().length} servers to connect in a click`
-    : `${live} connected${need ? ` · ${need} need${need === 1 ? 's' : ''} you` : ''} · ${catalogRows().length} in the marketplace`);
+    : !mcpOn()
+      ? `MCP is off · ${plural(servers.length, 'server')} kept`
+      : `${live} connected${need ? ` · ${need} need${need === 1 ? 's' : ''} you` : ''} · ${catalogRows().length} in the marketplace`);
 }
 
 function render() {
@@ -1244,6 +1302,34 @@ async function connect(name) {
   } else if (res.status === 'failed') {
     setNote(name, res.error || 'Could not connect.', true);
     openName = name;
+  }
+  renderAll();
+}
+
+/** A server's switch. Off disconnects it; on connects it (quietly — a sign-in shows its button). */
+async function setEnabled(name, on) {
+  if (busy[name]) return;
+  const res = await run(name, 'enable', 'mcp/enable', { name, enabled: on }, { okText: (r) => r.message || `${name} ${on ? 'on' : 'off'}` });
+  if (!res.ok) return;
+  if (['auth_required', 'needs_credentials', 'failed'].includes(res.status)) openName = name;
+  else if (openName === name && !on) openName = null;
+  if (res.status === 'failed') setNote(name, res.error || 'Turned on, but it couldn’t connect.', true);
+  renderAll();
+}
+
+/** MCP as a whole. */
+async function setPower(on) {
+  if (powerBusy) return;
+  powerBusy = true;
+  renderAll();
+  const res = await extPost('mcp/power', { enabled: on });
+  powerBusy = false;
+  applyResult(res);
+  if (res.ok) {
+    haptic(10);
+    showToast(res.message || (on ? 'MCP is on' : 'MCP is off'));
+  } else {
+    showToast(res.error || 'Could not switch MCP', true);
   }
   renderAll();
 }
@@ -1683,6 +1769,10 @@ function handleClick(e) {
     case 'finish-auth': finishAuth(name); break;
     case 'cancel-auth': cancelAuth(name); break;
     case 'connect': connect(name); break;
+    case 'enable': setEnabled(name, el.checked); break;
+    case 'enable-on': setEnabled(name, true); break;
+    case 'power': setPower(el.checked); break;
+    case 'power-on': setPower(true); break;
     case 'disconnect': run(name, 'disconnect', 'mcp/disconnect', { name }, { okText: `Disconnected ${name}` }); break;
     case 'open-key': focusKey(name); break;
     case 'save-keys': saveKeys(name); break;

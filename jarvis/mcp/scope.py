@@ -22,6 +22,7 @@ def apply_mcp_scope_change(
     Returns a short status dict: ``visible``, ``connected``, ``failed``.
     """
     from ..repl.system import invalidate_system_cache
+    from .toggle import is_enabled
 
     config = reload_config()
     visible = set(config.list_servers().keys())
@@ -34,7 +35,7 @@ def apply_mcp_scope_change(
     connected: list[str] = []
     failed: list[tuple[str, str]] = []
     for name in to_connect:
-        if name not in visible or mcp_registry.is_connected(name):
+        if name not in visible or mcp_registry.is_connected(name) or not is_enabled(name):
             continue
         cfg = config.get_server(name)
         if cfg is None:
