@@ -19,9 +19,11 @@
  * folder that already has a Jarvis offers "Switch to it". "Move this chat
  * here" keeps the current chat and points it at the folder (the /cd command).
  *
- * New chat while a reply is running (`newChatBeside`) uses the same launch:
- * one Jarvis holds one chat, so the new chat gets its own Jarvis in this
- * folder and the running reply keeps going in the old one (under Projects).
+ * New chat while a reply is running opens this dialog in `newChat` mode
+ * (`openFolders({newChat: true})`, from `actions.js:newChat`): one Jarvis holds
+ * one chat, so you pick the folder and the new chat gets its own Jarvis there
+ * while the running reply keeps going in the old one (under Projects).
+ * (`newChatBeside` — same folder, no question — is no longer called.)
  */
 import { $, escapeHtml, showToast, debounce, haptic } from './utils.js';
 import { icon } from './icons.js';
@@ -47,7 +49,19 @@ const F = {
   launch: null,      // the launch being followed
   launchTimer: 0,
   acting: '',        // 'open' | 'move' | 'switch' while a footer action runs
+  newChat: false,    // opened by New chat while a reply runs: pick where the new chat starts
 };
+
+const HOME_TITLE = 'Open a folder';
+const HOME_SUB = 'Browse to a project — open it alongside this one, or move this chat there';
+
+/** The dialog's own title: "New chat" while choosing where a new chat starts. */
+function setHead(newChat) {
+  const h2 = $('folders-title');
+  const sub = $('folders-sub-title');
+  if (h2) h2.textContent = newChat ? 'New chat — choose a folder' : HOME_TITLE;
+  if (sub) sub.textContent = newChat ? 'The running reply keeps going — the new chat starts in the folder you pick' : HOME_SUB;
+}
 
 // ─── Small helpers ────────────────────────────────────────────────────────
 
@@ -278,7 +292,13 @@ function renderFoot() {
   const busy = F.acting;
   const spin = (act) => (busy === act ? '<span class="spinner" aria-hidden="true"></span>' : '');
   let actions;
-  if (here) {
+  if (F.newChat) {
+    // The running chat stays where it is: every choice here starts a new one.
+    const p = running.length ? findProject(running[0].id) : null;
+    actions = `
+      ${running.length ? `<button type="button" class="btn" data-act="switch" data-id="${escapeHtml(running[0].id)}" ${busy ? 'disabled' : ''}>${icon('arrow-right-left')}<span>Switch to ${escapeHtml(p?.project || d.name)}</span></button>` : ''}
+      <button type="button" class="btn btn-primary" data-act="open-new" ${busy ? 'disabled' : ''}>${spin('open') || icon('plus')}<span>Start new chat here</span></button>`;
+  } else if (here) {
     actions = `
       <span class="fd-here-note">${icon('circle-check')}<span>This chat works here</span></span>
       <button type="button" class="btn btn-primary" data-act="open-new" ${busy ? 'disabled' : ''}>${spin('open') || icon('plus')}<span>New session here</span></button>`;
@@ -504,7 +524,7 @@ function onClick(e) {
   else if (act === 'hidden') {
     F.hidden = !F.hidden;
     go(F.path);
-  } else if (act === 'open') openHere(path);
+  } else if (act === 'open') openHere(path, F.newChat ? { reuse: false } : {});
   else if (act === 'switch') switchTo(id);
   else if (act === 'open-here') openHere(F.path);
   else if (act === 'open-new') openHere(F.path, { reuse: false });
@@ -631,8 +651,10 @@ async function replaceChat() {
 // ─── Open / init ──────────────────────────────────────────────────────────
 
 /** Open the picker at `path` (default: the folder this chat works in). */
-export function openFolders({ path = '' } = {}) {
+export function openFolders({ path = '', newChat = false } = {}) {
   const start = path || store.session.cwd || '';
+  F.newChat = !!newChat;
+  setHead(F.newChat);
   if (F.launch?.status === 'failed') F.launch = null; // seen already: start from the folders again
   if (F.launch) {
     // A launch is still running: show it rather than starting over.
@@ -664,6 +686,8 @@ export function openFolders({ path = '' } = {}) {
 function onClose() {
   // A launch keeps going: followLaunch toasts when it's ready.
   F.acting = '';
+  F.newChat = false;
+  setHead(false);
 }
 
 export function initFolders() {

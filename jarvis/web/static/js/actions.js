@@ -36,10 +36,11 @@ export async function runAction(action, data = {}, successMsg = '') {
 
 export async function newChat() {
   // A reply is running: one Jarvis holds one chat, so the new chat starts in
-  // another Jarvis in this folder and the running one keeps going (Projects).
+  // another Jarvis — ask which folder, and the running one keeps going (Projects).
   if (store.busy && store.session.cwd) {
-    const { newChatBeside } = await import('./folders.js');
-    return newChatBeside();
+    const { openFolders } = await import('./folders.js');
+    openFolders({ newChat: true });
+    return { ok: true, beside: true };
   }
   const res = await runAction('session_new', {});
   // A turn still running is stopped first (server side); say so.
