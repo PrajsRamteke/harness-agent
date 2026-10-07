@@ -49,7 +49,11 @@ DEFAULT_RETRIES = 3
 # provider rejects this value.
 API_MAX_TOKENS = _env_int("HARNESS_API_MAX_TOKENS", 32000, 1024, 200_000)
 THINKING_BUDGET_TOKENS = 4000
-THINK_EFFORTS = ("xhigh", "high", "medium", "low", "minimal", "none")
+# Every effort a provider can name, highest first (the picker's order). Which of
+# them a given model takes is discovered at runtime — see auth/thinking_caps.py.
+THINK_EFFORTS = ("ultra", "max", "xhigh", "high", "medium", "low", "minimal", "none")
+# Efforts offered for a model nothing is known about (the pre-discovery list).
+THINK_EFFORTS_LEGACY = ("xhigh", "high", "medium", "low", "minimal")
 DEFAULT_THINK_EFFORT = "high"
 SPECK_MAX_CHARS = 8000
 CLICK_WAIT_ATTEMPTS = 20

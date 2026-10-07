@@ -187,7 +187,9 @@ body.is-busy .composer::before { opacity: 1; animation: scan 1.9s ease-in-out in
   left: 0;
   bottom: calc(100% + 8px);
   z-index: 10;
-  width: 250px;
+  width: 270px;
+  max-height: min(70vh, 460px);
+  overflow-y: auto;
   padding: 5px;
   border-radius: 16px;
   border: 1px solid var(--line-2);
@@ -216,6 +218,12 @@ body.is-busy .composer::before { opacity: 1; animation: scan 1.9s ease-in-out in
   text-align: left;
 }
 .effort-item:hover, .effort-item:focus-visible { background: var(--card-hover); outline: none; }
+/* A level this model doesn't take: listed (so a short list is explained) but not pickable. */
+.effort-item.is-unavailable { opacity: 0.45; cursor: not-allowed; }
+.effort-item.is-unavailable:hover { background: none; }
+.effort-note { padding: 6px 10px 6px 8px; font-size: 12px; line-height: 1.35; color: var(--text-3); }
+.effort-note em { font-style: normal; opacity: 0.8; }
+.effort-note.is-warn { color: var(--warn); }
 .ei-check { display: grid; place-items: center; width: 18px; color: var(--accent); }
 .ei-check .ic { width: 14px; height: 14px; stroke-width: 2.6; }
 .ei-body { display: flex; flex-direction: column; line-height: 1.3; }

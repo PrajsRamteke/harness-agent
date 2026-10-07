@@ -423,7 +423,7 @@ _ADAPTIVE_THINKING_PREFIXES = (
     "claude-opus-4-7", "claude-opus-4-8",
 )
 # Jarvis effort → API effort (the API has no "minimal").
-_CLAUDE_EFFORT = {"xhigh": "xhigh", "high": "high", "medium": "medium", "low": "low", "minimal": "low"}
+_CLAUDE_EFFORT = {"ultra": "max", "max": "max", "xhigh": "xhigh", "high": "high", "medium": "medium", "low": "low", "minimal": "low"}
 
 
 def claude_uses_adaptive_thinking(model_id: str) -> bool:
@@ -1200,6 +1200,14 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
         # Every provider and model models.dev knows. An unchanged catalog is a
         # 304; an explicit /model refresh (retry_blocked) refetches in full.
         ok = bool(_catalog().refresh(force=retry_blocked)) or ok
+    except Exception:
+        pass
+    try:
+        # Which thinking levels each Anthropic model takes (needs the signed-in
+        # client); an explicit refresh also forgets levels a provider refused.
+        from ..auth.thinking_caps import refresh_all as _think_refresh
+
+        ok = bool(_think_refresh(retry_refused=retry_blocked)) or ok
     except Exception:
         pass
     return ok

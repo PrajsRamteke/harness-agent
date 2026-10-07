@@ -256,10 +256,58 @@ def refresh_free_models(
     ids = sorted({str(e["id"]) for e in entries if e.get("id")})
     if ids:
         catalog_cache.write(IDS_CACHE, ids)
+    try:
+        rmap = reasoning_map(entries)
+        if rmap:
+            catalog_cache.write(REASONING_CACHE, rmap)
+    except Exception:
+        pass  # thinking info is a nicety — never fail the catalog over it
     models = _free_from(entries) or None
     if models:
         catalog_cache.write(CACHE_NAME, _encode(models))
     return models
+
+
+# ── which models think, and at which efforts ──────────────────────────────────
+# ``reasoning`` on each /models entry: {mandatory, supported_efforts,
+# default_effort, default_enabled}. Stored for every served model (not just the
+# free ones) so the thinking picker can say what the chosen model takes.
+REASONING_CACHE = "openrouter_reasoning"
+
+
+def reasoning_map(entries: list[dict]) -> dict[str, dict]:
+    """``{model id: {"on": thinks?, "m": mandatory, "e": [efforts], "d": default}}``."""
+    out: dict[str, dict] = {}
+    for e in entries:
+        mid = e.get("id")
+        if not isinstance(mid, str) or not mid:
+            continue
+        r = e.get("reasoning")
+        params = e.get("supported_parameters") or []
+        row: dict = {}
+        if isinstance(r, dict):
+            row["on"] = 1
+            if r.get("mandatory"):
+                row["m"] = 1
+            efforts = [x for x in (r.get("supported_efforts") or []) if isinstance(x, str) and x]
+            if efforts:
+                row["e"] = efforts
+            if isinstance(r.get("default_effort"), str) and r["default_effort"]:
+                row["d"] = r["default_effort"]
+        elif "reasoning" in params or "include_reasoning" in params or "reasoning_effort" in params:
+            row["on"] = 1
+        else:
+            row["on"] = 0  # lists no reasoning support at all
+        out[mid] = row
+    return out
+
+
+def cached_reasoning(model_id: str) -> dict | None:
+    """The stored reasoning row for ``model_id`` — None when never fetched or
+    the model isn't listed. Cache only; never touches the network."""
+    payload, _fresh = catalog_cache.read(REASONING_CACHE)
+    row = payload.get(model_id) if isinstance(payload, dict) else None
+    return row if isinstance(row, dict) else None
 
 
 def served_ids() -> set[str]:

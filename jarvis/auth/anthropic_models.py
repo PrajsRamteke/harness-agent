@@ -19,6 +19,66 @@ def fetch_anthropic_model_ids(client: "Anthropic") -> list[str]:
         return []
 
 
+CAPS_CACHE = "anthropic_caps"
+
+
+def _capability_row(model) -> tuple[str, dict] | None:
+    """``(id, row)`` from one Models API entry, or None when it carries no
+    ``capabilities`` (an older API / proxy). ``row``: ``{"on", "e", "a", "b"}`` —
+    thinks at all, effort levels, adaptive thinking, budget thinking."""
+    try:
+        d = model.model_dump() if hasattr(model, "model_dump") else dict(model)
+    except Exception:
+        return None
+    mid = d.get("id")
+    caps = d.get("capabilities")
+    if not isinstance(mid, str) or not isinstance(caps, dict):
+        return None
+
+    def ok(node) -> bool:
+        return isinstance(node, dict) and bool(node.get("supported"))
+
+    thinking = caps.get("thinking") if isinstance(caps.get("thinking"), dict) else {}
+    types = thinking.get("types") if isinstance(thinking.get("types"), dict) else {}
+    effort = caps.get("effort") if isinstance(caps.get("effort"), dict) else {}
+    levels = [k for k, v in effort.items() if k != "supported" and ok(v)] if ok(effort) else []
+    return mid, {
+        "on": 1 if (ok(thinking) or ok(types.get("adaptive")) or ok(types.get("enabled"))) else 0,
+        "e": levels,
+        "a": 1 if ok(types.get("adaptive")) else 0,
+        "b": 1 if ok(types.get("enabled")) else 0,
+    }
+
+
+def fetch_anthropic_capabilities(client: "Anthropic") -> dict[str, dict]:
+    """Per-model thinking capabilities from the Models API; {} on any failure."""
+    try:
+        page = client.models.list(limit=100)
+        rows = [_capability_row(m) for m in getattr(page, "data", None) or []]
+    except Exception:
+        return {}
+    return {mid: row for mid, row in (r for r in rows if r)}
+
+
+def refresh_anthropic_capabilities(client: "Anthropic") -> bool:
+    """Fetch and persist the capabilities. True when something came back."""
+    from . import catalog_cache
+
+    caps = fetch_anthropic_capabilities(client)
+    if caps:
+        catalog_cache.write(CAPS_CACHE, caps)
+    return bool(caps)
+
+
+def cached_capabilities(model_id: str) -> dict | None:
+    """The stored capability row for ``model_id`` (cache only, no network)."""
+    from . import catalog_cache
+
+    payload, _fresh = catalog_cache.read(CAPS_CACHE)
+    row = payload.get(model_id) if isinstance(payload, dict) else None
+    return row if isinstance(row, dict) else None
+
+
 def sync_anthropic_model_ids(client: "Anthropic") -> list[str]:
     """Fetch live model ids, store on ``state.anthropic_model_ids``, return them."""
     from .. import state
@@ -26,6 +86,10 @@ def sync_anthropic_model_ids(client: "Anthropic") -> list[str]:
     ids = fetch_anthropic_model_ids(client)
     if ids:
         state.anthropic_model_ids = ids
+    try:
+        refresh_anthropic_capabilities(client)
+    except Exception:
+        pass
     return ids
 
 

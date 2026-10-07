@@ -637,8 +637,17 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                 right.append((1, f"[{color}]◔ context {pct:.0f}%[/]", "toggle_sidebar"))
         except Exception:
             pass
-        if state.think_mode:
-            right.append((4, f"[{ui.ACCENT_3}]think {state.think_effort}[/]", "open_think"))
+        try:
+            from ..repl.thinking import effective_now
+
+            _eff = effective_now()
+            if _eff.on:
+                # What the model really gets: a level it lacks shows the one
+                # used instead, with a * (the picker says why).
+                right.append((4, f"[{ui.ACCENT_3}]think {_eff.label}{'*' if _eff.adjusted else ''}[/]", "open_think"))
+        except Exception:
+            if state.think_mode:
+                right.append((4, f"[{ui.ACCENT_3}]think {state.think_effort}[/]", "open_think"))
         total = int(state.total_tokens or 0)
         if total:
             right.append((3, f"[{ui.FG_MUTE}]{_fmt_tokens(total)}[/] [{ui.FG_DIM}]tokens[/]", "toggle_sidebar"))
@@ -935,7 +944,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             if not effort:
                 return
             from ..commands.control import _handle_think
-            _handle_think(effort)
+            # "on" is the picker's row for a model that is only a switch.
+            _handle_think("on" if effort == "on" else effort)
             self._set_status("ready")
         from .think_modal import ThinkPickerScreen
 

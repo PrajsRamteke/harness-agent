@@ -22,6 +22,8 @@ export const store = {
     provider: '',
     think_mode: true,
     think_effort: 'high',
+    /** What the current model takes for thinking (server: repl/thinking.py public()); null until known. */
+    think: null,
     show_internal: true,
     auto_approve: false,
     global_agents: false,

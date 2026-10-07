@@ -169,31 +169,27 @@ def _handle_plan(arg: str = "") -> None:
 
 
 def _handle_think(arg: str = "") -> None:
-    value = (arg or "").strip().lower()
-    if not value:
-        state.think_mode = not state.think_mode
-    elif value in ("mode", "modes", "select"):
-        console.print(
-            "[cyan]thinking efforts:[/] xhigh, high, medium, low, minimal, none\n"
-            "[dim]In the TUI, /think mode opens a picker.[/]"
-        )
-        return
-    elif value in ("on", "true", "yes"):
-        state.think_mode = True
-        if state.think_effort == "none":
-            state.think_effort = DEFAULT_THINK_EFFORT
-    elif value in ("off", "false", "no"):
-        state.think_mode = False
-    elif value in THINK_EFFORTS:
-        state.think_mode = value != "none"
-        state.think_effort = value
-    else:
-        console.print(
-            "[red]usage:[/] /think [on|off|xhigh|high|medium|low|minimal|none]"
-        )
-        return
+    from ..repl import thinking
 
-    state.save_think_config()
+    value = (arg or "").strip().lower()
+    if value in ("mode", "modes", "select"):
+        console.print(
+            f"[cyan]thinking:[/] {thinking.describe_levels()}\n"
+            "[dim]In the TUI, /think mode opens a picker. "
+            "/think on | off | <level> | none[/]"
+        )
+        return
+    if not value:
+        value = "off" if state.think_mode else "on"
+    reason = thinking.set_preference(value)
+    if reason:
+        console.print(
+            f"[yellow]✗ {reason}[/]\n[dim]{thinking.describe_levels()}[/]"
+        )
+        return
+    eff = thinking.effective_now()
+    if eff.note:
+        console.print(f"[dim]{eff.note}[/]")
     header_panel()
 
 

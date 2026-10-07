@@ -38,7 +38,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "skills.global": "Include skills from ~/.config/*/skills (otherwise project-only)",
     "mcp.global":    "Include MCP servers from Claude/OpenCode/Cursor/Windsurf/VS Code",
     "think.mode":    "Enable extended thinking",
-    "think.effort":  "Thinking effort — none / low / medium / high",
+    "think.effort":  "Thinking effort — what the model takes is shown by /think mode",
     "trace.on":      "Show thinking + tool panels in chat (^T trace)",
     "pin.enabled":   "Inject pinned.txt into every system prompt (/pin off to pause)",
     "pet.enabled":   "Show Jarvis the kitty in the input box (/pet for the card)",

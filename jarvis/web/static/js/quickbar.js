@@ -2,17 +2,8 @@
 import { $, escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
-import { EFFORTS, EFFORT_HINTS } from './effort.js';
+import { EFFORT_NAMES, effortRows, effortNow, thinkInfo } from './effort.js';
 import { setEffort, setSetting, toggleSetting } from './actions.js';
-
-const EFFORT_NAMES = {
-  xhigh: 'Max',
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
-  minimal: 'Minimal',
-  none: 'Off',
-};
 
 let menuOpen = false;
 
@@ -22,25 +13,36 @@ function shortModel(id) {
   return tail.length > 22 ? `${tail.slice(0, 21)}…` : tail || 'Model';
 }
 
+/** The menu's checked row: the level in use, or on / none for models without levels. */
 function currentEffort() {
+  const info = thinkInfo(store.session);
+  if (info) return info.current;
   return store.session.think_mode ? store.session.think_effort || 'high' : 'none';
 }
 
 function paintMenu() {
   const menu = $('effort-menu');
   const cur = currentEffort();
-  // Highest first, "Off" last — same order as the terminal picker.
-  menu.innerHTML = EFFORTS.map((e) => `
-    <button type="button" class="effort-item" role="menuitemradio" data-effort="${e}" aria-checked="${e === cur}">
-      <span class="ei-check">${e === cur ? icon('check') : ''}</span>
-      <span class="ei-body"><strong>${escapeHtml(EFFORT_NAMES[e])}</strong><span>${escapeHtml(EFFORT_HINTS[e])}</span></span>
+  const info = thinkInfo(store.session);
+  // What this model takes — levels it lacks stay listed (greyed, with the
+  // reason) so a short list is explained, and can't be picked.
+  const head = info
+    ? `<div class="effort-note" role="presentation">${escapeHtml(info.summary || '')}${info.source ? ` <em>· ${escapeHtml(info.source)}</em>` : ''}</div>`
+    : '';
+  const note = info?.note ? `<div class="effort-note is-warn" role="presentation">${escapeHtml(info.note)}</div>` : '';
+  menu.innerHTML = head + note + effortRows(store.session).map((r) => `
+    <button type="button" class="effort-item${r.available ? '' : ' is-unavailable'}" role="menuitemradio" data-effort="${escapeHtml(r.value)}" aria-checked="${r.value === cur}" ${r.available ? '' : 'aria-disabled="true" tabindex="-1"'} title="${escapeHtml(r.available ? r.hint : r.why || r.hint)}">
+      <span class="ei-check">${r.value === cur ? icon('check') : ''}</span>
+      <span class="ei-body"><strong>${escapeHtml(r.label)}</strong><span>${escapeHtml(r.hint)}</span></span>
     </button>`).join('');
   menu.querySelectorAll('[data-effort]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (btn.getAttribute('aria-disabled') === 'true') return; // the server would refuse it anyway
       const e = btn.dataset.effort;
       closeMenu();
       if (e === currentEffort()) return;
       if (e === 'none') setSetting({ think_mode: false }, 'think_mode');
+      else if (e === 'on') setSetting({ think_mode: true }, 'think_mode');
       else setEffort(e);
     });
   });
@@ -51,7 +53,7 @@ function openMenu() {
   $('effort-menu').hidden = false;
   $('qc-effort').setAttribute('aria-expanded', 'true');
   menuOpen = true;
-  $('effort-menu').querySelector('[aria-checked="true"]')?.focus();
+  ($('effort-menu').querySelector('[aria-checked="true"]') || $('effort-menu').querySelector('.effort-item:not(.is-unavailable)'))?.focus();
 }
 
 function closeMenu() {
@@ -69,9 +71,14 @@ function render(s) {
   }
   const effort = $('qc-effort-text');
   if (effort) {
-    const e = s.session.think_mode ? s.session.think_effort : 'none';
-    effort.textContent = EFFORT_NAMES[e] || e;
-    $('qc-effort').classList.toggle('is-off', !s.session.think_mode);
+    const now = effortNow(s.session);
+    const word = now.on ? (EFFORT_NAMES[now.level || 'on'] || now.level) : EFFORT_NAMES.none;
+    // A * says the model uses a different level than the one asked for.
+    effort.textContent = `${word}${now.adjusted ? '*' : ''}`;
+    const info = thinkInfo(s.session);
+    $('qc-effort').classList.toggle('is-off', !now.on);
+    $('qc-effort').title = now.note
+      || (info ? `Thinking: ${info.summary}` : 'Thinking effort');
   }
   const agent = $('qc-agent-text');
   if (agent) {
@@ -102,7 +109,7 @@ export function initQuickbar({ onOpenPicker }) {
     else openMenu();
   });
   $('effort-menu')?.addEventListener('keydown', (e) => {
-    const items = [...$('effort-menu').querySelectorAll('.effort-item')];
+    const items = [...$('effort-menu').querySelectorAll('.effort-item:not(.is-unavailable)')];
     const i = items.indexOf(document.activeElement);
     if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
     if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }

@@ -749,9 +749,15 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if path == "/api/settings":
             updated = self.bridge.request_settings(data)
+            # A setting the current model can't take: say why (the page toasts
+            # it and shows the real state from the snapshot below).
+            error = updated.pop("error", "") if isinstance(updated, dict) else ""
             if updated:
                 self.bridge.emit("settings", updated)
-            self._send_json(200, {"ok": True, "settings": self._snapshot()})
+            body = {"ok": True, "settings": self._snapshot()}
+            if error:
+                body["error"] = str(error)
+            self._send_json(200, body)
             return
 
         self.send_response(404)

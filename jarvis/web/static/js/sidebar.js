@@ -3,7 +3,7 @@ import { $, escapeHtml, formatCount, debounce, countTo, animateEl, SPRING } from
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
 import { fetchSessions } from './api.js';
-import { EFFORTS, EFFORT_LABELS, EFFORT_HINTS } from './effort.js';
+import { EFFORT_LABELS, EFFORT_HINTS, effortLevels, effortNow, thinkInfo, thinkSwitchState } from './effort.js';
 import {
   newChat,
   onSessionChange,
@@ -42,27 +42,46 @@ function closeOnNarrow() {
 function renderEffort(s) {
   const box = $('effort');
   if (!box) return;
-  const on = !!s.session.think_mode;
-  const current = s.session.think_effort;
-  if (!box.childElementCount) {
-    box.innerHTML = EFFORTS.filter((e) => e !== 'none').map((e) => `
+  const info = thinkInfo(s.session);
+  const levels = effortLevels(s.session);
+  const now = effortNow(s.session);
+  // Only the levels this model takes; a model with none (on/off only, always
+  // on, no thinking) gets a line saying so instead of a control that lies.
+  const sig = levels.join(',');
+  if (box.dataset.levels !== sig) {
+    box.dataset.levels = sig;
+    box.style.setProperty('--n', String(Math.max(levels.length, 1)));
+    box.dataset.n = String(levels.length);
+    box.innerHTML = levels.map((e) => `
       <button type="button" class="effort-opt" role="radio" data-effort="${e}" title="${escapeHtml(EFFORT_HINTS[e])}" aria-checked="false">${escapeHtml(EFFORT_LABELS[e])}</button>`).join('');
     box.querySelectorAll('.effort-opt').forEach((btn) => {
       btn.addEventListener('click', () => {
-        if (btn.dataset.effort !== store.session.think_effort || !store.session.think_mode) setEffort(btn.dataset.effort);
+        const cur = effortNow(store.session);
+        if (btn.dataset.effort !== cur.level || !cur.on) setEffort(btn.dataset.effort);
       });
     });
   }
-  box.classList.toggle('is-off', !on);
+  box.hidden = !levels.length;
+  box.classList.toggle('is-off', !now.on);
+  const hint = $('effort-hint');
+  if (hint) {
+    let text = '';
+    if (info && !levels.length) text = info.summary || '';
+    else if (info?.note) text = info.note;
+    else if (info && info.mode === 'unknown') text = 'Levels for this model aren\u2019t published \u2014 all are offered.';
+    hint.textContent = text;
+    hint.hidden = !text;
+    hint.classList.toggle('is-warn', !!info?.note);
+  }
   const opts = [...box.querySelectorAll('.effort-opt')];
   opts.forEach((btn) => {
-    btn.setAttribute('aria-checked', String(on && btn.dataset.effort === current));
+    btn.setAttribute('aria-checked', String(now.on && btn.dataset.effort === now.level));
     btn.disabled = s.pendingToggle === 'think_effort';
   });
   // One thumb slides between the options instead of each lighting up.
-  const idx = opts.findIndex((b) => b.dataset.effort === current);
+  const idx = opts.findIndex((b) => b.dataset.effort === now.level);
   if (idx >= 0) box.style.setProperty('--i', String(idx));
-  box.classList.toggle('has-thumb', on && idx >= 0);
+  box.classList.toggle('has-thumb', now.on && idx >= 0);
   if (!box.classList.contains('is-ready')) requestAnimationFrame(() => box.classList.add('is-ready'));
 }
 
@@ -75,7 +94,13 @@ function renderSwitches(s) {
     el.classList.toggle('is-pending', !!pendingKey && s.pendingToggle === pendingKey);
     el.closest('.switch-row')?.classList.toggle('is-disabled', disabled);
   };
-  set('sw-think', s.session.think_mode, 'think_mode');
+  // The switch can't be turned off for a model that always thinks, nor on for
+  // one that can't think — say why instead of letting the server refuse.
+  const sw = thinkSwitchState(s.session);
+  const info = thinkInfo(s.session);
+  set('sw-think', info ? info.on : s.session.think_mode, 'think_mode', sw.disabled);
+  const swRow = $('sw-think')?.closest('.switch-row');
+  if (swRow) swRow.title = sw.why;
   set('sw-trace', s.session.show_internal, 'show_internal');
   set('sw-thoughts', s.showThoughts && s.session.show_internal, null, !s.session.show_internal);
   set('sw-auto', s.session.auto_approve, 'auto_approve');

@@ -164,8 +164,15 @@ class SidebarBody(Widget):
             bits.append(provider_label(str(state.provider or "")))
         except Exception:
             pass
-        if state.think_mode:
-            bits.append(f"think {state.think_effort}")
+        try:
+            from ..repl.thinking import effective_now
+
+            _eff = effective_now()
+            if _eff.on:
+                bits.append(f"think {_eff.label}")
+        except Exception:
+            if state.think_mode:
+                bits.append(f"think {state.think_effort}")
         if bits:
             line(" · ".join(b for b in bits if b), ui.FG_DIM)
         rec = state.active_agent

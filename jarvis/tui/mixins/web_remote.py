@@ -551,7 +551,7 @@ class WebRemoteMixin:
         result = apply_settings(data)
         if result:
             parts = []
-            if "think_mode" in result:
+            if "error" not in result and "think_mode" in result:
                 parts.append(f"think {'on' if result['think_mode'] else 'off'}")
             if "show_internal" in result:
                 parts.append(f"trace {'on' if result['show_internal'] else 'off'}")

@@ -9,7 +9,8 @@ from typing import Any, Generator, Optional
 
 from openai import BadRequestError, OpenAI
 
-from ..constants.providers import CODEX_BASE_URL
+from ..constants.providers import CODEX_BASE_URL, PROVIDER_OPENAI_CODEX
+from .thinking_caps import looks_like_thinking_refusal, mark_refused
 from ..utils.json_repair import repair_json_arguments
 from .http_timeout import harness_http_timeout
 from ..utils.tool_images import data_url, split_tool_result
@@ -369,12 +370,20 @@ class _CodexMessages:
         try:
             response = self._client.responses.create(**payload)
         except BadRequestError as e:
-            if "prompt_cache_key" not in payload or "prompt_cache_key" not in str(e):
+            if "reasoning" in payload and looks_like_thinking_refusal(e):
+                # This model doesn't take that reasoning level. Remember it (so
+                # the picker stops offering it) and ask again without — the
+                # backend then uses the model's own default.
+                mark_refused(PROVIDER_OPENAI_CODEX, model, str(payload["reasoning"].get("effort") or "*"))
+                payload.pop("reasoning", None)
+                response = self._client.responses.create(**payload)
+            elif "prompt_cache_key" not in payload or "prompt_cache_key" not in str(e):
                 raise
-            global _cache_key_refused
-            _cache_key_refused = True
-            payload.pop("prompt_cache_key", None)
-            response = self._client.responses.create(**payload)
+            else:
+                global _cache_key_refused
+                _cache_key_refused = True
+                payload.pop("prompt_cache_key", None)
+                response = self._client.responses.create(**payload)
         stream = _CodexStream(response, model)
         try:
             yield stream

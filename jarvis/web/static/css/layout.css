@@ -104,7 +104,7 @@
 .effort {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(var(--n, 5), 1fr);
   gap: 2px;
   margin: 2px 4px 0;
   padding: 3px;
@@ -115,7 +115,7 @@
 }
 .effort.is-off { opacity: 0.45; }
 .effort::before {
-  --w: calc((100% - 14px) / 5);
+  --w: calc((100% - 6px - (var(--n, 5) - 1) * 2px) / var(--n, 5));
   content: "";
   position: absolute;
   top: 3px;
@@ -150,6 +150,11 @@
 .effort-opt:disabled { cursor: not-allowed; }
 
 .effort-hint { margin: 2px 10px 0; font-size: 12px; color: var(--text-3); }
+.effort-hint.is-warn { color: var(--warn); }
+.effort-hint[hidden] { display: none; }
+.effort[hidden] { display: none; }
+/* Six or seven levels (Codex "ultra", "max" + "xhigh"): keep the labels inside their cells. */
+.effort[data-n="6"] .effort-opt, .effort[data-n="7"] .effort-opt { font-size: 11px; letter-spacing: -0.2px; }
 
 /* Recent sessions */
 .recent { display: flex; flex-direction: column; gap: 2px; }

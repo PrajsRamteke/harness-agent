@@ -80,11 +80,18 @@ def _opencode_reasoning_options(model: str, thinking: dict | None) -> dict[str, 
 
     mode = thinking.get("type")
     if mode == "enabled":
-        effort = str(thinking.get("effort") or "high").lower()
-        if effort not in OPENCODE_ALLOWED_THINK_EFFORTS or effort == "none":
-            effort = "high"
-        effort = _EFFORT_API_MAP.get(effort, effort)
-        opts: dict[str, Any] = {"reasoning_effort": effort}
+        if thinking.get("effort_exact"):
+            # The level was checked against this model's own list (thinking_caps):
+            # send it as is — no xhigh→high squeeze — and none at all for a model
+            # that has no levels (an on/off one).
+            effort = str(thinking.get("effort") or "").lower()
+            opts: dict[str, Any] = {"reasoning_effort": effort} if effort else {}
+        else:
+            effort = str(thinking.get("effort") or "high").lower()
+            if effort not in OPENCODE_ALLOWED_THINK_EFFORTS or effort == "none":
+                effort = "high"
+            effort = _EFFORT_API_MAP.get(effort, effort)
+            opts = {"reasoning_effort": effort}
         # MiniMax models need reasoning_split to separate thinking from content
         # in streaming — without it the reasoning bleeds into text content.
         if _is_minimax_model(model):

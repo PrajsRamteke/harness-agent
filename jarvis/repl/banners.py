@@ -264,13 +264,20 @@ def header_panel(compact: bool = False):
         else f"[{c['warn']}]paused[/]" if state.pinned_context.strip()
         else f"[{c['fg_dim']}]no pin[/]"
     )
-    think_hl = f"[{c['accent']}]{state.think_effort}[/]"
+    try:
+        from .thinking import effective_now
+
+        _eff = effective_now()
+        think_on, think_label = _eff.on, _eff.label
+    except Exception:
+        think_on, think_label = bool(state.think_mode), state.think_effort
+    think_hl = f"[{c['accent']}]{think_label}[/]"
     off = f"[{c['fg_dim']}]off[/]"
     if compact:
         flags = "  ".join([
             f"[{c['accent']}]{state.MODEL}[/]",
             f"agent:{_agent_flag(c)}",
-            f"think:{think_hl if state.think_mode else off}",
+            f"think:{think_hl if think_on else off}",
             f"v{VERSION}",
             f"[{c['fg_dim']}]{cwd_text}[/]",
         ])
@@ -280,7 +287,7 @@ def header_panel(compact: bool = False):
         f"[{c['accent']}]{state.MODEL}[/]",
         f"v{VERSION}",
         f"agent {_agent_flag(c)}",
-        f"think {think_hl if state.think_mode else off}",
+        f"think {think_hl if think_on else off}",
         f"bash {c['accent'] if state.auto_approve else c['fg_dim']}",
         f"pin {pinned_flag}",
         f"msgs {len(state.messages)}",

@@ -360,3 +360,42 @@ def test_key_modal_can_open_straight_on_one_provider(hermetic_app, monkeypatch):
             assert "platform.deepseek.com" in body and "$DEEPSEEK_API_KEY" in body
 
     asyncio.run(run())
+
+
+def test_think_picker_lists_only_what_the_model_takes(hermetic_app, monkeypatch):
+    """Levels the model lacks stay listed but greyed (the cursor skips them);
+    ↵ returns a level it really takes."""
+    from jarvis import state
+    from jarvis.auth import catalog_cache, openrouter_catalog
+    from jarvis.constants import PROVIDER_OPENROUTER
+    from jarvis.tui.think_modal import ThinkPickerScreen
+
+    catalog_cache.write(openrouter_catalog.REASONING_CACHE,
+                        {"vendor/m": {"on": 1, "m": 1, "e": ["low", "high"]}})
+    picked: list = []
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            monkeypatch.setattr(state, "MODEL", "vendor/m")
+            monkeypatch.setattr(state, "provider", PROVIDER_OPENROUTER)
+            monkeypatch.setattr(state, "think_mode", True)
+            monkeypatch.setattr(state, "think_effort", "xhigh")   # preference the model lacks
+            app.push_screen(ThinkPickerScreen(), picked.append)
+            await pilot.pause(0.3)
+            opts = app.screen.query_one("#think_list")
+            ids = [opts.get_option_at_index(i).id for i in range(opts.option_count)]
+            assert ids == ["xhigh", "high", "medium", "low", "minimal", "none"]
+            assert _enabled_ids(opts) == ["high", "low"]
+            # the preference (xhigh) isn't offered, so the in-use row is the level really sent: high
+            assert opts.highlighted == ids.index("high")
+            status = str(app.screen.query_one("#modal_status").render())
+            assert "high · low" in status and "`xhigh`" in status
+            await pilot.press("down")                     # skips the greyed medium
+            assert opts.highlighted == ids.index("low")
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+
+    asyncio.run(run())
+    assert picked == ["low"]

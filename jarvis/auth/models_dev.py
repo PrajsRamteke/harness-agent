@@ -42,7 +42,7 @@ PREFIX = "md:"
 DEFAULT_TIMEOUT = 15.0
 # Bump when the trimmed cache layout or the support rules change: an older
 # cache is then ignored (and refetched in full) instead of misread.
-SCHEMA = 2  # 2: built-ins keep deprecated rows + record the ids they skip
+SCHEMA = 3  # 3: reasoning_options (which thinking efforts a model takes); 2: built-ins keep deprecated rows + record the ids they skip
 
 REQUEST_HEADERS = {
     "Accept": "application/json",
@@ -132,6 +132,13 @@ class CatalogModel:
     wire: str = "chat"                 # "chat" | "responses" (OpenAI wire only)
     reasoning_field: str = ""          # "reasoning_content" when it must be echoed back
     status: str = ""                   # "" | "beta"
+    # What models.dev says about steering the reasoning. ``reasoning_known`` is
+    # False when it says nothing (older rows, providers that don't record it) —
+    # then nothing may be assumed. Known + no efforts + no toggle = always on,
+    # no control.
+    reasoning_known: bool = False
+    efforts: tuple[str, ...] = ()      # selectable effort values; "none" = can be switched off
+    toggle: bool = False               # plain on/off switch
 
     @property
     def free(self) -> bool:
@@ -242,6 +249,25 @@ def _model_wire(provider_wire: str, provider_npm: str, mid: str, raw: dict) -> s
     return None
 
 
+def _reasoning_options(raw) -> dict | None:
+    """models.dev ``reasoning_options`` → ``{"e": [efforts], "t": 1}`` (either
+    key only when present; ``t`` = a toggle or a token budget — an on/off switch). ``{}`` = reasons with no control; None = unknown
+    (the key is missing or not a list)."""
+    if not isinstance(raw, list):
+        return None
+    out: dict = {}
+    for opt in raw:
+        if not isinstance(opt, dict):
+            continue
+        if opt.get("type") == "effort" and isinstance(opt.get("values"), list):
+            vals = [v for v in opt["values"] if isinstance(v, str) and v]
+            if vals:
+                out["e"] = vals
+        elif opt.get("type") in ("toggle", "budget_tokens"):
+            out["t"] = 1  # switched by presence: omit it and the model doesn't think
+    return out
+
+
 def _trim_model(provider_wire: str, provider_npm: str, raw: dict,
                 keep_deprecated: bool = False) -> dict | None:
     mid = raw.get("id")
@@ -269,6 +295,9 @@ def _trim_model(provider_wire: str, provider_npm: str, raw: dict,
         row["i"] = 1
     if raw.get("reasoning"):
         row["r"] = 1
+        opts = _reasoning_options(raw.get("reasoning_options"))
+        if opts is not None:
+            row["ro"] = opts
     if isinstance(inter, dict) and inter.get("field") == "reasoning_content":
         row["rf"] = "reasoning_content"
     for src, dst in (("context", "c"), ("output", "o")):
@@ -376,6 +405,10 @@ def _model_from_row(row: dict) -> CatalogModel:
         wire=row.get("w") or "chat",
         reasoning_field=row.get("rf") or "",
         status=row.get("s") or "",
+        reasoning_known=isinstance(row.get("ro"), dict),
+        efforts=tuple(str(v) for v in (row.get("ro") or {}).get("e") or () if isinstance(v, str))
+        if isinstance(row.get("ro"), dict) else (),
+        toggle=bool(isinstance(row.get("ro"), dict) and row["ro"].get("t")),
     )
 
 

@@ -417,6 +417,7 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "provider": state.provider,
         "think_mode": state.think_mode,
         "think_effort": state.think_effort,
+        "think": _think_fields(),
         "show_internal": state.show_internal,
         "auto_approve": state.auto_approve,
         "tokens_in": state.total_in,
@@ -426,6 +427,17 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "tool_calls": state.tool_calls_count,
         "jobs": jobs_fields(),
     }
+
+
+def _think_fields() -> dict[str, Any]:
+    """What the current model takes for thinking (levels, on/off only, always on,
+    none) and what is really sent — the picker's rows ride along."""
+    try:
+        from ..repl import thinking
+
+        return thinking.public()
+    except Exception:
+        return {"known": False, "mode": "unknown", "levels": [], "choices": []}
 
 
 def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
@@ -444,22 +456,23 @@ def apply_settings(data: dict[str, Any]) -> dict[str, Any]:
 
     result: dict[str, Any] = {}
 
-    if "think_mode" in data:
-        state.think_mode = bool(data["think_mode"])
-        if state.think_mode and state.think_effort == "none":
-            state.think_effort = DEFAULT_THINK_EFFORT
-        state.save_think_config()
+    if "think_mode" in data or "think_effort" in data:
+        from ..repl import thinking
+
+        # A choice the current model can't take is refused with the reason (the
+        # page shows it), not silently turned into another one.
+        if "think_mode" in data:
+            reason = thinking.set_preference("on" if data["think_mode"] else "off")
+            if reason:
+                result["error"] = reason
+        if "think_effort" in data and "error" not in result:
+            effort = str(data["think_effort"]).strip().lower()
+            if effort in THINK_EFFORTS:
+                reason = thinking.set_preference(effort)
+                if reason:
+                    result["error"] = reason
         result["think_mode"] = state.think_mode
         result["think_effort"] = state.think_effort
-
-    if "think_effort" in data:
-        effort = str(data["think_effort"]).strip().lower()
-        if effort in THINK_EFFORTS:
-            state.think_effort = effort
-            state.think_mode = effort != "none"
-            state.save_think_config()
-            result["think_mode"] = state.think_mode
-            result["think_effort"] = state.think_effort
 
     if "show_internal" in data:
         state.show_internal = bool(data["show_internal"])

@@ -43,7 +43,7 @@ from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refre
 from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
-from . import context_budget, prompt_cache
+from . import context_budget, prompt_cache, thinking as think_request
 from ..auth.codex_client import CodexResponseError
 from ..media import materialize_uploads
 from .trim import (
@@ -825,19 +825,15 @@ def _call_claude_stream():
         kwargs["tools"] = [{**t, "eager_input_streaming": True} for t in kwargs["tools"]]
     if prompt_cache.enabled_for(state.provider, state.MODEL, state.client):
         prompt_cache.apply(kwargs)
-    if state.provider == PROVIDER_ANTHROPIC and claude_uses_adaptive_thinking(state.MODEL):
-        # Claude 5: adaptive thinking + effort; budget_tokens is a 400 there.
-        kwargs.update(claude_thinking_kwargs(state.think_mode, state.think_effort))
-    elif state.think_mode:
-        kwargs["thinking"] = {
-            "type": "enabled",
-            "budget_tokens": THINKING_BUDGET_TOKENS,
-        }
-        if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
-            kwargs["thinking"]["effort"] = state.think_effort
-    elif state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
-        # OpenCode (DeepSeek, etc.) needs explicit {"type": "disabled"} to turn off thinking
-        kwargs["thinking"] = {"type": "disabled"}
+    # Thinking: the user's preference, narrowed to what this model takes
+    # (repl/thinking.py). An adjusted setting is said once, never silently.
+    _think = think_request.apply(
+        kwargs, provider=state.provider, model=state.MODEL, client=state.client,
+        think_mode=state.think_mode, effort=state.think_effort,
+    )
+    _note = think_request.take_note(_think, state.provider, state.MODEL)
+    if _note:
+        console.print(f"[dim]{_note}[/]")
 
     global _current_stream, _worker_thread_id
     _worker_thread_id = threading.current_thread().ident or 0
@@ -848,6 +844,7 @@ def _call_claude_stream():
     codex_model_retried = False
     cache_retried = False
     thinking_retried = False
+    think_setting_retried = False
     overflow_retries = 0
 
     def _refit_after_overflow(err: BaseException) -> bool:
@@ -959,6 +956,17 @@ def _call_claude_stream():
                     kwargs["messages"] = _wire_messages()
                     if prompt_cache.enabled_for(state.provider, state.MODEL, state.client):
                         prompt_cache.apply(kwargs)
+                    continue
+            if e.status_code == 400 and not think_setting_retried:
+                # The provider refused the thinking level / thinking itself:
+                # remember it for this model and resend one step down.
+                think_setting_retried = True
+                _said = think_request.recover(
+                    e, kwargs, provider=state.provider, model=state.MODEL, client=state.client,
+                    think_mode=state.think_mode, effort=state.think_effort,
+                )
+                if _said:
+                    console.print(f"[dim]{_said}[/]")
                     continue
             if e.status_code in (400, 413) and _refit_after_overflow(e):
                 continue

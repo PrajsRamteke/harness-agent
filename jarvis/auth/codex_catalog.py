@@ -44,6 +44,10 @@ class CodexModel:
     priority: int = 0
     supports_images: bool = False
     refused: bool = False
+    # ``supported_reasoning_levels`` from the backend (None = not recorded, e.g.
+    # a cache written before this was kept) and its default level.
+    efforts: tuple[str, ...] | None = None
+    default_effort: str = ""
 
     @property
     def usable(self) -> bool:
@@ -67,6 +71,19 @@ def _label(entry: dict) -> str:
     return f"{name} — {desc}" if desc else name
 
 
+def _efforts(entry: dict) -> tuple[str, ...] | None:
+    """The reasoning levels a Codex model takes, or None when it says nothing."""
+    raw = entry.get("supported_reasoning_levels")
+    if not isinstance(raw, list):
+        return None
+    out: list[str] = []
+    for item in raw:
+        eff = item.get("effort") if isinstance(item, dict) else item
+        if isinstance(eff, str) and eff and eff not in out:
+            out.append(eff)
+    return tuple(out)
+
+
 def _to_model(entry: dict) -> CodexModel | None:
     mid = entry.get("slug")
     # "hide" rows are internal (auto-review, reserve) — the Codex CLI's own
@@ -82,6 +99,8 @@ def _to_model(entry: dict) -> CodexModel | None:
         label=_label(entry),
         priority=priority,
         supports_images="image" in (entry.get("input_modalities") or []),
+        efforts=_efforts(entry),
+        default_effort=str(entry.get("default_reasoning_level") or ""),
     )
 
 
@@ -114,6 +133,8 @@ def _decode(payload) -> list[CodexModel]:
             label=row.get("label") or row["id"],
             priority=int(row.get("priority") or 0),
             supports_images=bool(row.get("supports_images")),
+            efforts=tuple(str(x) for x in row["efforts"]) if isinstance(row.get("efforts"), list) else None,
+            default_effort=str(row.get("default_effort") or ""),
         ))
     return out
 
@@ -125,6 +146,8 @@ def _encode(models: list[CodexModel]) -> list[dict]:
             "label": m.label,
             "priority": m.priority,
             "supports_images": m.supports_images,
+            "efforts": list(m.efforts) if m.efforts is not None else None,
+            "default_effort": m.default_effort,
         }
         for m in models
     ]

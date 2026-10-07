@@ -249,14 +249,10 @@ def _request_kwargs(cfg: RequestConfig, system: Any, messages: list, tools: list
                                   messages=wire, tools=tools)
     if prompt_cache.enabled_for(cfg.provider, cfg.model, cfg.client):
         prompt_cache.apply(kwargs)
-    if cfg.provider == PROVIDER_ANTHROPIC and claude_uses_adaptive_thinking(cfg.model):
-        kwargs.update(claude_thinking_kwargs(cfg.think_mode, cfg.think_effort))
-    elif cfg.think_mode:
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": THINKING_BUDGET_TOKENS}
-        if cfg.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
-            kwargs["thinking"]["effort"] = cfg.think_effort
-    elif cfg.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
-        kwargs["thinking"] = {"type": "disabled"}
+    from ..repl import thinking
+
+    thinking.apply(kwargs, provider=cfg.provider, model=cfg.model, client=cfg.client,
+                   think_mode=cfg.think_mode, effort=cfg.think_effort)
     return kwargs
 
 
@@ -299,7 +295,7 @@ def _call_model(team: Team, agent: AgentRun, cfg: RequestConfig, system: Any,
     from ..repl.stream import _iter_live_deltas, check_tool_inputs, tool_input_label
 
     kwargs = _request_kwargs(cfg, system, messages, tools)
-    cache_retried = thinking_retried = False
+    cache_retried = thinking_retried = think_setting_retried = False
     attempt = 0
     while True:
         if team.stopped(agent):
@@ -358,6 +354,14 @@ def _call_model(team: Team, agent: AgentRun, cfg: RequestConfig, system: Any,
                 prompt_cache.drop_thinking_blocks(messages)
                 kwargs = _request_kwargs(cfg, system, messages, tools)
                 continue
+            if code == 400 and not think_setting_retried:
+                from ..repl import thinking as _thinking
+
+                think_setting_retried = True
+                if _thinking.recover(e, kwargs, provider=cfg.provider, model=cfg.model,
+                                     client=cfg.client, think_mode=cfg.think_mode,
+                                     effort=cfg.think_effort):
+                    continue
             if _is_overflow(e) and attempt < 2:
                 from ..repl import context_budget
 
