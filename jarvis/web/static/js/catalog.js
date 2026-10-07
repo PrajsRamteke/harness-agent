@@ -27,6 +27,8 @@ export const CATALOG = [
   { group: 'Conversation', cmd: '/stats', label: 'Stats', desc: 'Session time, messages and tools', icon: 'chart-column' },
   { group: 'Conversation', fill: true, cmd: '/export ', label: 'Export', desc: 'Save the conversation as markdown', icon: 'download' },
   { group: 'Conversation', cmd: '/copy', label: 'Copy last reply', desc: 'Copy the latest answer on your computer', icon: 'copy' },
+  { group: 'Conversation', fill: true, cmd: '/team ', label: 'Parallel agents', desc: 'Split a big task across 2-6 agents working at the same time', icon: 'users', keys: 'team subagents parallel agents split fan out swarm' },
+  { group: 'Conversation', cmd: '/subagents', label: 'Subagent settings', desc: 'On/off, how many agents run at once, steps and time limits', icon: 'users', keys: 'subagents parallel agents team settings max' },
   { group: 'Conversation', fill: true, cmd: '/loop ', label: 'Loop a task', desc: 'Repeat a task; Jarvis paces itself (/loop 5m … for a fixed interval)', icon: 'timer', keys: 'repeat schedule watch interval recurring' },
   { group: 'Conversation', cmd: '/loop stop', label: 'Stop the loop', desc: 'End the running /loop', icon: 'square', keys: 'loop end cancel' },
 

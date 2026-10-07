@@ -21,6 +21,7 @@ from .scan import handle_scan
 from .upgrade import cmd_upgrade
 from .settings import handle_settings
 from .pet import handle_pet
+from .subagents import handle_subagents
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/paste", "/multi"}
@@ -59,6 +60,12 @@ def handle_slash(inp: str):
 
     handled, _ = handle_pet(c, arg)
     if handled:
+        return ("ok", False, inp)
+
+    handled, team_inp = handle_subagents(c, arg)
+    if handled:
+        if team_inp:
+            return ("ok", True, team_inp)
         return ("ok", False, inp)
 
     handled, _ = handle_lesson(c, arg)

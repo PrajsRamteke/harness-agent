@@ -11,6 +11,7 @@ import {
   syncThoughtsVisibility,
   toolDone,
   toolStart,
+  updateAgents,
   invalidateSnapshot,
 } from './chat.js';
 import { setBusy, setQueue, setStatusLabel } from './status.js';
@@ -141,6 +142,10 @@ export function handleEvent(evt) {
       noteToolDone(data);
       if (runningTools) setStatusLabel(toolLabel() || 'Running tools');
       else setStatusLabel('Thinking');
+      break;
+
+    case 'agents':
+      updateAgents(data);
       break;
 
     case 'shell_approval':

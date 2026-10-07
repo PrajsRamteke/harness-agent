@@ -26,6 +26,8 @@ PLAN_MODE_ALLOWED = frozenset({
     "git_status", "git_diff", "git_log",
     # context bundles
     "resolve_context", "read_bundle",
+    # parallel subagents — forced read-only while planning (subagents/tool.py)
+    "spawn_agents",
     # internet (read)
     "web_search", "fetch_url", "verified_search",
     # ocr / vision (read)

@@ -438,7 +438,7 @@ class TUIConsole:
             self._on_ui(self._tool_done, data)
 
     def _tool_start(self, data: dict) -> None:
-        from .transcript import ToolBlock
+        from .agents_block import make_tool_block
 
         tid = str(data.get("id") or "")
         if not tid:
@@ -447,7 +447,7 @@ class TUIConsole:
         if old is not None and old.status == "running":
             return
         # (a finished row with the same id = provider reusing ids → new row)
-        blk = ToolBlock(tid, str(data.get("name") or "tool"), data.get("input"))
+        blk = make_tool_block(tid, str(data.get("name") or "tool"), data.get("input"))
         self._tools[tid] = blk
         self._transcript().add(blk)
 
@@ -469,6 +469,16 @@ class TUIConsole:
                          tool_input=blk.tool_input, output=blk.output)
             except Exception:
                 pass
+
+    def subagents_update(self, team_id: str, board: dict) -> None:
+        """Live state of a spawn_agents call → its board row (any thread)."""
+        def _go() -> None:
+            blk = self._tools.get(str(team_id or ""))
+            set_board = getattr(blk, "set_board", None)
+            if callable(set_board):
+                set_board(board)
+
+        self._on_ui(_go)
 
     def cancel_running_tools(self) -> None:
         def _go() -> None:

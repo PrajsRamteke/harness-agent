@@ -79,11 +79,38 @@ def release_thread(ident: int | None) -> None:
             _cancelled_threads.discard(ident)
 
 
+# Helper threads working for a turn (parallel subagents): child → the thread
+# whose cancellation stops it too. Esc cancels the turn's worker; every
+# subagent it started must stop with it.
+_thread_parents: dict[int, int] = {}
+
+
+def link_thread(child: int | None, parent: int | None) -> None:
+    if child and parent and child != parent:
+        with _cancelled_lock:
+            _thread_parents[child] = parent
+
+
+def unlink_thread(child: int | None) -> None:
+    if child:
+        with _cancelled_lock:
+            _thread_parents.pop(child, None)
+
+
 def turn_cancelled() -> bool:
-    """True when the current turn (global flag) or this worker was cancelled."""
+    """True when the current turn (global flag) or this worker was cancelled
+    — or the worker it's helping (see ``link_thread``)."""
     if cancel_requested.is_set():
         return True
-    return threading.get_ident() in _cancelled_threads
+    ident = threading.get_ident()
+    with _cancelled_lock:
+        seen = set()
+        while ident and ident not in seen:
+            if ident in _cancelled_threads:
+                return True
+            seen.add(ident)
+            ident = _thread_parents.get(ident, 0)
+    return False
 
 # prompt stash (FIFO) — prompts received while busy; released one-by-one when each turn finishes
 # Each entry is ``str`` or ``(text, attachment_snapshot)`` for dropped-file chips.

@@ -323,6 +323,9 @@ export const fetchSessions = (limit = 50) => api(`/api/sessions?limit=${limit}`)
 
 /** Full recorded output for one tool call → `{ id, name, args, output, chars, truncated }`. */
 export const fetchToolOutput = (id) => api(`/api/tool-output?id=${encodeURIComponent(id)}`);
+/** Parallel agents: the full board (reports included) · stop one agent (or all with agent = null). */
+export const fetchSubagents = (id) => api(`/api/subagents?id=${encodeURIComponent(id)}`);
+export const stopSubagent = (id, agent = null) => api('/api/subagents/stop', 'POST', { id, agent });
 
 export function fetchModels(q = '') {
   return api(`/api/models${q ? `?q=${encodeURIComponent(q)}` : ''}`);

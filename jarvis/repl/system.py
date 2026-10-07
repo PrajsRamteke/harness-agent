@@ -133,6 +133,51 @@ _PLAN_MODE_BLOCK = (
 )
 
 
+def _subagents_block() -> str:
+    """When to reach for spawn_agents (only while parallel subagents are on)."""
+    try:
+        from ..subagents import enabled
+        if not enabled():
+            return ""
+    except Exception:
+        return ""
+    return (
+        "\n\nPARALLEL AGENTS (spawn_agents)\n"
+        "For a BIG task with independent parts — exploring/auditing several areas, several "
+        "research questions, or changes across separate files/modules — split it and run 2-6 "
+        "subagents at once with ONE spawn_agents call instead of doing every part in sequence. "
+        "Each brief must stand alone (agents can't see this chat); give edit agents disjoint "
+        "files. Keep small or tightly sequential work to yourself. Afterwards verify what "
+        "matters and combine the reports into one answer."
+    )
+
+
+def _subagents_request_block() -> str:
+    """This turn's message asked for (sub)agents outright: say it plainly —
+    weaker models otherwise ignore the tool and do everything themselves."""
+    try:
+        from ..subagents import enabled
+        from ..subagents.tool import asked_for_agents
+
+        if not enabled() or not asked_for_agents():
+            return ""
+    except Exception:
+        return ""
+    return (
+        "\n\nTHIS TURN: THE USER EXPLICITLY ASKED FOR MULTIPLE / PARALLEL SUBAGENTS.\n"
+        "You MUST do the main work with the spawn_agents tool — doing it all yourself ignores "
+        "the request. Steps:\n"
+        "1. Look only as far as you need to plan the split (a few reads at most).\n"
+        "2. If the agents build one thing together, create the shared ground first in a few "
+        "calls: the target folder, the file layout, shared conventions (CSS variables, data "
+        "shapes, global names) — e.g. a short SPEC.md they all read.\n"
+        "3. Call spawn_agents ONCE with 2-6 agents; builders use mode 'edit' and each owns "
+        "different files. Every brief is self-contained: absolute paths, the conventions, "
+        "what to build, what to report. Attached images are shown to every agent.\n"
+        "4. When they report, wire the parts together, check the result, fix gaps, then answer."
+    )
+
+
 def _plan_mode_block() -> str:
     """Plan-mode addon — appended dynamically; never part of the cached body."""
     return _PLAN_MODE_BLOCK if state.plan_mode else ""
@@ -327,9 +372,11 @@ def _build_system_now() -> Union[str, List[Dict]]:
 
     body = _selected_model_block() + _build_static_body()
     body += _agent_addon_block()
+    body += _subagents_block()
     body += _plan_mode_block()
     body += _background_jobs_block()
     body += _loop_block()
+    body += _subagents_request_block()
     body += date_line
 
     if state.auth_mode == AUTH_OAUTH:

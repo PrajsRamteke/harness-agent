@@ -466,6 +466,15 @@ class WebHandler(BaseHTTPRequestHandler):
                 return
             self._send_bytes(200, qr_svg(url).encode("utf-8"), "image/svg+xml")
             return
+        if path == "/api/subagents":
+            from .state_api import subagents_board
+
+            board = subagents_board(self._query_str(qs, "id"))
+            if board is None:
+                self._send_json(404, {"error": "no agents board for this tool call"})
+            else:
+                self._send_json(200, board)
+            return
         if path == "/api/tool-output":
             from .state_api import tool_output_text
 
@@ -689,6 +698,20 @@ class WebHandler(BaseHTTPRequestHandler):
             from .. import media
 
             self._send_json(200, {"ok": media.remove(str(data.get("id") or ""))})
+            return
+
+        if path == "/api/subagents/stop":
+            # One parallel agent (``agent`` = its index) or the whole team.
+            from .. import subagents
+
+            agent = data.get("agent")
+            try:
+                index = None if agent is None or agent == "" else int(agent)
+            except (TypeError, ValueError):
+                self._send_json(400, {"ok": False, "error": "agent must be a number"})
+                return
+            ok = subagents.stop(str(data.get("id") or ""), index)
+            self._send_json(200, {"ok": ok})
             return
 
         if path == "/api/cancel":

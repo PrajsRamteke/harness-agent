@@ -1590,7 +1590,9 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                     if body:
                         blocks.append(AssistantBlock(body))
                 elif kind == "tool_use":
-                    blk = ToolBlock(str(data.get("id")), data.get("name", "tool"), data.get("input"))
+                    from .agents_block import make_tool_block
+
+                    blk = make_tool_block(str(data.get("id")), data.get("name", "tool"), data.get("input"))
                     out, is_err = results.get(str(data.get("id")), ("", False))
                     blk.finish(out, error=is_err or None)
                     blocks.append(blk)

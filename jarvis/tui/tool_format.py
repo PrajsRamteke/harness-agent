@@ -18,6 +18,7 @@ import re
 from typing import Any
 
 _TITLES = {
+    "spawn_agents": "Parallel agents",
     "read_file": "Read",
     "read_document": "Read",
     "read_bundle": "Read",
@@ -87,6 +88,7 @@ _TITLES = {
 # One single-width glyph per tool family (no emoji — they render at
 # inconsistent widths across terminals). Colored by status in the row.
 _ICONS = {
+    "spawn_agents": "⇉",
     "read_file": "→", "read_document": "→", "read_bundle": "→",
     "resolve_context": "✦",
     "write_file": "←", "edit_file": "✎", "multi_edit": "✎",
@@ -209,6 +211,12 @@ def tool_args(name: str, raw_input: Any, width: int = 96) -> str:
     d = _norm(raw_input)
     c = lambda s, w=width: clip(s, w)  # noqa: E731
 
+    if name == "spawn_agents":
+        agents = d.get("agents") if isinstance(d.get("agents"), list) else []
+        names = [str(a.get("name") or "").strip() for a in agents if isinstance(a, dict)]
+        head = f"{len(agents)} agent{'' if len(agents) == 1 else 's'}"
+        names = [n for n in names if n]
+        return c(head + (" · " + ", ".join(names) if names else ""))
     if name == "read_file":
         s = short_path(d.get("path"))
         off, lim = d.get("offset") or 0, d.get("limit") or 0
@@ -413,6 +421,10 @@ def tool_summary(name: str, raw_input: Any, output: str, width: int = 100) -> tu
     lines = stripped.splitlines()
     d = _norm(raw_input)
 
+    if name == "spawn_agents":
+        head = lines[0] if lines else "done"
+        head = re.sub(r"^Parallel agents:\s*", "", head)
+        return ([clip(head, width)], " not finished" in head and "done" not in head)
     if name == "run_bash":
         body = lines
         code = 0

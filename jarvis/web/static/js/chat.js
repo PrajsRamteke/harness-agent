@@ -16,6 +16,7 @@ import { openModal } from './modal.js';
 import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 import { openChange } from './changes.js';
 import { renderFiles, renderToolImages } from './media.js';
+import { isAgentsTool, initAgentsCard, paintAgents } from './agents.js';
 
 const chat = () => $('chat');
 const scroller = () => $('chat-scroll');
@@ -557,6 +558,10 @@ function toolKindIcon(name) {
 }
 
 function paintTool(row, data) {
+  if (row.classList.contains('agents')) {
+    paintAgents(row, data);
+    return;
+  }
   if (Array.isArray(data.images) && data.images.length) row._images = data.images;
   const id = String(data.id || row.dataset.id || '');
   if (id) row.dataset.id = id;
@@ -620,6 +625,13 @@ function createToolRow(data) {
       title: data.title || data.name || 'Tool',
       args: data.args || '',
     });
+  }
+  if (isAgentsTool(data.name)) {
+    // Parallel agents get their own card, outside the foldable tool group.
+    initAgentsCard(row, data);
+    agentBody().appendChild(markNew(row));
+    if (data.id) toolRows.set(String(data.id), row);
+    return row;
   }
   if (data.status === 'error' && data.summary) row.classList.add('is-open');
   paintTool(row, data);
@@ -705,6 +717,12 @@ export function toolDone(data) {
     createToolRow({ ...data, status });
   }
   afterAppend();
+}
+
+/** Live board of a spawn_agents call (`agents` event). */
+export function updateAgents(board) {
+  const row = board?.id && toolRows.get(String(board.id));
+  if (row?.isConnected && row.classList.contains('agents')) paintAgents(row, { agents: board });
 }
 
 /** Turn ended or was cancelled: nothing is running any more. */

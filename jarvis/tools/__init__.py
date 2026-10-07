@@ -25,6 +25,7 @@ from .extensions import (
     EXTENSION_TOOLS, skill_install, skill_remove, mcp_add, mcp_list, mcp_connect, mcp_remove,
 )
 from .ask_user import ask_user_question
+from ..subagents import SUBAGENT_TOOLS, spawn_agents
 from .plan import exit_plan_mode, PLAN_TOOLS, PLAN_MODE_ALLOWED
 from .schemas_core import (
     CORE_TOOLS, CONTEXT_TOOLS, INTERNET_TOOLS, OCR_TOOLS, VISION_TOOLS, BACKGROUND_TOOLS,
@@ -36,9 +37,11 @@ from .schemas_mac import MAC_TOOLS
 # when servers connect. Import is deferred to avoid circular imports.
 MCP_TOOLS: list[dict] = []
 TOOLS = (CORE_TOOLS + BACKGROUND_TOOLS + VISION_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS
-         + LESSON_TOOLS + SKILL_TOOLS + EXTENSION_TOOLS + OCR_TOOLS + LOOP_TOOLS + MCP_TOOLS)
+         + LESSON_TOOLS + SKILL_TOOLS + EXTENSION_TOOLS + OCR_TOOLS + LOOP_TOOLS + SUBAGENT_TOOLS
+         + MCP_TOOLS)
 TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
+    "agents": SUBAGENT_TOOLS,
     "background": BACKGROUND_TOOLS,
     "vision": VISION_TOOLS,
     "loop": LOOP_TOOLS,
@@ -108,6 +111,8 @@ FUNC = {
     "ask_user_question": ask_user_question,
     # plan mode gate
     "exit_plan_mode": exit_plan_mode,
+    # parallel subagents
+    "spawn_agents": spawn_agents,
 }
 
 # ── MCP registry integration ─────────────────────────────────────────────

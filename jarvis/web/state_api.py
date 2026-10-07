@@ -120,6 +120,16 @@ def _tool_entry(block: dict, results: dict[str, tuple[str, bool]],
         entry["full_chars"] = int(fields.get("output_chars") or 0)
     # Screenshots: the transcript's tool_result holds base64 only; the raw
     # output (with the image's path) is still in this run's tool history.
+    if name == "spawn_agents":
+        # The parallel-agents card: live board, or rebuilt from the result.
+        try:
+            from ..subagents import board_for
+
+            board = board_for(tid, block.get("input"), output if done else None)
+        except Exception:
+            board = None
+        if board:
+            entry["agents"] = board
     raw = (raw_outputs or {}).get(tid)
     if raw:
         from ..media import images_in_output
@@ -128,6 +138,26 @@ def _tool_entry(block: dict, results: dict[str, tuple[str, bool]],
         if images:
             entry["images"] = images
     return entry
+
+
+def subagents_board(tool_id: str) -> dict[str, Any] | None:
+    """Full board (reports included) for one spawn_agents call, or None."""
+    from .. import state
+    from ..subagents import board_for
+
+    tool_id = str(tool_id or "")
+    if not tool_id:
+        return None
+    for m in reversed(state.messages):
+        if m.get("role") != "assistant" or not isinstance(m.get("content"), list):
+            continue
+        for b in m["content"]:
+            d = _block_dict(b)
+            if d.get("type") == "tool_use" and str(d.get("id")) == tool_id:
+                results = _tool_results(state.messages)
+                out = results.get(tool_id)
+                return board_for(tool_id, d.get("input"), out[0] if out else None)
+    return board_for(tool_id)
 
 
 def _raw_image_outputs() -> dict[str, str]:

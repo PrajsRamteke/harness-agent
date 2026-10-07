@@ -153,7 +153,7 @@ _STICKY_GROUPS = (
     "lessons", "extensions",
 )
 _GROUP_ORDER = (
-    "core", "context", "skills", "internet", "mac", "vision", "loop",
+    "core", "agents", "context", "skills", "internet", "mac", "vision", "loop",
     "background", "ocr", "memory", "lessons", "extensions", "mcp", "plan",
 )
 _sticky: dict = {"key": None, "groups": set()}
@@ -191,6 +191,12 @@ def select_tools(messages: list[dict]) -> list[dict]:
     """
     text = _latest_text(messages)
     groups = ["core"]
+    # Parallel subagents — on every turn while enabled: a big task can arrive
+    # in any words, and a group that comes and goes would break the prompt cache.
+    from ..subagents import enabled as _subagents_enabled
+
+    if _subagents_enabled():
+        groups.append("agents")
     active = _recent_tool_groups(messages)
     sticky = _sticky_groups(messages)
     active |= sticky

@@ -12,7 +12,7 @@ from ..utils.tool_repair import REPAIR_NOTE_MARKER, has_repair_note, repair_tool
 from .. import state
 from .hallucination import _scrub_hallucinations
 from .tool_activity import describe_tool_activity
-from .tool_events import emit_tool_done, emit_tool_start
+from .tool_events import emit_tool_done, emit_tool_start, set_current_tool
 from .tool_display import format_tool_output_preview
 from .tool_runs import (
     begin_wave,
@@ -112,6 +112,8 @@ _SERIAL_TOOLS = {
     "resolve_context", "read_bundle",
     "ask_user_question",
     "exit_plan_mode",
+    # parallel subagents — one board per call, waits for all its agents
+    "spawn_agents",
     # installing skills / MCP servers — config files, sign-in state, approval prompts
     "skill_install", "skill_remove", "mcp_add", "mcp_list", "mcp_connect", "mcp_remove",
     # JSON-backed storage — file-level read/write races when run in parallel
@@ -342,6 +344,7 @@ def _run_tool(b):
                 "request user approval before making any changes."
             )
 
+    set_current_tool(b.id)
     try:
         out = FUNC[b.name](**call_input)
     except TypeError as e:
