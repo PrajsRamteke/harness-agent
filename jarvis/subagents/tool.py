@@ -1,4 +1,4 @@
-"""The ``spawn_agents`` tool: run 1–6 subagents in parallel, return their reports."""
+"""The ``spawn_agents`` tool: run 1–20 subagents in parallel, return their reports."""
 from __future__ import annotations
 
 import re
@@ -11,7 +11,7 @@ from . import team as team_mod
 from .runner import RequestConfig, run_agent
 from .team import AgentRun, Team
 
-MAX_AGENTS = 6
+MAX_AGENTS = 20
 TOTAL_REPORT_CHARS = 60_000
 NAME_MAX = 40
 MAX_IMAGES = 4
@@ -21,7 +21,7 @@ MAX_IMAGES = 4
 # told plainly, so such a turn gets an explicit instruction (repl/system.py).
 EXPLICIT_RE = re.compile(
     r"\b(?:sub[- ]?agents?|multi(?:ple)?[- ]?agents?|parallel[- ]+agents?|agents?\s+in\s+parallel"
-    r"|(?:several|many|some|[2-6]|two|three|four|five|six)\s+(?:parallel\s+)?(?:sub[- ]?)?agents"
+    r"|(?:several|many|some|\d{1,2}|two|three|four|five|six|ten|twenty)\s+(?:parallel\s+)?(?:sub[- ]?)?agents"
     r"|spawn(?:ing)?\s+(?:\w+\s+)?agents?|agent\s+team|team\s+of\s+agents|spawn_agents)\b",
     re.I,
 )
@@ -29,7 +29,7 @@ EXPLICIT_RE = re.compile(
 SPAWN_AGENTS_TOOL = {
     "name": "spawn_agents",
     "description": (
-        "Run 2-6 subagents IN PARALLEL, each with its own fresh context and tools, and get "
+        "Run 2-20 subagents IN PARALLEL, each with its own fresh context and tools, and get "
         "their reports back in one result. Several agents working at once finish a big job "
         "far sooner than doing every part yourself in sequence.\n"
         "USE IT for big tasks that split into independent parts: exploring or auditing "
@@ -59,7 +59,7 @@ SPAWN_AGENTS_TOOL = {
             },
             "agents": {
                 "type": "array",
-                "description": "2-6 agents (1 is allowed for one long isolated job).",
+                "description": "2-20 agents (1 is allowed for one long isolated job).",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -192,7 +192,7 @@ def _parse_agents(agents: Any) -> tuple[list[AgentRun], str | None]:
     if isinstance(agents, dict):
         agents = [agents]
     if not isinstance(agents, list) or not agents:
-        return [], ("ERROR: spawn_agents needs `agents`: a list of 2-6 objects "
+        return [], ("ERROR: spawn_agents needs `agents`: a list of 2-20 objects "
                     "{name, task, mode?}.")
     if len(agents) > MAX_AGENTS:
         return [], (f"ERROR: at most {MAX_AGENTS} agents run at once (got {len(agents)}). "

@@ -15,8 +15,8 @@ TEAM_PROMPT = (
 )
 
 _KEYS = {
-    "max": ("subagents.max_parallel", "agents running at once", (1, 6)),
-    "parallel": ("subagents.max_parallel", "agents running at once", (1, 6)),
+    "max": ("subagents.max_parallel", "agents running at once", (1, 20)),
+    "parallel": ("subagents.max_parallel", "agents running at once", (1, 20)),
     "steps": ("subagents.max_steps", "model requests per agent", (4, 200)),
     "timeout": ("subagents.timeout_min", "minutes per agent", (1, 120)),
 }

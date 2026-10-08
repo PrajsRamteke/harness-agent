@@ -1,4 +1,4 @@
-"""Parallel subagents: the lead agent splits a big task into 1–6 briefs and
+"""Parallel subagents: the lead agent splits a big task into 1–20 briefs and
 ``spawn_agents`` runs them at the same time, each with its own conversation
 and tools, returning their reports in one tool result.
 

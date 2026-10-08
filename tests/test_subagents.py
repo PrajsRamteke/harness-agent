@@ -113,7 +113,7 @@ def _spawn(agents, goal="g"):
 def test_rejects_bad_input(fake):
     fake(lambda b, n, m: _final([_text("x")]))
     assert _spawn([]).startswith("ERROR")
-    assert "at most 6" in _spawn([{"name": f"a{i}", "task": "t"} for i in range(7)])
+    assert "at most 20" in _spawn([{"name": f"a{i}", "task": "t"} for i in range(21)])
     assert "no `task`" in _spawn([{"name": "a"}])
 
 
@@ -398,7 +398,7 @@ def test_settings_validate_numbers():
 
     assert _coerce("subagents.max_parallel", "3") == 3
     with pytest.raises(ValueError):
-        _coerce("subagents.max_parallel", 9)
+        _coerce("subagents.max_parallel", 21)
     assert _coerce("subagents.enabled", "off") is False
 
 

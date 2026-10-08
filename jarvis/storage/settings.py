@@ -169,7 +169,7 @@ def _valid_themes() -> tuple[str, ...]:
 
 
 _INT_RANGES = {
-    "subagents.max_parallel": (1, 6),
+    "subagents.max_parallel": (1, 20),
     "subagents.max_steps": (4, 200),
     "subagents.timeout_min": (1, 120),
 }

@@ -171,7 +171,7 @@ def _subagents_request_block() -> str:
         "2. If the agents build one thing together, create the shared ground first in a few "
         "calls: the target folder, the file layout, shared conventions (CSS variables, data "
         "shapes, global names) — e.g. a short SPEC.md they all read.\n"
-        "3. Call spawn_agents ONCE with 2-6 agents; builders use mode 'edit' and each owns "
+        "3. Call spawn_agents ONCE with 2-20 agents; builders use mode 'edit' and each owns "
         "different files. Every brief is self-contained: absolute paths, the conventions, "
         "what to build, what to report. Attached images are shown to every agent.\n"
         "4. When they report, wire the parts together, check the result, fix gaps, then answer."
