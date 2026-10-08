@@ -1,7 +1,6 @@
 """verified_search: multi-source cross-checked research."""
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from ...console import console
 from ...constants import MAX_TOOL_OUTPUT
 from ._common import _domain_score, _fetch_snippet
 from ._collect import gather_candidates, dedupe_by_domain
@@ -24,8 +23,10 @@ def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> 
       7. Return a structured report: verified facts, contested points,
          source list with trust scores, and a confidence summary.
     """
-    query = _enrich_query_with_date(query)
-    console.print(f"[dim cyan]◎ verified_search: collecting sources for \"{query}\"…[/]")
+    # Models sometimes put line breaks in a query; one line reads (and searches) the same.
+    query = _enrich_query_with_date(" ".join(str(query).split()))
+    # No progress prints: the tool's own row (spinner, query, result count) already
+    # says this, and from a subagent thread they landed in the main transcript.
 
     candidates = gather_candidates(query)
     deduped = dedupe_by_domain(candidates)
@@ -44,10 +45,6 @@ def verified_search(query: str, min_sources: int = 5, max_sources: int = 10) -> 
 
     if not to_fetch:
         return f'❌ verified_search: could not find any sources for "{query}".'
-
-    console.print(
-        f"[dim]  → fetching content from {len(to_fetch)} sources in parallel…[/]"
-    )
 
     # ── Step 3: fetch page content in parallel ────────────────────────
     source_data: list = []

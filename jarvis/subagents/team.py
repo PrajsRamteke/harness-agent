@@ -141,6 +141,7 @@ class Team:
     def log(self, agent: AgentRun, label: str, *, kind: str = "tool",
             status: str = "running", key: str = "") -> None:
         """Add (or update, by ``key``) one activity entry for ``agent``."""
+        label = " ".join(str(label or "").split())  # a board row is one line
         with self.lock:
             if key:
                 for e in reversed(agent.log):
@@ -157,6 +158,7 @@ class Team:
         self.changed()
 
     def set_activity(self, agent: AgentRun, text: str) -> None:
+        text = " ".join(str(text or "").split())
         with self.lock:
             if agent.activity == text:
                 return
