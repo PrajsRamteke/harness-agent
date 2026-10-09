@@ -50,6 +50,11 @@ def handle_slash(inp: str):
         cmd_upgrade(arg)
         return ("ok", False, inp)
 
+    if c in ("/local-models", "/localmodels"):
+        from .local_models import handle_local_models
+        handle_local_models(arg)
+        return ("ok", False, inp)
+
     handled, _ = handle_settings(c, arg)
     if handled:
         return ("ok", False, inp)

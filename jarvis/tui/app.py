@@ -73,6 +73,7 @@ from .app_commands import (  # noqa: F401
     _is_theme_modal_command,
     _is_provider_hub_command,
     _is_local_command,
+    _is_local_models_command,
     _is_pet_card_command,
     _is_pet_badges_command,
 )
@@ -581,6 +582,11 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         try:
             if not model_catalogs_are_fresh():
                 refresh_model_catalogs()
+            else:
+                # Local servers start and stop all the time: always look.
+                from ..constants.providers import refresh_local_models
+
+                refresh_local_models()
         except Exception:
             pass
 
@@ -886,6 +892,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             self._route_modal_slash(stripped)  # bare → picker; with arg → switch
         elif _is_provider_hub_command(stripped):
             self._open_provider_hub()
+        elif _is_local_models_command(stripped):
+            self._open_local_models()
         elif _is_think_picker_command(stripped):
             self._open_think_picker()
         elif _is_mcp_modal_command(stripped):
@@ -926,15 +934,33 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         def after(option_id: str | None):
             if not option_id:
                 return
+            if option_id == LOCAL_ID:
+                self._open_local_models()
+                return
             if option_id.startswith(CONNECT_ID):
                 self._connect_provider_from_picker(option_id[len(CONNECT_ID):])
                 return
             from ..constants.providers import parse_model_option_id
             source, model_id = parse_model_option_id(option_id)
             self._apply_model_selection_worker(model_id, source=source)
-        from .model_modal import ModelPickerScreen, CONNECT_ID
+        from .model_modal import ModelPickerScreen, CONNECT_ID, LOCAL_ID
 
         self.push_screen(ModelPickerScreen(), after)
+
+    def _open_local_models(self) -> None:
+        """``/local-models``: running servers + models; ↵ on a model uses it."""
+        from .local_modal import LocalModelsScreen, USE_PREFIX
+
+        def after(result: str | None) -> None:
+            self._set_status("ready")
+            if not result or not result.startswith(USE_PREFIX):
+                return
+            server, _sep, model_id = result[len(USE_PREFIX):].partition("::")
+            from ..auth.local_models import provider_id
+
+            self._apply_model_selection_worker(model_id, source=provider_id(server))
+
+        self.push_screen(LocalModelsScreen(), after)
 
     def _connect_provider_from_picker(self, provider: str) -> None:
         """A "+ Connect <provider>" row in /model: ask for its key, then come
@@ -1207,6 +1233,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                     OAuthConnectModalScreen(title="Auth · OAuth"),
                     lambda _r: self._set_status("ready"),
                 )
+            elif mode == "local":
+                self._open_local_models()
             elif mode == "api":
                 self.push_screen(KeyModalScreen(), lambda _r: self._set_status("ready"))
             else:

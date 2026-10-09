@@ -33,6 +33,7 @@ from ..constants.providers import (
     claude_thinking_kwargs,
     claude_uses_adaptive_thinking,
     is_catalog_provider,
+    is_local_provider,
 )
 
 # Providers whose client reads ``thinking["effort"]`` (the OpenAI-style wires).
@@ -124,7 +125,7 @@ def apply(
         return eff
     from anthropic import Anthropic
 
-    openai_style = provider in _EFFORT_IN_THINKING or (
+    openai_style = provider in _EFFORT_IN_THINKING or is_local_provider(provider) or (
         is_catalog_provider(provider) and not isinstance(client, Anthropic)
     )
     known = caps.known

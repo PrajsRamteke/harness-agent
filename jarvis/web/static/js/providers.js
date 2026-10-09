@@ -21,6 +21,7 @@ import { subscribe, loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
 import { fetchProviders, fetchOAuthStatus, providerPost } from './api.js';
+import { openLocal } from './local.js';
 
 const TONES = {
   anthropic: 'clay',
@@ -371,7 +372,13 @@ function build(body) {
   body.innerHTML = `
     <div class="pv-now" id="pv-now">${nowHtml()}</div>
     <div class="pv-groups is-entering" data-sig="${escapeHtml(sigOf(data.providers))}">${groups}</div>
-    <div id="pv-empty" hidden></div>`;
+    <div id="pv-empty" hidden></div>
+    <button type="button" class="pv-local" data-act="open-local">
+      <span class="pv-mark" data-tone="accent" aria-hidden="true">${icon('monitor')}</span>
+      <span class="pv-local-text"><span class="pv-local-title">Local models</span>
+        <span class="pv-local-sub">Ollama, LM Studio, llama.cpp … on your own hardware — no key, no cost</span></span>
+      ${icon('arrow-right')}
+    </button>`;
   setTimeout(() => body.querySelector('.pv-groups')?.classList.remove('is-entering'), 700);
 }
 
@@ -803,6 +810,10 @@ function handleClick(e) {
   const act = el.dataset.act;
   const id = el.dataset.id || el.closest('.pv-row')?.dataset.id;
   switch (act) {
+    case 'open-local':
+      closeModal('providers');
+      openLocal();
+      break;
     case 'toggle':
       toggleRow(id);
       break;

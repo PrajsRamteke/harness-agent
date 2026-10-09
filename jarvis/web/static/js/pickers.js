@@ -15,6 +15,7 @@ import { openMcp } from './mcp.js';
 import { openSkills } from './skills.js';
 import { openCommands } from './commands.js';
 import { openPin } from './pin.js';
+import { openLocal } from './local.js';
 import {
   pickerAction,
   fetchSessions,
@@ -98,11 +99,15 @@ function renderBar() {
   }
   const slot = $('picker-action');
   const a = current.spec.action;
+  const b = current.spec.secondary;
   if (!slot) return;
-  slot.innerHTML = a
+  slot.innerHTML = (b
+    ? `<button type="button" class="btn dlg-action is-secondary" data-sact${b.title ? ` title="${escapeHtml(b.title)}"` : ''}>${icon(b.ic || 'plus')}<span>${escapeHtml(b.label)}</span></button>`
+    : '') + (a
     ? `<button type="button" class="btn btn-primary dlg-action" data-pact${a.title ? ` title="${escapeHtml(a.title)}"` : ''}>${icon(a.ic || 'plus')}<span>${escapeHtml(a.label)}</span></button>`
-    : '';
+    : '');
   slot.querySelector('[data-pact]')?.addEventListener('click', () => a.run());
+  slot.querySelector('[data-sact]')?.addEventListener('click', () => b.run());
 }
 
 /** The footer: the scope switch (agents) and the key hints, same as every dialog. */
@@ -148,6 +153,11 @@ function open(kind, arg = '') {
   if (kind === 'pin') {
     if (isModalOpen('picker')) closePicker();
     openPin(arg);
+    return;
+  }
+  if (kind === 'local') {
+    if (isModalOpen('picker')) closePicker();
+    openLocal(arg);
     return;
   }
   const spec = SPECS[kind];
@@ -469,6 +479,8 @@ const modelSpec = {
   verb: 'use',
   // Models only list providers that are set up — adding one is a click away.
   action: { label: 'Add provider', ic: 'key-round', title: 'Sign in or paste an API key', run: () => open('provider') },
+  // Models on this computer: Ollama, LM Studio … (found by themselves once running).
+  secondary: { label: 'Local', ic: 'monitor', title: 'Local models — Ollama, LM Studio, llama.cpp on your own hardware', run: () => open('local') },
 };
 
 let agentsGlobal = false;

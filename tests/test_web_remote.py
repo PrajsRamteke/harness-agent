@@ -213,8 +213,9 @@ def test_js_modules_import_existing_files_and_names():
     js = STATIC / "js"
     exports: dict[str, set[str]] = {}
     for f in js.glob("*.js"):
-        src = f.read_text()
-        names = set(re.findall(r"export (?:async )?(?:function|const|let) ([\w$]+)", src))
+        # An unclosed /** … comment swallows the export after it: only code counts.
+        src = re.sub(r"/\*[\s\S]*?\*/", "", f.read_text())
+        names = set(re.findall(r"^export (?:async )?(?:function|const|let) ([\w$]+)", src, re.M))
         for group in re.findall(r"export \{([^}]+)\}", src):
             names |= {n.strip().split(" as ")[-1] for n in group.split(",") if n.strip()}
         exports[f.name] = names
@@ -230,10 +231,12 @@ def test_every_element_id_the_scripts_look_up_exists():
     js = {f.name: f.read_text() for f in (STATIC / "js").glob("*.js")}
     markup = (STATIC / "index.html").read_text() + "\n".join(js.values())
     missing: dict[str, list[str]] = {}
-    built_by_helpers = {"pv-quick"}     # providers.js field('pv-quick', …) writes the id
-    # dialog.js toolbar({ id: 'x' }) writes the search box's id.
+    built_by_helpers: set[str] = set()
+    # dialog.js toolbar({ id: 'x' }) writes the search box's id; extui.js /
+    # providers.js field('x', …) writes the input's.
     for src in js.values():
         built_by_helpers |= set(re.findall(r"toolbar\(\{\s*id:\s*'([\w-]+)'", src))
+        built_by_helpers |= set(re.findall(r"\bfield\('([\w-]+)'", src))
     for name, src in js.items():
         for ident in set(re.findall(r"\$\('([\w-]+)'\)", src)) - built_by_helpers:
             if f'id="{ident}"' not in markup and f"id='{ident}'" not in markup:

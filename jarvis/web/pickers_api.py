@@ -72,6 +72,13 @@ def list_models(*, query: str = "") -> dict[str, Any]:
         VISION_SEARCH_WORDS, free_model_ids, model_is_free, model_sees_images,
     )
 
+    from ..constants.providers import is_local_provider, local_models_are_fresh, refresh_local_models
+
+    if not local_models_are_fresh():
+        try:  # local servers start and stop all the time: a ~20 ms look
+            refresh_local_models()
+        except Exception:
+            pass
     q = (query or "").strip().lower()
     vision_only = q in VISION_SEARCH_WORDS
     free_only = q == "free"
@@ -101,6 +108,7 @@ def list_models(*, query: str = "") -> dict[str, Any]:
             "active": _model_is_active(src, model_id),
             "images": images,
             "free": free,
+            "local": is_local_provider(src),
         })
     return {
         "models": models,

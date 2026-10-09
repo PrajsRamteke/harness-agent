@@ -450,6 +450,12 @@ export async function fetchStateAt(base, { signal } = {}) {
   return res.json();
 }
 
+/** Local model servers (jarvis/web/local_api.py). `scan`: look again before answering. */
+export const fetchLocal = (scan = false) => api(`/api/local${scan ? '?scan=1' : ''}`);
+
+/** `op`: scan · add · remove · detect · context · use → `{ ok, error?, message?, local }` (never throws). */
+export const localPost = (data) => extPost('local', data);
+
 /** `op`: add · save · update · remove · toggle · clear → `{ ok, error?, code?, pin? }` (never throws). */
 export const pinPost = (data) => extPost('pin', data);
 

@@ -31,8 +31,8 @@ from ..tools.router import select_tools
 from ..constants.models import API_MAX_TOKENS, THINKING_BUDGET_TOKENS
 from anthropic import Anthropic
 from ..constants.providers import (
-    claude_thinking_kwargs, claude_uses_adaptive_thinking, is_catalog_provider, model_supports_images,
-    provider_label,
+    claude_thinking_kwargs, claude_uses_adaptive_thinking, is_catalog_provider, is_local_provider,
+    model_supports_images, provider_label,
 )
 from ..constants import (
     PROVIDER_ANTHROPIC, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
@@ -1126,6 +1126,10 @@ def _call_claude_stream():
             code = getattr(e, "status_code", None)
             if is_catalog_provider(state.provider) and code in (401, 402, 403, 404):
                 _report_catalog_error(code, e)
+            if is_local_provider(state.provider):
+                # A server on this computer: a 5xx is usually out of memory,
+                # not a hiccup — retrying only repeats it.
+                _fail(api_errors.classify(e, attempts=attempt), f"local {code}")
             if code is not None and code >= 500 and attempt < len(delays):
                 _retry_server_error(code, attempt, delays)
                 continue
@@ -1151,6 +1155,12 @@ def _call_claude_stream():
             if state.turn_cancelled():
                 raise
             kind = api_errors.kind_of(e)
+            if is_local_provider(state.provider) and kind != "timeout":
+                # Nothing to reconnect to: a local server that refuses the
+                # connection isn't running. Say how to start it, at once.
+                _current_stream = None
+                _fail(api_errors.classify(e, attempts=attempt, mid_reply=_got_first_delta),
+                      f"local {kind}")
             if kind == "network":
                 _current_stream = None
                 # The connection dropped (laptop slept, Wi-Fi changed, VPN):

@@ -509,6 +509,11 @@ class WebHandler(BaseHTTPRequestHandler):
 
             self._send_json(200, pin_store.public())
             return
+        if path == "/api/local":
+            from .local_api import get_local
+
+            self._send_json(200, get_local(force_scan=self._query_str(qs, "scan") == "1"))
+            return
         if path == "/api/providers":
             from .providers_api import list_providers
 
@@ -670,6 +675,13 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if path == "/api/prompt":
             self._handle_prompt(data)
+            return
+
+        if path == "/api/local":
+            # Local models: probing / adding run here, switching on the TUI thread.
+            from .local_api import post_local
+
+            self._send_json(200, post_local(data, self.bridge))
             return
 
         if path == "/api/pin":

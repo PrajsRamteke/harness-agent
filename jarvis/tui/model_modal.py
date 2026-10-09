@@ -18,7 +18,7 @@ from ..constants import (
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_OPENCODE_ZEN,
     AUTH_API_KEY, AUTH_OAUTH,
-    is_catalog_provider, provider_label,
+    is_catalog_provider, is_local_provider, provider_label,
 )
 from ..constants.providers import (
     HARNESS_AGENT_FALLBACK_MODEL, VISION_SEARCH_WORDS, free_model_ids,
@@ -127,6 +127,24 @@ def model_tags(*, free: bool, images: bool, free_slot: bool = False) -> Text:
 # bare for the generic "Add a provider" row). Dismissed as-is; the app opens
 # the /key dialog for it.
 CONNECT_ID = "__connect__:"
+# The "Local models…" row: the app opens /local-models.
+LOCAL_ID = "__local__"
+_LOCAL_WORDS = ("local", "ollama", "lm studio", "lmstudio", "llama", "offline", "gguf", "vllm")
+
+
+def _local_summary() -> str:
+    """``2 running · Ollama, LM Studio`` — or what Jarvis looks for."""
+    try:
+        from ..auth import local_models
+
+        if not local_models.enabled():
+            return ""
+        on = [local_models.label(p) for p in local_models.online_providers()]
+        if on:
+            return f"{len(on)} running · {', '.join(on[:3])}"
+        return "Ollama, LM Studio, llama.cpp … — no key"
+    except Exception:
+        return ""
 
 
 def _unconnected_catalog_providers() -> list[tuple[str, str, int]]:
@@ -249,11 +267,23 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         later without the user reopening the picker.
         """
         from ..constants.providers import (
+            local_models_are_fresh,
             model_catalogs_are_fresh,
+            refresh_local_models,
             refresh_model_catalogs,
         )
 
         if model_catalogs_are_fresh():
+            # Only the local servers: a ~20 ms look at local ports, so a model
+            # server started a moment ago is listed.
+            if local_models_are_fresh():
+                return
+            try:
+                changed = refresh_local_models()
+            except Exception:
+                changed = False
+            if changed:
+                self._from_thread(lambda r=model_picker_rows(): self._apply_refreshed_rows(r))
             return
         self._from_thread(lambda: self._set_busy(True))
         rows: list[tuple[str, str, str]] | None = None
@@ -391,6 +421,8 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
             note = "free · no key needed" if src == PROVIDER_HARNESS_AGENT else f"{len(items)} models"
             if is_catalog_provider(src):
                 note += " · models.dev"
+            elif is_local_provider(src):
+                note += " · on this computer"
             options.append(section_header(label, note, first=i == 0 and not options))
             for m, desc in items:
                 active = self._is_active(src, m)
@@ -426,7 +458,21 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
 
     def _connect_rows(self, q: str, *, has_models: bool) -> list:
         """Rows that connect a provider: one per not-yet-connected models.dev
-        provider matching the search, or a single "Add a provider" row."""
+        provider matching the search, or a single "Add a provider" row — and
+        the "Local models…" row (always, or when a search mentions local)."""
+        out: list = []
+        local = _local_summary()
+        if local and (not q or any(w in q or q in w for w in _LOCAL_WORDS)):
+            out.append(section_header("On this computer", "runs locally · no cost",
+                                      first=not has_models))
+            out.append(Option(
+                picker_row("⌂ Local models…", detail=local, right="/local-models",
+                           title_style=ui.ACCENT),
+                id=LOCAL_ID,
+            ))
+        return out + self._catalog_connect_rows(q, has_models=has_models or bool(out))
+
+    def _catalog_connect_rows(self, q: str, *, has_models: bool) -> list:
         unconnected = getattr(self, "_unconnected", None)
         if unconnected is None:
             unconnected = self._unconnected = _unconnected_catalog_providers()
@@ -471,7 +517,7 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
         self._choose(str(oid))
 
     def _choose(self, oid: str) -> None:
-        if oid.startswith(CONNECT_ID):
+        if oid.startswith(CONNECT_ID) or oid == LOCAL_ID:
             self.dismiss(oid)  # the app opens /key for it — not a model pick
             return
         oid = oid.removeprefix("recent:")

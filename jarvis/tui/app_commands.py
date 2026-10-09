@@ -99,6 +99,12 @@ def _is_provider_hub_command(text: str) -> bool:
     return s == "/provider" or s.startswith("/provider ")
 
 
+def _is_local_models_command(text: str) -> bool:
+    """Bare ``/local-models`` opens the dialog; with arguments it runs as text."""
+    s = (text or "").strip().lower()
+    return s in ("/local-models", "/localmodels")
+
+
 def _is_oauth_modal_command(text: str) -> bool:
     return _is_provider_hub_command(text)
 

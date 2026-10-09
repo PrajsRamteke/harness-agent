@@ -70,6 +70,25 @@ def _isolated_models_dev(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_local_models(tmp_path, monkeypatch):
+    """Local model servers (``jarvis/auth/local_models.py``): never probe the
+    developer's real ports (a running Ollama would change every picker test)
+    and never read their saved servers. Tests that want a runtime patch
+    ``RUNTIMES`` or add a server pointing at ``tests/local_model_server.py``."""
+    from jarvis.auth import local_models
+
+    monkeypatch.setattr(local_models, "CONFIG_FILE", tmp_path / "local_models.json")
+    monkeypatch.setattr(local_models, "CACHE_FILE", tmp_path / "local_models_cache.json")
+    monkeypatch.setattr(local_models, "RUNTIMES", ())
+    monkeypatch.setattr(local_models, "RUNTIME_BY_ID", {})
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    monkeypatch.delenv("HARNESS_LOCAL_MODELS", raising=False)
+    local_models._bump()
+    yield
+    local_models._bump()
+
+
+@pytest.fixture(autouse=True)
 def _mcp_switches_reset():
     """A test that switches MCP / a server off must not leave it off for the
     next one (the choice lives in the settings singleton)."""

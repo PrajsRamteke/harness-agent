@@ -15,7 +15,7 @@ from ..constants import (
     harness_agent_default_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX, PROVIDER_HARNESS_AGENT, PROVIDERS,
-    is_harness_agent_model, is_catalog_provider,
+    is_harness_agent_model, is_catalog_provider, is_local_provider,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
 )
@@ -189,7 +189,7 @@ def _resolve_provider(*, interactive: bool = True) -> str:
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
     if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX):
         return env_provider
-    if env_provider.startswith(CATALOG_PREFIX):
+    if env_provider.startswith(CATALOG_PREFIX) or is_local_provider(env_provider):
         return env_provider
     # Legacy: ANTHROPIC_API_KEY env var pins to Anthropic.
     if os.getenv("ANTHROPIC_API_KEY"):
@@ -206,7 +206,10 @@ def _resolve_provider(*, interactive: bool = True) -> str:
     except Exception:
         saved_model, saved_provider = "", ""
     # Only a provider Jarvis still has (a removed one — e.g. Kimchi — falls through).
-    if saved_model and saved_provider and (saved_provider in PROVIDERS or is_catalog_provider(saved_provider)):
+    if saved_model and saved_provider and (
+        saved_provider in PROVIDERS or is_catalog_provider(saved_provider)
+        or (is_local_provider(saved_provider) and _local_server_known(saved_provider))
+    ):
         return saved_provider
     try:
         from ..storage.prefs import load_saved_provider
@@ -224,6 +227,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
     if saved_provider == PROVIDER_OPENCODE_ZEN:
         return PROVIDER_OPENCODE_ZEN
     if is_catalog_provider(saved_provider) and _has_catalog_key(saved_provider):
+        return saved_provider
+    if is_local_provider(saved_provider) and _local_server_known(saved_provider):
         return saved_provider
     if PROVIDER_FILE.exists():
         try:
@@ -244,6 +249,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
             if not _has_usable_provider_credentials():
                 return PROVIDER_OPENCODE_ZEN
         if is_catalog_provider(stored) and _has_catalog_key(stored):
+            return stored
+        if is_local_provider(stored) and _local_server_known(stored):
             return stored
     if _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
@@ -294,6 +301,24 @@ def _catalog_hints(provider: str):
         }
 
     return hint
+
+
+def _local_server_known(provider: str) -> bool:
+    """A local server (``local:<id>``) Jarvis still knows: a detected runtime
+    or one the user added. Its being *up* is checked by the first request."""
+    try:
+        from . import local_models
+
+        return local_models.enabled() and local_models.get_server(provider) is not None
+    except Exception:
+        return False
+
+
+def _build_local_client(provider: str):
+    """Client for a model server on this computer / the LAN (``local:<id>``)."""
+    from . import local_models
+
+    return local_models.build_client(provider)
 
 
 def prompt_for_catalog_key(provider: str, reason: str = "") -> str:
@@ -459,7 +484,11 @@ def _saved_provider_removed() -> bool:
         saved = [load_saved_preferences()[1], load_saved_provider()]
     except Exception:
         return False
-    return any(p and p not in PROVIDERS and not is_catalog_provider(p) for p in saved)
+    return any(
+        p and p not in PROVIDERS and not is_catalog_provider(p)
+        and not (is_local_provider(p) and _local_server_known(p))
+        for p in saved
+    )
 
 
 def make_client(*, interactive: bool = True, _retried: bool = False):
@@ -478,7 +507,9 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
     state.MODEL = preferred_model
 
     state.provider = _resolve_provider(interactive=interactive)
-    catalog_ready = is_catalog_provider(state.provider) and _has_catalog_key(state.provider)
+    catalog_ready = (is_catalog_provider(state.provider) and _has_catalog_key(state.provider)) or (
+        is_local_provider(state.provider) and _local_server_known(state.provider)
+    )
     if not interactive and not _has_usable_provider_credentials() and not catalog_ready:
         state.provider = PROVIDER_OPENCODE_ZEN
         state.harness_agent_free = True
@@ -547,6 +578,15 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         if use_free:
             console.print("[red]Harness Agent connection failed[/]"); sys.exit(1)
         console.print("[red]Too many OpenCode Zen auth failures[/]"); sys.exit(1)
+
+    if is_local_provider(state.provider):
+        # A model on this computer. A stopped server isn't fatal here: the
+        # first request says how to start it (repl/api_errors.py).
+        try:
+            return _build_local_client(state.provider)
+        except Exception as e:
+            console.print(f"[yellow]{e} — using the free Harness Agent for now[/]")
+            return _fallback_harness_agent_client(preferred_model=harness_agent_default_model())
 
     if is_catalog_provider(state.provider):
         # A provider from models.dev. Nothing here is fatal: a missing key,

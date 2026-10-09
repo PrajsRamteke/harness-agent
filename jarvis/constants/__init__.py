@@ -54,6 +54,7 @@ from .providers import (
     model_option_id, parse_model_option_id,
     model_belongs_to_provider, normalize_model_for_provider,
     is_catalog_provider, provider_label, model_pricing, catalog_connected_providers,
+    is_local_provider, LOCAL_PREFIX, refresh_local_models, local_models_are_fresh,
     CODEX_DEFAULT_MODEL, CODEX_MODELS, CODEX_BASE_URL,
     codex_models_for_picker, codex_default_model,
 )

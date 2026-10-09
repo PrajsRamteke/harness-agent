@@ -23,6 +23,7 @@ import { initMcp } from './mcp.js';
 import { initSkills } from './skills.js';
 import { initCommands } from './commands.js';
 import { initPin } from './pin.js';
+import { initLocal } from './local.js';
 import { initQueue } from './queue.js';
 import { initPrompts } from './prompts.js';
 import { initTheme, toggleTheme } from './theme.js';
@@ -145,6 +146,7 @@ function boot() {
   initSkills();
   initCommands();
   initPin();
+  initLocal();
   initQueue({ onFill: keepDraftAndFill });
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });

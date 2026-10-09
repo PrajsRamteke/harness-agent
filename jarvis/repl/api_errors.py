@@ -466,6 +466,10 @@ def describe(kind: str, *, provider: str = "", provider_id: str = "", model: str
         msg = "The request failed for a reason Jarvis doesn't recognise. The details below say what happened."
         actions = [retry, pick]
 
+    if provider_id.startswith("local:"):
+        title, msg, actions = _local_wording(kind, provider_id, who, model, title, msg, actions,
+                                             mid_reply=mid_reply, said=said)
+
     if said and kind not in ("request",) and not _says_nothing_new(said, f"{title} {msg}"):
         msg = f"{msg}\n{who} said: “{said}”."
     return ErrorReport(
@@ -473,6 +477,50 @@ def describe(kind: str, *, provider: str = "", provider_id: str = "", model: str
         status=status, code=code, detail=clean_detail(detail), retry_after=retry_after,
         attempts=attempts,
     )
+
+
+def _local_wording(kind: str, provider_id: str, who: str, model: str, title: str, msg: str,
+                   actions: list[Action], *, mid_reply: bool, said: str) -> tuple[str, str, list[Action]]:
+    """A model server on this computer failed: the fix is on this computer
+    (start the app, pull the model, free memory), never a key or a plan."""
+    try:
+        from ..auth import local_models
+
+        srv = local_models.get_server(provider_id)
+    except Exception:
+        srv = None
+    rt = srv.runtime if srv is not None else None
+    where = srv.host if srv is not None else "this computer"
+    manage = Action("Local models", "/local-models")
+    retry = Action("Retry", RETRY, primary=True)
+    pick = Action("Switch model", "/model")
+    if kind == "network" and not mid_reply:
+        start = f" Start it: {rt.start_hint}" if rt is not None and rt.start_hint else " Start it"
+        if srv is not None and srv.remote:
+            start = " Check that computer is on and the server is running"
+        return (f"{who} isn't running",
+                f"Jarvis couldn't reach {who} at {where}.{start}, then retry.",
+                [retry, manage, pick])
+    if kind == "model":
+        pull = f" Get it with: {rt.pull.rsplit(' ', 1)[0]} {model}" if rt is not None and rt.pull else ""
+        return (f"{model or 'This model'} isn't on {who}",
+                f"{who} doesn't have {model or 'this model'} (any more).{pull} — or pick another model.",
+                [manage, pick])
+    if kind == "timeout":
+        return ("The local model is taking too long",
+                f"{who} went quiet. A big model on the CPU, or a long chat, can take minutes per reply."
+                " A smaller model or a smaller context (in Local models) answers faster;"
+                " HARNESS_LOCAL_TIMEOUT gives it more time.",
+                [retry, manage, pick])
+    if kind == "server":
+        return (f"{who} couldn't run {model or 'the model'}",
+                "This usually means the model doesn't fit in memory. Pick a smaller model,"
+                " or lower the context size in Local models.",
+                [manage, pick, retry])
+    if kind == "auth":
+        return (f"{who} wants an API key", f"{who} at {where} refused the request without a valid key."
+                " Add the key to the server in Local models.", [manage, pick])
+    return title, msg, actions
 
 
 def _context() -> tuple[str, str, str, str]:

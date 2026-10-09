@@ -22,6 +22,7 @@ from . import theme as ui
 _MODE_OPTIONS = [
     ("oauth", "Auth (OAuth)",     "Anthropic / OpenAI Codex — subscription sign-in"),
     ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode + 200 more via models.dev"),
+    ("local", "Local models",     "Ollama, LM Studio, llama.cpp … on this computer — no key"),
 ]
 
 
@@ -52,7 +53,7 @@ class ProviderHubScreen(TuiModalScreen[str | None]):
         max-height: 54%;
     }
     ProviderHubScreen OptionList {
-        height: 8;
+        height: 9;
         margin-top: 1;
     }
     """
@@ -107,10 +108,8 @@ class ProviderHubScreen(TuiModalScreen[str | None]):
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Fired by OptionList when Enter is pressed or option clicked."""
         mode = str(event.option.id) if event.option.id else ""
-        if mode == "oauth":
-            self.dismiss("oauth")
-        elif mode == "api":
-            self.dismiss("api")
+        if mode in ("oauth", "api", "local"):
+            self.dismiss(mode)
         else:
             self.dismiss(None)
 

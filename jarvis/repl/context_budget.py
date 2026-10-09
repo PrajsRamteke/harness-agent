@@ -48,6 +48,18 @@ _CTX_CACHE: dict[str, int | None] = {}
 
 def _catalog_context(model: str) -> int | None:
     """Context window models.dev lists for ``model`` on the active provider."""
+    if str(state.provider or "").startswith("local:"):
+        # A local model: the window its server really gives this request
+        # (Ollama: what Jarvis asks for), not the model's theoretical maximum.
+        try:
+            from ..auth import local_models
+
+            # Unknown (a server that doesn't report it): the window Jarvis
+            # would ask for — far closer than a cloud model's 128K guess.
+            return (local_models.served_context(state.provider, model)
+                    or local_models.context_setting())
+        except Exception:
+            return None
     try:
         from ..auth import models_dev
 

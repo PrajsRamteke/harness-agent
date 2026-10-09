@@ -285,8 +285,25 @@ def _from_codex(model: str) -> ThinkCaps | None:
     )
 
 
+def _from_local(model: str, provider: str) -> ThinkCaps | None:
+    """What the last scan of a local server said (Ollama's capabilities);
+    None for the OpenAI-compatible servers, which don't say."""
+    from . import local_models
+
+    thinks, levels, can_off = local_models.think_facts(provider, model)
+    if thinks is None:
+        return None
+    src = local_models.label(provider)
+    if not thinks:
+        return ThinkCaps(known=True, source=src, reasoning=False)
+    return ThinkCaps(known=True, source=src, reasoning=True,
+                     levels=_sorted_levels(levels), can_off=can_off)
+
+
 def _lookup(model: str, provider: str) -> ThinkCaps:
-    if provider == PROVIDER_OPENAI_CODEX:
+    if provider.startswith("local:"):
+        readers = (lambda: _from_local(model, provider),)
+    elif provider == PROVIDER_OPENAI_CODEX:
         readers = (lambda: _from_codex(model),)
     elif provider == PROVIDER_ANTHROPIC:
         readers = (
@@ -323,6 +340,12 @@ def _stamp() -> tuple:
         from . import models_dev
 
         paths.append(models_dev.CACHE_FILE)
+    except Exception:
+        pass
+    try:
+        from . import local_models
+
+        paths.append(local_models.CACHE_FILE)
     except Exception:
         pass
     out = []

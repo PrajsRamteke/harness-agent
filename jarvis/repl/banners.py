@@ -25,9 +25,11 @@ _WELCOME_ART_COMPACT_MIN_WIDTH = 44
 
 def _provider_text(provider: str) -> str:
     """Built-in ids as before; a models.dev provider by its name."""
-    from ..constants.providers import is_catalog_provider, provider_label
+    from ..constants.providers import is_catalog_provider, is_local_provider, provider_label
 
-    return provider_label(provider) if is_catalog_provider(provider) else str(provider)
+    if is_catalog_provider(provider) or is_local_provider(provider):
+        return provider_label(provider)
+    return str(provider)
 
 
 def _current_git_branch(cwd) -> str | None:

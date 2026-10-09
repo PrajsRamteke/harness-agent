@@ -24,6 +24,7 @@ import { handleMcpEvent } from './mcp.js';
 import { handleSkillsEvent } from './skills.js';
 import { handleCommandsEvent } from './commands.js';
 import { handlePinEvent } from './pin.js';
+import { handleLocalEvent } from './local.js';
 import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
 import { handleProjectsEvent } from './projects.js';
@@ -120,6 +121,11 @@ export function handleEvent(evt) {
     case 'pin':
       // Pinned context changed (this tab, another one): the dialog + sidebar chip.
       handlePinEvent(data);
+      break;
+
+    case 'local':
+      // A local model server was added / removed, or the context changed.
+      handleLocalEvent(data);
       break;
 
     case 'stream_start':

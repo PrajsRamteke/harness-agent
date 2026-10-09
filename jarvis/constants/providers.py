@@ -156,6 +156,12 @@ def model_supports_images(model_id: str, provider: str | None = None) -> bool:
         provider = getattr(state, "provider", "") or ""
     if provider == PROVIDER_HARNESS_AGENT:
         provider = PROVIDER_OPENCODE_ZEN  # the free tier is Zen's gateway: same models
+    if is_local_provider(provider):
+        try:
+            lm = _local().get_model(provider, model_id)
+        except Exception:
+            lm = None
+        return bool(lm and lm.vision)
     if is_catalog_provider(provider):
         try:
             m = _catalog().get_model(provider, model_id)
@@ -201,8 +207,8 @@ def model_is_free(model_id: str, source: str, free_ids: dict[str, set[str]] | No
     ``free_model_ids()``, passed in when tagging a whole list."""
     if free_ids is None:
         free_ids = free_model_ids()
-    if source == PROVIDER_HARNESS_AGENT:
-        return True  # the free tier: no key, no cost
+    if source == PROVIDER_HARNESS_AGENT or is_local_provider(source):
+        return True  # the free tier, or a model on your own machine: no cost
     if source == PROVIDER_OPENROUTER:
         # OpenRouter's own $0 list (openrouter.ai/api/v1/models) decides — never
         # the id: a ":free" model OpenRouter retired is not free, it's gone.
@@ -289,6 +295,33 @@ def _catalog():
     return models_dev
 
 
+# ── Local models (see jarvis/auth/local_models.py) ───────────────────────────
+# Ids "local:<server>" — Ollama, LM Studio, llama.cpp … on this computer or
+# the LAN, plus servers the user added. Like catalog providers their models
+# never enter MODEL_INFO / PRICING; everything is read from the last scan.
+LOCAL_PREFIX = "local:"
+
+
+def is_local_provider(provider: str | None) -> bool:
+    return bool(provider) and str(provider).startswith(LOCAL_PREFIX)
+
+
+def _local():
+    from ..auth import local_models
+
+    return local_models
+
+
+def local_picker_sources() -> list[str]:
+    """Local servers /model lists (online ones + the one in use)."""
+    try:
+        from .. import state
+
+        return _local().picker_providers(getattr(state, "provider", "") or "")
+    except Exception:
+        return []
+
+
 def _native_extras(provider: str, seen: set[str], keep=None,
                    allow_deprecated: bool = False) -> list[tuple[str, str]]:
     """Models models.dev lists for a built-in provider that ``seen`` lacks
@@ -356,6 +389,11 @@ def provider_label(provider: str) -> str:
     """Display name for any provider id, catalog ones included."""
     if provider in PROVIDER_LABELS:
         return PROVIDER_LABELS[provider]
+    if is_local_provider(provider):
+        try:
+            return _local().label(provider)
+        except Exception:
+            return provider[len(LOCAL_PREFIX):]
     if is_catalog_provider(provider):
         try:
             p = _catalog().get_provider(provider)
@@ -373,8 +411,8 @@ def model_pricing(model: str, provider: str | None = None) -> tuple[float, float
     None when unknown. Catalog providers are priced from models.dev, never
     from the id-keyed PRICING table (another provider may share the id).
     """
-    if provider == PROVIDER_HARNESS_AGENT:
-        return (0.0, 0.0)  # the free tier: no key, no cost
+    if provider == PROVIDER_HARNESS_AGENT or is_local_provider(provider):
+        return (0.0, 0.0)  # the free tier / your own hardware: no cost
     if is_catalog_provider(provider):
         try:
             m = _catalog().get_model(provider, model)
@@ -879,6 +917,8 @@ def connected_model_sources() -> list[str]:
             pass
     # Providers discovered from models.dev that have a key, after the built-ins.
     sources.extend(catalog_connected_providers())
+    # Models running on this computer / the LAN (last scan — no network here).
+    sources.extend(local_picker_sources())
     # Harness Agent must always appear — even when other providers are configured.
     out: list[str] = []
     seen: set[str] = set()
@@ -947,6 +987,8 @@ def models_for_source(source: str, live: bool = False, cached: bool = False):
         return codex_models_for_picker(live=live)
     if is_catalog_provider(source):
         return catalog_models_for_picker(source)
+    if is_local_provider(source):
+        return _local().picker_rows(source)
     return models_for(source)
 
 
@@ -999,6 +1041,7 @@ def connected_providers() -> set[str]:
     # Catalog providers count only for themselves — they never change the
     # first-run "show everything" behaviour of the built-ins above.
     connected.update(catalog_connected_providers())
+    connected.update(local_picker_sources())
     return connected
 
 
@@ -1035,6 +1078,8 @@ def models_for(provider: str):
         return codex_models_for_picker()
     if is_catalog_provider(provider):
         return catalog_models_for_picker(provider)
+    if is_local_provider(provider):
+        return _local().picker_rows(provider)
     return anthropic_api_models_for_picker()
 
 
@@ -1058,6 +1103,11 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
         return False
     if provider == PROVIDER_HARNESS_AGENT:
         return is_harness_agent_model(m)
+    if is_local_provider(provider):
+        try:
+            return _local().get_model(provider, m) is not None
+        except Exception:
+            return False
     if is_catalog_provider(provider):
         try:
             return _catalog().get_model(provider, m) is not None
@@ -1146,6 +1196,11 @@ def normalize_model_for_provider(model: str, provider: str) -> str:
             return _gateway_default(provider)
     if model_belongs_to_provider(model, provider):
         return model.strip()
+    if is_local_provider(provider):
+        try:
+            return _local().default_model(provider) or (model or "").strip()
+        except Exception:
+            return (model or "").strip()
     if is_catalog_provider(provider):
         try:
             return _catalog().default_model(provider) or (model or "").strip()
@@ -1203,6 +1258,11 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
     except Exception:
         pass
     try:
+        # Ollama, LM Studio … on this computer: a ~1 s probe of local ports.
+        ok = bool(refresh_local_models()) or ok
+    except Exception:
+        pass
+    try:
         # Which thinking levels each Anthropic model takes (needs the signed-in
         # client); an explicit refresh also forgets levels a provider refused.
         from ..auth.thinking_caps import refresh_all as _think_refresh
@@ -1211,6 +1271,26 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
     except Exception:
         pass
     return ok
+
+
+def refresh_local_models() -> bool:
+    """Scan local model servers (network, worker thread only). True when
+    the picker's local rows changed."""
+    lm = _local()
+    if not lm.enabled():
+        return False
+    before = {p: lm.picker_rows(p) for p in local_picker_sources()}
+    lm.scan()
+    after = {p: lm.picker_rows(p) for p in local_picker_sources()}
+    return before != after
+
+
+def local_models_are_fresh() -> bool:
+    try:
+        lm = _local()
+        return (not lm.enabled()) or lm.scan_is_fresh()
+    except Exception:
+        return True
 
 
 def model_catalogs_are_fresh() -> bool:

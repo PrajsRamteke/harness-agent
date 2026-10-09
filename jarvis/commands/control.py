@@ -8,7 +8,7 @@ from ..constants import (
     OPENROUTER_DEFAULT_MODEL,
     harness_agent_default_model,
     THINK_EFFORTS, DEFAULT_THINK_EFFORT,
-    is_catalog_provider, provider_label,
+    is_catalog_provider, is_local_provider, provider_label,
     models_for, is_harness_agent_model, normalize_model_for_provider,
     model_belongs_to_provider,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
@@ -276,7 +276,7 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
         # The picked source decides: OpenCode Go serves gpt-… ids too, and
         # guessing from the id would send those to ChatGPT (Codex).
         target_provider = source
-    elif is_catalog_provider(source):
+    elif is_catalog_provider(source) or is_local_provider(source):
         target_provider = source
     elif source in (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH):
         target_provider = PROVIDER_ANTHROPIC
@@ -421,7 +421,20 @@ def _handle_model(arg: str):
 
 def _handle_auth():
     lines = [f"provider: [bold cyan]{provider_label(state.provider)}[/]"]
-    if is_catalog_provider(state.provider):
+    if is_local_provider(state.provider):
+        from ..auth import local_models
+
+        srv = local_models.get_server(state.provider)
+        lines.append("auth: [bold]none[/] [dim](runs on your own hardware)[/]")
+        if srv is not None:
+            lines.append(f"server: {srv.url} [dim]({'Ollama' if srv.kind == 'ollama' else 'OpenAI-compatible'})[/]")
+            if srv.key:
+                lines.append(f"key: …{srv.key[-4:]}")
+        ctx = local_models.served_context(state.provider, state.MODEL)
+        if ctx:
+            lines.append(f"context: {ctx:,} tokens")
+        lines.append(f"model: [cyan]{state.MODEL}[/]")
+    elif is_catalog_provider(state.provider):
         from ..auth import catalog_keys
 
         source, value = catalog_keys.key_source(state.provider)
@@ -599,7 +612,8 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             "  [cyan]2[/]  OpenRouter         [dim](free & paid)[/]\n"
             "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
             "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n"
-            "  [dim]…or any provider id from models.dev, e.g.[/] [cyan]deepseek[/] [dim](/key lists them all)[/]\n\n"
+            "  [dim]…or any provider id from models.dev, e.g.[/] [cyan]deepseek[/] [dim](/key lists them all)[/]\n"
+            "  [dim]…or a model server on this computer, e.g.[/] [cyan]ollama[/] [dim](/local-models lists them)[/]\n\n"
             "usage: [dim]/provider <name>[/]",
             title="◎ provider", border_style="cyan",
         ))
@@ -621,11 +635,23 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
     )
     if target not in builtin:
+        # A model server on this computer: "local:ollama", or just "ollama".
+        from ..auth import local_models
+
+        local = local_models.get_server(target) if local_models.enabled() else None
+        if local is not None:
+            target = local.provider
+    if target not in builtin and not is_local_provider(target):
         # A provider from models.dev: "md:deepseek", or just "deepseek".
         from ..auth import models_dev
 
         target = models_dev.provider_id(target) or target
-    if target not in builtin and not (is_catalog_provider(target) and _catalog_provider_known(target)):
+    if is_local_provider(target):
+        from ..auth import local_models
+
+        if local_models.get_server(target) is None:
+            console.print(f"[red]unknown local server: {target}[/] [dim]— /local-models lists them[/]"); return
+    elif target not in builtin and not (is_catalog_provider(target) and _catalog_provider_known(target)):
         console.print(f"[red]unknown provider: {target}[/] [dim]— /key lists every provider[/]"); return
     if target == state.provider:
         console.print(f"[dim]already on {provider_label(target)}[/]"); return
@@ -657,6 +683,18 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
     elif is_catalog_provider(target):
         state.MODEL = normalize_model_for_provider(state.MODEL, target)
+    elif is_local_provider(target):
+        from ..auth import local_models
+
+        if not local_models.models(target):
+            local_models.scan(only=target)  # first use: look before choosing
+        state.MODEL = normalize_model_for_provider(state.MODEL, target)
+        if not local_models.models(target):
+            console.print(f"[yellow]{provider_label(target)} has no models Jarvis can see — "
+                          "start it and pull a model, then run /local-models[/]")
+            state.provider = prev_provider
+            _secure_write(PROVIDER_FILE, prev_provider)
+            return
     else:
         state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_ANTHROPIC)
         # Use whichever Anthropic credential exists now — a stale auth_mode
@@ -690,6 +728,9 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         elif is_catalog_provider(target):
             from ..auth.client import _build_catalog_client
             state.client = _build_catalog_client(target)
+        elif is_local_provider(target):
+            from ..auth.client import _build_local_client
+            state.client = _build_local_client(target)
         else:
             state.client = _build_client_from_mode(
                 PROVIDER_OPENROUTER if target == PROVIDER_OPENROUTER else state.auth_mode

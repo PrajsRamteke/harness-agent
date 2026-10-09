@@ -944,7 +944,8 @@ class _OpenCodeMessages:
 
         stream = _OpenCodeStream(
             response,
-            read_timeout=http_read_timeout_seconds(openrouter=True),
+            read_timeout=(owner.read_timeout if owner is not None and owner.read_timeout
+                          else http_read_timeout_seconds(openrouter=True)),
         )
         try:
             yield stream
@@ -975,6 +976,9 @@ class OpenCodeClient:
         responses_models: set[str] | None = None,
         model_hints: Callable[[str], dict | None] | None = None,
         max_tokens_param: str = "max_tokens",
+        timeout: Any = None,
+        read_timeout: float | None = None,
+        max_retries: int | None = None,
     ):
         self._request_id_header = request_id_header
         self._request_id_prefix = request_id_prefix
@@ -989,6 +993,9 @@ class OpenCodeClient:
         self._model_hints = model_hints
         # OpenAI's own API wants max_completion_tokens; gateways take max_tokens.
         self.max_tokens_param = max_tokens_param
+        # Seconds a stream may stay silent. Local models (local_models.py) get
+        # longer: loading a model and reading a long prompt can take minutes.
+        self.read_timeout = read_timeout
         # Tool schemas that must accompany every request even when the caller
         # supplied none. Used by the free Harness Agent tier, whose gateway
         # only accepts requests carrying tools named "bash"+"read".
@@ -997,11 +1004,13 @@ class OpenCodeClient:
         # without it: never sent to them again this session.
         self.effort_refused: set[str] = set()
         hdrs = dict(default_headers or {})
+        extra: dict[str, Any] = {} if max_retries is None else {"max_retries": max_retries}
         self._oai = OpenAI(
             api_key=api_key,
             base_url=base_url or f"{OPENCODE_BASE_URL}/",
             default_headers=hdrs or None,
-            timeout=harness_http_timeout(openrouter=True),
+            timeout=timeout if timeout is not None else harness_http_timeout(openrouter=True),
+            **extra,
         )
         self.messages = _OpenCodeMessages(self._oai, owner=self)
 
