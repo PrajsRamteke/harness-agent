@@ -144,7 +144,7 @@ def _subagents_block() -> str:
     return (
         "\n\nPARALLEL AGENTS (spawn_agents)\n"
         "For a BIG task with independent parts — exploring/auditing several areas, several "
-        "research questions, or changes across separate files/modules — split it and run 2-6 "
+        "research questions, or changes across separate files/modules — split it and run 2-20 "
         "subagents at once with ONE spawn_agents call instead of doing every part in sequence. "
         "Each brief must stand alone (agents can't see this chat); give edit agents disjoint "
         "files. Keep small or tightly sequential work to yourself. Afterwards verify what "

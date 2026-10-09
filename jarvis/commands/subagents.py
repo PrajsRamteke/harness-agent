@@ -6,7 +6,7 @@ from rich.markup import escape
 from ..console import console
 
 TEAM_PROMPT = (
-    "Do this task with parallel subagents (spawn_agents). Split it into 2-6 independent "
+    "Do this task with parallel subagents (spawn_agents). Split it into 2-20 independent "
     "parts — one agent per part, each with a complete, self-contained brief (files/areas it "
     "covers, constraints, what to report) and mode 'edit' only for agents that must change "
     "files (give each its own files). Run them in ONE spawn_agents call, then check their "
@@ -30,7 +30,7 @@ def _status() -> None:
     on = bool(s.get("subagents.enabled", True))
     console.print(
         f"[bold]Parallel subagents[/] {'[green]on[/]' if on else '[red]off[/]'} · "
-        f"up to {s.get('subagents.max_parallel', 6)} at once · "
+        f"up to {s.get('subagents.max_parallel', 20)} at once · "
         f"{s.get('subagents.max_steps', 40)} steps · {s.get('subagents.timeout_min', 20)} min each"
     )
     teams = running_teams()
@@ -40,7 +40,7 @@ def _status() -> None:
                       f"{c['done']} done, {c['queued']} queued")
     console.print(
         "[dim]/team <task> — split a task across agents · /subagents on|off · "
-        "/subagents max <1-6> · /subagents steps <n> · /subagents timeout <minutes> · "
+        "/subagents max <1-20> · /subagents steps <n> · /subagents timeout <minutes> · "
         "/subagents stop[/]"
     )
 
@@ -50,7 +50,7 @@ def handle_subagents(c: str, arg: str) -> tuple[bool, str | None]:
     if c == "/team":
         task = arg.strip()
         if not task:
-            console.print("[yellow]usage:[/] /team <task> — Jarvis splits it across 2-6 "
+            console.print("[yellow]usage:[/] /team <task> — Jarvis splits it across 2-20 "
                           "agents working in parallel")
             return True, None
         from ..subagents import enabled

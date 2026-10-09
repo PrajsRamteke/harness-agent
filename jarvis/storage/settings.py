@@ -65,7 +65,7 @@ DEFAULTS: dict[str, Any] = {
     "pet":    {"enabled": True, "nudges": True, "notify": True},  # the TUI pets
     "ui":     {"sticky_prompt": True},
     # parallel subagents (spawn_agents): on/off · agents running at once · model requests per agent · minutes per agent
-    "subagents": {"enabled": True, "max_parallel": 6, "max_steps": 40, "timeout_min": 20},  # pin your prompt above a long reply
+    "subagents": {"enabled": True, "max_parallel": 20, "max_steps": 40, "timeout_min": 20},  # pin your prompt above a long reply
     "web":    {"qr": True, "tunnel": "auto", "keep_awake": True},  # corner QR · Anywhere provider (auto|cloudflare|ngrok) · keep the Mac awake while Anywhere runs
 }
 
@@ -73,7 +73,7 @@ DEFAULTS: dict[str, Any] = {
 # Bumped when a default changes in a way that files written by older versions
 # must follow. Kept in settings.json as "_version" — outside DEFAULTS, so
 # /settings doesn't list it.
-SETTINGS_VERSION = 2
+SETTINGS_VERSION = 3
 _VERSION_KEY = "_version"
 
 
@@ -89,6 +89,12 @@ def _upgrade(doc: dict) -> bool:
     think = doc.get("think")
     if isinstance(think, dict) and think.get("effort") == "medium":
         think["effort"] = "high"
+    # v3 — parallel subagents at once 6 → 20 (the tool's own cap), so a batch of
+    # up to 20 all runs together instead of the extras queueing. 6 saved here is
+    # the old default, not a choice.
+    sub = doc.get("subagents")
+    if isinstance(sub, dict) and sub.get("max_parallel") == 6:
+        sub["max_parallel"] = 20
     doc[_VERSION_KEY] = SETTINGS_VERSION
     return True
 
