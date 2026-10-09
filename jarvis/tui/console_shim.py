@@ -283,6 +283,12 @@ class TUIConsole:
         if plan and plan.strip():
             self._on_ui(lambda: self._transcript().add(PlanBlock(plan.strip())))
 
+    def show_error(self, report) -> None:
+        """A failed request: an error card with its fixes (``ErrorBlock``)."""
+        from .transcript import ErrorBlock
+
+        self._on_ui(lambda: self._transcript().add(ErrorBlock(report)))
+
     def thinking_stream_reset(self) -> None:
         """Forget thinking state at the start of a stream iteration."""
         from .. import state as _state

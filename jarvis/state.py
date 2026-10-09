@@ -128,6 +128,9 @@ plan_mode: bool = False
 session_start: float = time.time()
 tool_calls_count: int = 0
 last_assistant_text: str = ""
+# Why the last model request failed (repl/api_errors.py: ErrorReport dict +
+# session id + message count) — web pages that reconnect still show it.
+last_api_error: dict | None = None
 web_tool_used_this_turn: bool = False  # disables hallucination guard when True
 last_clipboard_image_digest: str = ""
 

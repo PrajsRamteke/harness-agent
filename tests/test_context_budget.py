@@ -378,10 +378,32 @@ def test_codex_other_failure_is_reported_not_silent(loop):
     def boom():
         raise CodexResponseError("server_error: something broke")
 
+    shown = []
+    loop.stream.console.show_error = shown.append
     loop.install([boom], [{"role": "user", "content": "go"}])
     with pytest.raises(HarnessAPIError):
         loop.stream.call_claude_stream()
-    assert any("Codex ended the reply with an error" in p for p in loop.printed)
+    # A Codex server error is retried (nothing streamed yet), then reported.
+    assert len(loop.sent) == 4
+    assert [r.kind for r in shown] == ["server"]
+    assert "something broke" in shown[0].detail
+    assert shown[0].attempts == 3
+
+
+def test_codex_unknown_failure_keeps_codex_title(loop):
+    from jarvis.auth.codex_client import CodexResponseError
+    from jarvis.console import HarnessAPIError
+
+    def boom():
+        raise CodexResponseError("the model produced invalid output", "invalid_output")
+
+    shown = []
+    loop.stream.console.show_error = shown.append
+    loop.install([boom], [{"role": "user", "content": "go"}])
+    with pytest.raises(HarnessAPIError):
+        loop.stream.call_claude_stream()
+    assert len(loop.sent) == 1
+    assert shown[0].title == "Codex ended the reply with an error"
 
 
 # ── long tool calls show progress, never "No reply yet" ──────────────────

@@ -65,7 +65,7 @@ def harness(monkeypatch):
     monkeypatch.setattr(stream, "trim_messages", lambda msgs: msgs)
     monkeypatch.setattr(stream, "_heal_message_history", lambda: None)
     monkeypatch.setattr(stream, "report_turn_phase", lambda *a, **k: None)
-    monkeypatch.setattr(stream, "_report_http_timeout", lambda: None)
+    monkeypatch.setattr(stream, "_report_http_timeout", lambda *a, **k: None)
     monkeypatch.setattr(stream.time, "sleep", lambda *a, **k: None)
 
     printed: list[str] = []

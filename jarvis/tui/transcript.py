@@ -994,6 +994,194 @@ class NoticeBlock(Block):
         return Group(*self.items)
 
 
+# ── errors ────────────────────────────────────────────────────────────────
+
+_ACTION_ICONS = {
+    "/retry": "↻", "/model": "⇄", "/model refresh": "⟳", "/key": "⚿",
+    "/login": "→", "/provider": "◎", "/new": "+",
+}
+_DETAIL_LINES = 14
+
+
+class ErrorBlock(Block):
+    """Why a request failed (``repl/api_errors.ErrorReport``) as a card:
+    title + provider/model, a plain explanation, clickable fixes
+    (``↻ Retry``, ``⇄ Switch model`` …), and the raw provider text behind
+    ``▸ Details``. Amber for things that pass by themselves (network,
+    rate limits, server errors), red for ones the user has to fix."""
+
+    DEFAULT_CSS = """
+    ErrorBlock {
+        background: $jv-err 7%;
+        border-left: heavy $jv-err;
+        padding: 1 2;
+        margin: 1 0 0 0;
+        color: $jv-fg;
+    }
+    ErrorBlock.-warn {
+        background: $jv-warn 6%;
+        border-left: heavy $jv-warn;
+    }
+    """
+
+    def __init__(self, report) -> None:
+        super().__init__()
+        self.report = report
+        self.expanded = False
+        self._hover: str | None = None
+        self._chips: list[tuple[int, int, int, str]] = []  # (line, x0, x1, action)
+        self._cache_key: tuple | None = None
+        self._cache_text = Text("")
+        if report.severity == "warn":
+            self.add_class("-warn")
+
+    def plain_text(self) -> str:
+        return self.report.plain()
+
+    # ── drawing ──────────────────────────────────────────────────────────
+    def _color(self) -> str:
+        return ui.WARN if self.report.severity == "warn" else ui.ERR
+
+    def _chip_list(self) -> list[tuple[str, str, bool]]:
+        """(action, label, primary) — the report's fixes, then details / copy."""
+        out = []
+        for a in self.report.actions:
+            icon = "↗" if a.command.startswith("http") else _ACTION_ICONS.get(a.command, "›")
+            out.append((a.command, f"{icon} {a.label}", a.primary))
+        if self.report.detail:
+            out.append(("::details", "▾ Hide details" if self.expanded else "▸ Details", False))
+        out.append(("::copy", "⎘ Copy", False))
+        return out
+
+    def _chip_style(self, action: str, primary: bool) -> str:
+        color = self._color()
+        hover = action == self._hover
+        if primary:
+            bg = ui.blend(color, "#ffffff", 0.18) if hover else color
+            return f"bold {ui.BG_0} on {bg}"
+        bg = ui.blend(ui.BG_3, color, 0.28) if hover else ui.BG_3
+        return f"{ui.FG if hover else ui.FG_MUTE} on {bg}"
+
+    def _build(self, width: int) -> Text:
+        rep = self.report
+        color = self._color()
+        width = max(16, width)
+        lines: list[Text] = []
+        chips: list[tuple[int, int, int, str]] = []
+
+        head = Text(no_wrap=True, overflow="ellipsis")
+        head.append(f"{rep.glyph} ", style=f"bold {color}")
+        head.append(rep.title, style=f"bold {color}")
+        meta = " · ".join(rep.meta())
+        if meta and head.cell_len + len(meta) + 3 <= width:
+            head.append(" " * (width - head.cell_len - len(meta)))
+            head.append(meta, style=ui.FG_DIM)
+            lines.append(head)
+        else:
+            lines.append(head)
+            if meta:
+                lines.extend(wrap_lines(Text(meta, style=ui.FG_DIM), width))
+
+        lines.append(Text(""))
+        for para in rep.message.split("\n"):
+            quoted = para.lstrip().startswith(("“",)) or " said: “" in para
+            style = f"italic {ui.FG_MUTE}" if quoted else ui.FG
+            lines.extend(wrap_lines(Text(para, style=style), width))
+
+        lines.append(Text(""))
+        row = Text(no_wrap=True)
+        x = 0
+        for action, label, primary in self._chip_list():
+            cell = f" {label} "
+            w = Text(cell).cell_len
+            if x and x + 2 + w > width:  # wrap onto another row, one line apart
+                lines.extend([row, Text("")])
+                row, x = Text(no_wrap=True), 0
+            if x:
+                row.append("  ")
+                x += 2
+            row.append(cell, style=self._chip_style(action, primary))
+            chips.append((len(lines), x, x + w, action))
+            x += w
+        lines.append(row)
+
+        if self.expanded and rep.detail:
+            lines.append(Text(""))
+            detail: list[Text] = []
+            for para in rep.detail.split("\n"):
+                detail.extend(wrap_lines(Text(para, style=ui.FG_DIM), width))
+            if len(detail) > _DETAIL_LINES:
+                more = len(detail) - _DETAIL_LINES + 1
+                detail = detail[: _DETAIL_LINES - 1] + [
+                    Text(f"… +{more} more lines · ⎘ Copy has everything", style=f"italic {ui.FG_DIM}")
+                ]
+            lines.extend(detail)
+
+        self._chips = chips
+        return Text("\n").join(lines)
+
+    def _text(self, width: int) -> Text:
+        width = max(16, int(width or 0) or 100)
+        key = (width, ui.active_theme(), self.expanded, self._hover)
+        if key != self._cache_key:
+            self._cache_text = self._build(width)
+            self._cache_key = key
+        return self._cache_text
+
+    def get_content_width(self, container, viewport) -> int:
+        return container.width
+
+    def get_content_height(self, container, viewport, width: int) -> int:
+        return self._text(width).plain.count("\n") + 1
+
+    def render(self) -> Text:
+        return self._text(self.content_region.width or self.size.width)
+
+    # ── mouse ────────────────────────────────────────────────────────────
+    def _action_at(self, event) -> str | None:
+        try:
+            off = event.get_content_offset(self)
+        except Exception:
+            off = None
+        if off is None:
+            return None
+        for line, x0, x1, action in self._chips:
+            if off.y == line and x0 <= off.x < x1:
+                return action
+        return None
+
+    def on_mouse_move(self, event) -> None:
+        action = self._action_at(event)
+        if action != self._hover:
+            self._hover = action
+            self.refresh()
+
+    def on_leave(self) -> None:
+        if self._hover is not None:
+            self._hover = None
+            self.refresh()
+
+    def on_click(self, event) -> None:
+        action = self._action_at(event)
+        if not action:
+            return
+        event.stop()
+        if action == "::details":
+            self.expanded = not self.expanded
+            self.refresh(layout=True)
+            return
+        if action == "::copy":
+            copy = getattr(self.app, "_copy_text", None)
+            ok = bool(copy(self.report.plain())) if callable(copy) else False
+            status = getattr(self.app, "_set_status", None)
+            if callable(status):
+                status("copied the error" if ok else "couldn't copy")
+            return
+        run = getattr(self.app, "run_error_action", None)
+        if callable(run):
+            run(action)
+
+
 class TurnFooter(Block):
     """``▣ 12.4s`` after a completed turn.
 

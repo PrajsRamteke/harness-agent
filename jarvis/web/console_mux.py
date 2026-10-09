@@ -255,6 +255,18 @@ class WebMuxConsole:
         if self._should_broadcast():
             self._bridge.emit("stats", dict(stats))
 
+    def show_error(self, report: Any) -> None:
+        """A failed request: the terminal's error card, and one on every page."""
+        fn = getattr(self._primary, "show_error", None)
+        if callable(fn):
+            fn(report)
+        else:
+            from ..repl.api_errors import rich_panel
+
+            self._primary.print(rich_panel(report))
+        if self._should_broadcast():
+            self._bridge.emit("error", report.to_dict())
+
     def show_reply(self, text: str, flagged: bool = False) -> None:
         fn = getattr(self._primary, "show_reply", None)
         if callable(fn):

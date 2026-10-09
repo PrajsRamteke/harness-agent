@@ -3,6 +3,7 @@ import { loadSnapshot, store } from './store.js';
 import {
   appendMessage,
   appendDiff,
+  appendError,
   appendStats,
   renderSnapshot,
   streamDelta,
@@ -85,6 +86,11 @@ export function handleEvent(evt) {
 
     case 'log':
       appendMessage('log', data.text);
+      break;
+
+    case 'error':
+      // A model request failed: a card with what happened and the fixes.
+      appendError(data);
       break;
 
     case 'diff':

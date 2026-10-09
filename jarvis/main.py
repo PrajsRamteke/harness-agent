@@ -283,28 +283,45 @@ def main():
         if not inp:
             continue
 
+        if inp == "/retry":
+            from .repl import api_errors
+
+            ok, why = api_errors.can_retry()
+            if ok:
+                console.print("[dim]↻ Retrying the last request…[/]")
+                _send_and_loop(None, resume=True)
+            else:
+                console.print(f"[dim]↻ {why}[/]")
+            continue
+
         prepared = prepare_user_prompt(inp, include_clipboard=True)
         if prepared is None:
             continue
         _send_and_loop(prepared)
 
 
-def _send_and_loop(inp: str | list[dict]):
+def _send_and_loop(inp: str | list[dict] | None, *, resume: bool = False):
     """Append the user message and run the tool-call loop until end_turn.
 
     *inp* may be a plain string (text-only or OCR output) or a list of
     Anthropic-format content blocks (text + native image blocks).
+    ``resume`` (``/retry``): send the conversation as it is — its last
+    request failed — without adding a message.
     """
-    user_msg = {"role": "user", "content": inp}
-    state.messages.append(user_msg)
-    state.web_tool_used_this_turn = False
-    if state.current_session_id:
-        db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
-        if isinstance(inp, list):
-            title = _text_from_content_blocks(inp)
-        else:
-            title = inp
-        db_set_title_if_empty(state.current_session_id, title)
+    from .repl import api_errors
+
+    api_errors.clear()
+    if not resume:
+        user_msg = {"role": "user", "content": inp}
+        state.messages.append(user_msg)
+        state.web_tool_used_this_turn = False
+        if state.current_session_id:
+            db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
+            if isinstance(inp, list):
+                title = _text_from_content_blocks(inp)
+            else:
+                title = inp
+            db_set_title_if_empty(state.current_session_id, title)
     empty_retries = 0
     try:
         while True:
@@ -345,7 +362,7 @@ def _send_and_loop(inp: str | list[dict]):
         from .console import HarnessAPIError
         if isinstance(e, HarnessAPIError):
             return
-        console.print(f"[red]error: {type(e).__name__}: {e}[/]")
+        api_errors.show(api_errors.classify(e))
 
 
 if __name__ == "__main__":

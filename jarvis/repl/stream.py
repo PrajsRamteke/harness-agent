@@ -43,7 +43,7 @@ from ..auth.codex_oauth_tokens import load_codex_oauth_tokens, codex_oauth_refre
 from ..auth.client import _build_client_from_mode
 from .. import state
 from .system import build_system
-from . import context_budget, prompt_cache, thinking as think_request
+from . import api_errors, context_budget, prompt_cache, thinking as think_request
 from ..auth.codex_client import CodexResponseError
 from ..media import materialize_uploads
 from .trim import (
@@ -83,13 +83,38 @@ _STREAM_TIMEOUT_ERRORS = (
 )
 
 
-def _report_http_timeout() -> None:
-    report_turn_phase("HTTP timeout — no data from API")
-    console.print(
-        "[red]Timed out waiting for the model API (read stalled too long).[/]\n"
-        "[dim]Free/queued models often stall; try `HARNESS_HTTP_READ_TIMEOUT=600` "
-        "for more patience, switch to a faster model, or Esc to cancel earlier.[/]"
-    )
+def _report_http_timeout(attempts: int = 0) -> None:
+    _show_error(api_errors.report("timeout", attempts=attempts))
+
+
+def _show_error(rep: "api_errors.ErrorReport") -> None:
+    """Draw a failure card (TUI block / web card / Rich panel) for this turn."""
+    api_errors.show(rep, console=console)
+
+
+def _fail(rep: "api_errors.ErrorReport", reason: str = "") -> None:
+    """Show ``rep`` and end the turn (the message is already on screen)."""
+    _show_error(rep)
+    raise HarnessAPIError(reason or rep.kind)
+
+
+def _retry_notice(text: str) -> None:
+    """A quiet line while Jarvis retries by itself."""
+    console.print(f"[yellow]↻[/] [dim]{text}[/]")
+
+
+def _pause(seconds: float) -> None:
+    """Sleep between retries in small steps, so Esc stops the wait at once."""
+    steps = max(1, int(seconds * 10))
+    for _ in range(steps):
+        if state.turn_cancelled():
+            raise KeyboardInterrupt()
+        time.sleep(seconds / steps)
+
+
+# Waits before reconnecting after a dropped connection — longer than the
+# server-error ones: Wi-Fi takes a few seconds to come back after sleep.
+_NETWORK_DELAYS = [2, 5, 10]
 
 
 def _raise_in_thread(tid: int, exc_type) -> bool:
@@ -397,6 +422,17 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
             )
 
 
+def _retry_server_error(code: int, attempt: int, delays: list[int]) -> None:
+    """A 5xx / 529: say so quietly and wait before the next attempt."""
+    name = "overloaded" if code == 529 else f"error {code}"
+    report_turn_phase(f"Server {code} — retrying soon…")
+    _retry_notice(
+        f"{provider_label(state.provider) or 'Provider'} returned {name} — "
+        f"retrying in {delays[attempt]}s ({attempt + 1}/{len(delays)})…"
+    )
+    _pause(delays[attempt])
+
+
 def _codex_refused_model(e: Exception) -> bool:
     """True when Codex refused the *model* (not the request or the token)."""
     status = getattr(e, "status_code", None)
@@ -408,48 +444,27 @@ def _codex_refused_model(e: Exception) -> bool:
     return False
 
 
-def _stop_on_rate_limit(detail: str = "") -> None:
-    """Print a clear rate-limit message and abort the turn (no backoff retries)."""
-    report_turn_phase("Rate limited — stopping")
-    console.print(
-        f"[red]Rate limited — Provider: {state.provider}[/]"
-        + (f" · model: {state.MODEL}" if state.MODEL else "")
-    )
-    if detail:
-        console.print(f"[dim]{detail}[/]")
-    console.print(
-        "[yellow]Wait and try again later, or switch models with /model.[/]"
-    )
+def _stop_on_rate_limit(err: BaseException) -> None:
+    """Show a rate-limit / usage-limit card and abort the turn (no backoff retries)."""
+    rep = api_errors.classify(err)
+    if rep.kind not in ("rate_limit", "quota"):
+        rep = api_errors.classify(err, kind="rate_limit")
+    _show_error(rep)
 
 
 def _report_catalog_error(code: int, err: Exception) -> None:
     """A provider from models.dev refused the request: say what to do, stop."""
-    from rich.markup import escape
-
-    name = provider_label(state.provider)
-    detail = escape(str(err))[:300]
-    if code == 401:
-        msg = (f"[red]Auth error — Provider: {name} (API key)[/]\n"
-               f"[yellow]{name} rejected the key. Replace it with /key — no restart needed.[/]")
-        reason = "auth error"
-    elif code == 402:
-        msg = (f"[red]Payment required — Provider: {name}[/]\n"
-               "[yellow]The account has no credit for this model. Top it up, "
-               "or pick another model with /model.[/]")
-        reason = "payment required"
-    elif code == 403:
-        msg = (f"[red]{name} refused '{escape(state.MODEL)}' for this key.[/]\n"
-               "[yellow]Your plan may not include it — pick another with /model.[/]")
-        reason = "model not permitted"
-    else:
-        msg = (f"[red]{name}: model '{escape(state.MODEL)}' not found.[/]\n"
-               "[yellow]models.dev may list it before the provider serves it — "
-               "pick another with /model, or /model refresh.[/]")
-        reason = "model not found"
-    console.print(msg)
-    if detail:
-        console.print(f"[dim]{detail}[/]")
-    raise HarnessAPIError(reason)
+    kind, reason = {
+        401: ("auth", "auth error"),
+        402: ("payment", "payment required"),
+        403: ("permission", "model not permitted"),
+    }.get(code, ("model", "model not found"))
+    rep = api_errors.report(kind, exc=err)
+    if kind == "model":
+        rep.message = (f"{rep.provider or 'The provider'} doesn't serve {state.MODEL or 'this model'} — "
+                       "models.dev sometimes lists a model before the provider does. "
+                       "Refresh the list and pick another.")
+    _fail(rep, reason)
 
 
 def _block_dict(block: Any) -> dict:
@@ -910,16 +925,16 @@ def _call_claude_stream():
                 report_turn_phase(
                     f"API stalled — retrying ({attempt + 1}/{len(delays)})…"
                 )
-                console.print(
-                    f"[yellow]API stalled (no data) — retrying on a fresh "
-                    f"connection ({attempt + 1}/{len(delays)})…[/]"
+                _retry_notice(
+                    f"No reply from the model yet — retrying on a fresh "
+                    f"connection ({attempt + 1}/{len(delays)})…"
                 )
-                time.sleep(delays[attempt])
+                _pause(delays[attempt])
                 continue
-            _report_http_timeout()
+            _report_http_timeout(attempt)
             raise HarnessAPIError("stream timeout")
         except RateLimitError as e:
-            _stop_on_rate_limit(str(e))
+            _stop_on_rate_limit(e)
             raise
         except APIStatusError as e:
             if (
@@ -973,19 +988,7 @@ def _call_claude_stream():
             if is_catalog_provider(state.provider) and e.status_code in (401, 402, 403, 404):
                 _report_catalog_error(e.status_code, e)  # Anthropic-style catalog provider
             if e.status_code == 401:
-                if state.provider == "openrouter":
-                    console.print(
-                        "[red]Auth error — Provider: OpenRouter (API key)[/]\n"
-                        "[yellow]OpenRouter rejected the key. "
-                        "Replace it with /key — no restart needed.[/]"
-                    )
-                elif state.provider == "opencode":
-                    console.print(
-                        "[red]Auth error — Provider: OpenCode Go (API key)[/]\n"
-                        "[yellow]OpenCode rejected the key. "
-                        "Replace it with /key — no restart needed.[/]"
-                    )
-                elif state.provider == PROVIDER_OPENAI_CODEX and not oauth_refreshed:
+                if state.provider == PROVIDER_OPENAI_CODEX and not oauth_refreshed:
                     tokens = load_codex_oauth_tokens()
                     refreshed = codex_oauth_refresh(tokens) if tokens else None
                     if refreshed:
@@ -994,10 +997,6 @@ def _call_claude_stream():
                         state.client = _build_codex_client()
                         oauth_refreshed = True
                         continue
-                    console.print(
-                        "[red]Auth error — Provider: OpenAI Codex (OAuth)[/]\n"
-                        "[yellow]OAuth session expired. Run /login to re-authenticate.[/]"
-                    )
                 elif state.auth_mode == "oauth" and state.provider == "anthropic" and not oauth_refreshed:
                     tokens = load_oauth_tokens()
                     refreshed = oauth_refresh(tokens) if tokens else None
@@ -1006,12 +1005,7 @@ def _call_claude_stream():
                         state.client = _build_client_from_mode("oauth")
                         oauth_refreshed = True
                         continue
-                    console.print("[red]Auth error — Provider: Anthropic (OAuth)[/]\n"
-                                  "[yellow]OAuth session expired. Run /login to re-authenticate.[/]")
-                else:
-                    console.print("[red]Auth error — Provider: Anthropic (API key)[/]\n"
-                                  "[yellow]Run /provider and set a new API key.[/]")
-                raise HarnessAPIError("auth error")
+                _fail(api_errors.report("auth", exc=e), "auth error")
             if (
                 e.status_code == 400
                 and state.provider == "anthropic"
@@ -1030,13 +1024,7 @@ def _call_claude_stream():
                     state.client = _build_client_from_mode("oauth", interactive=False)
                     continue
             if e.status_code == 402:
-                console.print(
-                    f"[red]Payment required — Provider: {state.provider}[/]\n"
-                    "[yellow]Insufficient credits for this model. "
-                    "Try a [cyan]:free[/] model via /model, or top up at "
-                    "https://openrouter.ai/credits[/]"
-                )
-                raise HarnessAPIError("payment required")
+                _fail(api_errors.report("payment", exc=e), "payment required")
             if e.status_code == 403 and state.provider == PROVIDER_OPENROUTER:
                 # A handful of free models are gated to OpenRouter's allowlisted
                 # apps and refuse every other caller. Nothing in the catalog
@@ -1049,10 +1037,9 @@ def _call_claude_stream():
                 fallback = openrouter_default_model()
                 if not openrouter_model_retried and state.MODEL != fallback:
                     openrouter_model_retried = True
-                    console.print(
-                        f"[yellow]OpenRouter: '{state.MODEL}' is restricted to "
-                        f"approved apps — switching to [cyan]{fallback}[/]. "
-                        "It stays in /model, marked restricted.[/]"
+                    _retry_notice(
+                        f"OpenRouter: '{state.MODEL}' is restricted to approved apps — "
+                        f"switching to {fallback}. It stays in /model, marked restricted."
                     )
                     state.MODEL = fallback
                     kwargs["model"] = fallback
@@ -1062,11 +1049,7 @@ def _call_claude_stream():
                     except Exception:
                         pass
                     continue
-                console.print(
-                    f"[red]OpenRouter refused '{state.MODEL}'.[/]\n"
-                    "[yellow]Run /model to pick another free model.[/]"
-                )
-                raise HarnessAPIError("model not permitted")
+                _fail(api_errors.report("permission", exc=e), "model not permitted")
             if e.status_code == 404 and state.provider == PROVIDER_OPENROUTER:
                 # Resolve from the live catalog: a hard-coded fallback is just
                 # as likely to have been retired as the model that 404'd.
@@ -1074,9 +1057,8 @@ def _call_claude_stream():
                 fallback = openrouter_default_model()
                 if not openrouter_model_retried and state.MODEL != fallback:
                     openrouter_model_retried = True
-                    console.print(
-                        f"[yellow]OpenRouter: model '{state.MODEL}' not found — "
-                        f"switching to [cyan]{fallback}[/][/]"
+                    _retry_notice(
+                        f"OpenRouter no longer serves '{state.MODEL}' — switching to {fallback}."
                     )
                     state.MODEL = fallback
                     kwargs["model"] = fallback
@@ -1086,35 +1068,29 @@ def _call_claude_stream():
                     except Exception:
                         pass
                     continue
+                rep = api_errors.report("model", exc=e)
                 if "tool" in str(e).lower():
-                    console.print(
-                        f"[red]OpenRouter: '{state.MODEL}' has no endpoint that "
-                        "supports tool use.[/]\n[yellow]This harness always sends "
-                        "tools, so that model can't run here — /model marks these "
-                        "'no tool use'.[/]"
-                    )
-                else:
-                    console.print(
-                        f"[red]OpenRouter: model '{state.MODEL}' not found.[/]\n"
-                        "[yellow]Run /model to pick a valid slug.[/]"
-                    )
-                raise HarnessAPIError("model not found")
+                    rep.title = "This model can't use tools"
+                    rep.message = (f"OpenRouter has no endpoint for {state.MODEL} that supports tool use, "
+                                   "and Jarvis always sends tools. /model marks these 'no tool use'.")
+                _fail(rep, "model not found")
             if e.status_code == 429:
-                _stop_on_rate_limit(str(e))
+                _stop_on_rate_limit(e)
                 raise
             if e.status_code >= 500 and attempt < len(delays):
-                report_turn_phase(f"Server {e.status_code} — retrying soon…")
-                console.print(f"[yellow]server {e.status_code}, retry...[/]")
-                time.sleep(delays[attempt]); continue
+                _retry_server_error(e.status_code, attempt, delays)
+                continue
+            if e.status_code >= 500:
+                _fail(api_errors.classify(e, attempts=attempt), f"server {e.status_code}")
             raise
         except OpenAIRateLimitError as e:
-            _stop_on_rate_limit(str(e))
+            _stop_on_rate_limit(e)
             raise
         except OpenAIAPIStatusError as e:
             if getattr(e, "status_code", None) in (400, 413) and _refit_after_overflow(e):
                 continue
             if getattr(e, "status_code", None) == 429:
-                _stop_on_rate_limit(str(e))
+                _stop_on_rate_limit(e)
                 raise
             if state.provider == PROVIDER_OPENAI_CODEX and _codex_refused_model(e):
                 # Codex retires models without warning: 404 model_not_found for
@@ -1128,10 +1104,9 @@ def _call_claude_stream():
                 fallback = codex_default_model()
                 if not codex_model_retried and fallback != refused:
                     codex_model_retried = True
-                    console.print(
-                        f"[yellow]Codex no longer serves '{refused}' for this "
-                        f"account — switching to [cyan]{fallback}[/]. "
-                        "It stays in /model, marked unavailable.[/]"
+                    _retry_notice(
+                        f"Codex no longer serves '{refused}' for this account — "
+                        f"switching to {fallback}. It stays in /model, marked unavailable."
                     )
                     state.MODEL = fallback
                     kwargs["model"] = fallback
@@ -1141,28 +1116,55 @@ def _call_claude_stream():
                     except Exception:
                         pass
                     continue
-                console.print(
-                    f"[red]Codex rejected model '{refused}'.[/]\n"
-                    "[yellow]Run /model refresh, then /model to pick a Codex "
-                    "model, or /provider to switch provider.[/]"
-                )
-                raise HarnessAPIError("model not available")
+                rep = api_errors.report("model", exc=e)
+                rep.actions = [
+                    api_errors.Action("Refresh models", "/model refresh", primary=True),
+                    api_errors.Action("Switch model", "/model"),
+                    api_errors.Action("Change provider", "/provider"),
+                ]
+                _fail(rep, "model not available")
             code = getattr(e, "status_code", None)
             if is_catalog_provider(state.provider) and code in (401, 402, 403, 404):
                 _report_catalog_error(code, e)
-            if is_catalog_provider(state.provider) and code is not None and code >= 500 and attempt < len(delays):
-                report_turn_phase(f"Server {code} — retrying soon…")
-                console.print(f"[yellow]server {code}, retry...[/]")
-                time.sleep(delays[attempt]); continue
+            if code is not None and code >= 500 and attempt < len(delays):
+                _retry_server_error(code, attempt, delays)
+                continue
+            if code is not None and code >= 500:
+                _fail(api_errors.classify(e, attempts=attempt), f"server {code}")
             raise
         except CodexResponseError as e:
             if _refit_after_overflow(e):
                 continue
-            console.print(f"[red]Codex ended the reply with an error — {e}[/]")
-            raise HarnessAPIError(f"codex: {e}")
+            rep = api_errors.classify(e, attempts=attempt)
+            if rep.kind in ("server", "overloaded") and not _got_first_delta and attempt < len(delays):
+                # Codex's own hiccup before anything streamed: send it again.
+                _retry_server_error(529 if rep.kind == "overloaded" else 500, attempt, delays)
+                continue
+            if rep.kind == "unknown":
+                rep.title = "Codex ended the reply with an error"
+            _fail(rep, f"codex: {e}")
         except Exception as e:
             # Stream readers of the OpenAI-style clients surface provider
             # errors as plain exceptions; "too long" ones are recoverable.
             if _refit_after_overflow(e):
                 continue
+            if state.turn_cancelled():
+                raise
+            kind = api_errors.kind_of(e)
+            if kind == "network":
+                _current_stream = None
+                # The connection dropped (laptop slept, Wi-Fi changed, VPN):
+                # reconnect while nothing reached the screen yet — after that a
+                # fresh request would repeat what the user already saw.
+                if not _got_first_delta and attempt < len(delays):
+                    wait = _NETWORK_DELAYS[min(attempt, len(_NETWORK_DELAYS) - 1)]
+                    report_turn_phase(f"Connection lost — reconnecting ({attempt + 1}/{len(delays)})…")
+                    _retry_notice(
+                        f"Connection lost — reconnecting in {wait}s ({attempt + 1}/{len(delays)})…"
+                    )
+                    _pause(wait)
+                    continue
+                _fail(api_errors.classify(e, attempts=attempt, mid_reply=_got_first_delta), "connection lost")
+            if kind in ("timeout",):
+                _fail(api_errors.classify(e, attempts=attempt), "stream timeout")
             raise

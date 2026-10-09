@@ -34,11 +34,25 @@ from rich.markup import escape as _rich_escape
 from rich.text import Text
 
 from .console_shim import TUIConsole
+from ..repl import api_errors
 from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_has_entries
 from .ask_user import AskUserController, AskQuestion, normalize_questions
 from .web_bar import WebRemoteQR
 from . import theme as ui
 from .. import state
+
+
+def _not_signed_in_report() -> "api_errors.ErrorReport":
+    return api_errors.ErrorReport(
+        kind="auth", title="Not signed in",
+        message="Jarvis has no provider to talk to yet. Sign in with a subscription, "
+                "add an API key, or use the free tier.",
+        actions=[
+            api_errors.Action("Sign in", "/login", primary=True),
+            api_errors.Action("Add API key", "/key"),
+            api_errors.Action("Providers", "/provider"),
+        ],
+    )
 
 
 # ─── slash-command sniffers (modal-opening shortcuts) ────────────────────
@@ -1478,6 +1492,10 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._turn_is_llm = False
         self._turn_id += 1
         self._reply_before_turn = state.last_assistant_text
+        api_errors.clear()
+        retrying = inp.strip() == api_errors.RETRY and not attachments
+        if retrying:
+            echo = False
 
         transcript = self._transcript()
         upgrading = _is_upgrade_command(inp)
@@ -1491,8 +1509,10 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         elif echo:
             transcript.add(UserBlock(display or inp, shell=inp.startswith("!"), flash=True,
                                      badge=badge))
+        if retrying:
+            self._tui_console.print(f"[{ui.ACCENT}]↻[/] [{ui.FG_DIM}]Retrying the last request…[/]")
         transcript.follow()
-        if self._web_bridge is not None:
+        if self._web_bridge is not None and not retrying:
             event = {"role": "you", "text": inp, "title": "you"}
             if files:
                 from ..media import public
@@ -1652,12 +1672,6 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         as a file note + image references (``jarvis/media.py``).
         """
         from ..commands.dispatch import handle_slash
-        from ..repl.stream import call_claude_stream
-        from ..repl.render import (
-            render_assistant,
-            classify_empty_turn,
-            empty_turn_message,
-        )
         from ..storage.sessions import db_append_message, db_set_title_if_empty
 
         me = threading.get_ident()
@@ -1673,6 +1687,12 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._tui_console.reset_stream_ui()
 
         try:
+            if inp.strip() == api_errors.RETRY and not attachments:
+                if self._prepare_retry():
+                    self._turn_is_llm = True
+                    self._model_loop(stale)
+                return
+
             if inp.startswith("/") and not attachments:
                 head = inp.split(maxsplit=1)[0]
                 if head[1:] in state.aliases:
@@ -1727,10 +1747,7 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                 from ..auth.client import make_client
                 state.client = make_client(interactive=False)
             if state.client is None:
-                self._tui_console.print(
-                    f"[{ui.WARN}]Not signed in[/] — run [bold]/login[/] "
-                    "(OAuth) or [bold]/key[/] (API keys) first"
-                )
+                api_errors.show(_not_signed_in_report())
                 return
 
             self._turn_is_llm = True
@@ -1758,43 +1775,7 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                 db_append_message(state.current_session_id, len(state.messages) - 1, user_msg)
                 db_set_title_if_empty(state.current_session_id, title)
 
-            empty_retries = 0
-            while True:
-                if stale() or state.turn_cancelled():
-                    raise KeyboardInterrupt()
-                resp = call_claude_stream()
-                decision = classify_empty_turn(resp, empty_retries)
-                if decision in ("retry", "stop"):
-                    self._tui_console.assistant_stream_abort()
-                    if decision == "retry":
-                        empty_retries += 1
-                        self._tui_console.print(
-                            f"[{ui.FG_DIM}]⚠ empty response — retrying…[/]"
-                        )
-                        continue
-                    self._tui_console.print(
-                        f"[{ui.WARN}]{_rich_escape(empty_turn_message(resp))}[/]"
-                    )
-                    break
-                empty_retries = 0
-                # Cancelled while the reply was finishing (Esc, New chat, another
-                # session): it belongs to a turn that's over — never write it into
-                # whatever conversation / session is current now.
-                if stale() or state.turn_cancelled():
-                    raise KeyboardInterrupt()
-                asst_msg = {"role": "assistant", "content": resp.content}
-                state.messages.append(asst_msg)
-                if state.current_session_id:
-                    db_append_message(state.current_session_id, len(state.messages) - 1, asst_msg)
-                more = render_assistant(resp)
-                if resp.stop_reason == "end_turn" or not more:
-                    break
-                if stale() or state.turn_cancelled():
-                    raise KeyboardInterrupt()
-                # "⚡ send now" messages join the tool results the model reads next.
-                self._inject_steered()
-                if state.current_session_id and state.messages and state.messages[-1] is not asst_msg:
-                    db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
+            self._model_loop(stale)
         except KeyboardInterrupt:
             if not stale():
                 self._turn_cancelled = True
@@ -1805,9 +1786,7 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             from ..console import HarnessAPIError
             self._tui_console.assistant_stream_abort()
             if not isinstance(e, HarnessAPIError) and not stale():
-                self._tui_console.print(
-                    f"[{ui.ERR}]✗ {_rich_escape(type(e).__name__)}: {_rich_escape(str(e))}[/]"
-                )
+                api_errors.show(api_errors.classify(e))
         finally:
             self._tui_console.assistant_stream_abort()
             state.release_thread(me)
@@ -1817,6 +1796,96 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                 self.call_from_thread(self._turn_done, turn_id)
             except Exception:
                 pass
+
+    def _prepare_retry(self) -> bool:
+        """``/retry``: can the failed request be sent again? Says why not."""
+        ok, why = api_errors.can_retry()
+        if not ok:
+            self._tui_console.print(f"[{ui.FG_DIM}]↻ {_rich_escape(why)}[/]")
+            return False
+        if state.client is None:
+            from ..auth.client import make_client
+            state.client = make_client(interactive=False)
+        if state.client is None:
+            api_errors.show(_not_signed_in_report())
+            return False
+        return True
+
+    def run_error_action(self, command: str) -> None:
+        """A button on an error card: open a link, a dialog, or run a command."""
+        command = (command or "").strip()
+        if not command:
+            return
+        if command.startswith(("http://", "https://")):
+            import webbrowser
+
+            try:
+                opened = webbrowser.open(command)
+            except Exception:
+                opened = False
+            if opened:
+                self._set_status(f"opened {command}")
+            else:
+                self._copy_text(command)
+                self._set_status(f"link copied — open {command} in a browser")
+            return
+        if command == api_errors.RETRY and self._busy:
+            self._set_status("Jarvis is busy — retry when this turn ends")
+            return
+        if self._open_modal_for(command):
+            return
+        if self._busy:
+            self._stash_prompt(command)
+            return
+        self._begin_turn(command)
+
+    def _model_loop(self, stale) -> None:
+        """Ask the model, run its tools, repeat until it ends the turn.
+
+        Shared by a new prompt and ``/retry`` (which resumes a conversation
+        whose last request failed, without adding another user message).
+        """
+        from ..repl.stream import call_claude_stream
+        from ..repl.render import render_assistant, classify_empty_turn, empty_turn_message
+        from ..storage.sessions import db_append_message
+
+        empty_retries = 0
+        while True:
+            if stale() or state.turn_cancelled():
+                raise KeyboardInterrupt()
+            resp = call_claude_stream()
+            decision = classify_empty_turn(resp, empty_retries)
+            if decision in ("retry", "stop"):
+                self._tui_console.assistant_stream_abort()
+                if decision == "retry":
+                    empty_retries += 1
+                    self._tui_console.print(
+                        f"[{ui.FG_DIM}]⚠ empty response — retrying…[/]"
+                    )
+                    continue
+                self._tui_console.print(
+                    f"[{ui.WARN}]{_rich_escape(empty_turn_message(resp))}[/]"
+                )
+                break
+            empty_retries = 0
+            # Cancelled while the reply was finishing (Esc, New chat, another
+            # session): it belongs to a turn that's over — never write it into
+            # whatever conversation / session is current now.
+            if stale() or state.turn_cancelled():
+                raise KeyboardInterrupt()
+            asst_msg = {"role": "assistant", "content": resp.content}
+            state.messages.append(asst_msg)
+            if state.current_session_id:
+                db_append_message(state.current_session_id, len(state.messages) - 1, asst_msg)
+            more = render_assistant(resp)
+            if resp.stop_reason == "end_turn" or not more:
+                break
+            if stale() or state.turn_cancelled():
+                raise KeyboardInterrupt()
+            # "⚡ send now" messages join the tool results the model reads next.
+            self._inject_steered()
+            if state.current_session_id and state.messages and state.messages[-1] is not asst_msg:
+                db_append_message(state.current_session_id, len(state.messages) - 1, state.messages[-1])
 
     @staticmethod
     def _shell_output_text(out: str) -> Text:

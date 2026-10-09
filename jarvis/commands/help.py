@@ -6,6 +6,7 @@ _SECTIONS = [
     ("Session", [
         ("/help", "this menu — pass a keyword to filter, e.g. /help session"),
         ("/new", "start a fresh conversation (keeps pinned context)"),
+        ("/retry", "send the last request again after an error"),
         ("/reset", "clear conversation"),
         ("/history", "show message summary"),
         ("/export <file>", "export conversation as markdown"),

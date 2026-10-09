@@ -10,6 +10,7 @@ COMMANDS = [
     # Session
     ("/help", "open the help reference (type to search)"),
     ("/new", "start a fresh conversation (keeps pinned context)"),
+    ("/retry", "send the last request again after an error"),
     ("/reset", "clear conversation"),
     ("/history", "show message summary"),
     ("/export ", "export conversation as markdown"),

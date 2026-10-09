@@ -522,6 +522,117 @@ export function appendStats(data) {
   afterAppend();
 }
 
+// ─── Error card (a failed model request: jarvis/repl/api_errors.py) ──────
+
+const ERROR_ICON = {
+  network: 'wifi-off',
+  timeout: 'hourglass',
+  server: 'server-crash',
+  overloaded: 'gauge',
+  rate_limit: 'timer',
+  quota: 'gauge',
+  auth: 'key-round',
+  payment: 'credit-card',
+  model: 'cpu',
+  permission: 'ban',
+  context: 'layers-2',
+  request: 'circle-alert',
+};
+const ERROR_ACTION_ICON = {
+  '/retry': 'refresh-cw',
+  '/model': 'arrow-right-left',
+  '/model refresh': 'rotate-ccw',
+  '/key': 'key-round',
+  '/login': 'log-in',
+  '/provider': 'plug',
+  '/new': 'plus',
+};
+
+function errorText(d) {
+  const meta = [d.provider, d.model, d.status_label].filter(Boolean).join(' · ');
+  return [d.title, meta, d.message, d.detail ? `\n${d.detail}` : ''].filter(Boolean).join('\n');
+}
+
+/** Earlier error cards stop offering fixes once the chat moved on. */
+function retireErrors() {
+  chat()?.querySelectorAll('.err-entry:not(.is-past)').forEach((el) => el.classList.add('is-past'));
+}
+
+export function appendError(data) {
+  const d = data || {};
+  removeTyping();
+  retireErrors();
+  const warn = d.severity === 'warn';
+  const at = d.ts ? new Date(d.ts * 1000) : new Date();
+  const time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const meta = [d.provider, d.model].filter(Boolean);
+  // "<provider> said: “…”" lines are the provider's own words: shown as a quote.
+  const [lead, ...rest] = String(d.message || '').split('\n');
+  const said = rest.filter((l) => l.trim());
+
+  const actions = (Array.isArray(d.actions) ? d.actions : []).map((a) => {
+    const cmd = String(a.command || '');
+    const cls = `err-btn${a.primary ? ' is-primary' : ''}`;
+    if (/^https?:\/\//.test(cmd)) {
+      return `<a class="${cls}" href="${escapeHtml(cmd)}" target="_blank" rel="noopener noreferrer">${icon('external-link')}<span>${escapeHtml(a.label)}</span></a>`;
+    }
+    return `<button type="button" class="${cls}" data-cmd="${escapeHtml(cmd)}" title="${escapeHtml(cmd)}">${icon(ERROR_ACTION_ICON[cmd] || 'chevron-right')}<span>${escapeHtml(a.label)}</span></button>`;
+  }).join('');
+
+  const el = document.createElement('div');
+  el.className = `err-entry ${warn ? 'is-warn' : 'is-error'}`;
+  el.innerHTML = `
+    <section class="err-card" role="alert" aria-label="${escapeHtml(d.title || 'Error')}">
+      <header class="err-head">
+        <span class="err-glyph" aria-hidden="true">${icon(ERROR_ICON[d.kind] || 'triangle-alert')}</span>
+        <div class="err-title">
+          <strong>${escapeHtml(d.title || 'Something went wrong')}</strong>
+          <span class="err-meta">${meta.map((m) => `<span>${escapeHtml(m)}</span>`).join('')}<time>${escapeHtml(time)}</time></span>
+        </div>
+        ${d.status_label ? `<span class="err-code" title="${escapeHtml(d.code || '')}">${escapeHtml(d.status_label)}</span>` : ''}
+      </header>
+      <div class="err-body">
+        <p>${escapeHtml(lead)}</p>
+        ${said.map((l) => `<blockquote class="err-said">${escapeHtml(l)}</blockquote>`).join('')}
+      </div>
+      <div class="err-actions">
+        ${actions}
+        ${d.detail ? `<button type="button" class="err-btn is-ghost err-more" aria-expanded="false">${icon('chevron-down')}<span>Details</span></button>` : ''}
+      </div>
+      ${d.detail ? `<div class="fold"><div class="fold-inner"><div class="err-detail"><pre>${escapeHtml(d.detail)}</pre></div></div></div>` : ''}
+    </section>`;
+
+  const card = el.querySelector('.err-card');
+  el.querySelectorAll('.err-btn[data-cmd]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const cmd = btn.dataset.cmd;
+      if (cmd === '/retry') {
+        btn.disabled = true;
+        btn.classList.add('is-busy');
+        btn.querySelector('span').textContent = 'Retrying…';
+      }
+      const { submitPrompt } = await import('./composer.js');
+      await submitPrompt(cmd);
+      if (cmd === '/retry') el.classList.add('is-past');
+    });
+  });
+  const more = el.querySelector('.err-more');
+  more?.addEventListener('click', () => {
+    const open = card.classList.toggle('is-open');
+    more.setAttribute('aria-expanded', String(open));
+    more.querySelector('span').textContent = open ? 'Hide details' : 'Details';
+    if (open) scrollToBottom();
+  });
+
+  const tools = document.createElement('div');
+  tools.className = 'msg-actions';
+  tools.append(copyAction(() => errorText(d)));
+  el.appendChild(tools);
+  chat().appendChild(markNew(el));
+  noteUnseen();
+  afterAppend();
+}
+
 // ─── Tool rows ────────────────────────────────────────────────────────────
 
 function toolsContainer() {
@@ -874,7 +985,10 @@ export function appendMessage(role, text, title, attachments, { steered = false 
     afterAppend();
     return;
   }
-  if (r === 'you') finalizeLive();
+  if (r === 'you') {
+    finalizeLive();
+    retireErrors();
+  }
   appendEntry({ role: r, text: value, title, attachments: files, steered });
   if (r !== 'thinking') noteUnseen();
   afterAppend({ scroll: true });
@@ -1003,7 +1117,7 @@ export function invalidateSnapshot() {
  */
 export function renderSnapshot(data) {
   const messages = data.messages || [];
-  const sig = `${data.session_id}|${data.message_count}|${data.show_internal}|${messages.length}`;
+  const sig = `${data.session_id}|${data.message_count}|${data.show_internal}|${messages.length}|${data.error?.ts || ''}`;
   if (sig === lastSnapshotSig && chat()?.childElementCount) return false;
 
   // A half-streamed bubble belongs to its session: carried into another one
@@ -1020,6 +1134,7 @@ export function renderSnapshot(data) {
   restoring = true;
   try {
     messages.forEach(appendEntry);
+    if (data.error && !keep) appendError(data.error);
     if (keep) {
       const body = agentBody();
       body.appendChild(keep.el);

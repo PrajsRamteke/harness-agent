@@ -447,6 +447,11 @@ def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
     snap["messages"] = snapshot_messages()
     snap["changes"] = file_changes.summaries()
     snap["upload_limits"] = {"max_mb": media.MAX_FILE_MB, "max_files": media.MAX_FILES}
+    # Why the last request failed, while nothing happened since — a page that
+    # reconnects (a phone waking up) still shows the error card.
+    from ..repl.api_errors import current_error
+
+    snap["error"] = None if busy else current_error()
     return snap
 
 
