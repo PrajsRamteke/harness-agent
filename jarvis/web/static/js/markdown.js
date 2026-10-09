@@ -138,7 +138,19 @@ function renderTable(lines) {
   return html;
 }
 
-function parseListItem(line) {
+function parseListItem(entry) {
+  // A list entry is its marker line plus any wrapped continuation lines.
+  const [line, ...more] = entry.split('\n');
+  const item = parseListLine(line);
+  if (item) item.more = more;
+  return item;
+}
+
+function itemHtml(item) {
+  return [item.content, ...(item.more || [])].map((l) => renderInline(l)).join('<br>');
+}
+
+function parseListLine(line) {
   const task = line.match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)/);
   if (task) {
     return {
@@ -153,9 +165,9 @@ function parseListItem(line) {
   if (bullet) {
     return { indent: bullet[1].length, ordered: false, task: false, content: bullet[2] };
   }
-  const ordered = line.match(/^(\s*)\d+\.\s+(.*)/);
+  const ordered = line.match(/^(\s*)(\d+)\.\s+(.*)/);
   if (ordered) {
-    return { indent: ordered[1].length, ordered: true, task: false, content: ordered[2] };
+    return { indent: ordered[1].length, ordered: true, task: false, num: Number(ordered[2]), content: ordered[3] };
   }
   return null;
 }
@@ -172,14 +184,19 @@ function renderListBlock(lines) {
       const cls = item.checked ? 'md-task md-task-done' : 'md-task';
       const nest = depth ? ` md-li-nest md-li-nest-${Math.min(depth, 4)}` : '';
       const box = item.checked ? '☑' : '☐';
-      html += `<li class="${cls}${nest}"><span class="md-task-box" aria-hidden="true">${box}</span><span>${renderInline(item.content)}</span></li>`;
+      html += `<li class="${cls}${nest}"><span class="md-task-box" aria-hidden="true">${box}</span><span>${itemHtml(item)}</span></li>`;
     } else {
-      html += `<li${depthCls}>${renderInline(item.content)}</li>`;
+      // Keep the number the text wrote, so a list split by other blocks
+      // still reads 1, 2, 3 instead of restarting at 1.
+      const value = ordered && item.ordered ? ` value="${item.num}"` : '';
+      html += `<li${depthCls}${value}>${itemHtml(item)}</li>`;
     }
   }
   html += ordered ? '</ol>' : '</ul>';
   return html;
 }
+
+const LIST_RE = /^\s*([-*+]|\d+\.)\s+/;
 
 function isHr(line) {
   return /^(\*{3,}|-{3,}|_{3,})\s*$/.test(String(line || '').trim());
@@ -239,11 +256,36 @@ function renderBlocks(text) {
       continue;
     }
 
-    if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
+    if (LIST_RE.test(line)) {
       const listLines = [];
-      while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) {
-        listLines.push(lines[i]);
-        i += 1;
+      const ordered = /^\s*\d+\./.test(line);
+      while (i < lines.length) {
+        const l = lines[i];
+        if (LIST_RE.test(l)) {
+          listLines.push(l);
+          i += 1;
+          continue;
+        }
+        if (!l.trim()) {
+          // A "loose" list (blank lines between items) is still one list —
+          // unless what follows is a top-level list of the other kind.
+          let j = i + 1;
+          while (j < lines.length && !lines[j].trim()) j += 1;
+          const next = lines[j];
+          if (next !== undefined && LIST_RE.test(next)
+              && (/^\s+/.test(next) || /^\d+\./.test(next) === ordered)) {
+            i = j;
+            continue;
+          }
+          break;
+        }
+        // Indented wrapped text belongs to the item above it.
+        if (/^\s{2,}\S/.test(l) && !/^\x00CODE\d+\x00$/.test(l.trim())) {
+          listLines[listLines.length - 1] += `\n${l.trim()}`;
+          i += 1;
+          continue;
+        }
+        break;
       }
       blocks.push(renderListBlock(listLines));
       continue;
@@ -257,7 +299,7 @@ function renderBlocks(text) {
       if (isHr(l)) break;
       if (/^>\s?/.test(l)) break;
       if (isTableRow(l) && i + 1 < lines.length && isSeparatorRow(lines[i + 1])) break;
-      if (/^\s*([-*+]|\d+\.)\s+/.test(l)) break;
+      if (LIST_RE.test(l)) break;
       paraLines.push(l);
       i += 1;
     }
