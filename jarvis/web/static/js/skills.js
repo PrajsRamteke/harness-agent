@@ -22,6 +22,34 @@ const SCOPES = [
 const FEATURED = [
   { text: 'anthropics/skills', label: 'Anthropic skills', desc: 'PDF, Word, Excel, PowerPoint, design and more' },
 ];
+const RECOMMENDED = [
+  { repo: 'anthropics/skills', label: 'Anthropic skills', desc: 'Official collection for documents, design, and development.', count: '20 skills' },
+  { repo: 'vercel-labs/agent-skills', label: 'Vercel agent skills', desc: 'React, web design, and frontend engineering.', count: '9 skills' },
+  { repo: 'obra/superpowers', label: 'Superpowers', desc: 'Software development workflows and coding practices.', count: '15 skills' },
+  { repo: 'openai/skills', label: 'OpenAI skills', desc: 'Official skills for coding and OpenAI tools.', count: '44 skills' },
+  { repo: 'github/awesome-copilot', label: 'GitHub Awesome Copilot', desc: 'Community collection of coding and productivity skills.', count: '445 skills' },
+  { repo: 'microsoft/skills', label: 'Microsoft skills', desc: 'Official collection covering Microsoft developer tools.', count: '210 skills' },
+  { repo: 'wshobson/agents', label: 'Wshobson agents', desc: 'Curated development workflows and specialist skills.', count: '184 skills' },
+  { repo: 'K-Dense-AI/claude-scientific-skills', label: 'Scientific skills', desc: 'Research, science, and data-focused skills.', count: '177 skills' },
+  { repo: 'ComposioHQ/awesome-claude-skills', label: 'Composio skills', desc: 'Broad collection of reusable agent skills.', count: '864 skills' },
+  { repo: 'alirezarezvani/claude-skills', label: 'Claude skills', desc: 'Large multi-topic collection for software and business.', count: '846 skills' },
+];
+// A collection this big gets a search box above its checklist.
+const FILTER_MIN = 6;
+
+function recommendedHtml() {
+  return `<section class="ex-recommend" aria-labelledby="skills-recommend-title">
+    <div class="ex-recommend-head"><h3 id="skills-recommend-title">Recommended collections</h3><span>Browse a repository and choose its skills</span></div>
+    <div class="ex-recommend-list">${RECOMMENDED.map((s, i) => {
+      const text = `https://github.com/${s.repo}`;
+      return `<button type="button" class="ex-recommend-item" data-act="chip" data-text="${escapeHtml(text)}" title="Browse ${escapeHtml(s.label)}">
+        <span class="ex-recommend-num">${String(i + 1).padStart(2, '0')}</span>
+        <span class="ex-recommend-copy"><strong>${escapeHtml(s.label)}</strong><span>${escapeHtml(s.desc)}</span></span>
+        <span class="ex-recommend-source">${escapeHtml(s.count)}</span>
+      </button>`;
+    }).join('')}</div>
+  </section>`;
+}
 
 let data = null; // last /api/skills
 let loadError = false;
@@ -31,6 +59,7 @@ let mode = 'list'; // 'list' | 'add' — "Add a skill" is a sub-view too
 let query = '';
 let barBuilt = false;
 let previewSeq = 0;
+let skillFilter = '';
 const busy = {};
 const notes = {};
 const selected = new Set();
@@ -47,11 +76,6 @@ const add = {
 const kb = (n) => (n < 1024 ? `${n} B` : n < 1_048_576 ? `${Math.round(n / 1024)} KB` : `${(n / 1_048_576).toFixed(1)} MB`);
 
 // ─── Markup ───────────────────────────────────────────────────────────────
-
-function chipsHtml() {
-  return `<div class="ex-chips" role="group" aria-label="Where to find skills">${FEATURED.map((c) => `
-    <button type="button" class="pv-chip ex-chip" data-act="chip" data-text="${escapeHtml(c.text)}" title="${escapeHtml(c.desc)}">${mark(c.label, 'clay', { sm: true })}<span>${escapeHtml(c.label)}</span></button>`).join('')}</div>`;
-}
 
 function skillCheck(s) {
   const dis = !s.usable;
@@ -84,17 +108,60 @@ function previewHtml() {
   if (add.result) return resultHtml(add.result);
   const p = add.preview;
   if (!add.text.trim()) {
-    return '<p class="pv-hint ex-idle">Skills are instructions Jarvis follows — only add ones you trust.</p>';
+    return `<p class="pv-hint ex-idle">Skills are instructions Jarvis follows — only add ones you trust.</p>`;
   }
   if (!p || p.loading) return `<p class="pv-hint ex-loading">${spin('Reading it… a big repository can take a few seconds')}</p>`;
   if (p.error) return msg(p.error, 'error');
-  const usable = p.skills.filter((s) => s.usable);
+  return '';
+}
+
+// A found collection is a shell built once (title, search, list) whose parts are
+// patched on their own — so the search box keeps focus, caret and IME state while typing.
+function filterWords() {
+  return skillFilter.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function visibleSkills() {
+  const skills = add.preview?.skills || [];
+  const words = filterWords();
+  if (!words.length) return skills;
+  return skills.filter((s) => {
+    const hay = `${s.name} ${s.description || ''}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}
+
+function pickShellHtml(p) {
+  const search = p.skills.length >= FILTER_MIN
+    ? `<label class="dlg-search ex-sk-search">
+        <span class="dlg-search-ic">${icon('search')}</span>
+        <input id="skills-filter" type="search" value="${escapeHtml(skillFilter)}" placeholder="Search ${p.skills.length} skills by name or description"
+          aria-label="Search skills in this collection" aria-controls="skills-match-list" aria-describedby="skills-filter-count"
+          autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="search"
+          data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
+        <span class="ex-sk-count" id="skills-filter-count" aria-live="polite"></span>
+        <button type="button" class="ex-sk-clear" data-act="clear-filter" aria-label="Clear search" title="Clear (esc)">${icon('x')}</button>
+      </label>`
+    : '';
+  return `<div class="ex-sk-head" id="skills-pick-head"></div>${search}<div class="ex-sk-list" id="skills-match-list" role="group" aria-label="Skills found"></div>`;
+}
+
+function pickHeadHtml(p, visible) {
+  const filtering = filterWords().length > 0;
+  const usable = visible.filter((s) => s.usable);
   const all = usable.length > 0 && usable.every((s) => selected.has(s.name));
-  return `<div class="ex-sk-head">
-      <span class="ex-sk-title"><strong>${escapeHtml(tildify(p.label))}</strong> · ${plural(p.skills.length, 'skill')}</span>
-      ${usable.length > 1 ? `<button type="button" class="link-btn" data-act="select-all">${all ? 'Select none' : 'Select all'}</button>` : ''}
-    </div>
-    <div class="ex-sk-list">${p.skills.map(skillCheck).join('')}</div>`;
+  const toggle = p.skills.filter((s) => s.usable).length > 1 && usable.length
+    ? `<button type="button" class="link-btn" data-act="select-all">${filtering
+      ? `${all ? 'Deselect' : 'Select'} ${usable.length} shown`
+      : all ? 'Select none' : 'Select all'}</button>`
+    : '';
+  return `<span class="ex-sk-title"><strong>${escapeHtml(tildify(p.label))}</strong> · ${plural(p.skills.length, 'skill')}${selected.size ? ` · <span class="ex-sk-picked">${selected.size} selected</span>` : ''}</span>${toggle}`;
+}
+
+function pickListHtml(visible) {
+  if (visible.length) return visible.map(skillCheck).join('');
+  return `<div class="ex-sk-none">${icon('search')}<span>No skills match “${escapeHtml(skillFilter.trim())}”</span>
+    <button type="button" class="link-btn" data-act="clear-filter">Clear search</button></div>`;
 }
 
 function installBtnHtml() {
@@ -170,7 +237,7 @@ function buildAdd(body) {
           aria-label="Skill to add" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
           data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other"></textarea>
       </div>
-      <div id="skills-chips"></div>
+      ${recommendedHtml()}
       <div class="ex-preview" id="skills-preview" aria-live="polite"></div>
     </section>`;
   const ta = $('skills-src');
@@ -180,12 +247,30 @@ function buildAdd(body) {
 }
 
 function renderPreview() {
-  patch($('skills-preview'), previewHtml());
+  const box = $('skills-preview');
+  if (!box) return;
+  const p = add.preview;
+  if (!add.result && add.text.trim() && p?.skills) {
+    if (box._shell !== p) {
+      box.innerHTML = pickShellHtml(p);
+      box._shell = p;
+      box._html = null;
+    }
+    const visible = visibleSkills();
+    patch($('skills-pick-head'), pickHeadHtml(p, visible));
+    const list = $('skills-match-list');
+    const top = list.scrollTop; // ticking a box must not jump the list back to the top
+    patch(list, pickListHtml(visible));
+    list.scrollTop = top;
+    patch($('skills-filter-count'), filterWords().length ? `${visible.length} of ${p.skills.length}` : '');
+  } else {
+    box._shell = null;
+    patch(box, previewHtml());
+  }
   if (mode === 'add' && !view) renderFoot();
 }
 
 function renderAddPanel() {
-  patch($('skills-chips'), chipsHtml());
   renderPreview();
 }
 
@@ -323,6 +408,7 @@ function applyResult(res) {
 
 function setSource(text) {
   add.text = text;
+  skillFilter = '';
   add.result = null;
   add.preview = null;
   selected.clear();
@@ -484,10 +570,17 @@ function handleClick(e) {
     }
     case 'show-global': setGlobal(true); break;
     case 'select-all': {
-      const usable = (add.preview?.skills || []).filter((s) => s.usable);
+      // Acts on what the search shows; picks hidden by the search stay as they were.
+      const usable = visibleSkills().filter((s) => s.usable);
       const all = usable.every((s) => selected.has(s.name));
-      selected.clear();
-      if (!all) usable.forEach((s) => selected.add(s.name));
+      usable.forEach((s) => (all ? selected.delete(s.name) : selected.add(s.name)));
+      renderPreview();
+      break;
+    }
+    case 'clear-filter': {
+      skillFilter = '';
+      const f = $('skills-filter');
+      if (f) { f.value = ''; f.focus({ preventScroll: true }); }
       renderPreview();
       break;
     }
@@ -508,12 +601,20 @@ function handleChange(e) {
 
 function handleInput(e) {
   const el = e.target;
+  if (el.id === 'skills-filter') {
+    skillFilter = el.value;
+    renderPreview();
+    const list = $('skills-match-list');
+    if (list) list.scrollTop = 0;
+    return;
+  }
   if (el.id === 'skills-q') {
     query = el.value;
     if (data) renderList();
     return;
   }
   if (el.id !== 'skills-src') return;
+  skillFilter = '';
   add.text = el.value;
   add.result = null;
   add.preview = null;
@@ -526,6 +627,18 @@ function handleInput(e) {
 
 function handleKey(e) {
   if (!view && mode === 'list' && arrowRows(e, $('skills-q'), [...($('skills-list')?.querySelectorAll('.ex-skill-main') || [])])) return;
+  // In a found collection: ↑ ↓ walk search ↔ checkboxes, Space ticks, ↵ in the search ticks a lone match.
+  if (mode === 'add' && arrowRows(e, $('skills-filter'), [...($('skills-match-list')?.querySelectorAll('.ex-check') || [])])) return;
+  if (e.key === 'Enter' && !e.isComposing && e.target.id === 'skills-filter') {
+    e.preventDefault();
+    const only = visibleSkills().filter((s) => s.usable);
+    if (only.length === 1) {
+      if (selected.has(only[0].name)) selected.delete(only[0].name);
+      else selected.add(only[0].name);
+      renderPreview();
+    }
+    return;
+  }
   if (e.key === 'Enter' && !e.isComposing && e.target.id === 'skills-q') {
     const first = $('skills-list')?.querySelector('.ex-skill-main:not([disabled])');
     if (first) { e.preventDefault(); first.click(); }
