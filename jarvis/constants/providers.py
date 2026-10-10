@@ -23,12 +23,15 @@ from dataclasses import dataclass
 from typing import Any
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
-PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex")
+PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "antigravity")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
 PROVIDER_OPENCODE_ZEN = "opencode_zen"
 PROVIDER_OPENAI_CODEX = "openai_codex"
+# Google Antigravity (Google account sign-in) — Gemini + Claude via Cloud Code.
+# Also its own model-picker source.
+PROVIDER_ANTIGRAVITY = "antigravity"
 # Model-picker only — free OpenCode Zen tier (no API key). Backend: opencode_zen.
 PROVIDER_HARNESS_AGENT = "harness_agent"
 
@@ -48,6 +51,7 @@ PROVIDER_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX: "OpenAI Codex",
+    PROVIDER_ANTIGRAVITY: "Google Antigravity",
 }
 
 MODEL_SOURCE_LABELS = {
@@ -58,6 +62,7 @@ MODEL_SOURCE_LABELS = {
     PROVIDER_OPENCODE: "OpenCode Go",
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX_AUTH: "OpenAI Codex Auth",
+    PROVIDER_ANTIGRAVITY: "Google Antigravity",
 }
 
 # Picker display order (Harness Agent first — always free, no setup).
@@ -69,6 +74,7 @@ MODEL_SOURCES = (
     PROVIDER_OPENCODE,
     PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX_AUTH,
+    PROVIDER_ANTIGRAVITY,
 )
 
 # ── SINGLE SOURCE OF TRUTH: all models ────────────────────────────────────────
@@ -156,6 +162,14 @@ def model_supports_images(model_id: str, provider: str | None = None) -> bool:
         provider = getattr(state, "provider", "") or ""
     if provider == PROVIDER_HARNESS_AGENT:
         provider = PROVIDER_OPENCODE_ZEN  # the free tier is Zen's gateway: same models
+    if provider == PROVIDER_ANTIGRAVITY:
+        try:
+            from ..auth.antigravity_catalog import get_model as _ag_model
+
+            am = _ag_model(model_id)
+        except Exception:
+            am = None
+        return bool(am and am.supports_images)
     if is_local_provider(provider):
         try:
             lm = _local().get_model(provider, model_id)
@@ -411,8 +425,8 @@ def model_pricing(model: str, provider: str | None = None) -> tuple[float, float
     None when unknown. Catalog providers are priced from models.dev, never
     from the id-keyed PRICING table (another provider may share the id).
     """
-    if provider == PROVIDER_HARNESS_AGENT or is_local_provider(provider):
-        return (0.0, 0.0)  # the free tier / your own hardware: no cost
+    if provider in (PROVIDER_HARNESS_AGENT, PROVIDER_ANTIGRAVITY) or is_local_provider(provider):
+        return (0.0, 0.0)  # the free tier / your own hardware / a Google plan: no cost
     if is_catalog_provider(provider):
         try:
             m = _catalog().get_model(provider, model)
@@ -599,6 +613,31 @@ def codex_default_model() -> str:
         if mid not in refused:
             return mid
     return CODEX_DEFAULT_MODEL
+
+
+def antigravity_models_for_picker(live: bool = False) -> list[tuple[str, str]]:
+    """Antigravity rows: the account's live line-up (with quota left), or the
+    seeds before the first fetch. Never registered in MODEL_INFO — the ids
+    (claude-sonnet-4-6 …) are Anthropic's too."""
+    try:
+        from ..auth.antigravity_catalog import models_for_display, quota_note
+
+        rows = []
+        for m in models_for_display(live=live):
+            note = quota_note(m)
+            rows.append((m.id, f"{m.label} · {note}" if note else m.label))
+        return rows
+    except Exception:
+        return []
+
+
+def antigravity_default_model() -> str:
+    try:
+        from ..auth.antigravity_catalog import default_model
+
+        return default_model()
+    except Exception:
+        return "gemini-3-flash"
 
 
 # The free tier's model before any catalog has arrived (first run, offline):
@@ -861,6 +900,14 @@ def _has_openai_codex_oauth() -> bool:
         return False
 
 
+def _has_antigravity_oauth() -> bool:
+    try:
+        from ..auth.antigravity_oauth import load_antigravity_tokens
+        return load_antigravity_tokens() is not None
+    except Exception:
+        return False
+
+
 def is_harness_agent_model(model: str) -> bool:
     """True when ``model`` is a free Harness Agent (OpenCode Zen public) model:
     on the live list (``harness_agent_models``, on-disk caches), or the
@@ -888,6 +935,8 @@ def connected_model_sources() -> list[str]:
         sources.append(PROVIDER_ANTHROPIC_AUTH)
     if _has_openai_codex_oauth():
         sources.append(PROVIDER_OPENAI_CODEX_AUTH)
+    if _has_antigravity_oauth():
+        sources.append(PROVIDER_ANTIGRAVITY)
     if os.getenv("OPENROUTER_API_KEY"):
         sources.append(PROVIDER_OPENROUTER)
     else:
@@ -985,6 +1034,8 @@ def models_for_source(source: str, live: bool = False, cached: bool = False):
         return anthropic_auth_models_for_picker()
     if source == PROVIDER_OPENAI_CODEX_AUTH:
         return codex_models_for_picker(live=live)
+    if source == PROVIDER_ANTIGRAVITY:
+        return antigravity_models_for_picker(live=live)
     if is_catalog_provider(source):
         return catalog_models_for_picker(source)
     if is_local_provider(source):
@@ -1028,6 +1079,8 @@ def connected_providers() -> set[str]:
         connected.add(PROVIDER_ANTHROPIC)
     if _has_openai_codex_oauth():
         connected.add(PROVIDER_OPENAI_CODEX)
+    if _has_antigravity_oauth():
+        connected.add(PROVIDER_ANTIGRAVITY)
     if _has_content(OPENROUTER_KEY_FILE):
         connected.add(PROVIDER_OPENROUTER)
     if _has_content(OPENCODE_KEY_FILE):
@@ -1076,6 +1129,8 @@ def models_for(provider: str):
         return opencode_zen_live_models_for_picker()
     if provider == PROVIDER_OPENAI_CODEX:
         return codex_models_for_picker()
+    if provider == PROVIDER_ANTIGRAVITY:
+        return antigravity_models_for_picker()
     if is_catalog_provider(provider):
         return catalog_models_for_picker(provider)
     if is_local_provider(provider):
@@ -1103,6 +1158,14 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
         return False
     if provider == PROVIDER_HARNESS_AGENT:
         return is_harness_agent_model(m)
+    if provider == PROVIDER_ANTIGRAVITY:
+        # Strict: only the account's own line-up (ids overlap Anthropic's).
+        try:
+            from ..auth.antigravity_catalog import get_model as _ag_model
+
+            return _ag_model(m) is not None
+        except Exception:
+            return False
     if is_local_provider(provider):
         try:
             return _local().get_model(provider, m) is not None
@@ -1166,6 +1229,16 @@ def infer_provider_for_model(model: str) -> str:
 
 def normalize_model_for_provider(model: str, provider: str) -> str:
     """Use ``model`` when valid for ``provider``; otherwise the provider default."""
+    if provider == PROVIDER_ANTIGRAVITY:
+        try:
+            from ..auth.antigravity_catalog import refused_ids
+
+            refused = refused_ids()
+        except Exception:
+            refused = set()
+        if (model or "").strip() not in refused and model_belongs_to_provider(model, provider):
+            return model.strip()
+        return antigravity_default_model()
     if provider == PROVIDER_OPENAI_CODEX:
         # A saved model that Codex has since refused (e.g. a retired gpt-5.5)
         # must not survive a restart as the model every turn is sent to.
@@ -1252,6 +1325,12 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
     except Exception:
         pass
     try:
+        from ..auth.antigravity_catalog import refresh_models as _ag_refresh
+
+        ok = bool(_ag_refresh(retry_refused=retry_blocked)) or ok
+    except Exception:
+        pass
+    try:
         # Every provider and model models.dev knows. An unchanged catalog is a
         # 304; an explicit /model refresh (retry_blocked) refetches in full.
         ok = bool(_catalog().refresh(force=retry_blocked)) or ok
@@ -1300,8 +1379,9 @@ def model_catalogs_are_fresh() -> bool:
         from ..auth.openrouter_catalog import cache_is_fresh as _or_fresh
         from ..auth.codex_catalog import cache_is_fresh as _codex_fresh
         from ..auth.opencode_catalog import cache_is_fresh as _opencode_fresh
+        from ..auth.antigravity_catalog import cache_is_fresh as _ag_fresh
 
-        return ((_catalog().enabled() or _zen_fresh()) and _or_fresh() and _codex_fresh()
+        return ((_catalog().enabled() or _zen_fresh()) and _or_fresh() and _codex_fresh() and _ag_fresh()
                 and _opencode_fresh() and _catalog().cache_is_fresh())
     except Exception:
         return False

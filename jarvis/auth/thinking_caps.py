@@ -29,6 +29,7 @@ from . import catalog_cache
 from ..constants.models import THINK_EFFORTS_LEGACY
 from ..constants.providers import (
     PROVIDER_ANTHROPIC,
+    PROVIDER_ANTIGRAVITY,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENCODE_ZEN,
@@ -285,6 +286,18 @@ def _from_codex(model: str) -> ThinkCaps | None:
     )
 
 
+def _from_antigravity(model: str) -> ThinkCaps | None:
+    """Antigravity's model list doesn't describe thinking; the form follows
+    the model family (``antigravity_catalog.think_facts``)."""
+    from .antigravity_catalog import think_facts
+
+    kind, levels, can_off = think_facts(model)
+    if kind == "none":
+        return ThinkCaps(known=True, source="Antigravity", reasoning=False)
+    return ThinkCaps(known=True, source="Antigravity", reasoning=True,
+                     levels=_sorted_levels(levels), can_off=can_off)
+
+
 def _from_local(model: str, provider: str) -> ThinkCaps | None:
     """What the last scan of a local server said (Ollama's capabilities);
     None for the OpenAI-compatible servers, which don't say."""
@@ -305,6 +318,8 @@ def _lookup(model: str, provider: str) -> ThinkCaps:
         readers = (lambda: _from_local(model, provider),)
     elif provider == PROVIDER_OPENAI_CODEX:
         readers = (lambda: _from_codex(model),)
+    elif provider == PROVIDER_ANTIGRAVITY:
+        readers = (lambda: _from_antigravity(model),)
     elif provider == PROVIDER_ANTHROPIC:
         readers = (
             lambda: _from_anthropic(model),

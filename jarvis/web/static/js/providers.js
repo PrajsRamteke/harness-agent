@@ -27,6 +27,7 @@ const TONES = {
   anthropic: 'clay',
   anthropic_api: 'clay',
   openai_codex: 'mint',
+  antigravity: 'indigo',
   openrouter: 'indigo',
   opencode: 'slate',
   opencode_zen: 'slate',
@@ -64,6 +65,14 @@ const OAUTH_COPY = {
     plan: 'ChatGPT Plus or Pro',
     paste: 'Signing in on another device?',
     pasteHint: 'The last page won’t load there. Copy its address (it starts with <code>localhost:1455</code>) and paste it here.',
+    placeholder: 'Paste the page address',
+    missing: 'Paste the address of the last sign-in page.',
+  },
+  antigravity: {
+    page: 'Google',
+    plan: 'Google (Antigravity)',
+    paste: 'Signing in on another device?',
+    pasteHint: 'The last page won’t load there. Copy its address (it starts with <code>localhost:51121</code>) and paste it here.',
     placeholder: 'Paste the page address',
     missing: 'Paste the address of the last sign-in page.',
   },
@@ -254,7 +263,7 @@ function oauthPanel(row) {
   const open = flow?.url
     ? `<a class="btn${opened ? '' : ' btn-primary'} pv-open" href="${escapeHtml(flow.url)}" target="_blank" rel="noopener noreferrer" data-act="opened">${icon('log-in')}<span>${opened ? 'Open again' : `Open ${copy.page} sign-in`}</span>${icon('external-link')}</a>`
     : `<span class="btn pv-open is-loading" aria-disabled="true">${spin('Getting a sign-in link…')}</span>`;
-  const auto = row.id === 'openai_codex' && flow?.listening
+  const auto = (row.id === 'openai_codex' || row.id === 'antigravity') && flow?.listening
     ? `<p class="pv-wait"><span class="pv-pulse" aria-hidden="true"></span><span>${onThisComputer()
       ? 'After you approve, this finishes by itself. Come back to this tab.'
       : 'Signing in on the computer running Jarvis? That finishes by itself.'}</span></p>`

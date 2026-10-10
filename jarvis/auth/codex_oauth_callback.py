@@ -1,4 +1,4 @@
-"""Localhost OAuth callback server for OpenAI Codex (ChatGPT) login."""
+"""Localhost OAuth callback server for browser sign-ins (ChatGPT, Antigravity)."""
 from __future__ import annotations
 
 import socket
@@ -36,14 +36,15 @@ def wait_for_codex_oauth_callback(
     timeout: float = 300.0,
     on_ready: Callable[[str], None] | None = None,
     stop: threading.Event | None = None,
+    path: str = "/auth/callback",
 ) -> tuple[str, str]:
-    """Block until browser hits ``/auth/callback``; return ``(code, state)``.
+    """Block until browser hits ``path``; return ``(code, state)``.
 
     Setting ``stop`` ends the wait early (within ~0.5 s) with
     ``CodexOAuthCallbackError("Sign-in cancelled")`` and frees the port.
     """
     result: dict[str, object] = {"done": False}
-    redirect_uri = f"http://localhost:{port}/auth/callback"
+    redirect_uri = f"http://localhost:{port}{path}"
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args) -> None:
@@ -51,7 +52,7 @@ def wait_for_codex_oauth_callback(
 
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
-            if parsed.path != "/auth/callback":
+            if parsed.path != path:
                 self.send_response(404)
                 self.end_headers()
                 return
@@ -127,7 +128,7 @@ def wait_for_codex_oauth_callback(
     return str(result["code"]), str(result["state"])
 
 
-def pick_codex_callback_port(preferred: int = 1455) -> int:
+def pick_codex_callback_port(preferred: int = 1455, *, holder: str = "Codex CLI") -> int:
     """Return ``preferred`` if bindable, else raise with a helpful message."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -135,6 +136,6 @@ def pick_codex_callback_port(preferred: int = 1455) -> int:
             sock.bind(("127.0.0.1", preferred))
         except OSError as e:
             raise CodexOAuthCallbackError(
-                f"localhost:{preferred} is in use — quit Codex CLI or free the port, then retry"
+                f"localhost:{preferred} is in use — quit {holder} or free the port, then retry"
             ) from e
     return preferred

@@ -214,11 +214,16 @@ class OAuthConnectModalScreen(TuiModalScreen[OAuthConnectResult | None]):
             self.dismiss(OAuthConnectResult("activated", spec.id, msg, model_ids))
 
     def _start_login(self, spec: OAuthProviderSpec) -> None:
-        from ..constants.oauth_providers import OAUTH_ID_ANTHROPIC, OAUTH_ID_OPENAI_CODEX
+        from ..constants.oauth_providers import (
+            OAUTH_ID_ANTHROPIC, OAUTH_ID_ANTIGRAVITY, OAUTH_ID_OPENAI_CODEX,
+        )
 
         if spec.id == OAUTH_ID_OPENAI_CODEX:
             from .codex_login_modal import CodexLoginModalScreen
             login_screen = CodexLoginModalScreen()
+        elif spec.id == OAUTH_ID_ANTIGRAVITY:
+            from .antigravity_login_modal import AntigravityLoginModalScreen
+            login_screen = AntigravityLoginModalScreen()
         elif spec.id == OAUTH_ID_ANTHROPIC:
             from .login_modal import LoginModalScreen
             login_screen = LoginModalScreen()

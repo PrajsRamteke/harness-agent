@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .providers import PROVIDER_ANTHROPIC, PROVIDER_OPENAI_CODEX
+from .providers import PROVIDER_ANTHROPIC, PROVIDER_ANTIGRAVITY, PROVIDER_OPENAI_CODEX
 
 OAUTH_ID_ANTHROPIC = "anthropic"
 OAUTH_ID_OPENAI_CODEX = "openai_codex"
+OAUTH_ID_ANTIGRAVITY = "antigravity"
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,14 @@ OAUTH_PROVIDERS: tuple[OAuthProviderSpec, ...] = (
         runtime_provider=PROVIDER_OPENAI_CODEX,
         available=True,
         sort_order=20,
+    ),
+    OAuthProviderSpec(
+        id=OAUTH_ID_ANTIGRAVITY,
+        label="Google Antigravity",
+        description="Gemini + Claude with your Google account — browser login",
+        runtime_provider=PROVIDER_ANTIGRAVITY,
+        available=True,
+        sort_order=30,
     ),
 )
 

@@ -35,7 +35,7 @@ from ..constants.providers import (
     model_supports_images, provider_label,
 )
 from ..constants import (
-    PROVIDER_ANTHROPIC, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+    PROVIDER_ANTHROPIC, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY,
     PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
 )
 from ..auth.oauth_tokens import learn_claude_code_version, load_oauth_tokens, oauth_refresh
@@ -441,6 +441,17 @@ def _codex_refused_model(e: Exception) -> bool:
         return "model_not_found" in text or "does not exist" in text
     if status == 400:
         return "model is not supported" in text
+    return False
+
+
+def _antigravity_refused_model(e: Exception) -> bool:
+    """True when Antigravity refused the *model* (unknown / not on this plan)."""
+    status = getattr(e, "status_code", None)
+    text = str(e).lower()
+    if status == 404:
+        return "not found" in text or "model" in text
+    if status == 400:
+        return "model" in text and ("not supported" in text or "invalid" in text or "unknown" in text)
     return False
 
 
@@ -1092,20 +1103,27 @@ def _call_claude_stream():
             if getattr(e, "status_code", None) == 429:
                 _stop_on_rate_limit(e)
                 raise
-            if state.provider == PROVIDER_OPENAI_CODEX and _codex_refused_model(e):
+            ag_refused = state.provider == PROVIDER_ANTIGRAVITY and _antigravity_refused_model(e)
+            if ag_refused or (state.provider == PROVIDER_OPENAI_CODEX and _codex_refused_model(e)):
                 # Codex retires models without warning: 404 model_not_found for
                 # a still-listed legacy one, 400 "not supported" for a dropped
                 # one. Remember it and move to the next model it does serve.
-                from ..auth.codex_catalog import mark_unavailable
-                from ..constants.providers import codex_default_model
+                # Antigravity's line-up changes the same way.
+                if ag_refused:
+                    from ..auth.antigravity_catalog import mark_unavailable
+                    from ..constants.providers import antigravity_default_model as _default
+                else:
+                    from ..auth.codex_catalog import mark_unavailable
+                    from ..constants.providers import codex_default_model as _default
 
                 refused = state.MODEL
                 mark_unavailable(refused)
-                fallback = codex_default_model()
+                fallback = _default()
                 if not codex_model_retried and fallback != refused:
                     codex_model_retried = True
+                    who = "Antigravity" if ag_refused else "Codex"
                     _retry_notice(
-                        f"Codex no longer serves '{refused}' for this account — "
+                        f"{who} no longer serves '{refused}' for this account — "
                         f"switching to {fallback}. It stays in /model, marked unavailable."
                     )
                     state.MODEL = fallback

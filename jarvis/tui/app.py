@@ -1205,9 +1205,10 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                     self._tui_console.print(f"[{ui.FG_DIM}]Available models:[/]")
                     for line in format_anthropic_model_lines(result.model_ids):
                         self._tui_console.print(f"  [{ui.ACCENT}]{line}[/]")
-            elif result.action == "connected" and result.spec_id == "openai_codex":
+            elif result.action == "connected" and result.spec_id in ("openai_codex", "antigravity"):
+                who = "OpenAI Codex OAuth" if result.spec_id == "openai_codex" else "Google Antigravity"
                 self._tui_console.print(
-                    f"[{ui.OK}]{ui.CHECK}[/] [bold]Signed in with OpenAI Codex OAuth[/]"
+                    f"[{ui.OK}]{ui.CHECK}[/] [bold]Signed in with {who}[/]"
                 )
                 if result.model_ids:
                     self._tui_console.print(f"[{ui.FG_DIM}]Available models:[/]")

@@ -26,6 +26,7 @@ from ..auth.thinking_caps import (
 from ..constants import DEFAULT_THINK_EFFORT, THINKING_BUDGET_TOKENS
 from ..constants.providers import (
     PROVIDER_ANTHROPIC,
+    PROVIDER_ANTIGRAVITY,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENCODE,
@@ -37,7 +38,8 @@ from ..constants.providers import (
 )
 
 # Providers whose client reads ``thinking["effort"]`` (the OpenAI-style wires).
-_EFFORT_IN_THINKING = (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_HARNESS_AGENT, PROVIDER_OPENAI_CODEX)
+_EFFORT_IN_THINKING = (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_HARNESS_AGENT, PROVIDER_OPENAI_CODEX,
+                       PROVIDER_ANTIGRAVITY)
 
 
 @dataclass(frozen=True)

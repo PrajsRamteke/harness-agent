@@ -2,7 +2,7 @@
 
 Replaces the confusing multi-command flow with one modal:
   Level 1: Auth (OAuth)  or  API Key
-  Level 2a: OAuth provider picker (Anthropic / OpenAI Codex)
+  Level 2a: OAuth provider picker (Anthropic / OpenAI Codex / Google Antigravity)
   Level 2b: API key list (all providers) with edit/delete/add
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ from . import theme as ui
 
 
 _MODE_OPTIONS = [
-    ("oauth", "Auth (OAuth)",     "Anthropic / OpenAI Codex — subscription sign-in"),
+    ("oauth", "Auth (OAuth)",     "Claude · ChatGPT · Google Antigravity — subscription sign-in"),
     ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode + 200 more via models.dev"),
     ("local", "Local models",     "Ollama, LM Studio, llama.cpp … on this computer — no key"),
 ]

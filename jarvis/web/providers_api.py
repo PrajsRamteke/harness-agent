@@ -27,12 +27,15 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from .. import state
 from ..constants.api_keys import api_key_spec
-from ..constants.oauth_providers import OAUTH_ID_ANTHROPIC, OAUTH_ID_OPENAI_CODEX, oauth_provider
+from ..constants.oauth_providers import (
+    OAUTH_ID_ANTHROPIC, OAUTH_ID_ANTIGRAVITY, OAUTH_ID_OPENAI_CODEX, oauth_provider,
+)
 from ..constants.providers import (
     AUTH_OAUTH,
     PROVIDER_ANTHROPIC,
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
+    PROVIDER_ANTIGRAVITY,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENAI_CODEX_AUTH,
@@ -64,6 +67,8 @@ CARDS: tuple[Card, ...] = (
          PROVIDER_ANTHROPIC_AUTH, "C"),
     Card("openai_codex", "oauth", "ChatGPT Plus / Pro", "Codex models with your ChatGPT plan",
          PROVIDER_OPENAI_CODEX_AUTH, "G"),
+    Card("antigravity", "oauth", "Google Antigravity", "Gemini and Claude with your Google account",
+         PROVIDER_ANTIGRAVITY, "AG"),
     Card("anthropic_api", "key", "Anthropic API", "Claude models, pay as you go",
          PROVIDER_ANTHROPIC_API, "A", "https://console.anthropic.com/settings/keys"),
     Card("openrouter", "key", "OpenRouter", "Hundreds of models, many of them free",
@@ -152,6 +157,10 @@ def _signed_in(card_id: str) -> bool:
         from ..auth.codex_oauth_tokens import load_codex_oauth_tokens
 
         return load_codex_oauth_tokens() is not None
+    if card_id == OAUTH_ID_ANTIGRAVITY:
+        from ..auth.antigravity_oauth import load_antigravity_tokens
+
+        return load_antigravity_tokens() is not None
     return False
 
 
@@ -164,6 +173,8 @@ def active_card_id() -> str:
         return "anthropic" if state.auth_mode == AUTH_OAUTH else "anthropic_api"
     if provider == PROVIDER_OPENAI_CODEX:
         return "openai_codex"
+    if provider == PROVIDER_ANTIGRAVITY:
+        return "antigravity"
     return provider or ""
 
 
@@ -435,6 +446,8 @@ def _default_model(source: str) -> str:
         return p.openrouter_default_model()
     if source == PROVIDER_OPENAI_CODEX_AUTH:
         return p.codex_default_model()
+    if source == PROVIDER_ANTIGRAVITY:
+        return p.antigravity_default_model()
     if source == PROVIDER_OPENCODE:  # live (models.dev + the gateway's list)
         return p.opencode_go_default_model() or state.MODEL
     if source == PROVIDER_OPENCODE_ZEN:
@@ -670,6 +683,13 @@ def start_oauth(card_id: str, *, run_action: Callable[[str, dict[str, Any]], dic
         from ..auth.oauth_tokens import anthropic_authorize_url
 
         url = anthropic_authorize_url(challenge, oauth_state)
+    elif card_id == OAUTH_ID_ANTIGRAVITY:
+        from ..auth.antigravity_oauth import build_antigravity_authorize_url
+
+        try:
+            url = build_antigravity_authorize_url(code_challenge=challenge, state=oauth_state)
+        except RuntimeError as e:  # no OAuth client configured
+            return _err(str(e))
     else:
         from ..auth.codex_oauth_tokens import build_codex_authorize_url
         from ..constants.codex_oauth import CODEX_OAUTH_CLIENT_ID, CODEX_OAUTH_REDIRECT_URI
@@ -683,7 +703,7 @@ def start_oauth(card_id: str, *, run_action: Callable[[str, dict[str, Any]], dic
     flow = OAuthFlow(uuid.uuid4().hex, card_id, verifier, oauth_state, url)
     with _flows_lock:
         _flows[flow.id] = flow
-    if card_id == OAUTH_ID_OPENAI_CODEX:
+    if card_id in (OAUTH_ID_OPENAI_CODEX, OAUTH_ID_ANTIGRAVITY):
         _start_codex_listener(flow, run_action)
     out = flow.public()
     out["url"] = url
@@ -691,24 +711,32 @@ def start_oauth(card_id: str, *, run_action: Callable[[str, dict[str, Any]], dic
 
 
 def _start_codex_listener(flow: OAuthFlow, run_action: Callable) -> None:
-    """Sign-in on this computer lands on localhost:1455 and finishes by itself."""
+    """Sign-in on this computer lands on localhost (ChatGPT :1455, Antigravity
+    :51121) and finishes by itself."""
     from ..auth.codex_oauth_callback import (
         CodexOAuthCallbackError, pick_codex_callback_port, wait_for_codex_oauth_callback,
     )
-    from ..constants.codex_oauth import CODEX_OAUTH_CALLBACK_PORT
+
+    if flow.card_id == OAUTH_ID_ANTIGRAVITY:
+        from ..constants.antigravity_oauth import (
+            ANTIGRAVITY_OAUTH_CALLBACK_PATH as path, ANTIGRAVITY_OAUTH_CALLBACK_PORT as port,
+        )
+    else:
+        from ..constants.codex_oauth import CODEX_OAUTH_CALLBACK_PATH as path, CODEX_OAUTH_CALLBACK_PORT as port
 
     try:
-        pick_codex_callback_port(CODEX_OAUTH_CALLBACK_PORT)
+        pick_codex_callback_port(port)
     except CodexOAuthCallbackError:
-        return  # Codex CLI (or the terminal dialog) holds it — pasting still works
+        return  # Codex CLI / Antigravity (or the terminal dialog) holds it — pasting still works
 
     def listen() -> None:
         try:
             code, _state = wait_for_codex_oauth_callback(
                 expected_state=flow.state,
-                port=CODEX_OAUTH_CALLBACK_PORT,
+                port=port,
                 timeout=FLOW_TTL,
                 stop=flow.stop,
+                path=path,
             )
         except (CodexOAuthCallbackError, OSError) as exc:
             flow.listening = False
@@ -719,7 +747,7 @@ def _start_codex_listener(flow: OAuthFlow, run_action: Callable) -> None:
         _complete(flow, code, run_action)
 
     flow.listening = True
-    flow.thread = threading.Thread(target=listen, daemon=True, name="jarvis-web-codex-login")
+    flow.thread = threading.Thread(target=listen, daemon=True, name=f"jarvis-web-{flow.card_id}-login")
     flow.thread.start()
 
 
@@ -798,6 +826,18 @@ def _complete(flow: OAuthFlow, code: str, run_action: Callable) -> dict[str, Any
                 "expires_at": int(time.time()) + int(body.get("expires_in") or OAUTH_DEFAULT_EXPIRY),
                 "scopes": raw_scope.split() if isinstance(raw_scope, str) else (raw_scope or []),
             })
+        elif flow.card_id == OAUTH_ID_ANTIGRAVITY:
+            from ..auth.antigravity_oauth import complete_antigravity_login
+
+            bundle, why = complete_antigravity_login(code, flow.verifier)
+            if bundle is None:
+                return retry(why)
+            try:
+                from ..auth.antigravity_catalog import refresh_models
+
+                refresh_models()  # the account's own line-up before the model list opens
+            except Exception:
+                pass
         else:
             from ..auth.codex_oauth_tokens import (
                 exchange_codex_api_key, exchange_codex_oauth_code, persist_codex_oauth_bundle,
@@ -828,7 +868,7 @@ def _complete(flow: OAuthFlow, code: str, run_action: Callable) -> dict[str, Any
 
 
 def finish_oauth(flow_id: str, pasted: str, *, run_action: Callable) -> dict[str, Any]:
-    """The pasted ``code#state`` (Claude) or callback address (ChatGPT)."""
+    """The pasted ``code#state`` (Claude) or callback address (ChatGPT, Antigravity)."""
     flow = _get_flow(flow_id)
     if flow is None:
         return _err("This sign-in link expired. Start again.", expired=True)

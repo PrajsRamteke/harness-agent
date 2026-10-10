@@ -13,7 +13,7 @@ from ..constants import (
     model_belongs_to_provider,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_HARNESS_AGENT,
-    PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH,
+    PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH, PROVIDER_ANTIGRAVITY,
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
 )
@@ -21,6 +21,7 @@ from ..utils.io import _secure_write
 from ..utils.time_fmt import fmt_duration
 from ..auth.oauth_tokens import load_oauth_tokens
 from ..auth.codex_oauth_tokens import load_codex_oauth_tokens
+from ..auth.antigravity_oauth import load_antigravity_tokens
 from ..auth.openrouter import prompt_for_openrouter_key, load_openrouter_key
 from ..auth.opencode import prompt_for_opencode_key, load_opencode_key
 from ..auth.opencode_zen import prompt_for_opencode_zen_key, has_opencode_zen_key
@@ -252,6 +253,11 @@ def _provider_for_model(model: str) -> str:
     # Not a frozen id set: the Codex line-up is discovered at runtime.
     if model_belongs_to_provider(model, PROVIDER_OPENAI_CODEX):
         return PROVIDER_OPENAI_CODEX
+    # A Gemini id on the signed-in Antigravity line-up (Claude ids stay
+    # Anthropic's unless picked under Antigravity in /model).
+    if model.startswith("gemini") and load_antigravity_tokens() and model_belongs_to_provider(
+            model, PROVIDER_ANTIGRAVITY):
+        return PROVIDER_ANTIGRAVITY
     if is_harness_agent_model(model):
         return PROVIDER_OPENCODE_ZEN
     # OpenCode Go / Zen line-ups are live (models.dev + what each gateway
@@ -272,7 +278,7 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
     target_provider = _provider_for_model(chosen)
     if source == PROVIDER_HARNESS_AGENT:
         target_provider = PROVIDER_OPENCODE_ZEN
-    elif source in (PROVIDER_OPENCODE_ZEN, PROVIDER_OPENCODE, PROVIDER_OPENROUTER):
+    elif source in (PROVIDER_OPENCODE_ZEN, PROVIDER_OPENCODE, PROVIDER_OPENROUTER, PROVIDER_ANTIGRAVITY):
         # The picked source decides: OpenCode Go serves gpt-… ids too, and
         # guessing from the id would send those to ChatGPT (Codex).
         target_provider = source
@@ -612,13 +618,14 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             "  [cyan]2[/]  OpenRouter         [dim](free & paid)[/]\n"
             "  [cyan]3[/]  OpenCode Go        [dim](GLM, Kimi, DeepSeek, MiMo, MiniMax, Qwen)[/]\n"
             "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n"
+            "  [cyan]5[/]  Google Antigravity [dim](Gemini + Claude, Google sign-in — /login)[/]\n"
             "  [dim]…or any provider id from models.dev, e.g.[/] [cyan]deepseek[/] [dim](/key lists them all)[/]\n"
             "  [dim]…or a model server on this computer, e.g.[/] [cyan]ollama[/] [dim](/local-models lists them)[/]\n\n"
             "usage: [dim]/provider <name>[/]",
             title="◎ provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, 5=Antigravity, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
                           "[cyan]/provider openrouter[/], [cyan]/provider opencode[/], "
@@ -628,11 +635,14 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         elif sel in ("2", "openrouter", "or"):         target = PROVIDER_OPENROUTER
         elif sel in ("3", "opencode", "oc"):           target = PROVIDER_OPENCODE
         elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
+        elif sel in ("5", "antigravity", "ag"):         target = PROVIDER_ANTIGRAVITY
         elif sel:                                      target = sel
         else: return
+    if target in ("google", "google-antigravity", "ag"):
+        target = PROVIDER_ANTIGRAVITY
     builtin = (
         PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
-        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX,
+        PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY,
     )
     if target not in builtin:
         # A model server on this computer: "local:ollama", or just "ollama".
@@ -681,6 +691,15 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             return
         state.auth_mode = AUTH_OAUTH
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+    elif target == PROVIDER_ANTIGRAVITY:
+        if not load_antigravity_tokens():
+            console.print("[yellow]Google Antigravity isn't signed in — run /login first[/]")
+            state.provider = prev_provider
+            _secure_write(PROVIDER_FILE, prev_provider)
+            return
+        state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_ANTIGRAVITY)
+        state.auth_mode = AUTH_OAUTH
+        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
     elif is_catalog_provider(target):
         state.MODEL = normalize_model_for_provider(state.MODEL, target)
     elif is_local_provider(target):
@@ -725,6 +744,11 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             state.client = _build_codex_client()
             if state.client is None:
                 raise RuntimeError("Codex OAuth client unavailable")
+        elif target == PROVIDER_ANTIGRAVITY:
+            from ..auth.client import _build_antigravity_client
+            state.client = _build_antigravity_client()
+            if state.client is None:
+                raise RuntimeError("Antigravity sign-in couldn't be refreshed — run /login")
         elif is_catalog_provider(target):
             from ..auth.client import _build_catalog_client
             state.client = _build_catalog_client(target)

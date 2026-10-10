@@ -14,7 +14,7 @@ from ..constants import (
     OPENCODE_ZEN_BASE_URL,
     harness_agent_default_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_OPENAI_CODEX, PROVIDER_HARNESS_AGENT, PROVIDERS,
+    PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_HARNESS_AGENT, PROVIDERS,
     is_harness_agent_model, is_catalog_provider, is_local_provider,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
@@ -34,6 +34,7 @@ from .oauth_tokens import (
 from .anthropic_models import defer_anthropic_model_sync, sync_anthropic_model_ids
 from .codex_client import CodexClient
 from .codex_oauth_tokens import get_fresh_codex_oauth_token, load_codex_oauth_tokens
+from .antigravity_oauth import get_fresh_antigravity_token, load_antigravity_tokens
 from .oauth_flow import oauth_login
 from .mode_picker import _choose_auth_mode
 
@@ -145,7 +146,7 @@ def _has_usable_provider_credentials() -> bool:
         or os.getenv("OPENCODE_ZEN_API_KEY")
     ):
         return True
-    if _has_usable_anthropic_auth() or load_codex_oauth_tokens():
+    if _has_usable_anthropic_auth() or load_codex_oauth_tokens() or load_antigravity_tokens():
         return True
     if _has_openrouter_key() or _has_opencode_key() or _has_opencode_zen_key():
         return True
@@ -187,7 +188,8 @@ def _resolve_auth_mode(*, interactive: bool) -> str | None:
 def _resolve_provider(*, interactive: bool = True) -> str:
     """Decide provider from env → saved → stored → first-run Harness Agent default."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
-    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX):
+    if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
+                        PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY):
         return env_provider
     if env_provider.startswith(CATALOG_PREFIX) or is_local_provider(env_provider):
         return env_provider
@@ -218,6 +220,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         saved_provider = ""
     if saved_provider == PROVIDER_OPENAI_CODEX and load_codex_oauth_tokens():
         return PROVIDER_OPENAI_CODEX
+    if saved_provider == PROVIDER_ANTIGRAVITY and load_antigravity_tokens():
+        return PROVIDER_ANTIGRAVITY
     if saved_provider == PROVIDER_ANTHROPIC and _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if saved_provider == PROVIDER_OPENROUTER and _has_openrouter_key():
@@ -237,6 +241,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
             stored = ""
         if stored == PROVIDER_OPENAI_CODEX and load_codex_oauth_tokens():
             return PROVIDER_OPENAI_CODEX
+        if stored == PROVIDER_ANTIGRAVITY and load_antigravity_tokens():
+            return PROVIDER_ANTIGRAVITY
         if stored == PROVIDER_ANTHROPIC and _has_usable_anthropic_auth():
             return PROVIDER_ANTHROPIC
         if stored == PROVIDER_OPENROUTER and _has_openrouter_key():
@@ -256,6 +262,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_ANTHROPIC
     if load_codex_oauth_tokens():
         return PROVIDER_OPENAI_CODEX
+    if load_antigravity_tokens():
+        return PROVIDER_ANTIGRAVITY
     if _has_openrouter_key():
         return PROVIDER_OPENROUTER
     if _has_opencode_key():
@@ -419,6 +427,16 @@ def _build_codex_client() -> CodexClient | None:
     if not tokens:
         return None
     return CodexClient(tokens["access_token"])
+
+
+def _build_antigravity_client():
+    """Google Antigravity client, or None when not signed in / the refresh
+    token was revoked."""
+    from .antigravity_client import AntigravityClient
+
+    if not get_fresh_antigravity_token():
+        return None
+    return AntigravityClient()
 
 
 def _fallback_harness_agent_client(*, preferred_model: str = ""):
@@ -632,6 +650,26 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
                     continue
                 raise
         console.print("[red]Too many OpenAI Codex auth failures[/]"); sys.exit(1)
+
+    if state.provider == PROVIDER_ANTIGRAVITY:
+        state.auth_mode = AUTH_OAUTH
+        _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+        try:
+            c = _build_antigravity_client()
+        except Exception:
+            c = None
+        if c is not None:
+            return c
+        # Signed out, or Google revoked the refresh token: never block startup.
+        if interactive:
+            console.print("[yellow]Google Antigravity sign-in expired — run /login to sign in again[/]")
+        if not _retried:
+            fallback = _pick_fallback_provider(interactive=interactive)
+            if fallback:
+                state.provider = fallback
+                _secure_write(PROVIDER_FILE, state.provider)
+                return make_client(interactive=interactive, _retried=True)
+        return _fallback_harness_agent_client(preferred_model=harness_agent_default_model())
 
     if state.provider == PROVIDER_OPENROUTER:
         if not interactive and not _has_openrouter_key():

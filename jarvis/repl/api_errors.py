@@ -368,9 +368,10 @@ def _says_nothing_new(said: str, ours: str) -> bool:
 
 
 def _sign_in_action(provider: str, auth_mode: str) -> Action:
-    from ..constants import PROVIDER_ANTHROPIC, PROVIDER_OPENAI_CODEX
+    from ..constants import PROVIDER_ANTHROPIC, PROVIDER_ANTIGRAVITY, PROVIDER_OPENAI_CODEX
 
-    if provider == PROVIDER_OPENAI_CODEX or (provider == PROVIDER_ANTHROPIC and auth_mode == "oauth"):
+    if provider in (PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY) or (
+            provider == PROVIDER_ANTHROPIC and auth_mode == "oauth"):
         return Action("Sign in again", "/login", primary=True)
     return Action("Replace key", "/key", primary=True)
 
@@ -426,9 +427,10 @@ def describe(kind: str, *, provider: str = "", provider_id: str = "", model: str
         if retry_after:
             actions.append(Action("Retry", RETRY))
     elif kind == "auth":
-        from ..constants import PROVIDER_ANTHROPIC, PROVIDER_OPENAI_CODEX
+        from ..constants import PROVIDER_ANTHROPIC, PROVIDER_ANTIGRAVITY, PROVIDER_OPENAI_CODEX
 
-        oauth = provider_id == PROVIDER_OPENAI_CODEX or (provider_id == PROVIDER_ANTHROPIC and auth_mode == "oauth")
+        oauth = provider_id in (PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY) or (
+            provider_id == PROVIDER_ANTHROPIC and auth_mode == "oauth")
         title = "Signed out" if oauth else "API key rejected"
         msg = (f"Your {who} sign-in has expired and couldn't be refreshed. Sign in again — no restart needed."
                if oauth else
