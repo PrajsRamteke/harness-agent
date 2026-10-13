@@ -1,6 +1,5 @@
 """Harness Agent (free OpenCode Zen) tests."""
 import unittest
-import uuid
 from unittest import mock
 
 from jarvis import state
@@ -49,12 +48,13 @@ class HarnessAgentTests(unittest.TestCase):
         self.assertFalse(should_use_harness_agent_client(source=PROVIDER_OPENCODE_ZEN))
 
     def test_build_harness_agent_client_headers(self):
-        with mock.patch("jarvis.auth._zen_wire.uuid.uuid4") as mock_uuid, mock.patch(
-            "jarvis.auth._zen_wire.secrets.token_hex", return_value="0123456789abcd"
+        with mock.patch(
+            "jarvis.auth._zen_wire.time.time", return_value=1791910372.0
+        ), mock.patch(
+            "jarvis.auth._zen_wire.secrets.token_bytes", return_value=b"\x00" * 14
         ):
-            mock_uuid.return_value = uuid.UUID("00000000-0000-0000-0000-000000000001")
+            expected_session = _zen_wire.new_session_id()
             client = build_harness_agent_client()
-        expected_session = _zen_wire.session_id("000000000000" + "0123456789abcd")
         wire = _zen_wire.zen_client_kwargs(expected_session)
         self.assertEqual(client._oai.api_key, wire["api_key"])
         self.assertTrue(client._oai.base_url.path.endswith("/zen/v1/"))
@@ -76,6 +76,21 @@ class HarnessAgentTests(unittest.TestCase):
         sid = _zen_wire.new_session_id()
         self.assertRegex(sid, r"^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$")
         self.assertEqual(len(sid), 30)
+
+    def test_session_timestamp_segment_decodes_to_now(self):
+        # OpenCode 1.19.0 403s unless the 12-hex segment decodes to a recent
+        # time in the *descending* id format: value = ~(ms * 0x1000), low 48
+        # bits (so the decoded ms wraps modulo 2**36).
+        seg = _zen_wire._session_timestamp_segment(1791910372000)
+        decoded_ms = (~int(seg, 16) & 0xFFFFFFFFFFFF) >> 12
+        self.assertEqual(decoded_ms, 1791910372000 % (1 << 36))
+
+    def test_session_id_segment_is_fresh(self):
+        import time
+        seg = _zen_wire.new_session_id()[4:16]
+        decoded_ms = (~int(seg, 16) & 0xFFFFFFFFFFFF) >> 12
+        now_ms = int(time.time() * 1000) % (1 << 36)
+        self.assertLess(abs(decoded_ms - now_ms), 60_000)
 
 
 if __name__ == "__main__":
