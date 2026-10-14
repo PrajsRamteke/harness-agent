@@ -21,6 +21,7 @@ from ..app_commands import (
     _is_bare_model_command,
     _is_provider_hub_command,
     _is_session_picker_command,
+    _is_rename_command,
     _is_think_picker_command,
     _is_mcp_modal_command,
     _is_agent_picker_command,
@@ -503,6 +504,7 @@ class WebRemoteMixin:
             _is_bare_model_command(s)
             or _is_provider_hub_command(s)
             or _is_session_picker_command(s)
+            or _is_rename_command(s)
             or _is_think_picker_command(s)
             or _is_mcp_modal_command(s)
             or _is_agent_picker_command(s)
@@ -599,6 +601,9 @@ class WebRemoteMixin:
                     result = dict(result)
                     result["stopped"] = stopped
                     self._tui_console.print(f"[{ui.FG_DIM}]⏹ web · {stopped}[/]")
+
+            if action == "session_rename":  # the sidebar shows the title
+                self._refresh_sidebar()
 
             if action == "cwd_change":  # the terminal shows the folder too (footer, context strip)
                 try:

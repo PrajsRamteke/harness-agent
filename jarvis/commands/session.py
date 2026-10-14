@@ -1,9 +1,12 @@
 """/session subcommands + session resume helper."""
-from typing import Optional
+from typing import Optional, Tuple
+
+from rich.markup import escape
 
 from ..console import console, Panel, Table
 from ..storage.sessions import (
     db_list_sessions, db_create_session, db_delete_session, db_load_session,
+    db_rename_session,
 )
 from ..utils.time_fmt import _fmt_ts
 from ..repl.trim import count_tool_calls, estimate_session_tokens
@@ -66,12 +69,47 @@ def cmd_session(arg: str):
             console.print("[red]not found[/]")
         return None
 
+    if sub == "rename":
+        sid, title = parse_rename(rest)
+        if not title:
+            console.print("usage: /rename <new title>  ·  /session rename [#id] <new title>")
+            return None
+        ok, msg = rename_session(sid, title)
+        console.print(f"[green]{escape(msg)}[/]" if ok else f"[red]{escape(msg)}[/]")
+        return None
+
     if sub == "current":
         console.print(f"[cyan]current session: #{state.current_session_id}[/]")
         return None
 
-    console.print("[red]unknown subcommand[/] — try: /session [list|resume <id>|new|delete <id>|current]")
+    console.print("[red]unknown subcommand[/] — try: /session [list|resume <id>|new|delete <id>|rename [#id] <title>|current]")
     return None
+
+
+def parse_rename(arg: str) -> Tuple[Optional[int], str]:
+    """``"#12 New title"`` → (12, "New title"); ``"New title"`` → (None, …) = this session."""
+    arg = (arg or "").strip()
+    head, _, rest = arg.partition(" ")
+    if head.startswith("#") and head[1:].isdigit():
+        return int(head[1:]), rest.strip()
+    return None, arg
+
+
+def rename_session(sid: Optional[int], title: str) -> Tuple[bool, str]:
+    """Rename session ``sid`` (None = the current one) → (ok, message for people)."""
+    if sid is None:
+        sid = state.current_session_id
+    if not sid:
+        return False, "no session to rename yet"
+    try:
+        found = db_rename_session(int(sid), title)
+    except ValueError:
+        return False, "the title can't be empty"
+    if not found:
+        return False, f"session #{sid} not found"
+    from ..storage.sessions import db_get_title
+
+    return True, f"✎ renamed session #{sid} to “{db_get_title(sid)}”"
 
 
 def _resume_session(sid: int) -> Optional[int]:

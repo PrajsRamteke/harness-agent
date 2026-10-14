@@ -13,6 +13,8 @@ _SECTIONS = [
         ("/session", "list persisted sessions & resume"),
         ("/session resume <id>", "resume a session by id"),
         ("/session delete <id>", "delete a stored session"),
+        ("/rename [title]", "rename this session (no title = edit it in a dialog)"),
+        ("/session rename #<id> <title>", "rename a past session"),
         ("/clear", "clear the terminal screen"),
         ("/exit", "quit"),
     ]),

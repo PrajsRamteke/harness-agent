@@ -1,5 +1,5 @@
 """Persistent session storage backed by SQLite."""
-import json, sqlite3, time
+import json, sqlite3, threading, time
 from typing import Dict, List, Optional
 
 from ..constants import CONFIG_DIR, SESSIONS_DB, SESSION_TITLE_MAX_LENGTH, SESSIONS_LIST_LIMIT
@@ -70,14 +70,73 @@ def db_replace_session_messages(session_id: int, msgs: List[Dict]):
         c.execute("UPDATE sessions SET updated_at=? WHERE id=?", (now, session_id))
 
 
+def clean_title(title: str) -> str:
+    """One line, collapsed spaces, at most ``SESSION_TITLE_MAX_LENGTH`` chars."""
+    return " ".join((title or "").split())[:SESSION_TITLE_MAX_LENGTH].strip()
+
+
+# session id → (title, read at). The sidebar, the web state poll and the
+# project switcher all ask every second or two; a rename in this process
+# updates it at once, one from another Jarvis shows within ``_TITLE_TTL``.
+_TITLE_TTL = 3.0
+_title_cache: Dict[tuple, tuple] = {}  # keyed by database too (tests swap it)
+_title_lock = threading.Lock()
+
+
+def _title_key(session_id) -> tuple:
+    return (str(SESSIONS_DB), int(session_id))
+
+
+def _remember_title(session_id: int, title: str) -> None:
+    with _title_lock:
+        _title_cache[_title_key(session_id)] = (title, time.monotonic())
+
+
+def db_get_title(session_id) -> str:
+    """The stored title of a session ("" when it has none yet)."""
+    if not session_id:
+        return ""
+    sid = int(session_id)
+    with _title_lock:
+        hit = _title_cache.get(_title_key(sid))
+    if hit and time.monotonic() - hit[1] < _TITLE_TTL:
+        return hit[0]
+    try:
+        with db_conn() as c:
+            row = c.execute("SELECT title FROM sessions WHERE id=?", (sid,)).fetchone()
+    except sqlite3.Error:
+        return hit[0] if hit else ""
+    title = str((row["title"] if row else "") or "").strip()
+    _remember_title(sid, title)
+    return title
+
+
 def db_set_title_if_empty(session_id: int, title: str):
-    title = (title or "").strip().replace("\n", " ")[:SESSION_TITLE_MAX_LENGTH]
+    title = clean_title(title)
     if not title:
         return
     with db_conn() as c:
         row = c.execute("SELECT title FROM sessions WHERE id=?", (session_id,)).fetchone()
         if row and not row["title"]:
             c.execute("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
+            _remember_title(session_id, title)
+
+
+def db_rename_session(session_id: int, title: str) -> bool:
+    """Give a session a new title. False when the session doesn't exist.
+
+    Raises ``ValueError`` for a blank title. A renamed session keeps its name:
+    the first message only fills in a title that is still empty.
+    """
+    title = clean_title(title)
+    if not title:
+        raise ValueError("title can't be empty")
+    with db_conn() as c:
+        cur = c.execute("UPDATE sessions SET title=? WHERE id=?", (title, int(session_id)))
+        found = cur.rowcount > 0
+    if found:
+        _remember_title(session_id, title)
+    return found
 
 
 def db_list_sessions(limit: int = SESSIONS_LIST_LIMIT, offset: int = 0) -> List[sqlite3.Row]:
@@ -127,6 +186,8 @@ def db_delete_session(session_id: int) -> bool:
         deleted = cur.rowcount > 0
     finally:
         c.close()
+    with _title_lock:
+        _title_cache.pop(_title_key(session_id), None)
     # Only after the commit: forget_session opens its own connection, and doing
     # that inside the transaction above blocked on our own write lock for
     # sqlite's 5 s busy timeout — every /session delete froze the UI.

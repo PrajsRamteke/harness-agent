@@ -1,6 +1,7 @@
 /** ⌘K / Ctrl+K command palette */
 import { $, escapeHtml, isMac } from './utils.js';
 import { openFolders } from './folders.js';
+import { renameCurrent } from './rename.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
 import { allItems, matchItem, rankItems, wantCustomItems } from './catalog.js';
@@ -80,6 +81,10 @@ export async function runItem(item) {
   }
   if (item.action === 'folders') {
     openFolders();
+    return;
+  }
+  if (item.action === 'rename') {
+    renameCurrent();
     return;
   }
   if (item.toggle) {

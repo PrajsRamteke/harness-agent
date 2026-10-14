@@ -75,17 +75,12 @@ def _local_urls(port: int, token: str) -> list[str]:
 
 def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
     """What the project switcher shows about this instance (read every few seconds)."""
-    cache: dict[Any, str] = {}
     since: list[float | None] = [None]  # when the running turn started (read every second)
 
     def info() -> dict[str, Any]:
         from .. import state
         from . import state_api
 
-        key = (state.current_session_id, len(state.messages))
-        if key not in cache:  # the title only changes with the session or a new message
-            cache.clear()
-            cache[key] = state_api._session_title(state.current_session_id)
         busy = bool(getattr(app, "_busy", False))
         if busy and since[0] is None:
             since[0] = time.time()
@@ -95,7 +90,7 @@ def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
             "cwd": os.getcwd(),
             "project": state_api._project_name(),
             "session_id": state.current_session_id,
-            "session_title": cache[key],
+            "session_title": state_api._session_title(state.current_session_id),  # cached
             "model": str(state.MODEL or ""),
             "busy": busy,
             "busy_since": since[0],

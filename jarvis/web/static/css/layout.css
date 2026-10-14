@@ -282,6 +282,70 @@
 }
 .title-wrap p span + span::before { content: ""; display: inline-block; width: 14px; }
 
+/* Click the title to rename the chat (rename.js): a pencil shows on hover. */
+.title-wrap h1[role="button"] {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin-left: -6px;
+  padding: 0 24px 0 6px;
+  border-radius: 8px;
+  cursor: text;
+  outline: none;
+  transition: background 0.12s;
+}
+.title-wrap h1[role="button"]::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+  background: var(--text-3);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3Cpath d='m15 5 4 4'/%3E%3C/svg%3E") center / contain no-repeat;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.title-wrap h1[role="button"]:hover,
+.title-wrap h1[role="button"]:focus-visible { background: var(--card-hover); }
+.title-wrap h1[role="button"]:hover::after,
+.title-wrap h1[role="button"]:focus-visible::after { opacity: 1; }
+.title-wrap h1[role="button"]:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
+@media (hover: none) {
+  .title-wrap h1[role="button"]::after { opacity: 0.6; }
+}
+
+/* The field that replaces a title while it's renamed (top bar, Sessions dialog). */
+.title-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 1px 8px;
+  border: 1px solid var(--accent-line);
+  border-radius: 8px;
+  outline: none;
+  background: var(--card);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  color: var(--text);
+  font: inherit;
+}
+.title-input::placeholder { color: var(--text-3); font-weight: 500; }
+.title-input:disabled { opacity: 0.6; }
+.title-input.top-rename {
+  max-width: 560px;
+  margin: -1px 0 -1px -9px; /* same height as the title it replaces: the bar doesn't jump */
+  padding: 0 8px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+.title-input.lr-rename { margin: -2px 0 -2px -9px; font-size: 14px; font-weight: 600; line-height: 1.3; }
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -543,6 +607,7 @@
 
   .topbar { padding: 8px 8px 8px 8px; gap: 8px; border-radius: 18px; }
   .title-wrap h1 { font-size: 15px; }
+  .title-input.top-rename { font-size: 16px; } /* 16px+: iOS doesn't zoom into the field */
   .cmd-btn { width: 36px; height: 36px; padding: 0; justify-content: center; }
   .cmd-btn-label, .cmd-btn kbd { display: none; }
 }

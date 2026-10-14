@@ -312,19 +312,10 @@ def snapshot_messages() -> list[dict[str, Any]]:
 
 
 def _session_title(session_id: Any) -> str:
-    if not session_id:
-        return ""
     try:
-        from ..storage.sessions import db_conn
+        from ..storage.sessions import db_get_title
 
-        conn = db_conn()
-        try:
-            row = conn.execute(
-                "SELECT title FROM sessions WHERE id = ?", (int(session_id),)
-            ).fetchone()
-        finally:
-            conn.close()
-        return str((row[0] if row else "") or "").strip()
+        return db_get_title(session_id)
     except Exception:
         return ""
 

@@ -16,6 +16,7 @@ import { openSkills } from './skills.js';
 import { openCommands } from './commands.js';
 import { openPin } from './pin.js';
 import { openLocal } from './local.js';
+import { renameInline } from './rename.js';
 import {
   pickerAction,
   fetchSessions,
@@ -233,9 +234,9 @@ const sessionSpec = {
         title: s.title,
         sub: `${s.model || 'unknown model'}, ${s.msg_count} messages, ${s.updated_label || ''}`,
         current: s.active,
-        meta: s.active
+        meta: `<span class="sess-acts"><button type="button" class="row-btn is-icon sess-ren" data-ren="${s.id}" aria-label="Rename session ${s.id}" title="Rename">${icon('pencil')}</button>${s.active
           ? '<span class="badge is-live">Open now</span>'
-          : `<button type="button" class="row-btn is-icon" data-del="${s.id}" aria-label="Delete session ${s.id}" title="Delete">${icon('trash-2')}</button>`,
+          : `<button type="button" class="row-btn is-icon" data-del="${s.id}" aria-label="Delete session ${s.id}" title="Delete">${icon('trash-2')}</button>`}</span>`,
         pick: () => pickAndClose('session_resume', { session_id: s.id }, 'Session resumed'),
       })),
       empty: q
@@ -244,6 +245,29 @@ const sessionSpec = {
     };
   },
   bindRows(list) {
+    list.querySelectorAll('[data-ren]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const sid = Number(btn.dataset.ren);
+        const row = btn.closest('.list-row');
+        const titleEl = row?.querySelector('.lr-title');
+        const s = sessionsCache.find((x) => x.id === sid);
+        if (!titleEl || !s) return;
+        row.classList.add('is-renaming');
+        const title = await renameInline(titleEl, {
+          sessionId: sid,
+          value: s.auto_title ? '' : s.title,
+          label: `New title for session ${sid}`,
+          className: 'lr-rename',
+        });
+        row.classList.remove('is-renaming');
+        if (title) {
+          s.title = title;
+          s.auto_title = false;
+        }
+        $('picker-search')?.focus({ preventScroll: true });
+      });
+    });
     list.querySelectorAll('[data-del]').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();

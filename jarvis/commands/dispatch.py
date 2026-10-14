@@ -38,6 +38,8 @@ def handle_slash(inp: str):
         cmd_help(arg); return ("ok", False, inp)
     if c in ("/session", "/sessions"):
         cmd_session(arg); return ("ok", False, inp)
+    if c == "/rename":
+        cmd_session(f"rename {arg}".strip()); return ("ok", False, inp)
 
     if c == "/mcp":
         from ..mcp.manager import handle_mcp_command

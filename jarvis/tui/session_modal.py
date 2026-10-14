@@ -27,7 +27,7 @@ from . import theme as ui
 class SessionPickerScreen(TuiModalScreen[int | None]):
     """Saved conversations, newest first, grouped by day.
 
-    Type to search titles, ↵ resume, ``^d`` twice deletes. Returns the
+    Type to search titles, ↵ resume, ``^r`` renames, ``^d`` twice deletes. Returns the
     selected session id, or None if cancelled.
     """
 
@@ -50,6 +50,7 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         Binding("escape", "dismiss_cancel", "Cancel", show=True),
         # priority: the focused search Input would otherwise eat ^d
         Binding("ctrl+d", "delete", "Delete", show=False, priority=True),
+        Binding("ctrl+r", "rename", "Rename", show=False, priority=True),
         Binding("down", "cursor_down", show=False),
         Binding("up", "cursor_up", show=False),
         Binding("pagedown", "page_down", show=False),
@@ -67,7 +68,7 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
                 yield Input(placeholder="Search conversations…", id="session_search")
                 yield OptionList(id="session_list")
                 yield Static(
-                    hint_line(("↑↓", "navigate"), ("↵", "resume"),
+                    hint_line(("↑↓", "navigate"), ("↵", "resume"), ("^r", "rename"),
                               ("^d", "delete"), ("esc", "close")),
                     id="modal_hint",
                 )
@@ -102,7 +103,7 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
         except Exception:
             rows = []
         seen = {r["id"] for r in self._rows}
-        self._rows.extend(r for r in rows if r["id"] not in seen)
+        self._rows.extend(dict(r) for r in rows if r["id"] not in seen)  # dicts: a rename edits in place
         self._offset += len(rows)
         if len(rows) < limit:
             self._has_more = False
@@ -239,6 +240,28 @@ class SessionPickerScreen(TuiModalScreen[int | None]):
 
     def action_page_up(self):
         self.query_one("#session_list", OptionList).action_page_up()
+
+    def action_rename(self):
+        """Edit the highlighted session's title (the app's rename dialog)."""
+        sid = self._current_id()
+        if sid is None:
+            return
+        self._pending_delete = None
+
+        def after() -> None:
+            from ..storage.sessions import db_get_title
+
+            title = db_get_title(sid)
+            for r in self._rows:
+                if r["id"] == sid and title:
+                    r["title"] = title
+            self._render_rows(keep=str(sid))
+            try:
+                self.query_one("#session_search", Input).focus()
+            except Exception:
+                pass
+
+        self.app.open_rename_dialog(sid, after=after)
 
     def action_delete(self):
         """Two-step delete: first ^d arms, second ^d on the same row deletes."""

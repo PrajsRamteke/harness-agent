@@ -50,6 +50,7 @@ def list_sessions(*, limit: int = 50, offset: int = 0) -> dict[str, Any]:
         sessions.append({
             "id": sid,
             "title": (row["title"] or "").strip() or f"Session #{sid}",
+            "auto_title": not (row["title"] or "").strip(),  # "Session #N" stands in for none
             "model": row["model"] or "",
             "msg_count": int(row["msg_count"] or 0),
             "created_at": float(row["created_at"] or 0),

@@ -251,6 +251,12 @@
 .lr-meta { flex-shrink: 0; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .lr-code { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); flex-shrink: 0; }
 
+/* Sessions dialog: rename (pencil, on hover / the cursor row) + delete or "Open now". */
+.sess-acts { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.sess-ren { opacity: 0; transition: opacity 0.12s; }
+.list-row:hover .sess-ren, .list-row.is-cursor .sess-ren, .sess-ren:focus-visible, .list-row.is-renaming .sess-ren { opacity: 1; }
+@media (hover: none) { .sess-ren { opacity: 1; } }
+
 .lr-state {
   flex-shrink: 0;
   min-width: 38px;

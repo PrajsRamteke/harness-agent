@@ -83,6 +83,10 @@ export function initModals() {
       // Esc steps out one level at a time: a typed search is cleared first,
       // then a sub-view (editor, reader, setup) goes back, then the dialog closes.
       const field = document.activeElement;
+      if (field?.matches?.('[data-esc-cancels]') && $(top)?.contains(field)) {
+        field.dispatchEvent(new Event('esc-cancel')); // an inline edit (rename.js)
+        return;
+      }
       if (field?.matches?.('.dlg-search input') && field.value && $(top)?.contains(field)) {
         field.value = '';
         field.dispatchEvent(new Event('input', { bubbles: true }));

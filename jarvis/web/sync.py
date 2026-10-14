@@ -41,8 +41,6 @@ class StateWatcher:
         self._interval = interval
         self._stop = threading.Event()
         self._last: dict[str, Any] | None = None
-        self._title_key: tuple[Any, int] | None = None
-        self._title: str = ""
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -63,16 +61,8 @@ class StateWatcher:
                 pass
 
     def _current(self) -> dict[str, Any]:
-        from .. import state
-
-        # The title only changes when messages arrive or the session changes;
-        # skip the sqlite read otherwise.
-        key = (state.current_session_id, len(state.messages))
-        title = self._title if key == self._title_key else None
-        fields = state_fields(busy=bool(self._busy()), session_title=title)
-        self._title_key = key
-        self._title = fields["session_title"]
-        return fields
+        # The title read is cached in storage.sessions (a rename shows at once).
+        return state_fields(busy=bool(self._busy()))
 
     def _tick_projects(self) -> None:
         if self._projects is None:

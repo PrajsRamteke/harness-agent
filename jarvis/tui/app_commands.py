@@ -27,6 +27,17 @@ def _is_session_picker_command(text: str) -> bool:
     return s in ("/session", "/sessions", "/session list", "/session ls")
 
 
+def _is_rename_command(text: str) -> bool:
+    """``/rename [title]`` or ``/session rename [#id] [title]``."""
+    parts = (text or "").strip().split()
+    if not parts:
+        return False
+    head = parts[0].lower()
+    return head == "/rename" or (
+        head in ("/session", "/sessions") and len(parts) > 1 and parts[1].lower() == "rename"
+    )
+
+
 def _is_think_picker_command(text: str) -> bool:
     s = (text or "").strip().lower()
     return s in ("/think", "/think mode", "/think modes", "/think select")

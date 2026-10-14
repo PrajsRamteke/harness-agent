@@ -61,6 +61,7 @@ def _not_signed_in_report() -> "api_errors.ErrorReport":
 from .app_commands import (  # noqa: F401
     _is_bare_model_command,
     _is_session_picker_command,
+    _is_rename_command,
     _is_think_picker_command,
     _is_mcp_modal_command,
     _is_agent_picker_command,
@@ -888,6 +889,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             return False
         if _is_session_picker_command(stripped):
             self._open_session_picker()
+        elif _is_rename_command(stripped):
+            self._rename_command(stripped)
         elif _is_bare_model_command(stripped):
             self._route_modal_slash(stripped)  # bare → picker; with arg → switch
         elif _is_provider_hub_command(stripped):
@@ -1577,6 +1580,57 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         from .session_modal import SessionPickerScreen
 
         self.push_screen(SessionPickerScreen(), after)
+
+    def _rename_command(self, text: str) -> None:
+        """``/rename [title]`` · ``/session rename [#id] [title]`` — no title opens a dialog."""
+        from ..commands.session import parse_rename
+
+        head, _, rest = text.strip().partition(" ")
+        if head.lower() != "/rename":  # /session rename …
+            rest = rest.strip().partition(" ")[2]
+        sid, title = parse_rename(rest)
+        if title:
+            self._rename_session(sid, title)
+        else:
+            self.open_rename_dialog(sid)
+
+    def open_rename_dialog(self, sid: int | None = None, after=None) -> None:
+        """Ask for a new title for session ``sid`` (None = this one), prefilled."""
+        from ..storage.sessions import db_get_title
+        from .text_input_modal import TextInputScreen
+
+        sid = sid or state.current_session_id
+        if not sid:
+            self.notify("No session to rename yet", severity="warning", timeout=3)
+            return
+        current = db_get_title(sid)
+        if not current and sid == state.current_session_id:
+            from .sidebar import session_title
+            current = "" if not state.messages else session_title()
+
+        def done(value: str | None) -> None:
+            if value is not None and value.strip() and value.strip() != current:
+                self._rename_session(sid, value)
+            if after is not None:
+                after()
+
+        label = "this session" if sid == state.current_session_id else f"session #{sid}"
+        self.push_screen(
+            TextInputScreen(f"✎  Rename {label}", placeholder="New title…", value=current),
+            done,
+        )
+
+    def _rename_session(self, sid: int | None, title: str) -> bool:
+        from rich.markup import escape
+        from ..commands.session import rename_session
+
+        ok, msg = rename_session(sid, title)
+        if ok:
+            self._tui_console.print(f"[{ui.OK}]{escape(msg)}[/]")
+            self._refresh_sidebar()
+        else:
+            self.notify(msg.capitalize(), severity="error", timeout=4)
+        return ok
 
     def _block_dict(self, block):
         if hasattr(block, "model_dump"):

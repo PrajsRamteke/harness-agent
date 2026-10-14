@@ -118,6 +118,14 @@ export async function submitPrompt(text) {
     return;
   }
 
+  // Bare /rename: edit the title in the top bar (with a title it goes to Jarvis).
+  if (!withFiles && /^\/(rename|sessions? rename)$/i.test(value)) {
+    if (text === undefined && el) setPromptValue('');
+    const { renameCurrent } = await import('./rename.js');
+    renameCurrent();
+    return;
+  }
+
   const [head, ...rest] = value.split(/\s+/);
   const withArg = rest.length && LOCAL_PICKERS_WITH_ARG.has(head.toLowerCase());
   const pickerKind = LOCAL_PICKERS[value.toLowerCase()] || (withArg ? LOCAL_PICKERS[head.toLowerCase()] : '');

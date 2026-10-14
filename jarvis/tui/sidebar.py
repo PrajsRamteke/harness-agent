@@ -40,6 +40,15 @@ def meter(fraction: float, width: int = 16) -> Text:
 
 
 def session_title(limit: int = 60) -> str:
+    """The session's saved title (a rename wins), else its first message."""
+    try:
+        from ..storage.sessions import db_get_title
+
+        saved = db_get_title(state.current_session_id)
+    except Exception:
+        saved = ""
+    if saved:
+        return saved if len(saved) <= limit else saved[: limit - 1] + "…"
     for m in state.messages:
         if m.get("role") == "user" and isinstance(m.get("content"), str):
             t = " ".join(m["content"].split())
@@ -95,6 +104,8 @@ class SidebarBody(Widget):
             app.open_skill_add()
         elif kind == "skills":
             app._open_skill_browser()
+        elif kind == "rename":
+            app.open_rename_dialog()
 
     def render(self) -> Text:
         app = self.app
@@ -118,8 +129,11 @@ class SidebarBody(Widget):
                 out.append(prefix)
             out.append(text, style=style or ui.FG_MUTE)
 
-        # session
+        # session — click the title to rename it
+        hit("rename")
         out.append(session_title(), style=f"bold {ui.FG}")
+        if state.current_session_id is not None:
+            out.append(" ✎", style=ui.FG_DIM)
         sid = state.current_session_id
         n_msgs = len(state.messages)
         meta = f"#{sid} · " if sid is not None else ""

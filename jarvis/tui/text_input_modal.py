@@ -43,8 +43,10 @@ class TextInputScreen(TuiModalScreen[str | None]):
         body: str = "",
         placeholder: str = "",
         password: bool = False,
+        value: str = "",
     ) -> None:
         super().__init__()
+        self._value = value
         self._title = title
         self._body = body
         self._placeholder = placeholder
@@ -59,6 +61,7 @@ class TextInputScreen(TuiModalScreen[str | None]):
                 yield Input(
                     placeholder=self._placeholder,
                     password=self._password,
+                    value=self._value,
                     id="text_input",
                 )
                 yield Static(

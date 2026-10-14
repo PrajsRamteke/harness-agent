@@ -70,6 +70,18 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
             return {"ok": False, "error": "session not found"}
         return {"ok": True, "deleted": sid}
 
+    if action == "session_rename":
+        sid = int(data.get("session_id") or 0) or None  # none = the session on screen
+        title = str(data.get("title") or "")
+        from ..commands.session import rename_session
+        from ..storage.sessions import db_get_title
+
+        ok, msg = rename_session(sid, title)
+        if not ok:
+            return {"ok": False, "error": msg[:1].upper() + msg[1:]}
+        sid = sid or state.current_session_id
+        return {"ok": True, "session_id": sid, "title": db_get_title(sid)}
+
     if action == "model_select":
         from .pickers_api import parse_model_body
         from ..commands.control import _apply_model_selection
