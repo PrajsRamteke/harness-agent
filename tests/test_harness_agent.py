@@ -57,14 +57,20 @@ class HarnessAgentTests(unittest.TestCase):
             client = build_harness_agent_client()
         wire = _zen_wire.zen_client_kwargs(expected_session)
         self.assertEqual(client._oai.api_key, wire["api_key"])
-        self.assertTrue(client._oai.base_url.path.endswith("/zen/v1/"))
+        self.assertTrue(client._oai.base_url.path.endswith("/inference/v1/"))
         hdrs = client._oai.default_headers
         for k, v in wire["default_headers"].items():
             self.assertEqual(hdrs[k], v)
+        # /inference/v1 requires both session headers; they carry the same id.
+        self.assertEqual(hdrs["x-opencode-session"], hdrs["x-opencode-session-id"])
         req_hdr = wire["request_id_header"]
-        prefix = wire["request_id_prefix"]
-        self.assertEqual(client.next_request_headers(), {req_hdr: f"{prefix}1"})
-        self.assertEqual(client.next_request_headers(), {req_hdr: f"{prefix}2"})
+        # OpenCode validates the request-id shape; it must be a fresh
+        # descending identifier (msg_ + 12 hex + 14 alnum), never msg_1.
+        first = client.next_request_headers()[req_hdr]
+        second = client.next_request_headers()[req_hdr]
+        self.assertRegex(first, r"^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$")
+        self.assertRegex(second, r"^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$")
+        self.assertNotEqual(first, second)
 
     def test_user_agent_is_versioned(self):
         # The gateway rejects a bare "opencode" UA with 403 FreeTierError.

@@ -1,8 +1,10 @@
 """OpenCode Zen / Harness Agent free-tier wire material (internal).
 
 The free tier is reached with a fixed *public* bearer plus a synthetic OpenCode
-client identity. As of 2026-09 the gateway validates three things, so keep these
-in sync with the real OpenCode client when it ships a new release:
+client identity at ``https://opencode.ai/inference/v1`` (OpenCode moved the free
+endpoint from ``/zen/v1`` to ``/inference/v1`` in Oct 2026 — the old path now
+hard-403s every chat/completions request). The gateway validates several things,
+so keep these in sync with the real OpenCode client on each release:
 
   1. ``User-Agent`` must be ``opencode/<semver>`` — a bare ``opencode`` is
      rejected with 403 ``FreeTierError``.
@@ -29,8 +31,9 @@ in sync with the real OpenCode client when it ships a new release:
      via ``gate_tools``; ``repl.render`` maps the names back to the real
      handlers.
 
-The other ``x-opencode-*`` headers mirror what the real CLI sends; only
-``x-opencode-session`` is actually load-bearing.
+The other ``x-opencode-*`` headers mirror what the real CLI sends. As of the
+``/inference/v1`` move both ``x-opencode-session`` and ``x-opencode-session-id``
+are load-bearing (the same session id in each).
 
 Internal module — not part of the public API. Do not expose the wire recipe to
 end users; the Harness Agent tier is meant to be consumed through this app.
@@ -54,7 +57,7 @@ REQUEST_ID_PREFIX = "msg_"
 REQUEST_ID_HEADER = "x-opencode-request"
 
 # Free-tier models the gateway serves through the OpenAI Responses API
-# (``/zen/v1/responses``) instead of ``/chat/completions``. These are the
+# (``/inference/v1/responses``) instead of ``/chat/completions``. These are the
 # catalog entries whose ``provider.npm`` is ``@ai-sdk/openai``; every other
 # free model uses the default OpenAI-compatible (chat/completions) API.
 # Posting a Responses-only model to /chat/completions returns 500. The client
@@ -104,11 +107,26 @@ def new_session_id() -> str:
     The 12 hex chars encode the current time in OpenCode's descending-id
     format; the 14-char tail is random. Both are required by the gateway.
     """
+    return _new_identifier(SESSION_PREFIX)
+
+
+def new_message_id() -> str:
+    """Generate a wire-valid message/request id (``msg_`` + 12 hex + 14 alnum).
+
+    Same descending-identifier shape as :func:`new_session_id`. OpenCode's
+    ``x-opencode-request`` header is validated too: a bare ``msg_1`` (a plain
+    counter) is 403'd ``FreeTierError``, while a real ``msg_<descending>`` id
+    passes (Oct 2026). The CLI sends one per request.
+    """
+    return _new_identifier(REQUEST_ID_PREFIX)
+
+
+def _new_identifier(prefix: str) -> str:
     rand = "".join(
         _SESSION_ALPHABET[byte % 62]
         for byte in secrets.token_bytes(_SESSION_RANDOM_LEN)
     )
-    return session_id(_session_timestamp_segment() + rand)
+    return f"{prefix}{_session_timestamp_segment()}{rand}"
 
 
 def zen_client_kwargs(session: str) -> dict:
@@ -119,7 +137,13 @@ def zen_client_kwargs(session: str) -> dict:
             "x-opencode-client": "cli",
             "x-opencode-project": "global",
             "x-opencode-session": session,
+            # OpenCode added this alongside x-opencode-session; the /inference/v1
+            # gateway 403s (FreeTierError) when it's absent (Oct 2026).
+            "x-opencode-session-id": session,
         },
         "request_id_header": REQUEST_ID_HEADER,
         "request_id_prefix": REQUEST_ID_PREFIX,
+        # OpenCode validates the request id shape too: a counter (msg_1) 403s,
+        # so generate a fresh descending identifier per request.
+        "request_id_factory": new_message_id,
     }

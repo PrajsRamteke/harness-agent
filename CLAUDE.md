@@ -155,7 +155,8 @@ runtime**, not hard-coded:
     registered via `register_dynamic_model()`; Anthropic's curated rows come
     first and are never changed. **OpenCode Go and OpenCode Zen (keyed) have
     no curated rows at all** (`_gateway_rows`): each gateway's public served
-    list (`opencode.ai/zen/v1/models`, `…/zen/go/v1/models`, cached by
+    list (`opencode.ai/inference/v1/models`, `…/inference/go/v1/models`,
+    cached by
     `auth/opencode_catalog.py`) says what exists, models.dev (`opencode`,
     `opencode-go`) describes it — a model models.dev marks deprecated is
     dropped even while the gateway still serves it, as OpenCode does

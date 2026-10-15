@@ -17,8 +17,8 @@ from ._zen_wire import OPENCODE_USER_AGENT
 
 # Jarvis provider id → (served-models URL, cache name).
 SERVED = {
-    "opencode_zen": ("https://opencode.ai/zen/v1/models", "opencode_zen_served"),
-    "opencode": ("https://opencode.ai/zen/go/v1/models", "opencode_go_served"),
+    "opencode_zen": ("https://opencode.ai/inference/v1/models", "opencode_zen_served"),
+    "opencode": ("https://opencode.ai/inference/go/v1/models", "opencode_go_served"),
 }
 
 # The gateway 403s urllib's default User-Agent; send the real CLI's.

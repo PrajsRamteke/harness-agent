@@ -972,6 +972,7 @@ class OpenCodeClient:
         *,
         request_id_header: str | None = None,
         request_id_prefix: str = "msg_",
+        request_id_factory: Callable[[], str] | None = None,
         gate_tools: list[dict] | None = None,
         responses_models: set[str] | None = None,
         model_hints: Callable[[str], dict | None] | None = None,
@@ -982,6 +983,7 @@ class OpenCodeClient:
     ):
         self._request_id_header = request_id_header
         self._request_id_prefix = request_id_prefix
+        self._request_id_factory = request_id_factory
         self._request_seq = 0
         # Free-tier models served only on the Responses API (/responses) rather
         # than /chat/completions — see _zen_wire.RESPONSES_API_MODELS.
@@ -1034,6 +1036,10 @@ class OpenCodeClient:
     def next_request_headers(self) -> dict[str, str] | None:
         if not self._request_id_header:
             return None
+        if self._request_id_factory is not None:
+            # OpenCode's gateway validates the request-id shape: a plain
+            # counter (msg_1) is 403'd, so mint a fresh descending identifier.
+            return {self._request_id_header: self._request_id_factory()}
         self._request_seq += 1
         return {self._request_id_header: f"{self._request_id_prefix}{self._request_seq}"}
 

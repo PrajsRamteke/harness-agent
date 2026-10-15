@@ -868,8 +868,8 @@ _PROVIDER_DEFAULT_MODEL = {
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 
-OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
-OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"
+OPENCODE_BASE_URL = "https://opencode.ai/inference/go/v1"
+OPENCODE_ZEN_BASE_URL = "https://opencode.ai/inference/v1"
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 
 

@@ -10,7 +10,7 @@ Two public GET endpoints, neither requiring auth or a special User-Agent:
   * ``https://models.opencode.ai/api.json`` — the catalog the real OpenCode CLI
     itself reads. Carries a per-model ``cost`` (a model is free when both
     ``cost.input`` and ``cost.output`` are 0) and a human display ``name``.
-  * ``https://opencode.ai/zen/v1/models`` — the ids actually served right now.
+  * ``https://opencode.ai/inference/v1/models`` — the ids actually served right now.
 
 Neither endpoint is sufficient alone: the catalog still lists *retired* models
 that answer ``401 Model not supported`` on use, and the served list carries no
@@ -29,7 +29,7 @@ from ._zen_wire import OPENCODE_USER_AGENT
 
 CACHE_NAME = "zen_free"
 CATALOG_URL = "https://models.opencode.ai/api.json"
-SERVED_URL = "https://opencode.ai/zen/v1/models"
+SERVED_URL = "https://opencode.ai/inference/v1/models"
 CATALOG_PROVIDER = "opencode"
 
 # Served by the gateway and marked free in the catalog, but verified broken on
