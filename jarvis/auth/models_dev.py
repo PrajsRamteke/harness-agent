@@ -42,7 +42,7 @@ PREFIX = "md:"
 DEFAULT_TIMEOUT = 15.0
 # Bump when the trimmed cache layout or the support rules change: an older
 # cache is then ignored (and refetched in full) instead of misread.
-SCHEMA = 3  # 3: reasoning_options (which thinking efforts a model takes); 2: built-ins keep deprecated rows + record the ids they skip
+SCHEMA = 4  # 4: built-ins keep models whose provider.api repeats their own gateway URL (OpenCode Zen/Go); 3: reasoning_options (which thinking efforts a model takes); 2: built-ins keep deprecated rows + record the ids they skip
 
 REQUEST_HEADERS = {
     "Accept": "application/json",
@@ -227,10 +227,16 @@ def _price(cost: dict | None, key: str) -> float | None:
         return None
 
 
-def _model_wire(provider_wire: str, provider_npm: str, mid: str, raw: dict) -> str | None:
-    """How this model is reached on its provider's client; None = it can't be."""
+def _model_wire(provider_wire: str, provider_npm: str, mid: str, raw: dict,
+                native: bool = False) -> str | None:
+    """How this model is reached on its provider's client; None = it can't be.
+
+    A built-in gateway (``native``) is reached by its own client at its own
+    base URL, so a per-model ``provider.api`` override that merely repeats that
+    URL — every OpenCode Zen/Go model carries one — must not drop the model.
+    """
     over = raw.get("provider") if isinstance(raw.get("provider"), dict) else {}
-    if over.get("api"):
+    if over.get("api") and not native:
         return None  # served from a different base URL than the provider's
     npm = over.get("npm") or provider_npm
     if provider_wire == WIRE_ANTHROPIC:
@@ -269,7 +275,7 @@ def _reasoning_options(raw) -> dict | None:
 
 
 def _trim_model(provider_wire: str, provider_npm: str, raw: dict,
-                keep_deprecated: bool = False) -> dict | None:
+                keep_deprecated: bool = False, native: bool = False) -> dict | None:
     mid = raw.get("id")
     if not isinstance(mid, str) or not mid:
         return None
@@ -279,7 +285,7 @@ def _trim_model(provider_wire: str, provider_npm: str, raw: dict,
     out = modalities.get("output") or ["text"]
     if "text" not in out:
         return None  # image / audio / embedding models
-    wire = _model_wire(provider_wire, provider_npm, mid, raw)
+    wire = _model_wire(provider_wire, provider_npm, mid, raw, native=native)
     if wire is None:
         return None
     limit = raw.get("limit") or {}
@@ -364,7 +370,7 @@ def trim(raw: dict) -> dict:
             if isinstance(m, dict):
                 # Built-ins keep "deprecated" rows: it's a retirement notice, and
                 # the provider's own served list says whether it still runs.
-                row = _trim_model(wire_for_models, npm_for_models, m, keep_deprecated=native)
+                row = _trim_model(wire_for_models, npm_for_models, m, keep_deprecated=native, native=native)
                 if row:
                     models.append(row)
                 elif native and isinstance(m.get("id"), str):
