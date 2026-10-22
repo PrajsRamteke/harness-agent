@@ -436,6 +436,40 @@ def test_harness_agent_lists_zens_free_rows(catalog, monkeypatch):
     assert pv.normalize_model_for_provider("mimo-v2.5-free", pv.PROVIDER_OPENCODE_ZEN) == "zen-free"
 
 
+def test_free_models_the_served_list_lags_behind_are_still_offered(monkeypatch):
+    """The gateway's served list lagged behind for free models: it left out
+    nemotron-3-ultra-free and longcat-2.5-preview-free while Zen served both,
+    so the free tier showed 9 of OpenCode's 11. A free model models.dev prices
+    at $0 and doesn't mark deprecated is offered all the same — listed on Zen,
+    owned by Zen, and kept as the saved model instead of being swapped for the
+    default at startup. A paid model still needs the served list."""
+    from jarvis.auth import opencode_catalog
+
+    raw = {
+        "opencode": _prov("OpenCode Zen", [
+            _m("zen-free", cost=(0, 0), release="2026-08-01"),
+            _m("zen-lag-free", cost=(0, 0), release="2026-09-01"),   # served list lags
+            _m("zen-paid", cost=(5.0, 25.0)),
+            _m("zen-dead-free", cost=(0, 0), release="2026-09-15", status="deprecated"),
+        ], api="https://opencode.ai/zen/v1", env=("OPENCODE_ZEN_API_KEY",)),
+    }
+    models_dev.store(models_dev.trim(raw), etag='"v2"')
+    monkeypatch.setattr(
+        opencode_catalog, "served_ids",
+        lambda provider: {"zen-free", "zen-paid"} if provider == pv.PROVIDER_OPENCODE_ZEN else set(),
+    )
+
+    # The free tier: every $0 model that isn't retired (newest first).
+    assert [m for m, _ in pv.harness_agent_models_for_picker()] == ["zen-lag-free", "zen-free"]
+    # The keyed Zen picker lists it too; a paid model still needs the served list.
+    zen = [m for m, _ in pv.opencode_zen_live_models_for_picker()]
+    assert "zen-lag-free" in zen and "zen-paid" in zen
+    assert "zen-dead-free" not in zen
+    # It belongs to Zen and survives a restart as the saved model.
+    assert pv.model_belongs_to_provider("zen-lag-free", pv.PROVIDER_OPENCODE_ZEN)
+    assert pv.normalize_model_for_provider("zen-lag-free", pv.PROVIDER_OPENCODE_ZEN) == "zen-lag-free"
+
+
 def test_gateway_list_is_what_it_serves_with_models_dev_details(catalog, monkeypatch):
     """models.dev lags the gateway: a served model models.dev doesn't know yet
     is listed by id, one models.dev routes to another wire never shows, and —

@@ -162,8 +162,14 @@ runtime**, not hard-coded:
     dropped even while the gateway still serves it, as OpenCode does
     (`_gateway_retired`; Zen kept serving dead `deepseek-v4-flash-free`, tagged
     free, every request a 400 "Model is unavailable"), and isn't kept as a saved
-    model — except the free tier's own models on Zen (`is_harness_agent_model`),
-    a served model models.dev doesn't know is listed as "Not on models.dev yet,
+    model — except the free tier's own models on Zen (`is_harness_agent_model`).
+    **Free models are the exception to the served list** (`_gateway_free_model`):
+    it lagged behind for them (it left out `nemotron-3-ultra-free` and
+    `longcat-2.5-preview-free` while Zen served both — OpenCode's CLI shows all
+    11 free models, the free tier showed 9), so a model models.dev prices at $0
+    and doesn't mark deprecated is listed, owned by Zen and kept as the saved
+    model; paid models still need the served list. A
+    served model models.dev doesn't know is listed as "Not on models.dev yet,
     price unknown", and ids models.dev routes to another wire (Claude / Gemini
     on Zen, some MiniMax on Go — `native_skipped()`) never show. Defaults are
     rules, not ids: `opencode_zen_default_model()` = a served free, non-preview

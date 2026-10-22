@@ -28,29 +28,44 @@ _PAID = {"input": 1, "output": 2}
 CATALOG = {
     "opencode": {
         "models": {
-            "nemotron-3-ultra-free": {"name": "Nemotron 3 Ultra Free", "cost": _FREE},
-            "zeta-new-free": {"name": "Zeta New Free", "cost": _FREE},
-            "retired-free": {"name": "Retired Free", "cost": _FREE},
+            "nemotron-3-ultra-free": {"name": "Nemotron 3 Ultra Free", "cost": _FREE,
+                                       "release_date": "2026-06-04"},
+            "zeta-new-free": {"name": "Zeta New Free", "cost": _FREE,
+                               "release_date": "2026-09-01"},
+            "retired-free": {"name": "Retired Free", "cost": _FREE,
+                              "release_date": "2026-05-01"},
             "expensive": {"name": "Expensive", "cost": _PAID},
         }
     }
 }
-# "retired-free" is in the catalog but not served -> must be excluded.
-SERVED = {
-    "data": [
-        {"id": "expensive"},
-        {"id": "zeta-new-free"},
-        {"id": "nemotron-3-ultra-free"},
-    ]
-}
 
 
-def test_fetch_intersects_catalog_and_served():
-    with mock.patch.object(zen_catalog, "_get_json", side_effect=[CATALOG, SERVED]):
+def test_fetch_lists_the_catalogs_free_models():
+    """The free set comes from OpenCode's own catalog — priced $0, not
+    deprecated — exactly like the OpenCode CLI shows it."""
+    with mock.patch.object(zen_catalog, "_get_json", return_value=CATALOG):
         assert zen_catalog.fetch_free_models() == [
             ("zeta-new-free", "Zeta New Free"),
             ("nemotron-3-ultra-free", "Nemotron 3 Ultra Free"),
+            ("retired-free", "Retired Free"),
         ]
+
+
+def test_free_model_missing_from_the_served_list_is_still_offered():
+    """The gateway's served list lags behind for free models: it left out
+    nemotron-3-ultra-free and longcat-2.5-preview-free while Zen served both.
+    Intersecting with it hid working models, so it isn't used as a gate."""
+    catalog = {
+        "opencode": {
+            "models": {
+                "nemotron-3-ultra-free": {"name": "Nemotron 3 Ultra Free", "cost": _FREE},
+                "longcat-2.5-preview-free": {"name": "LongCat 2.5 Preview Free", "cost": _FREE},
+            }
+        }
+    }
+    with mock.patch.object(zen_catalog, "_get_json", return_value=catalog):
+        ids = [mid for mid, _ in (zen_catalog.fetch_free_models() or [])]
+    assert sorted(ids) == ["longcat-2.5-preview-free", "nemotron-3-ultra-free"]
 
 
 def test_deprecated_and_broken_ids_are_dropped():
@@ -65,8 +80,7 @@ def test_deprecated_and_broken_ids_are_dropped():
             }
         }
     }
-    served = {"data": [{"id": m} for m in ("mimo-v2.5-free", "deepseek-v4-flash-free", "big-pickle")]}
-    with mock.patch.object(zen_catalog, "_get_json", side_effect=[catalog, served]):
+    with mock.patch.object(zen_catalog, "_get_json", return_value=catalog):
         ids = [mid for mid, _ in (zen_catalog.fetch_free_models() or [])]
     assert ids == ["big-pickle"]
 
@@ -84,7 +98,7 @@ def test_request_headers_avoid_blocked_urllib_ua():
 
 def test_fetch_returns_none_when_nothing_is_free():
     with mock.patch.object(
-        zen_catalog, "_get_json", side_effect=[{"opencode": {"models": {}}}, {"data": []}]
+        zen_catalog, "_get_json", return_value={"opencode": {"models": {}}}
     ):
         assert zen_catalog.fetch_free_models() is None
 

@@ -656,9 +656,13 @@ def _zen_natives() -> dict:
 
 
 def harness_agent_models() -> list[tuple[str, str]]:
-    """The free tier's models: OpenCode Zen's list (``_gateway_rows`` — what the
-    gateway serves, described by models.dev, deprecated ones dropped) narrowed
-    to the ones models.dev prices at $0, i.e. the rows Zen tags Free. Nothing
+    """The free tier's models: OpenCode Zen's line-up as models.dev prices it —
+    every model tagged $0 that isn't marked deprecated, i.e. the rows Zen tags
+    Free and the OpenCode CLI shows (all 11). The gateway's served list is
+    deliberately not a gate here: it lags behind for free models (it left out
+    ``nemotron-3-ultra-free`` and ``longcat-2.5-preview-free`` while Zen
+    served both), so intersecting with it hid working models. A retirement is
+    models.dev's ``deprecated`` flag — that is what gets dropped. Nothing
     hard-coded; caches only, never the network. With models.dev off (or not
     fetched yet) OpenCode's own free catalog (``auth/zen_catalog``) stands in."""
     natives = _zen_natives()
@@ -753,6 +757,22 @@ def _gateway_retired(provider: str, model: str) -> bool:
     return bool(found and found.status == "deprecated")
 
 
+def _gateway_free_model(provider: str, model: str) -> bool:
+    """True when ``model`` is a free, current model of ``provider`` per models.dev.
+
+    The gateway's served list lags behind for free models: it left out
+    ``nemotron-3-ultra-free`` and ``longcat-2.5-preview-free`` while Zen
+    served both — the OpenCode CLI lists all 11 free models, this list showed
+    9. So on the free tier the catalog is the authority: priced $0 and no
+    "deprecated" notice (which is how a retired free model is dropped).
+    """
+    try:
+        found = _catalog().native_model(provider, model)
+    except Exception:
+        return False
+    return bool(found and found.free and found.status != "deprecated")
+
+
 def _gateway_rows(provider: str) -> list[tuple[str, str]]:
     """An OpenCode gateway's models, all live. The gateway's served list says
     what exists; models.dev describes each (name, price, vision, tools —
@@ -760,10 +780,25 @@ def _gateway_rows(provider: str) -> list[tuple[str, str]]:
     dropped even when still served. A served model models.dev doesn't
     describe yet is still listed (by id, price unknown); one models.dev says
     this client can't reach (another wire) never is. Before the served list
-    is known, models.dev's list stands alone."""
+    is known, models.dev's list stands alone.
+
+    Free models are the exception to the served list (Zen only): that list
+    lags behind for them, so a model models.dev prices at $0 and doesn't mark
+    deprecated is listed even when the served list hasn't caught up — the
+    OpenCode CLI shows all 11 free models and the free tier must not hide
+    working ones. Paid models still need the served list."""
     served = _gateway_served(provider)
-    keep = (lambda m: m.id in served) if served else None
-    rows = _native_extras(provider, set(), keep=keep)
+
+    def keep(m) -> bool:
+        if m.id in served:
+            return True
+        return (
+            provider == PROVIDER_OPENCODE_ZEN
+            and m.free
+            and m.status != "deprecated"
+        )
+
+    rows = _native_extras(provider, set(), keep=keep if served else None)
     if served:
         try:
             described = {m.id for m in _catalog().native_models(provider)}
@@ -1183,6 +1218,8 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
             return False  # deprecated on models.dev: never listed, so never kept
         served = _gateway_served(provider)
         if served:  # the gateway's own list decides (models.dev may lag)
+            if provider == PROVIDER_OPENCODE_ZEN and _gateway_free_model(provider, m):
+                return True  # free models: the served list lags behind for them
             return m in served and m not in _gateway_skipped(provider)
     info = MODEL_INFO.get(m)
     if info and info[1] == provider:
@@ -1266,7 +1303,11 @@ def normalize_model_for_provider(model: str, provider: str) -> str:
         # Same for a model the OpenCode gateway no longer serves.
         served = _gateway_served(provider)
         if served and (model or "").strip() and model.strip() not in served:
-            return _gateway_default(provider)
+            # Free models: the served list lags behind for them, so a free,
+            # current model is kept (it still works on the gateway).
+            if not (provider == PROVIDER_OPENCODE_ZEN
+                    and _gateway_free_model(provider, model.strip())):
+                return _gateway_default(provider)
     if model_belongs_to_provider(model, provider):
         return model.strip()
     if is_local_provider(provider):

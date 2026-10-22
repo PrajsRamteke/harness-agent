@@ -1,20 +1,20 @@
 """The Harness Agent free list's stand-in while models.dev is off.
 
 Normally the free tier lists OpenCode Zen's models at $0 from the models.dev
-catalog plus Zen's served list (``constants.providers.harness_agent_models``),
-and this module isn't fetched. With ``HARNESS_MODELS_DEV=0`` it reads the same
-data from OpenCode's own copy of the catalog instead.
+catalog (``constants.providers.harness_agent_models``), and this module isn't
+fetched. With ``HARNESS_MODELS_DEV=0`` it reads the same data from OpenCode's
+own copy of the catalog instead — the one the real OpenCode CLI reads:
 
-Two public GET endpoints, neither requiring auth or a special User-Agent:
+  * ``https://models.opencode.ai/api.json`` — carries a per-model ``cost`` (a
+    model is free when both ``cost.input`` and ``cost.output`` are 0), a
+    human display ``name`` and a ``status``.
 
-  * ``https://models.opencode.ai/api.json`` — the catalog the real OpenCode CLI
-    itself reads. Carries a per-model ``cost`` (a model is free when both
-    ``cost.input`` and ``cost.output`` are 0) and a human display ``name``.
-  * ``https://opencode.ai/inference/v1/models`` — the ids actually served right now.
-
-Neither endpoint is sufficient alone: the catalog still lists *retired* models
-that answer ``401 Model not supported`` on use, and the served list carries no
-price information. Intersecting the two yields the currently-usable free set.
+Retired models are the ones OpenCode marks ``status: "deprecated"``; those are
+dropped, exactly as OpenCode (and the models.dev path) does. The gateway's
+served list (``https://opencode.ai/inference/v1/models``) is deliberately *not*
+used as a gate: it lags behind for free models — it left out
+``nemotron-3-ultra-free`` and ``longcat-2.5-preview-free`` while the gateway
+served both — so intersecting with it hid working models.
 
 This module only reads public metadata — it never sends the free-tier wire
 headers, so it works even when the free tier itself is locked out.
@@ -22,6 +22,7 @@ headers, so it works even when the free tier itself is locked out.
 from __future__ import annotations
 
 import json
+import re
 import urllib.request
 
 from . import catalog_cache
@@ -29,7 +30,6 @@ from ._zen_wire import OPENCODE_USER_AGENT
 
 CACHE_NAME = "zen_free"
 CATALOG_URL = "https://models.opencode.ai/api.json"
-SERVED_URL = "https://opencode.ai/inference/v1/models"
 CATALOG_PROVIDER = "opencode"
 
 # Served by the gateway and marked free in the catalog, but verified broken on
@@ -44,8 +44,7 @@ BROKEN_FREE_MODELS = frozenset({
 # same identity the real CLI does.
 REQUEST_HEADERS = {"Accept": "application/json", "User-Agent": OPENCODE_USER_AGENT}
 
-# Per-request socket timeout. The two calls are sequential, so the worst-case
-# added latency for a live refresh is roughly twice this.
+# Per-request socket timeout.
 DEFAULT_TIMEOUT = 4.0
 
 
@@ -62,15 +61,26 @@ def _is_free(info) -> bool:
     return cost.get("input") == 0 and cost.get("output") == 0
 
 
-def fetch_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[tuple[str, str]] | None:
-    """Return ``[(model_id, label), ...]`` for served free models.
+def _neg_date(release: str) -> tuple:
+    """Sort key for a release date — ascending puts the newest first."""
+    digits = [int(x) for x in re.findall(r"\d+", release or "")][:3]
+    while len(digits) < 3:
+        digits.append(0)
+    return tuple(-d for d in digits)
 
-    Returns ``None`` when the network fails, the payload is unusable, or the
-    intersection is empty — callers should fall back to a static list.
+
+def fetch_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[tuple[str, str]] | None:
+    """Return ``[(model_id, label), ...]`` for the free models OpenCode serves.
+
+    A model is free when OpenCode's own catalog prices it at $0 and doesn't
+    mark it deprecated — the same set the OpenCode CLI shows. Newest first,
+    so the free tier's default is the same model the models.dev path picks.
+
+    Returns ``None`` when the network fails, the payload is unusable, or
+    nothing is free — callers should fall back to a static list.
     """
     try:
         catalog = _get_json(CATALOG_URL, timeout)
-        served = _get_json(SERVED_URL, timeout)
     except Exception:
         return None
 
@@ -78,15 +88,16 @@ def fetch_free_models(timeout: float = DEFAULT_TIMEOUT) -> list[tuple[str, str]]
     if not isinstance(catalog_models, dict):
         return None
 
-    out: list[tuple[str, str]] = []
-    for entry in served.get("data") or []:
-        if not isinstance(entry, dict):
+    rows: list[tuple[str, str, str]] = []
+    for mid, info in catalog_models.items():
+        if not isinstance(mid, str) or mid in BROKEN_FREE_MODELS or not _is_free(info):
             continue
-        mid = entry.get("id")
-        info = catalog_models.get(mid)
-        if mid and mid not in BROKEN_FREE_MODELS and _is_free(info):
-            out.append((mid, (info.get("name") or mid)))
-    return out or None
+        rows.append((mid, (info.get("name") or mid), str(info.get("release_date") or "")))
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r[1].lower())
+    rows.sort(key=lambda r: _neg_date(r[2]))
+    return [(mid, label) for mid, label, _ in rows]
 
 
 def cached_free_models() -> list[tuple[str, str]]:
