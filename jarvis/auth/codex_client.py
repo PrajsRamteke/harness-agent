@@ -5,9 +5,10 @@ import contextlib
 import json
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Generator, Optional
+from typing import TYPE_CHECKING, Any, Generator, Optional
 
-from openai import BadRequestError, OpenAI
+if TYPE_CHECKING:  # the SDK (~300 ms) loads when a client is built, not at import
+    from openai import OpenAI
 
 from ..constants.providers import CODEX_BASE_URL, PROVIDER_OPENAI_CODEX
 from .thinking_caps import looks_like_thinking_refusal, mark_refused
@@ -367,6 +368,8 @@ class _CodexMessages:
         cache_key = _prompt_cache_key()
         if cache_key:
             payload["prompt_cache_key"] = cache_key
+        from openai import BadRequestError
+
         try:
             response = self._client.responses.create(**payload)
         except BadRequestError as e:
@@ -396,6 +399,8 @@ class CodexClient:
 
     def __init__(self, access_token: str, *, base_url: str = CODEX_BASE_URL):
         self._access_token = access_token
+        from openai import OpenAI
+
         # OpenAI SDK uses api_key for Authorization: Bearer (not auth_token).
         self._oai = OpenAI(
             api_key=access_token,

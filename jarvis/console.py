@@ -2,7 +2,6 @@
 import pathlib, sys
 
 try:
-    from anthropic import Anthropic, APIStatusError, APIConnectionError, RateLimitError
     from rich.console import Console
     from rich.panel import Panel
     from rich.markdown import Markdown
@@ -29,6 +28,20 @@ except ModuleNotFoundError:
     raise SystemExit(1)
 
 console = Console()
+
+# anthropic (~300 ms to import) is re-exported on first use, not at import:
+# almost every module imports this one, and the TUI draws without it.
+_ANTHROPIC_NAMES = frozenset({"Anthropic", "APIStatusError", "APIConnectionError", "RateLimitError"})
+
+
+def __getattr__(name):
+    if name not in _ANTHROPIC_NAMES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import anthropic
+
+    value = getattr(anthropic, name)
+    globals()[name] = value
+    return value
 
 
 class HarnessAPIError(Exception):

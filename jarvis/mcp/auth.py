@@ -36,11 +36,16 @@ import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Callable
 
 import httpx
-from mcp.client.auth import OAuthClientProvider, OAuthTokenError
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+
+# The mcp SDK is imported where it's used: it costs ~150 ms and isn't needed
+# until a hosted server signs in (not to draw the TUI).
+if TYPE_CHECKING:
+    from mcp.client.auth import OAuthClientProvider
+    from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 logger = logging.getLogger("jarvis.mcp.auth")
 
@@ -117,6 +122,8 @@ class FileTokenStorage:
         raw = self._read().get("tokens")
         if not raw:
             return None
+        from mcp.shared.auth import OAuthToken
+
         try:
             return OAuthToken.model_validate(raw)
         except Exception:
@@ -134,6 +141,8 @@ class FileTokenStorage:
         raw = self._read().get("client_info")
         if not raw:
             return None
+        from mcp.shared.auth import OAuthClientInformationFull
+
         try:
             info = OAuthClientInformationFull.model_validate(raw)
         except Exception:
@@ -544,6 +553,8 @@ async def _normalized(response: httpx.Response, *, refresh: bool = False) -> htt
     if fixed is None:
         if refresh:
             return httpx.Response(400, content=body, request=response.request)
+        from mcp.client.auth import OAuthTokenError
+
         raise OAuthTokenError(f"sign-in was refused: {err}")
     return httpx.Response(
         200,
@@ -553,33 +564,38 @@ async def _normalized(response: httpx.Response, *, refresh: bool = False) -> htt
     )
 
 
-class _Provider(OAuthClientProvider):
-    """Same as the SDK's, plus:
+@lru_cache(maxsize=None)
+def _provider_class() -> type:
+    """The SDK's ``OAuthClientProvider`` plus (built on first use — see imports):
 
     * a stored token's real expiry is honoured after a restart (so it refreshes
       instead of being sent expired and re-running the whole browser sign-in);
     * a pre-registered app can pin the scopes it asks for;
     * token answers in a provider's own dialect are accepted (``_fix_token_payload``).
     """
+    from mcp.client.auth import OAuthClientProvider
 
-    forced_scope: str | None = None
+    class _Provider(OAuthClientProvider):
+        forced_scope: str | None = None
 
-    async def _initialize(self) -> None:
-        await super()._initialize()
-        expires = getattr(self.context.storage, "expires_at", lambda: None)()
-        if expires and self.context.current_tokens:
-            self.context.token_expiry_time = expires
+        async def _initialize(self) -> None:
+            await super()._initialize()
+            expires = getattr(self.context.storage, "expires_at", lambda: None)()
+            if expires and self.context.current_tokens:
+                self.context.token_expiry_time = expires
 
-    async def _perform_authorization(self) -> httpx.Request:
-        if self.forced_scope:
-            self.context.client_metadata.scope = self.forced_scope
-        return await super()._perform_authorization()
+        async def _perform_authorization(self) -> httpx.Request:
+            if self.forced_scope:
+                self.context.client_metadata.scope = self.forced_scope
+            return await super()._perform_authorization()
 
-    async def _handle_token_response(self, response: httpx.Response) -> None:
-        await super()._handle_token_response(await _normalized(response))
+        async def _handle_token_response(self, response: httpx.Response) -> None:
+            await super()._handle_token_response(await _normalized(response))
 
-    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
-        return await super()._handle_refresh_response(await _normalized(response, refresh=True))
+        async def _handle_refresh_response(self, response: httpx.Response) -> bool:
+            return await super()._handle_refresh_response(await _normalized(response, refresh=True))
+
+    return _Provider
 
 
 def client_settings(oauth: Any) -> dict[str, Any] | None:
@@ -622,6 +638,8 @@ def build_provider(
     in as that pre-registered app (no dynamic registration) and the browser
     returns to its fixed ``callbackPort``.
     """
+    from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
+
     coord = coord or coordinator
     app = client_settings(client)
 
@@ -684,7 +702,7 @@ def build_provider(
         response_types=["code"],
         token_endpoint_auth_method="none",
     )
-    provider = _Provider(
+    provider = _provider_class()(
         server_url=url,
         client_metadata=metadata,
         storage=storage,

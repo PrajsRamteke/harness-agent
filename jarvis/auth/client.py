@@ -4,10 +4,19 @@ Providers:
   - anthropic  → api.anthropic.com, auth via API key OR OAuth (existing flow).
   - openrouter → openrouter.ai/api/v1 (Anthropic-compatible /v1/messages),
                  auth via Bearer token using the Anthropic SDK's `auth_token=`.
-"""
-import os, sys
 
-from ..console import console, Anthropic, APIStatusError, APIConnectionError
+The anthropic SDK (~300 ms to import) is imported only on the paths that build
+an Anthropic-SDK client, so Codex / OpenCode / local-model starts skip it.
+"""
+from __future__ import annotations
+
+import os, sys
+from typing import TYPE_CHECKING
+
+from ..console import console
+
+if TYPE_CHECKING:
+    from anthropic import Anthropic
 from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_ZEN_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
     OPENROUTER_BASE_URL,
@@ -44,6 +53,8 @@ from ..constants.providers import CATALOG_PREFIX
 
 
 def _build_openrouter_client() -> Anthropic:
+    from anthropic import Anthropic
+
     key = load_openrouter_key()
     return Anthropic(
         api_key=None,
@@ -62,6 +73,8 @@ def _build_client_from_mode(mode: str, *, interactive: bool = True) -> Anthropic
 
     If state.provider is openrouter, ignore `mode` and build an OpenRouter client.
     """
+    from anthropic import Anthropic
+
     if mode == PROVIDER_OPENROUTER or state.provider == PROVIDER_OPENROUTER:
         return _build_openrouter_client()
     if mode == AUTH_OAUTH:
@@ -377,6 +390,8 @@ def _build_catalog_client(provider: str):
     if not key:
         raise RuntimeError(f"no API key for {prov.name} — add one with /key")
     if prov.wire == models_dev.WIRE_ANTHROPIC:
+        from anthropic import Anthropic
+
         return Anthropic(api_key=key, base_url=base, timeout=_http_timeout(openrouter=True))
     return OpenCodeClient(
         api_key=key,
@@ -670,6 +685,9 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
                 _secure_write(PROVIDER_FILE, state.provider)
                 return make_client(interactive=interactive, _retried=True)
         return _fallback_harness_agent_client(preferred_model=harness_agent_default_model())
+
+    # Only Anthropic-SDK providers get this far (OpenRouter, then Anthropic).
+    from anthropic import APIConnectionError, APIStatusError
 
     if state.provider == PROVIDER_OPENROUTER:
         if not interactive and not _has_openrouter_key():

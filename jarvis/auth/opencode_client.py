@@ -16,7 +16,7 @@ import threading
 import time
 import contextlib
 from dataclasses import dataclass, field
-from typing import Any, Callable, Generator, Optional
+from typing import TYPE_CHECKING, Any, Callable, Generator, Optional
 
 from .http_timeout import harness_http_timeout, http_read_timeout_seconds
 from ..utils.tool_images import data_url, split_tool_result
@@ -47,9 +47,10 @@ from ..utils.json_repair import repair_json_arguments as _repair_truncated_json
 # _ContentBlock replaces the old @dataclass approach so blocks support
 # both attribute access (render.py) and .get()/.model_dump() (trim.py / JSON).
 
-from openai import OpenAI
-
 from ..constants import OPENCODE_BASE_URL
+
+if TYPE_CHECKING:  # the SDK (~300 ms) loads when a client is built, not at import
+    from openai import OpenAI
 
 
 OPENCODE_THINK_OFF_EFFORT = "none"
@@ -1015,6 +1016,8 @@ class OpenCodeClient:
         self.system_suffix = system_suffix
         hdrs = dict(default_headers or {})
         extra: dict[str, Any] = {} if max_retries is None else {"max_retries": max_retries}
+        from openai import OpenAI
+
         self._oai = OpenAI(
             api_key=api_key,
             base_url=base_url or f"{OPENCODE_BASE_URL}/",

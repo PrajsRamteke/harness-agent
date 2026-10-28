@@ -19,13 +19,13 @@ import threading
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, TextIO
+from typing import TYPE_CHECKING, Any, Callable, Literal, TextIO
 
-from mcp import Tool
-from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
-from mcp.client.stdio import get_default_environment, stdio_client, StdioServerParameters
-from mcp.client.streamable_http import streamablehttp_client
+# The mcp SDK (~150 ms) is imported where a server is actually connected, so
+# drawing the TUI or building the system prompt never pays for it.
+if TYPE_CHECKING:
+    from mcp import Tool
+    from mcp.client.session import ClientSession
 
 from . import secrets as mcp_secrets
 from . import toggle as mcp_toggle
@@ -76,6 +76,8 @@ def _open_stdio_errlog(server_name: str) -> TextIO:
 
 def _stdio_env(config: dict[str, Any]) -> dict[str, str]:
     """Build subprocess env: MCP defaults + per-server overrides."""
+    from mcp.client.stdio import get_default_environment
+
     env = get_default_environment()
     user_env = config.get("env")
     if isinstance(user_env, dict):
@@ -892,9 +894,15 @@ class MCPRegistry:
             auth, _storage = build_provider(
                 server_name, url, interactive=mode, client=oauth if isinstance(oauth, dict) else None,
             )
+        from mcp.client.session import ClientSession
+
         if transport == "sse":
+            from mcp.client.sse import sse_client
+
             cm = sse_client(url, headers=headers, auth=auth)
         else:
+            from mcp.client.streamable_http import streamablehttp_client
+
             cm = streamablehttp_client(url, headers=headers, auth=auth)
         async with cm as streams:
             read_stream, write_stream = streams[0], streams[1]
@@ -1029,6 +1037,9 @@ class MCPRegistry:
         config: dict[str, Any],
     ) -> str | None:
         """Phase 1: create stdio process, session, initialize. Returns None on success, error string on failure."""
+        from mcp.client.session import ClientSession
+        from mcp.client.stdio import StdioServerParameters, stdio_client
+
         try:
             errlog = _open_stdio_errlog(server_name)
             state._stderr_sink = errlog
@@ -1101,6 +1112,9 @@ class MCPRegistry:
         config: dict[str, Any],
     ) -> str | None:
         """Connect to an SSE-based MCP server."""
+        from mcp.client.session import ClientSession
+        from mcp.client.sse import sse_client
+
         try:
             headers = config.get("headers", {})
             url = config["url"]

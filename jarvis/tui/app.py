@@ -388,14 +388,6 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                         f"brew install cloudflared (no account needed)[/]"
                     )
 
-        from ..auth.client import make_client
-        from ..storage.sessions import db_init, db_create_session
-
-        if state.client is None:
-            state.client = make_client(interactive=False)
-        db_init()
-        state.current_session_id = db_create_session(state.MODEL)
-
         from ..project_context import detect_project_context
         detect_project_context()
 
@@ -415,14 +407,29 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._mcp_auth_attach()  # sign-in bar + sidebar follow MCP registry events
 
         self.query_one("#prompt", PromptArea).focus()
-        self.call_after_refresh(self._render_welcome_intro)
+        # Draw first: building the client imports its SDK (anthropic / openai,
+        # 0.3–0.5 s), which used to hold back the first frame.
+        self.call_after_refresh(self._finish_startup)
         self.set_interval(2.0, self._slow_refresh)
-
-        if state.startup_prompt:
-            self.set_timer(0.05, self._submit_startup_prompt)
 
         if state.headless:
             self._headless_signals()
+
+    def _finish_startup(self) -> None:
+        """The rest of startup, once the first frame is on screen: client and
+        session, then the welcome (it says "Not signed in" without a client)
+        and the prompt given on the command line."""
+        from ..auth.client import make_client
+        from ..storage.sessions import db_init, db_create_session
+
+        if state.client is None:
+            state.client = make_client(interactive=False)
+        db_init()
+        state.current_session_id = db_create_session(state.MODEL)
+        self._render_footer()  # make_client may have settled provider / model
+        self._render_welcome_intro()
+        if state.startup_prompt:
+            self.set_timer(0.05, self._submit_startup_prompt)
 
     def _headless_signals(self) -> None:
         """No terminal to press Ctrl+C in: SIGTERM / SIGHUP (web "Stop", logout) exit cleanly."""
