@@ -158,7 +158,7 @@ def test_refused_effort_is_retried_without_it_and_not_sent_again():
     client, calls = _free_tier_client(), []
     _stream_once(client, lambda kw: "reasoning_effort" in kw, calls)
     assert [c.get("reasoning_effort") for c in calls] == ["none", None]
-    assert _tool_names(calls[1]) == ["bash", "read"]  # the free tier's gate stays
+    assert _tool_names(calls[1]) == ["read", "shell"]  # the free tier's gate stays
     calls.clear()
     _stream_once(client, lambda kw: "reasoning_effort" in kw, calls)
     assert len(calls) == 1 and "reasoning_effort" not in calls[0]
@@ -172,4 +172,4 @@ def test_free_tier_never_retries_without_its_gate_tools():
     client, calls = _free_tier_client(), []
     with pytest.raises(_BadRequest):
         _stream_once(client, lambda kw: True, calls)
-    assert calls and all(_tool_names(c) == ["bash", "read"] for c in calls)
+    assert calls and all(_tool_names(c) == ["read", "shell"] for c in calls)

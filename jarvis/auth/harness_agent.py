@@ -7,7 +7,12 @@ from ..constants import (
     PROVIDER_OPENCODE_ZEN,
     is_harness_agent_model,
 )
-from ._zen_wire import RESPONSES_API_MODELS, new_session_id, zen_client_kwargs
+from ._zen_wire import (
+    RESPONSES_API_MODELS,
+    new_session_id,
+    with_env_block,
+    zen_client_kwargs,
+)
 from .opencode_client import OpenCodeClient
 from .opencode_zen import has_opencode_zen_key
 
@@ -31,14 +36,15 @@ def should_use_harness_agent_client(model: str | None = None, *, source: str = "
 
 
 # The free tier's gateway only accepts requests whose tool list contains tools
-# literally named "bash" and "read" — OpenCode's built-in client identity
+# literally named "shell" and "read" — OpenCode's built-in client identity
 # check (case-sensitive; anything else -> 403 FreeTierError). Jarvis exposes
 # its equivalents as run_bash/read_file, so the free-tier client injects these
-# two alias schemas into every request. The names are load-bearing — do not
-# rename them. Execution is mapped back to run_bash/read_file in tools.FUNC.
+# two alias schemas into every request. The *names* are load-bearing (the
+# schemas are not — verified against the gateway); execution is mapped back to
+# run_bash/read_file in repl.render's free-tier alias table.
 _FREE_TIER_GATE_TOOLS: list[dict] = [
     {
-        "name": "bash",
+        "name": "shell",
         "description": "Execute a shell command in the working directory",
         "input_schema": {
             "type": "object",
@@ -68,6 +74,7 @@ _FREE_TIER_GATE_TOOLS: list[dict] = [
 def build_harness_agent_client() -> OpenCodeClient:
     """OpenCode Zen client for the free Harness Agent tier."""
     from ..constants.providers import native_responses_models
+    from ._bun_http import bun_http_client
 
     return OpenCodeClient(
         base_url=f"{OPENCODE_ZEN_BASE_URL}/",
@@ -75,5 +82,11 @@ def build_harness_agent_client() -> OpenCodeClient:
         # models.dev says which Zen models are /responses-only; the static set
         # covers them while models.dev is off.
         responses_models=set(RESPONSES_API_MODELS) | native_responses_models(PROVIDER_OPENCODE_ZEN),
+        # The gateway fingerprints the request below HTTP too: only Bun's
+        # fetch passes. The OpenCode binary doubles as a Bun runtime, so route
+        # the free tier through it when it's installed (None -> plain httpx).
+        http_client=bun_http_client(),
+        # ...and it requires the CLI's <env> block on the system prompt.
+        system_suffix=with_env_block,
         **zen_client_kwargs(new_session_id()),
     )

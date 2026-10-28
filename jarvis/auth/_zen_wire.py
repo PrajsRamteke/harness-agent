@@ -22,14 +22,27 @@ so keep these in sync with the real OpenCode client on each release:
      14 chars are random and not checked against any registry.
 
   4. The request body's ``tools`` array must contain tool definitions named
-     exactly ``bash`` and ``read`` (case-sensitive). The gateway uses these two
-     OpenCode built-ins as its client-identity fingerprint — a request carrying
-     neither (or only one) is rejected with 403 ``FreeTierError``, while any
-     request that includes both passes regardless of the other tools present.
-     Jarvis's equivalents are ``run_bash`` / ``read_file``, so
+     exactly ``shell`` and ``read`` (case-sensitive). The gateway uses these
+     two OpenCode built-ins as its client-identity fingerprint — a request
+     carrying neither (or only one) is rejected, while any request that
+     includes both passes regardless of the other tools present. Jarvis's
+     equivalents are ``run_bash`` / ``read_file``, so
      :func:`harness_agent.build_harness_agent_client` injects two alias schemas
      via ``gate_tools``; ``repl.render`` maps the names back to the real
-     handlers.
+     handlers. (This was ``bash``+``read`` before OpenCode 2.2 renamed the
+     built-in to ``shell``.)
+
+  5. The *transport* is fingerprinted too: a Python/OpenSSL client is served a
+     synthetic 429 ``FreeUsageLimitError`` even when the body, headers and
+     session id are byte-identical to a request the real CLI just made from
+     the same machine at the same second. Only Bun's fetch passes, so the
+     free-tier client sends every request through the OpenCode binary used as
+     a Bun runtime (``_bun_http.BunTransport``).
+
+  6. The system prompt must carry the CLI's trailing ``<env>`` block (working
+     directory, workspace root, git status, platform). Without it the same
+     fake 429 comes back; it can be appended to *any* prompt, so Jarvis keeps
+     its own system prompt and adds the block (``with_env_block``).
 
 The other ``x-opencode-*`` headers mirror what the real CLI sends. As of the
 ``/inference/v1`` move both ``x-opencode-session`` and ``x-opencode-session-id``
@@ -40,8 +53,14 @@ end users; the Harness Agent tier is meant to be consumed through this app.
 """
 from __future__ import annotations
 
+import itertools
+import os
 import secrets
+import subprocess
+import sys
 import time
+from functools import lru_cache
+from pathlib import Path
 
 # The free tier's shared bearer. Not a secret credential — the tier is gated by
 # client identity + rate limits, not by this value.
@@ -49,8 +68,9 @@ ZEN_PUBLIC_KEY = "public"
 
 # Server requires a versioned User-Agent at or above the enforced minimum.
 # Bump this when OpenCode raises the floor (server currently enforces >= 1.18.0).
-OPENCODE_CLIENT_VERSION = "1.19.0"
-OPENCODE_USER_AGENT = f"opencode/{OPENCODE_CLIENT_VERSION}"
+# The exact form the real CLI sends is ``opencode/<channel>/<semver>/<surface>``.
+OPENCODE_CLIENT_VERSION = "2.2.0"
+OPENCODE_USER_AGENT = f"opencode/latest/{OPENCODE_CLIENT_VERSION}/cli"
 
 SESSION_PREFIX = "ses_"
 REQUEST_ID_PREFIX = "msg_"
@@ -77,6 +97,15 @@ _SESSION_RANDOM_LEN = 14
 _SESSION_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 
+# OpenCode's Identifier keeps a per-millisecond counter in the low 12 bits and
+# starts it at 1 (the counter is incremented *before* the id is minted). A
+# segment whose counter is 0 is rejected by the /inference/v1 gateway with a
+# synthetic 429 ``FreeUsageLimitError`` — not a 403 — which is why a
+# counter-less id looked like "the free allowance is exhausted" even though the
+# real CLI kept working from the same machine at the same second.
+_counter = itertools.count(1)
+
+
 def _session_timestamp_segment(timestamp_ms: int | None = None) -> str:
     """The 12-hex leading segment of an OpenCode *descending* identifier.
 
@@ -86,9 +115,14 @@ def _session_timestamp_segment(timestamp_ms: int | None = None) -> str:
     rendered big-endian as 12 hex chars. The gateway decodes this timestamp
     and 403s (``FreeTierError``) a session whose segment doesn't look recent,
     so the old random-hex segment no longer works.
+
+    The counter must be >= 1: OpenCode's generator increments it before use,
+    and the gateway 429s (``FreeUsageLimitError``) any segment whose low 12
+    bits are zero. Keep it below 0x1000 so it never carries into the timestamp.
     """
     ts = int(time.time() * 1000) if timestamp_ms is None else int(timestamp_ms)
-    value = ~(ts * 0x1000)  # descending: bitwise-not of the millisecond clock
+    counter = next(_counter) & 0x0FFF or 1
+    value = ~(ts * 0x1000 + counter)  # descending: bitwise-not of the clock
     return f"{value & 0xFFFFFFFFFFFF:012x}"
 
 
@@ -147,3 +181,47 @@ def zen_client_kwargs(session: str) -> dict:
         # so generate a fresh descending identifier per request.
         "request_id_factory": new_message_id,
     }
+
+
+# The gateway also fingerprints the *system prompt*: it must end with the
+# ``<env>`` block the real CLI appends (working directory, workspace root, git
+# status, platform). A prompt without it gets the same synthetic
+# ``FreeUsageLimitError`` 429 as a wrong session id, and a truncated or
+# unrelated block is rejected too — but the block may be appended to any
+# prompt, so Jarvis keeps its own system prompt and adds this on the end.
+_ENV_KEYS = ("Working directory", "Workspace root folder", "Is directory a git repo", "Platform")
+
+
+@lru_cache(maxsize=8)
+def env_block(cwd: str | None = None) -> str:
+    """The ``<env>`` block the real OpenCode client appends to its prompt."""
+    root = Path(cwd or os.getcwd()).resolve()
+    try:
+        probe = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        is_repo = "yes" if probe.stdout.strip() == "true" else "no"
+    except Exception:
+        is_repo = "no"
+    platform = "darwin" if sys.platform == "darwin" else sys.platform
+    return (
+        "<env>\n"
+        f"  Working directory: {root}\n"
+        f"  Workspace root folder: {root}\n"
+        f"  Is directory a git repo: {is_repo}\n"
+        f"  Platform: {platform}\n"
+        "</env>"
+    )
+
+
+def with_env_block(system_text: str, cwd: str | None = None) -> str:
+    """Append the gate's ``<env>`` block unless the prompt already ends with one."""
+    text = system_text or ""
+    if all(key in text for key in _ENV_KEYS):
+        return text
+    block = env_block(cwd)
+    return f"{text.rstrip()}\n\n{block}" if text.strip() else block

@@ -53,16 +53,18 @@ class HarnessAgentTests(unittest.TestCase):
         ), mock.patch(
             "jarvis.auth._zen_wire.secrets.token_bytes", return_value=b"\x00" * 14
         ):
-            expected_session = _zen_wire.new_session_id()
             client = build_harness_agent_client()
-        wire = _zen_wire.zen_client_kwargs(expected_session)
+        wire = _zen_wire.zen_client_kwargs("ses_ec9d19d5fffe00000000000000")
         self.assertEqual(client._oai.api_key, wire["api_key"])
         self.assertTrue(client._oai.base_url.path.endswith("/inference/v1/"))
         hdrs = client._oai.default_headers
-        for k, v in wire["default_headers"].items():
-            self.assertEqual(hdrs[k], v)
+        # The session id is minted per client (and its counter advances), so
+        # compare the identity headers, not the id itself.
+        for k in ("User-Agent", "x-opencode-client", "x-opencode-project"):
+            self.assertEqual(hdrs[k], wire["default_headers"][k])
         # /inference/v1 requires both session headers; they carry the same id.
         self.assertEqual(hdrs["x-opencode-session"], hdrs["x-opencode-session-id"])
+        self.assertRegex(hdrs["x-opencode-session"], r"^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$")
         req_hdr = wire["request_id_header"]
         # OpenCode validates the request-id shape; it must be a fresh
         # descending identifier (msg_ + 12 hex + 14 alnum), never msg_1.
@@ -74,8 +76,9 @@ class HarnessAgentTests(unittest.TestCase):
 
     def test_user_agent_is_versioned(self):
         # The gateway rejects a bare "opencode" UA with 403 FreeTierError.
+        # The real CLI sends opencode/<channel>/<semver>/<surface>.
         ua = _zen_wire.zen_client_kwargs(_zen_wire.new_session_id())["default_headers"]["User-Agent"]
-        self.assertRegex(ua, r"^opencode/\d+\.\d+\.\d+")
+        self.assertRegex(ua, r"^opencode/(latest/)?\d+\.\d+\.\d+(/\w+)?$")
 
     def test_session_id_shape(self):
         # Wire-valid: ses_ + 12 lowercase hex + 14 alnum = 30 chars.
@@ -97,6 +100,32 @@ class HarnessAgentTests(unittest.TestCase):
         decoded_ms = (~int(seg, 16) & 0xFFFFFFFFFFFF) >> 12
         now_ms = int(time.time() * 1000) % (1 << 36)
         self.assertLess(abs(decoded_ms - now_ms), 60_000)
+
+    def test_session_counter_is_never_zero(self):
+        # The /inference/v1 gateway 429s (FreeUsageLimitError) any descending
+        # id whose low 12 bits are zero, which is exactly what the old
+        # counter-less generator produced. Verified against the real binary:
+        # counter 0 -> 429, counter >= 1 -> 200.
+        for _ in range(5):
+            seg = _zen_wire.new_session_id()[4:16]
+            self.assertNotEqual(int(seg, 16) & 0x0FFF, 0)
+
+    def test_env_block_carries_the_gate_keys(self):
+        # The gateway also fingerprints the system prompt: it must contain the
+        # CLI's <env> block (verified: a 32K prompt without it 429s, the same
+        # prompt with it 200s).
+        block = _zen_wire.env_block()
+        for key in ("Working directory", "Workspace root folder",
+                    "Is directory a git repo", "Platform"):
+            self.assertIn(key, block)
+        self.assertTrue(block.startswith("<env>") and block.endswith("</env>"))
+
+    def test_system_prompt_gets_the_env_block(self):
+        out = _zen_wire.with_env_block("You are Jarvis.")
+        self.assertTrue(out.startswith("You are Jarvis."))
+        self.assertIn("<env>", out)
+        # Idempotent — a prompt that already carries the block is untouched.
+        self.assertEqual(_zen_wire.with_env_block(out), out)
 
 
 if __name__ == "__main__":

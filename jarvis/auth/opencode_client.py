@@ -788,6 +788,8 @@ class _OpenCodeMessages:
                 sys_text = str(system)
 
         owner = self._owner
+        if owner is not None and owner.system_suffix is not None:
+            sys_text = owner.system_suffix(sys_text)
         # Responses-only models (free-tier muse-spark) 500 on /chat/completions;
         # route them to /responses with the same bash/read identity gate.
         if owner is not None and owner.api_format(model) == "responses":
@@ -980,6 +982,8 @@ class OpenCodeClient:
         timeout: Any = None,
         read_timeout: float | None = None,
         max_retries: int | None = None,
+        http_client: Any = None,
+        system_suffix: Callable[[str], str] | None = None,
     ):
         self._request_id_header = request_id_header
         self._request_id_prefix = request_id_prefix
@@ -1005,6 +1009,10 @@ class OpenCodeClient:
         # Models whose upstream 400'd a reasoning_effort and took the request
         # without it: never sent to them again this session.
         self.effort_refused: set[str] = set()
+        # Optional transform applied to the assembled system prompt before it
+        # goes on the wire. The free Harness Agent tier uses it to append the
+        # OpenCode CLI's <env> block, which its gateway fingerprints.
+        self.system_suffix = system_suffix
         hdrs = dict(default_headers or {})
         extra: dict[str, Any] = {} if max_retries is None else {"max_retries": max_retries}
         self._oai = OpenAI(
@@ -1012,6 +1020,7 @@ class OpenCodeClient:
             base_url=base_url or f"{OPENCODE_BASE_URL}/",
             default_headers=hdrs or None,
             timeout=timeout if timeout is not None else harness_http_timeout(openrouter=True),
+            http_client=http_client,
             **extra,
         )
         self.messages = _OpenCodeMessages(self._oai, owner=self)

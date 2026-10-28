@@ -145,9 +145,9 @@ def _cap_tool_output(name: str, out: str) -> str:
 _FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
 
 # The free Harness Agent tier must expose OpenCode's built-in tool names
-# ("bash"/"read") on the wire — see auth/harness_agent.py. Map any such name
+# ("shell"/"read") on the wire — see auth/harness_agent.py. Map any such name
 # back to Jarvis's real handler before the rest of the dispatcher sees it.
-_FREE_TIER_TOOL_ALIASES = {"bash": "run_bash", "read": "read_file"}
+_FREE_TIER_TOOL_ALIASES = {"shell": "run_bash", "bash": "run_bash", "read": "read_file"}
 
 # Tool names other harnesses use (Claude Code, OpenCode, Cline, Aider, …) that
 # models trained on them keep emitting. Matched case-insensitively, and only
