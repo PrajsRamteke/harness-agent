@@ -636,8 +636,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
 
         Session state only — the welcome block already shows cwd, branch
         and project context. Clickable: agent → agents, model → models,
-        provider → setup hub, think → effort, tokens → sidebar, web remote →
-        QR + link dialog, ``?`` → shortcuts.
+        provider → setup hub, think → effort, tokens → sidebar, OpenRouter
+        credit → /usage, web remote → QR + link dialog, ``?`` → shortcuts.
         """
         from ..constants.providers import PROVIDER_LABELS, provider_label  # noqa: F401
 
@@ -689,6 +689,16 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                 cost = estimated_cost()
                 if cost >= 0.01:
                     right.append((6, f"[{ui.FG_DIM}]${cost:.2f}[/]", None))
+        except Exception:
+            pass
+        try:
+            from ..auth import openrouter_usage as oru
+
+            orinfo = oru.public()
+            head = oru.headline(orinfo) if orinfo and orinfo.get("status") == "ok" else None
+            if head:
+                color = {"ok": ui.FG_MUTE, "warn": ui.WARN, "low": ui.ERR}[oru.left_level(orinfo)]
+                right.append((7, f"[{color}]◎ {_rich_escape(head)}[/]", "show_usage"))
         except Exception:
             pass
         web = self._web_footer_markup()
@@ -754,6 +764,13 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
     def action_open_providers(self) -> None:
         if not isinstance(self.screen, ModalScreen):
             self._open_provider_hub()
+
+    def action_show_usage(self) -> None:
+        """Footer / sidebar / ``/key`` → the OpenRouter usage dialog (fresh numbers)."""
+        from .usage_modal import UsageScreen
+
+        if not isinstance(self.screen, UsageScreen):
+            self.push_screen(UsageScreen())
 
     # Back-compat names used across the app / mixins / web remote.
     def _render_hintbar(self) -> None:
@@ -2003,6 +2020,12 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         if not self._busy and not self._turn_t0:
             return
         state.cancel_requested.clear()
+        try:  # the turn just spent money: OpenRouter's numbers are stale
+            from ..auth import openrouter_usage
+
+            openrouter_usage.invalidate()
+        except Exception:
+            pass
         finish_cmd = getattr(self._tui_console, "finish_command_progress", None)
         if callable(finish_cmd):
             finish_cmd()

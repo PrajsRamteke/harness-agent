@@ -152,6 +152,28 @@
       </div>
 
       <div class="side-foot">
+        <section class="or-card" id="or-card" aria-label="OpenRouter usage" hidden>
+          <button type="button" class="or-main" id="or-main" aria-expanded="false" aria-controls="or-more" title="OpenRouter usage — click for details">
+            <span class="or-top">
+              <span class="or-mark" data-icon="gauge"></span>
+              <span class="or-name">OpenRouter</span>
+              <span class="or-left" id="or-left"></span>
+              <span class="or-chev" data-icon="chevron-down"></span>
+            </span>
+            <span class="or-bar" id="or-bar" role="img"><i id="or-fill"></i></span>
+            <span class="or-meta"><span id="or-spent"></span><span id="or-reset"></span></span>
+          </button>
+          <div class="fold" id="or-more">
+            <div class="fold-inner">
+              <dl class="or-grid" id="or-grid"></dl>
+              <div class="or-actions">
+                <span class="or-updated" id="or-updated"></span>
+                <button type="button" class="icon-btn or-icon" id="or-refresh" aria-label="Refresh usage" title="Ask OpenRouter now"><span data-icon="refresh-cw"></span></button>
+                <a class="icon-btn or-icon" id="or-activity" href="https://openrouter.ai/activity" target="_blank" rel="noopener" aria-label="Activity on OpenRouter" title="Activity on OpenRouter"><span data-icon="external-link"></span></a>
+              </div>
+            </div>
+          </div>
+        </section>
         <div class="usage" id="usage" aria-label="Usage this session">
           <div class="usage-cell"><span class="usage-num" id="use-in">0</span><span class="usage-lbl">tokens in</span><span class="usage-badge" id="use-in-cache" hidden></span></div>
           <div class="usage-cell"><span class="usage-num" id="use-out">0</span><span class="usage-lbl">tokens out</span></div>

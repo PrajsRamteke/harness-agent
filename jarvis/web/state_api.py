@@ -417,7 +417,19 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "tokens_cache_read": state.cache_read_tokens,
         "tool_calls": state.tool_calls_count,
         "jobs": jobs_fields(),
+        "openrouter": _openrouter_fields(),
     }
+
+
+def _openrouter_fields() -> dict[str, Any] | None:
+    """OpenRouter key spend while it's the provider (``None`` hides the card).
+    Memory only — a stale answer refreshes on a worker (``openrouter_usage``)."""
+    try:
+        from ..auth import openrouter_usage
+
+        return openrouter_usage.public()
+    except Exception:
+        return None
 
 
 def _think_fields() -> dict[str, Any]:

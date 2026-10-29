@@ -509,6 +509,14 @@ class WebHandler(BaseHTTPRequestHandler):
 
             self._send_json(200, pin_store.public())
             return
+        if path == "/api/usage":
+            # OpenRouter key spend; ``refresh=1`` asks OpenRouter now (this thread).
+            from ..auth import openrouter_usage
+
+            if self._query_str(qs, "refresh") == "1":
+                openrouter_usage.refresh(wait=True)
+            self._send_json(200, {"openrouter": openrouter_usage.public(any_provider=True)})
+            return
         if path == "/api/local":
             from .local_api import get_local
 

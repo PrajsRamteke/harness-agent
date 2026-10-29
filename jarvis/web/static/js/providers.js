@@ -20,7 +20,8 @@ import { icon } from './icons.js';
 import { subscribe, loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
-import { fetchProviders, fetchOAuthStatus, providerPost } from './api.js';
+import { api, fetchProviders, fetchOAuthStatus, providerPost } from './api.js';
+import { usageCardHtml } from './usage.js';
 import { openLocal } from './local.js';
 
 const TONES = {
@@ -90,7 +91,9 @@ const revealed = new Set(); // secret inputs switched to plain text
 const notes = {}; // card id → { text, error }
 let quickBusy = false;
 let quickNote = null; // { text, error, suggest }
-let view = null; // null (the list) | 'add' (paste any API key)
+let view = null; // null (the list) | 'add' (paste any API key) | 'usage' (OpenRouter spend)
+let usageInfo = null; // /api/usage answer for the usage view
+let usageBusy = false;
 let query = ''; // the toolbar search
 let pollTimer = 0;
 let openPicker = () => {};
@@ -180,7 +183,17 @@ function statusLine(row) {
   return row.hint ? `Key ${row.hint} saved on your computer` : 'Key saved on your computer';
 }
 
+/** OpenRouter with a key: a small gauge that opens its spend (the usage view). */
+function usageBtnHtml(row) {
+  if (row.id !== 'openrouter' || !row.connected) return '';
+  return `<button type="button" class="row-btn is-icon pv-usage-btn" data-act="usage" aria-label="OpenRouter usage and credit" title="Usage — what the key has spent and has left">${icon('gauge')}</button>`;
+}
+
 function sideHtml(row) {
+  return usageBtnHtml(row) + sideMainHtml(row);
+}
+
+function sideMainHtml(row) {
   if (busyId === row.id && openId !== row.id) return `<span class="pv-side-busy">${spin('')}</span>`;
   if (row.active) return '<span class="badge is-live">In use</span>';
   // Open: the panel below has the real buttons.
@@ -470,10 +483,61 @@ function renderChrome() {
       action: { act: 'add-key', label: 'Add API key', ic: 'key-round', title: 'Paste a key — Jarvis works out which provider it’s for' },
     });
   }
-  if (bar) bar.hidden = view === 'add';
+  if (bar) bar.hidden = view !== null;
   patch($('providers-foot'), view === 'add'
     ? addActionsHtml()
-    : footer({ note: NOTE, noteIc: 'lock', hints: [['↑ ↓', 'move'], ['↵', 'open'], ['esc', 'close']] }));
+    : view === 'usage'
+      ? usageActionsHtml()
+      : footer({ note: NOTE, noteIc: 'lock', hints: [['↑ ↓', 'move'], ['↵', 'open'], ['esc', 'close']] }));
+}
+
+// ─── Usage view (OpenRouter spend; the card is usage.js's, as in /usage) ──
+
+function usageActionsHtml() {
+  return `<div class="dlg-actions">
+      <span class="dlg-note">${icon('lock')}<span>Read from OpenRouter with the saved key</span></span>
+      <span class="dlg-spacer"></span>
+      <button type="button" class="btn btn-quiet" data-act="usage-back">Back</button>
+      <button type="button" class="btn" data-act="usage-refresh"${usageBusy ? ' disabled' : ''}>${usageBusy ? spin('Checking…') : `${icon('refresh-cw')}<span>Refresh</span>`}</button>
+    </div>`;
+}
+
+function renderUsage(body) {
+  const d = usageInfo;
+  if (!d || (d.status === 'loading' && !d.usage)) {
+    body.innerHTML = `<div class="list-loading">${'<div class="skeleton"></div>'.repeat(4)}</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="stats-entry pv-usage"><section class="stats-card ou-card" aria-label="OpenRouter usage">${usageCardHtml(d)}</section></div>`;
+}
+
+async function loadUsage() {
+  usageBusy = true;
+  render();
+  try {
+    usageInfo = (await api('/api/usage?refresh=1')).openrouter
+      || { status: 'error', error: 'No OpenRouter key is saved' };
+  } catch (err) {
+    usageInfo = { status: 'error', error: err.message || 'Couldn\u2019t read usage' };
+  } finally {
+    usageBusy = false;
+    if (view === 'usage') render();
+  }
+}
+
+function openUsage() {
+  view = 'usage';
+  usageInfo = null;
+  setView('providers', { title: 'OpenRouter usage', sub: 'Providers', back: closeUsage, backLabel: 'providers' });
+  loadUsage();
+}
+
+function closeUsage() {
+  if (view !== 'usage') return;
+  view = null;
+  setView('providers', null);
+  render();
+  focusRow('openrouter');
 }
 
 /** The add view's buttons, in the footer like every form: Cancel · Connect. */
@@ -554,6 +618,10 @@ function render() {
   if (view === 'add') {
     renderAdd(body);
     restoreFocus(focusId, sel);
+    return;
+  }
+  if (view === 'usage') {
+    renderUsage(body);
     return;
   }
 
@@ -826,6 +894,15 @@ function handleClick(e) {
     case 'toggle':
       toggleRow(id);
       break;
+    case 'usage':
+      openUsage();
+      break;
+    case 'usage-refresh':
+      loadUsage();
+      break;
+    case 'usage-back':
+      closeUsage();
+      break;
     case 'open':
       if (openId !== id) toggleRow(id);
       else focusRow(id);
@@ -1015,6 +1092,7 @@ function openWanted(want) {
 /** `focus`: a card id or a name ("openrouter", "claude") to open that row. */
 export function openProviders(focus = '') {
   view = null;
+  setView('providers', null);
   query = '';
   if ($(SEARCH_ID)) $(SEARCH_ID).value = '';
   render();

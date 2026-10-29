@@ -28,6 +28,7 @@ export const CATALOG = [
   { group: 'Conversation', cmd: '/reset', label: 'Reset', desc: 'Clear the conversation history', icon: 'rotate-ccw' },
   { group: 'Conversation', cmd: '/history', label: 'History', desc: 'Summarise the messages so far', icon: 'list' },
   { group: 'Conversation', cmd: '/stats', label: 'Stats', desc: 'Session time, messages and tools', icon: 'chart-column' },
+  { group: 'Conversation', cmd: '/usage', label: 'OpenRouter usage', desc: 'What the key has spent and has left, account credit', icon: 'gauge', keys: 'spend spending credit credits balance limit budget money cost billing openrouter quota' },
   { group: 'Conversation', fill: true, cmd: '/export ', label: 'Export', desc: 'Save the conversation as markdown', icon: 'download' },
   { group: 'Conversation', cmd: '/copy', label: 'Copy last reply', desc: 'Copy the latest answer on your computer', icon: 'copy' },
   { group: 'Conversation', fill: true, cmd: '/team ', label: 'Parallel agents', desc: 'Split a big task across 2-6 agents working at the same time', icon: 'users', keys: 'team subagents parallel agents split fan out swarm' },

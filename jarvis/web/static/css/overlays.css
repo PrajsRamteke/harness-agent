@@ -1046,6 +1046,10 @@
 
 .pv-side { display: flex; align-items: center; gap: 6px; padding-right: 10px; }
 .pv-side-busy { display: grid; place-items: center; width: 30px; height: 30px; }
+.row-btn.pv-usage-btn { color: var(--accent); border-color: var(--accent-line); }
+.row-btn.pv-usage-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+/* The usage view: /usage's card, full width inside the dialog body. */
+.stats-entry.pv-usage { padding: 4px 2px 8px; }
 .row-btn.is-go { color: var(--text); }
 .pv-row:hover .row-btn.is-go { border-color: var(--line-2); background: var(--card-hover); }
 

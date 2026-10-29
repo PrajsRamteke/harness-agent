@@ -255,6 +255,12 @@ class WebMuxConsole:
         if self._should_broadcast():
             self._bridge.emit("stats", dict(stats))
 
+    def show_usage(self, renderable: Any, info: dict[str, Any]) -> None:
+        """/usage: the terminal keeps its panel, web clients get a usage card."""
+        self._primary.print(renderable)
+        if self._should_broadcast():
+            self._bridge.emit("usage", dict(info))
+
     def show_error(self, report: Any) -> None:
         """A failed request: the terminal's error card, and one on every page."""
         fn = getattr(self._primary, "show_error", None)

@@ -106,6 +106,61 @@ class SidebarBody(Widget):
             app._open_skill_browser()
         elif kind == "rename":
             app.open_rename_dialog()
+        elif kind == "usage":
+            app.action_show_usage()
+
+    @staticmethod
+    def _openrouter_rows(info: dict, out: Text, hit) -> None:
+        """Key limit as a meter + what's left, else spend; then the account's credit."""
+        from ..auth import openrouter_usage as oru
+
+        if info.get("status") == "loading":
+            out.append("\n")
+            hit("usage")
+            out.append("checking usage…", style=ui.FG_DIM)
+            return
+        if info.get("status") == "error":
+            out.append("\n")
+            hit("usage")
+            out.append(info.get("error") or "usage unavailable", style=ui.WARN)
+            return
+        level = {"ok": ui.OK, "warn": ui.WARN, "low": ui.ERR}[oru.left_level(info)]
+        if info.get("limit"):
+            frac = info.get("fraction") or 0.0
+            out.append("\n")
+            hit("usage")
+            out.append_text(meter(frac))
+            out.append(f" {frac * 100:.0f}%", style=ui.FG_MUTE)
+            out.append("\n")
+            hit("usage")
+            out.append(oru.money(info.get("remaining")), style=f"bold {level}")
+            out.append(" left", style=ui.FG_MUTE)
+            out.append(f" of {oru.money(info['limit'])}", style=ui.FG_DIM)
+            out.append("\n")
+            hit("usage")
+            out.append(f"{oru.money(info.get('spent'))} {info.get('period') or ''}".rstrip(), style=ui.FG_DIM)
+            if info.get("reset") and info.get("resets_at"):
+                resets = oru.when(info["resets_at"]).split(" (")[0]
+                if resets:
+                    out.append(f" · resets {resets}", style=ui.FG_DIM)
+        else:
+            usage = info.get("usage") or {}
+            out.append("\n")
+            hit("usage")
+            out.append(oru.money(usage.get("total")), style=ui.FG)
+            out.append(" spent · no limit", style=ui.FG_DIM)
+            out.append("\n")
+            hit("usage")
+            out.append(f"today {oru.money(usage.get('day'))} · month {oru.money(usage.get('month'))}",
+                       style=ui.FG_DIM)
+        credits = info.get("credits")
+        if credits:
+            out.append("\n")
+            hit("usage")
+            out.append("account ", style=ui.FG_DIM)
+            bal = credits["balance"]
+            out.append(oru.money(bal), style=ui.ERR if bal < 1 else ui.WARN if bal < 5 else ui.FG_MUTE)
+            out.append(" credit", style=ui.FG_DIM)
 
     def render(self) -> Text:
         app = self.app
@@ -168,6 +223,20 @@ class SidebarBody(Widget):
                 line(f"${estimated_cost():.4f} spent", ui.FG_DIM)
         except Exception:
             pass
+
+        # OpenRouter key spend — only while OpenRouter is the provider; click → /usage
+        try:
+            from ..auth import openrouter_usage as oru
+
+            orinfo = oru.public()
+        except Exception:
+            orinfo = None
+        if orinfo is not None:
+            section("OpenRouter", "◎")
+            hit("usage")
+            if orinfo.get("loading"):
+                out.append("  ↻", style=ui.FG_DIM)
+            self._openrouter_rows(orinfo, out, hit)
 
         section("Model", "◇")
         line(state.MODEL, ui.FG)

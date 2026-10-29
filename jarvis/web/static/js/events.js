@@ -5,6 +5,7 @@ import {
   appendDiff,
   appendError,
   appendStats,
+  appendUsage,
   renderSnapshot,
   streamDelta,
   streamEnd,
@@ -101,6 +102,11 @@ export function handleEvent(evt) {
     case 'stats':
       // /stats: numbers as data, drawn as a card (chat.js).
       appendStats(data);
+      break;
+
+    case 'usage':
+      // /usage: OpenRouter spend as a card (chat.js); the sidebar card follows the `state` push.
+      appendUsage(data);
       break;
 
     case 'status':

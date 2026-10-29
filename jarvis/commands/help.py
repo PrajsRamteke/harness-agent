@@ -90,6 +90,7 @@ _SECTIONS = [
         ("/provider", "provider setup hub — OAuth login, API keys, and provider switch"),
         ("/provider <name>", "switch provider (anthropic/openrouter/opencode/opencode_zen)"),
         ("/stats", "session stats (time, msgs, tools, tokens)"),
+        ("/usage", "OpenRouter spend — key limit, what's left, today / week / month, account credit"),
     ]),
     ("Keyboard (TUI)", [
         ("Enter", "send"),

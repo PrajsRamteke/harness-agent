@@ -705,6 +705,82 @@
   .stats-row { grid-template-columns: 96px minmax(0, 1fr); }
 }
 
+/* ─── /usage card (OpenRouter spend; shares the /stats card frame) ────── */
+.ou-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  margin-left: auto;
+  padding: 5px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-3);
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.ou-link:hover { color: var(--text); border-color: var(--line-2); background: var(--card-hover); }
+.ou-link .ic { width: 12px; height: 12px; }
+.ou-hero {
+  --ou-tone: var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--line);
+}
+.ou-hero[data-level="warn"] { --ou-tone: var(--warn); }
+.ou-hero[data-level="low"] { --ou-tone: var(--danger); }
+.ou-figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.ou-big {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.ou-hero[data-level="warn"] .ou-big,
+.ou-hero[data-level="low"] .ou-big { color: var(--ou-tone); }
+.ou-of { font-size: 13px; color: var(--text-2); }
+.ou-of em { font-style: normal; color: var(--text-3); margin-left: 4px; }
+.ou-pct { margin-left: auto; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ou-bar { height: 8px; border-radius: var(--r-pill); background: var(--card-sunk); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.ou-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ou-tone) 70%, transparent), var(--ou-tone));
+}
+.stats-entry.is-new .ou-bar i { animation: stats-fill 0.9s var(--ease) 0.15s backwards; }
+.ou-legend { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; font-size: 12.5px; color: var(--text-3); }
+.ou-legend b { font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.ou-hero.is-error p { margin: 0; font-size: 14px; font-weight: 500; color: var(--danger); }
+.ou-hero.is-error span { font-size: 12.5px; color: var(--text-3); }
+.ou-val { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.stats-row.is-warn .ou-val { color: var(--warn); }
+.stats-row.is-low .ou-val { color: var(--danger); }
+.ou-card .stats-row { grid-template-columns: 132px minmax(0, 1fr); }
+.ou-stale {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--warn);
+}
+.ou-stale .ic { width: 13px; height: 13px; flex: none; }
+@container (max-width: 520px) {
+  .ou-big { font-size: 26px; }
+  .ou-pct { margin-left: 0; width: 100%; }
+  .ou-card .stats-row { grid-template-columns: 112px minmax(0, 1fr); }
+  .ou-link { padding: 5px 8px; }
+}
+
 /* ─── Typing indicator ────────────────────────────────────────────────── */
 .typing {
   animation: fade 0.3s ease 0.15s backwards;

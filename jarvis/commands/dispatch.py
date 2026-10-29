@@ -22,6 +22,7 @@ from .upgrade import cmd_upgrade
 from .settings import handle_settings
 from .pet import handle_pet
 from .subagents import handle_subagents
+from .usage import handle_usage
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/paste", "/multi"}
@@ -62,6 +63,10 @@ def handle_slash(inp: str):
         return ("ok", False, inp)
 
     handled, _ = handle_memory(c, arg)
+    if handled:
+        return ("ok", False, inp)
+
+    handled, _ = handle_usage(c, arg)
     if handled:
         return ("ok", False, inp)
 

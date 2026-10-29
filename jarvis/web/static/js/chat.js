@@ -17,6 +17,7 @@ import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
 import { openChange } from './changes.js';
 import { renderFiles, renderToolImages } from './media.js';
 import { isAgentsTool, initAgentsCard, paintAgents } from './agents.js';
+import { usageCardHtml, usageText } from './usage.js';
 
 const chat = () => $('chat');
 const scroller = () => $('chat-scroll');
@@ -516,6 +517,24 @@ export function appendStats(data) {
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
   actions.append(copyAction(() => statsText(d)));
+  el.appendChild(actions);
+  chat().appendChild(markNew(el));
+  noteUnseen();
+  afterAppend();
+}
+
+// ─── /usage card (OpenRouter spend: jarvis/auth/openrouter_usage.py) ─────
+
+/** `/usage` from the terminal or this page: the key's limit, spend and credit. */
+export function appendUsage(data) {
+  removeTyping();
+  const d = data || {};
+  const el = document.createElement('div');
+  el.className = 'stats-entry usage-entry';
+  el.innerHTML = `<section class="stats-card ou-card" aria-label="OpenRouter usage">${usageCardHtml(d)}</section>`;
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+  actions.append(copyAction(() => usageText(d)));
   el.appendChild(actions);
   chat().appendChild(markNew(el));
   noteUnseen();

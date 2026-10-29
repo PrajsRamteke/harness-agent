@@ -89,6 +89,23 @@ def _isolated_local_models(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolated_openrouter_usage(monkeypatch):
+    """OpenRouter spend (``jarvis/auth/openrouter_usage.py``): never ask
+    openrouter.ai with the developer's key — a test that switches to
+    OpenRouter would otherwise start a real fetch. Tests patch ``_get``."""
+    from jarvis.auth import openrouter_usage
+
+    def _offline(*_a, **_k):
+        raise OSError("network disabled in tests")
+
+    monkeypatch.setattr(openrouter_usage, "_get", _offline)
+    monkeypatch.delenv("HARNESS_OPENROUTER_USAGE", raising=False)
+    openrouter_usage.reset()
+    yield
+    openrouter_usage.reset()
+
+
+@pytest.fixture(autouse=True)
 def _mcp_switches_reset():
     """A test that switches MCP / a server off must not leave it off for the
     next one (the choice lives in the settings singleton)."""

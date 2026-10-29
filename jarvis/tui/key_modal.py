@@ -37,6 +37,7 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import CenterMiddle, Vertical
+from textual.message import Message
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
@@ -206,8 +207,43 @@ def _provider_from_id(oid: str) -> str | None:
     return None
 
 
+USAGE_TAG = "◎ usage"
+USAGE_TAG_WIDTH = len(USAGE_TAG) + 2
+
+
+def _has_usage(info: dict) -> bool:
+    """OpenRouter with a key: its row carries the clickable ``◎ usage`` tag."""
+    return info["provider"] == "openrouter" and info["source"] != "none"
+
+
+class KeyList(OptionList):
+    """The provider list; a click on OpenRouter's ``◎ usage`` tag opens the
+    usage dialog instead of selecting (= editing) the row."""
+
+    class UsageClicked(Message):
+        pass
+
+    async def _on_click(self, event) -> None:
+        idx = event.style.meta.get("option")
+        if idx is not None:
+            try:
+                oid = self.get_option_at_index(idx).id or ""
+            except Exception:
+                oid = ""
+            off = event.get_content_offset(self)
+            x = off.x if off is not None else event.x
+            if oid == _key_id("openrouter") and x >= self.content_size.width - USAGE_TAG_WIDTH - 1:
+                self.highlighted = idx
+                event.stop()
+                self.post_message(self.UsageClicked())
+                return
+        await super()._on_click(event)
+
+
 def _format_row(info: dict, is_current_provider: bool, query: str = ""):
     """One provider row: status dot, name, where the key comes from."""
+    from rich.text import Text
+
     from .modal_chrome import picker_row
 
     source = info["source"]
@@ -238,6 +274,8 @@ def _format_row(info: dict, is_current_provider: bool, query: str = ""):
         icon_style=dot_style,
         title_width=22,
         query=query,
+        tags=Text(f"  {USAGE_TAG}", style=f"bold {ui.ACCENT}") if _has_usage(info) else Text(""),
+        tags_width=USAGE_TAG_WIDTH,
     )
 
 
@@ -319,6 +357,7 @@ class KeyModalScreen(TuiModalScreen[None]):
         Binding("e", "edit", "Edit", show=True),
         Binding("d", "delete", "Delete", show=True),
         Binding("a", "add", "Add", show=True),
+        Binding("u", "usage", "Usage", show=True),
         Binding("slash", "focus_search", "Search", show=True),
     ]
 
@@ -334,10 +373,11 @@ class KeyModalScreen(TuiModalScreen[None]):
                 yield Static("⬟  API Keys", id="modal_title")
                 yield Static("", id="modal_status")
                 yield Input(value="", placeholder="Search providers…  (/)", id="key_search")
-                yield OptionList(id="key_list")
+                yield KeyList(id="key_list")
                 yield Static(
                     f"[bold {ui.FG_MUTE}]↑↓[/] nav   [bold {ui.FG_MUTE}]↵/e[/] edit   "
                     f"[bold {ui.FG_MUTE}]d[/] delete   [bold {ui.FG_MUTE}]a[/] add   "
+                    f"[bold {ui.FG_MUTE}]u[/] usage   "
                     f"[bold {ui.FG_MUTE}]/[/] search   [bold {ui.FG_MUTE}]esc[/] close   "
                     f"[{ui.FG_DIM}]providers via models.dev[/]",
                     id="modal_hint",
@@ -471,6 +511,24 @@ class KeyModalScreen(TuiModalScreen[None]):
         """
         event.stop()
         self.action_edit()
+
+    def on_key_list_usage_clicked(self, event: KeyList.UsageClicked) -> None:
+        event.stop()
+        self.action_usage()
+
+    def action_usage(self) -> None:
+        """OpenRouter's spend — from its row's ``◎ usage`` tag or ``u``."""
+        if self._highlighted_provider() not in (None, "openrouter"):
+            self._notify("Usage is shown for OpenRouter — highlight its row (or click ◎ usage)")
+            return
+        from ..auth import openrouter_usage
+
+        if not openrouter_usage.api_key():
+            self._notify("Add an OpenRouter key first (↵ on its row)", error=True)
+            return
+        from .usage_modal import UsageScreen
+
+        self.app.push_screen(UsageScreen())
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "key_search":

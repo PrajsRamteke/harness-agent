@@ -9,6 +9,7 @@ import { initComposer, fillPrompt, submitPrompt, insertQuote, enhanceMessage } f
 import { initMedia, openFilePicker } from './media.js';
 import { initStatus, setConnected } from './status.js';
 import { initSidebar } from './sidebar.js';
+import { initUsageCard } from './usage.js';
 import { initTitleRename } from './rename.js';
 import { initProjects, projectGone, serverLost } from './projects.js';
 import { initFolders } from './folders.js';
@@ -135,6 +136,7 @@ function boot() {
   initComposer({ onCatalogItem: runItem, onOpenPicker: openPickerByKind });
   initMedia({ onOpenPicker: openPickerByKind });
   initSidebar({ onOpenPicker: openPickerByKind });
+  initUsageCard();
   initTitleRename();
   initProjects({ onEvent: handleEvent });
   initFolders();

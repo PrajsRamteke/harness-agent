@@ -42,6 +42,8 @@ export const store = {
   queue: [],
   /** The queue panel's rows: `{ id, text, label, files, steer, steerable, command, editing }`. */
   queueItems: [],
+  /** OpenRouter key spend while it's the provider (server: auth/openrouter_usage.py public()); null hides it. */
+  openrouter: null,
   /** Pinned context summary (`{ lines, enabled, chars }`): an open Pin dialog reloads when it changes. */
   pin: { lines: 0, enabled: true },
   /** Pending agent prompt (approval / question / input) awaiting an answer */
@@ -101,6 +103,8 @@ export function loadSnapshot(data) {
   if ('queue' in data) patchStore({ queue: data.queue || [] });
   if (Array.isArray(data.queue_items)) patchStore({ queueItems: data.queue_items });
   if (data.pin && typeof data.pin === 'object') patchStore({ pin: { ...store.pin, ...data.pin } });
+  // null is meaningful here (another provider: hide the card), unlike session keys.
+  if ('openrouter' in data) patchStore({ openrouter: data.openrouter || null });
 }
 
 export function loadUiPrefs() {

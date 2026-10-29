@@ -72,6 +72,7 @@ COMMANDS = [
     ("/plan", "toggle plan mode — read-only research until you approve a plan"),
     ("/model", "open model picker (Harness Agent free models listed first)"),
     ("/stats", "session stats"),
+    ("/usage", "OpenRouter spend — what's left on the key, today / month, account credit"),
     ("/provider", "one command for everything — OAuth login, API keys, provider switch"),
     ("/local-models", "models on this computer — Ollama, LM Studio, llama.cpp … (no key, no cost)"),
 ]
