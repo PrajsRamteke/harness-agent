@@ -102,6 +102,18 @@ class WebMuxConsole:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._primary, name)
 
+    def replay_live(self) -> None:
+        """Re-send the reply streaming right now (its chat tab was just shown:
+        the page got a snapshot without it)."""
+        kind, text = self._stream_kind, self._stream_buffer
+        if not kind:
+            return
+        if kind == "thinking" and not _show_thinking_to_web():
+            return
+        self._bridge.emit("stream_start", {"kind": kind})
+        if text:
+            self._bridge.emit("stream_delta", {"kind": kind, "chunk": text})
+
     def print(self, *objects: Any, sep: str = " ", end: str = "\n", **kwargs) -> None:
         self._primary.print(*objects, sep=sep, end=end, **kwargs)
         if not self._should_broadcast():

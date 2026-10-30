@@ -79,7 +79,7 @@ class ActivityLine(Widget):
 
     def on_click(self) -> None:
         try:
-            self.app.query_one("#transcript").follow()
+            self.app._transcript().follow()
         except Exception:
             pass
 
@@ -134,7 +134,7 @@ class ActivityLine(Widget):
 
     def _lines_below(self) -> int:
         try:
-            return self.app.query_one("#transcript").more_below
+            return self.app._transcript().more_below
         except Exception:
             return 0
 
@@ -205,10 +205,15 @@ class ActivityMixin:
         line.refresh()
 
     async def _tick_activity(self) -> None:
+        from ... import tabs
+
         self._frame += 1
         self._activity_spinner_i = self._frame
-        con = getattr(self, "_tui_console", None)
-        if con is not None:
+        # Every chat tab's stream lands in its own transcript, shown or not.
+        for tab in tabs.all_tabs():
+            con = tab.console
+            if con is None:
+                continue
             try:
                 await con.pump()
             except Exception:
@@ -218,6 +223,8 @@ class ActivityMixin:
             cmd = getattr(con, "_cmd_block", None)
             if cmd is not None:
                 cmd.tick(self._frame)
+        if self._frame % 2 == 0:
+            self._refresh_tab_bar()  # spinners on busy tabs
         self._refresh_activity_widgets()
         self._breathe_composer()
         if self._frame % 12 == 0:
@@ -225,6 +232,10 @@ class ActivityMixin:
 
     def _breathe_composer(self) -> None:
         """Composer bar gently pulses between the agent color and dim while busy."""
+        from ... import tabs
+
+        if not tabs.active().busy:
+            return
         try:
             import math
 
@@ -241,22 +252,30 @@ class ActivityMixin:
         self.call_later(self._tick_activity)
 
     def _start_activity_pulse(self) -> None:
-        self._stop_activity_pulse()
-        self._activity_timer = self.set_interval(1 / 24, self._tick_activity)
-        try:
-            self.query_one("#composer").add_class("-busy")
-        except Exception:
-            pass
+        """One timer for all chat tabs: runs while any of them is busy."""
+        if self._activity_timer is None:
+            self._activity_timer = self.set_interval(1 / 24, self._tick_activity)
+        self._sync_composer_busy()
 
     def _stop_activity_pulse(self) -> None:
-        if self._activity_timer is not None:
+        from ... import tabs
+
+        if self._activity_timer is not None and not any(t.busy for t in tabs.all_tabs()):
             self._activity_timer.stop()
             self._activity_timer = None
+        self._sync_composer_busy()
+        self._refresh_activity_widgets()
+
+    def _sync_composer_busy(self) -> None:
+        """The composer pulses while the tab on screen works."""
+        from ... import tabs
+
+        busy = tabs.active().busy
         try:
-            self.query_one("#composer").remove_class("-busy")
+            self.query_one("#composer").set_class(busy, "-busy")
         except Exception:
             pass
-        sync = getattr(self, "_sync_agent_color", None)
-        if callable(sync):
-            sync()
-        self._refresh_activity_widgets()
+        if not busy:
+            sync = getattr(self, "_sync_agent_color", None)
+            if callable(sync):
+                sync()

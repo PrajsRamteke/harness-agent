@@ -58,6 +58,9 @@ from .turn_progress import report_turn_phase
 # handler) can abort an in-flight response.
 _current_stream = None
 _worker_thread_id: int = 0  # set at the start of each turn
+# Open streams by worker thread: chat tabs run turns side by side, and Esc
+# in one tab must close that tab's stream, not whichever started last.
+_thread_streams: dict[int, Any] = {}
 # Set True once the current attempt receives its first delta. Lets the timeout
 # handler tell a "no first token" stall (safe to retry on a fresh connection)
 # apart from a stall that struck mid-reply (retrying would duplicate text).
@@ -145,7 +148,12 @@ def cancel_current_stream(thread_id: int | None = None):
     so that could hit an unrelated thread (the web server, the sync watcher).
     """
     from .. import state as _state
-    _state.cancel_requested.set()
+    if thread_id:
+        # One turn (a chat tab's): the caller marked that worker cancelled
+        # (``state.cancel_thread``). The global flag would stop every tab's turn.
+        _state.cancel_thread(thread_id)
+    else:
+        _state.cancel_requested.set()
 
     from ..console import console
     cancel_prompts = getattr(console, "cancel_pending_prompts", None)
@@ -156,7 +164,7 @@ def cancel_current_stream(thread_id: int | None = None):
             pass
 
     global _current_stream
-    s = _current_stream
+    s = _thread_streams.get(thread_id) if thread_id else _current_stream
     if s is not None:
         try:
             s.close()
@@ -900,6 +908,7 @@ def _call_claude_stream():
             globals()["_got_first_delta"] = False
             with state.client.messages.stream(**kwargs) as stream:
                 _current_stream = stream
+                _thread_streams[threading.get_ident()] = stream
                 try:
                     if state.stream_reply_live:
                         report_turn_phase("Waiting for model…")
@@ -909,7 +918,9 @@ def _call_claude_stream():
                     report_turn_phase("Jarvis: finalizing...")
                     final = stream.get_final_message()
                 finally:
-                    _current_stream = None
+                    _thread_streams.pop(threading.get_ident(), None)
+                    if _current_stream is stream:
+                        _current_stream = None
             check_tool_inputs(final)
             # input_tokens is the FULL prompt sent in THIS request (includes full
             # conversation history).  Accumulating it across turns massively

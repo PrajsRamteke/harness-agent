@@ -1,0 +1,188 @@
+/* Chat tabs (js/tabs.js) — in the top bar's one row, in place of the title
+   (the active tab *is* the title): [tabs … +]  📁 folder  Ready  ⌘  ▣.
+   One pill per chat, the shown one lifted with an accent underline. Uses only
+   theme tokens, so light / dim / accents follow. */
+.chat-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: -10px; /* the first tab's text lines up where the title was */
+}
+.chat-tabs[hidden] { display: none; }
+.chat-tabs.is-pending { cursor: progress; }
+
+/* The tabs carry the title: the title block keeps only the folder chip,
+   name only, and the tabs get the room. Round buttons never squash. */
+.topbar.has-tabs .title-wrap { flex: 0 1 auto; max-width: 30%; }
+.topbar.has-tabs .cwd-parent { display: none; }
+.topbar.has-tabs > :is(.status-pill, .icon-btn, .cmd-btn, .insp-btn) { flex-shrink: 0; }
+/* Sized by the bar, not the window: side panels make it narrow on desktops too. */
+.topbar { container-type: inline-size; }
+@container (max-width: 640px) {
+  .topbar.has-tabs .title-wrap { display: none; }
+}
+.topbar.has-tabs :is(#session-title, #session-meta) { display: none; }
+.topbar.has-tabs .title-meta { margin: 0; }
+
+.ct-list {
+  flex: 0 1 auto;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+          mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  padding-right: 12px;
+}
+.ct-list::-webkit-scrollbar { display: none; }
+
+.ct-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 64px; /* shrink like browser tabs, never to nothing; the list scrolls past that */
+  max-width: 220px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text-3);
+  transition: background 0.16s, color 0.16s, border-color 0.16s;
+}
+.ct-tab:hover { background: var(--card-hover); color: var(--text-2); }
+.ct-tab.is-active {
+  min-width: 116px; /* the chat on screen stays readable */
+  background: var(--card-hover);
+  border-color: var(--line-2);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 var(--highlight);
+}
+/* The shown tab's accent underline. */
+.ct-tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+.ct-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 11px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 10px 0 0 10px;
+}
+.ct-main:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.ct-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ct-main .ct-rename {
+  width: 160px;
+  height: 22px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.ct-mark { display: grid; place-items: center; flex-shrink: 0; width: 12px; height: 12px; }
+.ct-mark .spinner { width: 12px; height: 12px; border-width: 1.5px; }
+.ct-mark.is-new::before,
+.ct-mark.is-wait::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: pop-in 0.4s var(--spring, var(--ease));
+}
+.ct-mark.is-wait::before {
+  background: var(--warn);
+  box-shadow: 0 0 8px var(--warn);
+  animation: breathe 1s ease-in-out infinite;
+}
+
+.ct-close {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s, background 0.14s, color 0.14s;
+}
+.ct-close svg { width: 14px; height: 14px; }
+.ct-tab.is-active .ct-close,
+.ct-close:focus-visible { opacity: 1; }
+/* Other tabs keep no room for ×: it shows over the end of the title on hover. */
+.ct-tab:not(.is-active) .ct-main { padding-right: 11px; }
+.ct-tab:not(.is-active) .ct-close {
+  position: absolute;
+  right: 0;
+  margin-right: 4px;
+  pointer-events: none;
+}
+.ct-tab:not(.is-active):hover .ct-close { opacity: 1; pointer-events: auto; }
+.ct-tab:not(.is-active):hover .ct-title {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent calc(100% - 16px));
+          mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent calc(100% - 16px));
+}
+.ct-close:hover { background: var(--danger-soft); color: var(--danger); }
+.ct-close:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.ct-new {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px dashed var(--line-2);
+  border-radius: 10px;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.16s, color 0.16s, border-color 0.16s, transform 0.15s var(--ease);
+}
+.ct-new svg { width: 16px; height: 16px; }
+.ct-new:hover { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
+.ct-new:active { transform: scale(0.94); }
+.ct-new:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Touch: no hover, so × is always there; rows a thumb can hit. */
+@media (hover: none) {
+  .ct-tab.is-active .ct-close { opacity: 1; } /* close another tab after showing it */
+}
+@media (max-width: 960px) {
+  .chat-tabs { margin-left: 0; }
+}
+@media (max-width: 560px) {
+  .ct-tab { max-width: 168px; height: 34px; }
+  .ct-new { width: 34px; height: 34px; }
+  .ct-main { font-size: 13.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-mark.is-wait::before { animation: none; }
+}

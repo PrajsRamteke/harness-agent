@@ -157,6 +157,8 @@ _GROUP_ORDER = (
     "background", "ocr", "memory", "lessons", "extensions", "mcp", "plan",
 )
 _sticky: dict = {"key": None, "groups": set()}
+# Other conversations' groups (chat tabs alternate requests): key → groups.
+_sticky_others: dict = {}
 
 
 def _conversation_key(messages: list[dict]) -> tuple:
@@ -171,15 +173,22 @@ def _conversation_key(messages: list[dict]) -> tuple:
 def _sticky_groups(messages: list[dict]) -> set[str]:
     """This conversation's sticky groups (reset for a new / resumed one)."""
     key = _conversation_key(messages)
-    if _sticky["key"] != key or not messages:
+    if not messages:
+        _sticky["key"], _sticky["groups"] = key, set()
+    elif _sticky["key"] != key:
+        if _sticky["key"] is not None:
+            _sticky_others[_sticky["key"]] = _sticky["groups"]
+            while len(_sticky_others) > 16:
+                _sticky_others.pop(next(iter(_sticky_others)))
         _sticky["key"] = key
-        _sticky["groups"] = set()
+        _sticky["groups"] = _sticky_others.pop(key, set())
     return _sticky["groups"]
 
 
 def reset_sticky_groups() -> None:
     _sticky["key"] = None
     _sticky["groups"] = set()
+    _sticky_others.clear()
 
 
 def select_tools(messages: list[dict]) -> list[dict]:

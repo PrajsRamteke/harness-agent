@@ -149,7 +149,7 @@ class StickyPrompt(Widget):
         event.stop()
         self._collapse()
         try:
-            t = self.app.query_one("#transcript")
+            t = self.app._transcript()
             t.scroll_relative(y=sign * max(1, int(self.app.scroll_sensitivity_y)), animate=False)
         except Exception:
             pass

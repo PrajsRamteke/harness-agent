@@ -427,7 +427,7 @@ class AgentPickerScreen(TuiModalScreen[dict | str | None]):
         try:
             from rich.panel import Panel
             from rich.markdown import Markdown
-            log = self.app.query_one("#transcript")
+            log = self.app._transcript()
             log.write(Panel(
                 Markdown(body or "*(empty body)*"),
                 title=f"⚙  Agent preview: {name}",

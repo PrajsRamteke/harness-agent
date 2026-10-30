@@ -29,6 +29,7 @@ import { handleLocalEvent } from './local.js';
 import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
 import { handleProjectsEvent } from './projects.js';
+import { setTabs } from './tabs.js';
 
 let runningTools = 0;
 
@@ -48,6 +49,7 @@ export function handleEvent(evt) {
       renderSnapshot(data);
       setBusy(!!data.busy);
       setQueue(data.queue || [], data.queue_items);
+      setTabs(data.tabs);
       loadChanges(data.changes, data.session_id);
       loadActivity(data.messages);
       setJobs(data.jobs);
@@ -62,6 +64,7 @@ export function handleEvent(evt) {
       loadSnapshot(data);
       setBusy(!!data.busy);
       setQueue(data.queue || [], data.queue_items);
+      setTabs(data.tabs);
       if ('jobs' in data) setJobs(data.jobs);
       syncThoughtsVisibility();
       break;

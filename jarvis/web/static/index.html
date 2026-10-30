@@ -56,6 +56,7 @@
   <link rel="stylesheet" href="/static/css/local.css">
   <link rel="stylesheet" href="/static/css/projects.css">
   <link rel="stylesheet" href="/static/css/folders.css">
+  <link rel="stylesheet" href="/static/css/tabs.css">
 </head>
 <body>
   <div class="backdrop" aria-hidden="true">
@@ -113,17 +114,6 @@
             <button class="link-btn" id="all-sessions" type="button">View all</button>
           </div>
           <div class="recent" id="recent-list" role="list"></div>
-        </section>
-
-        <section class="side-sec">
-          <h2 class="sec-title">Reasoning</h2>
-          <label class="switch-row" for="sw-think">
-            <span class="sw-icon" data-icon="brain"></span>
-            <span class="sw-text"><strong>Extended thinking</strong><span>Think before answering</span></span>
-            <input type="checkbox" class="switch" id="sw-think" role="switch">
-          </label>
-          <div class="effort" id="effort" role="radiogroup" aria-label="Thinking effort"></div>
-          <p class="effort-hint" id="effort-hint" hidden></p>
         </section>
 
         <section class="side-sec">
@@ -191,6 +181,7 @@
     <main class="main">
       <header class="topbar glass">
         <button class="icon-btn only-narrow" id="menu-btn" type="button" aria-label="Open panel"><span data-icon="panel-left"></span></button>
+        <nav class="chat-tabs" id="chat-tabs" aria-label="Chat tabs" hidden></nav>
         <div class="title-wrap">
           <h1 id="session-title">New session</h1>
           <div class="title-meta">

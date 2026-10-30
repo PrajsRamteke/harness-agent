@@ -381,7 +381,7 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
     Cheap enough to poll every second (``StateWatcher``); pass
     ``session_title`` to skip the database read when it is already known.
     """
-    from .. import state, prompt_queue
+    from .. import state, prompt_queue, tabs
     from ..storage import pin as pin_store
 
     _, pin_chars = pin_store.pin_stats()
@@ -398,6 +398,7 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "global_skills": bool(getattr(state, "global_skills", False)),
         "global_mcp": bool(getattr(state, "global_mcp", False)),
         "busy": busy,
+        "tabs": tabs.public(),
         "queue": prompt_queue.labels(),
         "queue_items": prompt_queue.public(),
         "pin": {"lines": pin_lines, "enabled": pin_store.is_enabled(), "chars": pin_chars},

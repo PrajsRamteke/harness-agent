@@ -702,6 +702,15 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
 
+        if path == "/api/tabs":
+            # Chat tabs {op: new|switch|close, id}: run on the terminal's thread,
+            # which sends pages the shown tab's snapshot itself.
+            result = self.bridge.request_action("tabs", data)
+            if not isinstance(result, dict):
+                result = {"ok": False, "error": "invalid response"}
+            self._send_json(200, result)
+            return
+
         if path == "/api/queue":
             # Edit / remove / "send now" a queued message (``prompt_queue.apply_op``).
             result = self.bridge.request_action("queue", data)

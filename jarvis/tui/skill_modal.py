@@ -179,7 +179,7 @@ class SkillBrowserScreen(TuiModalScreen[str | None]):
             from rich.panel import Panel
             from rich.markdown import Markdown
             content = sk.load_skill(oid) or "(empty)"
-            log = self.app.query_one("#transcript")
+            log = self.app._transcript()
             log.write(Panel(
                 Markdown(content),
                 title=f"⚙ Skill preview: {oid}",

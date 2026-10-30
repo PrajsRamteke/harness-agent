@@ -167,6 +167,15 @@ class TUIConsole:
     def _transcript(self):
         return self._log
 
+    def _show_my_tab(self) -> None:
+        """About to ask the user something: show this console's chat tab first."""
+        fn = getattr(self._app, "_focus_tab_of_console", None)
+        if callable(fn):
+            try:
+                fn(self)
+            except Exception:
+                _log.exception("could not show the asking tab")
+
     # ─── stream ownership ─────────────────────────────────────────────
     # The worker that starts a stream owns it. After Esc the UI may start the
     # next turn while the cancelled worker is still unwinding; deltas, commits
@@ -737,6 +746,7 @@ class TUIConsole:
             waiter.deliver(r)
 
         def push() -> None:
+            self._show_my_tab()
             self._app.push_screen(ShellApprovalScreen(cmd), on_done)
 
         self._app.call_from_thread(push)
@@ -760,6 +770,7 @@ class TUIConsole:
             waiter.deliver(result if result is not None else "")
 
         def push() -> None:
+            self._show_my_tab()
             self._app.begin_ask_user_question(questions, on_done)
 
         self._app.call_from_thread(push)
@@ -796,6 +807,7 @@ class TUIConsole:
         placeholder = "(password, hidden)" if password else "(paste here)"
 
         def push() -> None:
+            self._show_my_tab()
             self._app.push_screen(
                 TextInputScreen(
                     title="Input required",

@@ -79,6 +79,12 @@ export function renameInline(el, { sessionId = null, value = '', label = 'Sessio
 
 /** The top-bar title: click (or `/rename` with no title) to rename the chat on screen. */
 export async function renameCurrent() {
+  // With chat tabs in the top bar the active tab is the title (tabs.js).
+  const tabTitle = document.querySelector('#chat-tabs:not([hidden]) .ct-tab.is-active .ct-title');
+  if (tabTitle) {
+    const { renameActiveTab } = await import('./tabs.js');
+    if (await renameActiveTab()) return;
+  }
   const h1 = document.getElementById('session-title');
   if (!h1 || h1.hidden) return;
   await renameInline(h1, {

@@ -29,7 +29,7 @@ class PromptNavMixin:
         Called on scroll, on every activity tick and after layout changes."""
         try:
             bar = self.query_one("#sticky_prompt", StickyPrompt)
-            transcript = self.query_one("#transcript", Transcript)
+            transcript = self._transcript()
         except Exception:
             return
         target = transcript.sticky_prompt() if self._sticky_on else None
@@ -41,7 +41,7 @@ class PromptNavMixin:
         """Sticky-bar clicks: ``jump`` back to ``block``, or ``prev`` / ``next``
         relative to it (next past the last prompt re-follows the live end)."""
         try:
-            transcript = self.query_one("#transcript", Transcript)
+            transcript = self._transcript()
         except Exception:
             return
         if block is None:
@@ -62,7 +62,7 @@ class PromptNavMixin:
         if isinstance(self.screen, ModalScreen):
             raise SkipAction
         try:
-            transcript = self.query_one("#transcript", Transcript)
+            transcript = self._transcript()
         except Exception:
             return
         if not transcript.step_prompt(delta):

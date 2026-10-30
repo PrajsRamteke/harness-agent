@@ -292,14 +292,20 @@ function renderBlocks(text) {
     }
 
     const paraLines = [];
+    const start = i;
     while (i < lines.length && lines[i].trim()) {
       const l = lines[i];
-      if (/^\x00CODE\d+\x00$/.test(l.trim())) break;
-      if (/^(#{1,6})\s/.test(l)) break;
-      if (isHr(l)) break;
-      if (/^>\s?/.test(l)) break;
-      if (isTableRow(l) && i + 1 < lines.length && isSeparatorRow(lines[i + 1])) break;
-      if (LIST_RE.test(l)) break;
+      // The first line always goes in: one that only looks like a block start
+      // ("## " with no text yet, mid-stream) matched no branch above, and
+      // breaking on it would loop forever without consuming it.
+      if (i !== start) {
+        if (/^\x00CODE\d+\x00$/.test(l.trim())) break;
+        if (/^(#{1,6})\s/.test(l)) break;
+        if (isHr(l)) break;
+        if (/^>\s?/.test(l)) break;
+        if (isTableRow(l) && i + 1 < lines.length && isSeparatorRow(lines[i + 1])) break;
+        if (LIST_RE.test(l)) break;
+      }
       paraLines.push(l);
       i += 1;
     }

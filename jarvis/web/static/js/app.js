@@ -27,6 +27,7 @@ import { initCommands } from './commands.js';
 import { initPin } from './pin.js';
 import { initLocal } from './local.js';
 import { initQueue } from './queue.js';
+import { initTabs } from './tabs.js';
 import { initPrompts } from './prompts.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initQuickbar } from './quickbar.js';
@@ -132,6 +133,7 @@ function boot() {
   initChat();
   initQuote({ onQuote: insertQuote });
   initQr();
+  initTabs();
   initStatus();
   initComposer({ onCatalogItem: runItem, onOpenPicker: openPickerByKind });
   initMedia({ onOpenPicker: openPickerByKind });

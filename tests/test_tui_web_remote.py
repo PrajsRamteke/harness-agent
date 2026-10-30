@@ -262,8 +262,9 @@ def test_web_stop_frees_the_port_and_unwraps_the_console(web_app):
             await pilot.pause(1.2)  # shutdown runs off the UI thread
 
             assert app._web_bridge is None and not app._web_primary_url
-            assert isinstance(app._tui_console, TUIConsole)
-            assert isinstance(console_mod.console, TUIConsole)
+            # Modules keep the tab router; behind it the tab's console is unwrapped.
+            assert console_mod.console is app._tui_console
+            assert isinstance(app._tui_console._target(), TUIConsole)
             assert "web_connect" not in _footer_actions(app)
             # The browser's stream was told to end.
             from jarvis.web.bridge import CLOSE_SENTINEL

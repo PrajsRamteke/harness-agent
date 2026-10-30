@@ -76,6 +76,12 @@ class StateWatcher:
             self._bridge.emit("projects", {"projects": rows})
         self._last_projects = rows
 
+    def mark_synced(self, fields: dict[str, Any]) -> None:
+        """The caller just sent pages a snapshot of ``fields`` (a chat tab
+        switch): don't send another one on the next tick."""
+        if self._bridge.has_subscribers():
+            self._last = fields
+
     def tick(self) -> str | None:
         """One poll. Returns the event type broadcast (for tests), if any."""
         if not self._bridge.has_subscribers():

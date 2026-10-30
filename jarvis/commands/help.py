@@ -6,6 +6,8 @@ _SECTIONS = [
     ("Session", [
         ("/help", "this menu — pass a keyword to filter, e.g. /help session"),
         ("/new", "start a fresh conversation (keeps pinned context)"),
+        ("/tab new", "new chat in a new tab — the current one keeps going (alt+t)"),
+        ("/tab [n|close|next|prev]", "list / switch / close chat tabs (alt+1…9, alt+w, ctrl+pgup/pgdn)"),
         ("/retry", "send the last request again after an error"),
         ("/reset", "clear conversation"),
         ("/history", "show message summary"),

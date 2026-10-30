@@ -10,6 +10,8 @@ COMMANDS = [
     # Session
     ("/help", "open the help reference (type to search)"),
     ("/new", "start a fresh conversation (keeps pinned context)"),
+    ("/tab new", "new chat in a new tab — the current one keeps going (+ in the tab strip)"),
+    ("/tab", "list chat tabs — /tab <n> switch · /tab close [n] · /tab next|prev"),
     ("/retry", "send the last request again after an error"),
     ("/reset", "clear conversation"),
     ("/history", "show message summary"),

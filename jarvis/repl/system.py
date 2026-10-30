@@ -39,6 +39,9 @@ _cached_ctx_key: str = ""
 
 # The prompt as sent for the current user turn (see build_system).
 _turn_prompt: dict = {"turn": None, "critical": None, "value": None}
+# One frozen prompt per session: chat tabs run turns side by side, and each
+# turn must keep its own prompt stable (prompt cache, Claude 5 thinking).
+_turn_prompts: dict = {}
 
 
 def invalidate_system_cache() -> None:
@@ -46,6 +49,8 @@ def invalidate_system_cache() -> None:
     global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key
     global _cached_mcp_key, _cached_agents_key, _cached_pinned, _cached_cwd_branch, _cached_ctx_key
     _turn_prompt["value"] = None
+    for frozen in _turn_prompts.values():
+        frozen["value"] = None
     _cached_body = ""
     _cached_mem_key = ""
     _cached_sk_key = ""
@@ -349,7 +354,14 @@ def build_system() -> Union[str, List[Dict]]:
     """
     turn = (state.current_session_id, _turn_anchor())
     critical = _critical_key()
-    frozen = _turn_prompt
+    if state.current_session_id is None:
+        frozen = _turn_prompt
+    else:
+        frozen = _turn_prompts.get(state.current_session_id)
+        if frozen is None:
+            if len(_turn_prompts) >= 16:  # closed tabs' sessions
+                _turn_prompts.pop(next(iter(_turn_prompts)))
+            frozen = _turn_prompts[state.current_session_id] = {"turn": None, "critical": None, "value": None}
     if (frozen["value"] is not None and turn[1] >= 0
             and frozen["turn"] == turn and frozen["critical"] == critical):
         value = frozen["value"]

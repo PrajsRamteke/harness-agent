@@ -15,7 +15,6 @@ from contextlib import nullcontext
 from rich.markup import escape as _rich_escape
 
 from ..console_shim import TUIConsole
-from ..console_swap import _swap_console_everywhere
 from ..web_bar import WebRemoteQR
 from ..app_commands import (
     _is_bare_model_command,
@@ -33,13 +32,13 @@ from ..app_commands import (
     _is_theme_modal_command,
 )
 from .. import theme as ui
-from ... import state
+from ... import state, tabs
 
 
 class WebRemoteMixin:
     """Web-remote (browser bridge) behaviour for ``JarvisTUI``."""
 
-    def _start_web_remote(self, tui_console: TUIConsole) -> bool:
+    def _start_web_remote(self, tui_console: TUIConsole | None = None) -> bool:
         from ...web.bridge import WebBridge
         from ...web.console_mux import WebMuxConsole
         from ...web.server import primary_remote_url, start_web_server
@@ -57,11 +56,11 @@ class WebRemoteMixin:
                 lambda a=action, d=data, cb=done: self._complete_web_action(a, d, cb)
             ),
         )
-        mux = WebMuxConsole(tui_console, bridge)
-        _swap_console_everywhere(mux)
-        self._tui_console = mux
-        self._web_mux = mux
+        # Every chat tab mirrors to the page while it is the one shown
+        # (mixins/tabs.py); modules keep the tab router as their console.
         self._web_bridge = bridge
+        for tab in tabs.all_tabs():
+            self._wrap_tab_for_web(tab)
         preferred_port = state.web_port
         try:
             self._web_server, self._web_urls, bound_port = start_web_server(
@@ -70,10 +69,9 @@ class WebRemoteMixin:
                 port=preferred_port,
             )
         except OSError as exc:
-            self._tui_console = tui_console
-            self._web_mux = None
             self._web_bridge = None
-            _swap_console_everywhere(tui_console)
+            for tab in tabs.all_tabs():
+                tab.mux = None
             self._tui_console.print(
                 f"[{ui.WARN}]Web remote failed: {exc}[/]"
             )
@@ -99,13 +97,9 @@ class WebRemoteMixin:
         from ...web.server import stop_web_server
 
         self._stop_tunnel(quiet=True)
-        mux = getattr(self, "_web_mux", None)
         server, bridge = getattr(self, "_web_server", None), self._web_bridge
-        if mux is not None:
-            primary = mux._primary
-            _swap_console_everywhere(primary)
-            self._tui_console = primary
-        self._web_mux = None
+        for tab in tabs.all_tabs():
+            tab.mux = None
         self._web_bridge = None
         self._web_server = None
         self._web_urls = []
@@ -457,7 +451,7 @@ class WebRemoteMixin:
 
     def _sync_web_busy(self) -> None:
         bridge = self._web_bridge
-        if bridge is None:
+        if bridge is None or not self._tab_visible():  # the page shows the active tab
             return
         bridge.emit("busy", {"busy": self._busy})
 
@@ -477,6 +471,8 @@ class WebRemoteMixin:
         # Before the busy check, same as the composer: queued, it would reach
         # the slash dispatcher as "unknown: /loop".
         if not files and self._try_loop_command(text):
+            return
+        if not files and self._try_tab_command(text):  # /tab new · /tab 2 · /tab close
             return
         if self._busy:
             self._stash_prompt(text, files=files)
@@ -568,6 +564,16 @@ class WebRemoteMixin:
 
         if action == "queue":  # edit / remove / send now a queued message
             return self._handle_web_queue(data)
+        if action == "tabs":  # new / switch / close a chat tab
+            return self._handle_web_tabs(data)
+        if action == "session_resume":
+            try:
+                other = tabs.find_session(int(data.get("session_id") or 0))
+            except (TypeError, ValueError):
+                other = None
+            if other is not None:  # open in a tab already: show that tab, never load it twice
+                self._switch_tab(other)
+                return {"ok": True, "session_id": other.session_id, "tab": other.id}
 
         mux = getattr(self, "_web_mux", None)
         ctx = mux.suppress_broadcast() if mux is not None else nullcontext()
@@ -585,7 +591,7 @@ class WebRemoteMixin:
 
             if action in ("session_resume", "session_new"):
                 try:
-                    self.query_one("#transcript").clear()
+                    self._transcript().clear()
                     self._tui_console.forget_tools()
                 except Exception:
                     pass

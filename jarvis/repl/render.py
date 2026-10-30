@@ -393,7 +393,10 @@ def _run_parallel_batch(batch, outputs):
         if state.show_internal and not getattr(console, "renders_tool_rows", False):
             console.print(f"[cyan]⚡ running {len(batch)} tools in parallel (max {workers} workers)[/]")
         ex = _tool_executor()
-        for b, icon, ap, out_str in ex.map(_run_tool, batch):
+        from .. import tabs
+
+        # Pool threads work for this turn's chat tab and stop with its turn.
+        for b, icon, ap, out_str in ex.map(tabs.carry(_run_tool), batch):
             # Check cancel after each parallel tool completes
             if state.turn_cancelled():
                 # Don't bother storing results — we're aborting

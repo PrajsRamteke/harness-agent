@@ -628,6 +628,11 @@ Screen {{
     layers: base overlay;
 }}
 
+/* Chat tabs strip (tui/tab_bar.py): one row above everything. */
+#tabbar {{
+    background: {BG_0};
+}}
+
 #main {{
     height: 1fr;
     width: 100%;

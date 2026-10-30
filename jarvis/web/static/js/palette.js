@@ -12,6 +12,7 @@ import { submitPrompt, fillPrompt } from './composer.js';
 import { openShortcuts } from './shortcuts.js';
 import { openInspector } from './inspector.js';
 import { openFilePicker } from './media.js';
+import { newTab, stepTab } from './tabs.js';
 
 let visible = [];
 let nav = null;
@@ -81,6 +82,14 @@ export async function runItem(item) {
   }
   if (item.action === 'folders') {
     openFolders();
+    return;
+  }
+  if (item.action === 'tab_new') {
+    newTab();
+    return;
+  }
+  if (item.action === 'tab_next' || item.action === 'tab_prev') {
+    stepTab(item.action === 'tab_next' ? 1 : -1);
     return;
   }
   if (item.action === 'rename') {

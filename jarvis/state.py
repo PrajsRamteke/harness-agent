@@ -86,15 +86,23 @@ _thread_parents: dict[int, int] = {}
 
 
 def link_thread(child: int | None, parent: int | None) -> None:
+    """``child`` works for ``parent``'s turn: stops with it, and writes to its chat tab."""
     if child and parent and child != parent:
         with _cancelled_lock:
             _thread_parents[child] = parent
+        from . import tabs
+
+        tabs.bind_thread(child, tabs.tab_of_thread(parent) or tabs.current())
 
 
 def unlink_thread(child: int | None) -> None:
     if child:
         with _cancelled_lock:
-            _thread_parents.pop(child, None)
+            linked = _thread_parents.pop(child, None)
+        if linked is not None:
+            from . import tabs
+
+            tabs.unbind_thread(child)
 
 
 def turn_cancelled() -> bool:
@@ -140,7 +148,7 @@ tool_output_history: deque = deque(maxlen=TOOL_UI_HISTORY_SIZE)
 
 def record_tool_output(name: str, args_preview: str, content: str, tool_id: str = "") -> None:
     """Remember a tool result for the scrollable output viewer."""
-    tool_output_history.append(
+    _tabs.current().session["tool_output_history"].append(
         {
             "name": name,
             "args": args_preview,
@@ -611,3 +619,38 @@ _reload_saved_trace()
 _reload_saved_pin()
 _reload_saved_mcp()
 _reload_saved_agent_name()
+
+
+# ── chat tabs ──────────────────────────────────────────────────────────────
+# The conversation's own state (``tabs.SESSION_FIELDS``: messages, session id,
+# token counters, queue, plan mode …) lives on a chat tab. ``state.<name>``
+# reads and writes the current thread's tab (``tabs.current()``), so a turn
+# running in a background tab keeps its own conversation. With one tab this
+# is exactly the old module-level behaviour.
+import sys as _sys
+import types as _types
+
+from . import tabs as _tabs
+
+
+def _session_property(name: str) -> property:
+    def fget(_mod):
+        return _tabs.current().session[name]
+
+    def fset(_mod, value):
+        _tabs.current().session[name] = value
+
+    return property(fget, fset)
+
+
+class _StateModule(_types.ModuleType):
+    pass
+
+
+for _name in _tabs.SESSION_FIELDS:
+    _first = _tabs.active().session
+    if _name in globals():
+        _first[_name] = globals().pop(_name)  # the module default seeds the first tab
+    setattr(_StateModule, _name, _session_property(_name))
+
+_sys.modules[__name__].__class__ = _StateModule

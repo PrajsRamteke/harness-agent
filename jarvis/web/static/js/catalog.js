@@ -23,6 +23,9 @@ export const CATALOG = [
   { group: 'Go to', picker: 'provider', cmd: '/provider', label: 'Providers and login', desc: 'Sign in, add API keys, switch provider', icon: 'key-round', keys: 'login logout sign in oauth api key keys account anthropic claude chatgpt codex google antigravity gemini openrouter opencode zen' },
 
   { group: 'Conversation', action: 'session_new', cmd: '/new', label: 'New chat', desc: 'Start a fresh conversation', icon: 'plus', keys: 'clear fresh' },
+  { group: 'Conversation', action: 'tab_new', cmd: '/tab new', label: 'New chat tab', desc: 'Another chat in this folder — this one keeps going in its tab', icon: 'plus', keys: 'tab tabs new window parallel side by side another second chat open' },
+  { group: 'Conversation', action: 'tab_next', label: 'Next chat tab', desc: 'Show the next open chat', icon: 'arrow-right', keys: 'tab tabs switch next cycle' },
+  { group: 'Conversation', action: 'tab_prev', label: 'Previous chat tab', desc: 'Show the previous open chat', icon: 'arrow-left', keys: 'tab tabs switch previous back cycle' },
   { group: 'Conversation', action: 'rename', cmd: '/rename', label: 'Rename chat', desc: 'Give this conversation a new title', icon: 'pencil', keys: 'title heading name session edit' },
   { group: 'Conversation', cmd: '/retry', label: 'Retry', desc: 'Send the last request again after an error', icon: 'refresh-cw', keys: 'again error failed resend' },
   { group: 'Conversation', cmd: '/reset', label: 'Reset', desc: 'Clear the conversation history', icon: 'rotate-ccw' },

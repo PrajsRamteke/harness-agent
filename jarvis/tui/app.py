@@ -39,7 +39,7 @@ from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_
 from .ask_user import AskUserController, AskQuestion, normalize_questions
 from .web_bar import WebRemoteQR
 from . import theme as ui
-from .. import state
+from .. import state, tabs
 
 
 def _not_signed_in_report() -> "api_errors.ErrorReport":
@@ -157,6 +157,8 @@ from .mixins.bg_jobs import BgJobsMixin  # noqa: E402
 from .mixins.enhance import EnhanceMixin  # noqa: E402
 from .mixins.mcp_auth import McpAuthMixin  # noqa: E402
 from .mixins.queue import QueueMixin  # noqa: E402
+from .mixins.tabs import TabsMixin  # noqa: E402
+from .tab_bar import TabBar  # noqa: E402
 from .queue_bar import QueueBar  # noqa: E402
 from .mcp_auth_bar import McpAuthBar  # noqa: E402
 from .enhance_button import EnhanceButton  # noqa: E402
@@ -197,7 +199,7 @@ _TIPS = (
 # ─── App ─────────────────────────────────────────────────────────────────
 
 
-class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMixin,
+class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMixin, LoopMixin,
                 BgJobsMixin, EnhanceMixin, McpAuthMixin, FileRefPickerMixin, App):
     ENABLE_COMMAND_PALETTE = False
     CSS = ui.GLOBAL_CSS
@@ -228,10 +230,17 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         Binding("ctrl+g", "enhance_prompt", "Enhance prompt", show=False),
         # Only live while the sign-in bar is showing (McpAuthMixin.check_action).
         Binding("ctrl+o", "mcp_auth_start", "Sign in", show=False),
+        # Chat tabs (mixins/tabs.py) — the + in the tab strip / /tab work everywhere.
+        Binding("alt+t", "new_tab", "New tab", show=False, priority=True),
+        Binding("alt+w", "close_tab", "Close tab", show=False, priority=True),
+        Binding("ctrl+pagedown", "next_tab", "Next tab", show=False, priority=True),
+        Binding("ctrl+pageup", "prev_tab", "Previous tab", show=False, priority=True),
+        *[Binding(f"alt+{n}", f"goto_tab({n})", show=False, priority=True) for n in range(1, 10)],
     ]
 
     def __init__(self):
         super().__init__()
+        self._tabs_init()
         _install_terminal_keys()  # Shift+Enter via ESC+CR (VS Code / Cursor) → newline
         self._busy = False
         self._last_input_value = ""
@@ -247,7 +256,6 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._last_ctrl_c_t = 0.0
         self._key_debug = False
         self._web_bridge = None
-        self._web_mux = None
         self._web_server = None
         self._web_urls: list[str] = []
         self._web_primary_url = ""
@@ -266,10 +274,6 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._enhance_init()
         self._mcp_auth_init()
         self._history = PromptHistory()
-        self._turn_is_llm = False
-        self._turn_cancelled = False
-        self._turn_id = 0
-        self._turn_threads: dict[int, int] = {}
         self._trace_shown: bool | None = None
         self._turns_done = 0
         self._last_esc_t = 0.0
@@ -331,6 +335,7 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
     def compose(self) -> ComposeResult:
         yield WebRemoteQR(id="web_qr_overlay")
         yield PetBubble(id="pet_bubble")
+        yield TabBar(id="tabbar")
         with Horizontal(id="main"):
             with Vertical(id="body"):
                 yield Transcript(id="transcript")
@@ -371,16 +376,15 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         transcript = self.query_one("#transcript", Transcript)
         transcript.set_class(not state.show_internal, "-trace-off")
         self._trace_shown = bool(state.show_internal)
-        status = self.query_one("#activity", ActivityLine)
 
         # Swap console BEFORE importing repl/* so their module-local
-        # `console` names are rebound to the TUI console.
-        tui_console = TUIConsole(self, transcript, status)
-        _swap_console_everywhere(tui_console)
-        self._tui_console = tui_console
+        # `console` names are rebound to the TUI console. Every module holds
+        # the tab router; each chat tab has its own TUIConsole behind it.
+        self._attach_tab_ui(tabs.active(), transcript)
+        _swap_console_everywhere(self._console_router)
 
         if state.web_enabled:
-            self._start_web_remote(tui_console)
+            self._start_web_remote()
             if state.web_tunnel and self._web_bridge is not None:
                 if self._start_tunnel() == "missing":
                     self._tui_console.print(
@@ -466,6 +470,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
 
     def _slow_refresh(self) -> None:
         """Footer + sidebar refresh (tokens, branch, MCP health)."""
+        if not self._tab_visible():
+            return
         self._sync_trace()
         self._render_footer()
         self._pet_slow_tick()
@@ -475,6 +481,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._refresh_sidebar()
 
     def _refresh_sidebar(self) -> None:
+        if not self._tab_visible():
+            return
         try:
             sb = self.query_one("#sidebar", Sidebar)
             if not sb.has_class("hidden"):
@@ -541,7 +549,7 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
     def _mount_welcome(self) -> None:
         # Always called on an empty (or just-cleared) transcript.
         welcome = WelcomeBlock(self._welcome_info())
-        self.query_one("#transcript", Transcript).mount(welcome)
+        self._transcript().mount(welcome)
         self.call_after_refresh(welcome.start_shine)
         if state.update_result:
             info = state.update_result
@@ -719,6 +727,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             return len(markup)
 
     def _render_footer(self) -> None:
+        if not self._tab_visible():  # the footer shows the tab on screen
+            return
         try:
             footer = self.query_one("#footer")
             left_w = self.query_one("#footer_left", FooterBar)
@@ -781,6 +791,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._refresh_activity_widgets()
 
     def _set_status(self, msg: str):
+        if not self._tab_visible():
+            return
         self._status_msg = msg or ""
         if self._status_timer is not None:
             self._status_timer.stop()
@@ -808,6 +820,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             pass
 
     def _set_placeholder(self, text: str) -> None:
+        if not self._tab_visible():
+            return
         try:
             self.query_one("#prompt", PromptArea).placeholder = text
         except Exception:
@@ -946,6 +960,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             self._open_local_cmd_modal(initial=rest)
         elif stripped == "/sidebar":
             self.action_toggle_sidebar()
+        elif stripped.split(" ", 1)[0].lower() in ("/tab", "/tabs"):
+            self._try_tab_command(stripped)
         elif stripped.lower() == "/web" or stripped.lower().startswith("/web "):
             self._handle_web_command(stripped)
         elif _is_pet_badges_command(stripped):
@@ -1390,7 +1406,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         return UserBlock(text)
 
     def _transcript(self) -> Transcript:
-        return self.query_one("#transcript", Transcript)
+        """The current tab's transcript (the worker's tab, else the one on screen)."""
+        return tabs.current().transcript
 
     def action_escape_action(self):
         if self.file_ref_picker_active:
@@ -1429,8 +1446,11 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         # Mark the worker itself cancelled: the global flag is cleared when
         # the next turn starts, but this thread must keep stopping.
         worker = self._turn_threads.get(self._turn_id)
-        state.cancel_thread(worker)
-        cancel_current_stream(thread_id=worker)
+        if worker:
+            state.cancel_thread(worker)
+            cancel_current_stream(thread_id=worker)
+        # No worker yet: it sees _turn_cancelled when it starts (_run_turn_bound).
+        # Never the global flag here — that would stop every chat tab's turn.
         if hasattr(self._tui_console, "cancel_pending_prompts"):
             self._tui_console.cancel_pending_prompts()
         self._turn_cancelled = True
@@ -1466,6 +1486,9 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         """Load session ``sid`` into this chat (the /session picker's pick)."""
         from .session_modal import resume_session_into_state
 
+        other = tabs.find_session(sid)
+        if other is not None and not other.is_active():  # never open twice: go to its tab
+            return self._switch_tab(other)
         note = self._stop_turn_for_session_change()
         if not resume_session_into_state(sid, self._tui_console.print, preview=False):
             return False
@@ -1516,6 +1539,9 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         if self._try_loop_command(stripped):
             return
 
+        if self._try_tab_command(stripped):
+            return
+
         if stripped == "/keytest":
             self._key_debug = True
             self._tui_console.print(
@@ -1546,7 +1572,10 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         state.cancel_requested.clear()
         self._turn_cancelled = False
         self._turn_is_llm = False
-        self._turn_id += 1
+        self._turn_id = self._next_turn_id()
+        tab = tabs.current()
+        self._turn_tabs[self._turn_id] = tab  # the worker picks it up (_run_turn)
+        tab.unread = False
         self._reply_before_turn = state.last_assistant_text
         api_errors.clear()
         retrying = inp.strip() == api_errors.RETRY and not attachments
@@ -1568,7 +1597,7 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         if retrying:
             self._tui_console.print(f"[{ui.ACCENT}]↻[/] [{ui.FG_DIM}]Retrying the last request…[/]")
         transcript.follow()
-        if self._web_bridge is not None and not retrying:
+        if self._web_bridge is not None and not retrying and self._tab_visible():
             event = {"role": "you", "text": inp, "title": "you"}
             if files:
                 from ..media import public
@@ -1577,6 +1606,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             self._web_bridge.emit("message", event)
         self._busy = True
         self._turn_t0 = time.monotonic()
+        tab.busy_since = time.time()
+        self._refresh_tab_bar()
         self._pet_turn_started()
         if upgrading:
             self._sync_activity_phase("Checking" if checking else "Upgrading")
@@ -1770,14 +1801,28 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._render_footer()
         self._refresh_activity_widgets()
 
-    @work(thread=True, exclusive=True)
+    # Not exclusive: every chat tab may have a turn running.
+    @work(thread=True, group="turn")
     def _run_turn(self, inp: str, turn_id: int | None = None,
                   attachments: list[str] | None = None) -> None:
         """Mirror of jarvis.main._send_and_loop, adapted for the TUI.
 
         ``attachments``: upload ids (web remote) — they join the user message
-        as a file note + image references (``jarvis/media.py``).
+        as a file note + image references (``jarvis/media.py``). The turn
+        belongs to the chat tab ``_begin_turn`` started it in: this thread (and
+        the tool / subagent threads it starts) reads and writes that tab's
+        conversation.
         """
+        me = threading.get_ident()
+        tab = self._turn_tabs.pop(turn_id, None) if turn_id is not None else None
+        tabs.bind_thread(me, tab or tabs.active())
+        try:
+            self._run_turn_bound(inp, turn_id, attachments)
+        finally:
+            tabs.unbind_thread(me)
+
+    def _run_turn_bound(self, inp: str, turn_id: int | None,
+                        attachments: list[str] | None) -> None:
         from ..commands.dispatch import handle_slash
         from ..storage.sessions import db_append_message, db_set_title_if_empty
 
@@ -1794,6 +1839,8 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
         self._tui_console.reset_stream_ui()
 
         try:
+            if stale() or self._turn_cancelled:  # Esc before this thread started
+                raise KeyboardInterrupt()
             if inp.strip() == api_errors.RETRY and not attachments:
                 if self._prepare_retry():
                     self._turn_is_llm = True
@@ -2056,10 +2103,15 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
             if seconds >= 15 and not self._app_focused:
                 self.bell()  # long turn finished while you were in another window
         self._pet_turn_finished(seconds, interrupted=self._turn_cancelled, llm=self._turn_is_llm)
+        was_llm = self._turn_is_llm
         self._turn_is_llm = False
         self._busy = False
         self._turn_t0 = 0.0
+        tab = tabs.current()
+        tab.busy_since = 0.0
+        tab.needs_input = False
         self._stop_activity_pulse()
+        self._refresh_tab_bar()
         tip = _TIPS[(self._turns_done // 3) % len(_TIPS)] if self._turns_done and self._turns_done % 3 == 0 else None
         self._set_placeholder(tip or _PLACEHOLDER)
         self._sync_activity_phase("")
@@ -2101,6 +2153,11 @@ class JarvisTUI(QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, PromptNavMi
                     return
 
             self._begin_turn(next_prompt)
+            return
+
+        if not self._tab_visible():  # finished in a tab you aren't looking at
+            if was_llm or self._turn_cancelled:
+                self._tab_finished_in_background(tab)
             return
 
         # A background job finished while this turn ran: hand its output to the
