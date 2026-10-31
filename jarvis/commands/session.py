@@ -120,7 +120,9 @@ def _resume_session(sid: int) -> Optional[int]:
     state.current_session_id = sid
     state.tool_calls_count = count_tool_calls(loaded)
     state.total_in, state.total_out, state.total_tokens = estimate_session_tokens(loaded)
-    state.claude_cost_usd = 0.0  # not known for a resumed chat
+    from ..storage.sessions import restore_session_stats
+
+    restore_session_stats(state, sid)  # Claude Code CLI cost + exact context size
     console.print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
     # render a brief tail so the user has context
     tail = state.messages[-6:]

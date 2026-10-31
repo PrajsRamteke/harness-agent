@@ -173,16 +173,78 @@ def db_load_session(session_id: int) -> Optional[List[Dict]]:
     return out
 
 
+# Per-chat numbers that aren't in the history: the Claude Code CLI's cost
+# estimate and the exact context size of the last request. Kept beside the
+# messages so leaving a chat and coming back shows them again.
+_STATS_SQL = """CREATE TABLE IF NOT EXISTS session_stats (
+    session_id INTEGER PRIMARY KEY,
+    claude_cost_usd REAL NOT NULL DEFAULT 0,
+    context_tokens INTEGER NOT NULL DEFAULT 0,
+    updated REAL NOT NULL DEFAULT 0
+)"""
+
+
+def db_save_session_stats(session_id, *, claude_cost_usd: float, context_tokens: int) -> None:
+    if not session_id:
+        return
+    c = db_conn()
+    try:
+        with c:
+            c.execute(_STATS_SQL)
+            c.execute(
+                "INSERT INTO session_stats (session_id, claude_cost_usd, context_tokens, updated) "
+                "VALUES (?, ?, ?, strftime('%s','now')) ON CONFLICT(session_id) DO UPDATE SET "
+                "claude_cost_usd=excluded.claude_cost_usd, context_tokens=excluded.context_tokens, "
+                "updated=excluded.updated",
+                (int(session_id), float(claude_cost_usd or 0), int(context_tokens or 0)),
+            )
+    finally:
+        c.close()
+
+
+def db_load_session_stats(session_id) -> Optional[Dict]:
+    if not session_id:
+        return None
+    c = db_conn()
+    try:
+        c.execute(_STATS_SQL)
+        row = c.execute("SELECT claude_cost_usd, context_tokens FROM session_stats WHERE session_id=?",
+                        (int(session_id),)).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        c.close()
+    if row is None:
+        return None
+    return {"claude_cost_usd": float(row[0] or 0), "context_tokens": int(row[1] or 0)}
+
+
+def restore_session_stats(state, session_id) -> None:
+    """After resuming ``session_id`` into ``state``: its saved cost and the
+    exact context size (better than the chars/4 estimate) come back."""
+    state.claude_cost_usd = 0.0
+    try:
+        stats = db_load_session_stats(session_id)
+    except Exception:
+        stats = None
+    if not stats:
+        return
+    state.claude_cost_usd = stats["claude_cost_usd"]
+    if stats["context_tokens"]:
+        state.total_in = stats["context_tokens"]
+
+
 def db_delete_session(session_id: int) -> bool:
     c = db_conn()
     try:
         with c:
             cur = c.execute("DELETE FROM sessions WHERE id=?", (session_id,))
             c.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
-            try:
-                c.execute("DELETE FROM session_file_changes WHERE session_id=?", (session_id,))
-            except sqlite3.OperationalError:
-                pass  # table not created yet — no file changes ever recorded
+            for table in ("session_file_changes", "session_stats"):
+                try:
+                    c.execute(f"DELETE FROM {table} WHERE session_id=?", (session_id,))
+                except sqlite3.OperationalError:
+                    pass  # table not created yet — nothing ever recorded
         deleted = cur.rowcount > 0
     finally:
         c.close()

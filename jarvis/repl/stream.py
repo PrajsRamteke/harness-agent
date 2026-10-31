@@ -936,6 +936,13 @@ def _call_claude_stream():
             state.total_tokens = int(getattr(final.usage, "total_tokens", 0) or 0) or (in_tok + out_tok)
             if state.provider == PROVIDER_CLAUDE_AGENT:
                 state.claude_cost_usd += float(getattr(final, "cost_usd", 0) or 0)
+                try:  # so leaving this chat and coming back shows them again
+                    from ..storage.sessions import db_save_session_stats
+
+                    db_save_session_stats(state.current_session_id, claude_cost_usd=state.claude_cost_usd,
+                                          context_tokens=in_tok)
+                except Exception:
+                    pass
             return final
         except _STREAM_TIMEOUT_ERRORS:
             _current_stream = None

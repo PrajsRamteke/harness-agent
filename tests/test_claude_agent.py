@@ -645,3 +645,28 @@ def test_context_window_and_model_name_from_claude_code(ready, monkeypatch):
                                      "model_label": "Opus 5.5", "cost_usd": 19.7191, "subscription": True}
     monkeypatch.setattr(state, "provider", "openrouter")
     assert _claude_chat_fields() is None
+
+
+def test_chat_numbers_come_back_when_you_return_to_the_chat(monkeypatch):
+    """Leave a Claude Code chat (another session, /new) and resume it: its
+    cost and exact context size are restored, not reset / re-estimated."""
+    from jarvis import state
+    from jarvis.storage import sessions
+    from jarvis.tui.session_modal import resume_session_into_state
+
+    sessions.db_init()
+    sid = sessions.db_create_session("default")
+    msgs = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": [{"type": "text", "text": "hey"}]}]
+    sessions.db_replace_session_messages(sid, msgs)
+    sessions.db_save_session_stats(sid, claude_cost_usd=19.7191, context_tokens=510_000)
+
+    other = sessions.db_create_session("default")
+    monkeypatch.setattr(state, "claude_cost_usd", 0.0)
+    assert resume_session_into_state(other, lambda *_: None, preview=False, quiet=True)
+    assert state.claude_cost_usd == 0.0  # a chat with nothing recorded starts at 0
+
+    assert resume_session_into_state(sid, lambda *_: None, preview=False, quiet=True)
+    assert state.claude_cost_usd == 19.7191 and state.total_in == 510_000
+
+    sessions.db_delete_session(sid)
+    assert sessions.db_load_session_stats(sid) is None
