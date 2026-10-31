@@ -678,12 +678,17 @@ def add_mcp(
             results.append(res)
             continue
         blocked = [loc for loc in elsewhere if loc["scope"] == sc and loc["editable"] != "yes"]
-        if blocked:
+        if blocked and not (replace and sc == "global"):
+            src = SOURCE_LABELS.get(blocked[0]["source"], blocked[0]["source"])
             results.append({
                 "name": nm, "scope": sc, "status": "exists",
-                "message": f"'{nm}' already comes from {SOURCE_LABELS.get(blocked[0]['source'], blocked[0]['source'])} ({blocked[0]['path']}). Pick another name.",
+                "message": f"'{nm}' already comes from {src} ({blocked[0]['path']}). "
+                           f"Pass replace=true to save Jarvis's own copy, which takes over from {src}'s "
+                           "(that file stays as it is) — or pick another name.",
             })
             continue
+        if replace and mcp_registry.is_connected(nm):
+            mcp_registry.disconnect(nm)  # the next connect starts from the new entry
 
         for var, val in stored.items():
             mcp_secrets.set_secret(var, val)
@@ -696,9 +701,13 @@ def add_mcp(
             scope_note = "Global MCP scope was off — I turned it on so this server is visible."
         reload_config()
         res = server_status(nm, connect=connect)
-        res.update({"scope": sc, "path": written["path"], "replaced": written["replaced"], "notes": sp["notes"]})
-        if scope_note:
-            res["scope_note"] = scope_note
+        res.update({"scope": sc, "path": written["path"], "replaced": written["replaced"] or bool(blocked), "notes": sp["notes"]})
+        notes = [scope_note] if scope_note else []
+        if blocked:
+            src = SOURCE_LABELS.get(blocked[0]["source"], blocked[0]["source"])
+            notes.append(f"Jarvis's copy now takes over from {src}'s ({blocked[0]['path']}, left unchanged).")
+        if notes:
+            res["scope_note"] = " ".join(notes)
         results.append(res)
 
     _invalidate_prompt()

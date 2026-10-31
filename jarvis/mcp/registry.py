@@ -273,8 +273,49 @@ def _is_transport_mismatch(leaves: list[BaseException]) -> bool:
 
 
 def _has_static_auth(config: dict[str, Any]) -> bool:
+    if config.get("headersHelper"):
+        return True
     headers = config.get("headers")
     return isinstance(headers, dict) and any(str(k).lower() == "authorization" for k in headers)
+
+
+_HEADERS_HELPER_TIMEOUT = 15.0
+
+
+def resolve_headers_helper(server_name: str, config: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    """Run a server's ``headersHelper`` (Claude Code: a shell command printing a
+    JSON object of headers, e.g. ``{"Authorization": "Bearer $(gh auth token)"}``)
+    and merge its headers in. Returns ``(config, error)``; run on every connect,
+    so a token the helper reads is always the current one."""
+    helper = str(config.get("headersHelper") or "").strip()
+    if not helper:
+        return config, None
+    import json
+    import subprocess
+
+    env = {**os.environ, "CLAUDE_CODE_MCP_SERVER_NAME": server_name,
+           "CLAUDE_CODE_MCP_SERVER_URL": str(config.get("url") or "")}
+    try:
+        proc = subprocess.run(
+            ["/bin/sh", "-c", helper], capture_output=True, text=True,
+            timeout=_HEADERS_HELPER_TIMEOUT, env=env, stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return config, f"headersHelper took longer than {_HEADERS_HELPER_TIMEOUT:.0f}s"
+    except OSError as exc:
+        return config, f"headersHelper couldn't run: {exc}"
+    if proc.returncode != 0:
+        why = (proc.stderr or proc.stdout or "").strip().splitlines()
+        return config, f"headersHelper failed (exit {proc.returncode})" + (f": {why[-1][:200]}" if why else "")
+    try:
+        got = json.loads(proc.stdout or "")
+    except ValueError:
+        return config, "headersHelper must print a JSON object of headers"
+    if not isinstance(got, dict):
+        return config, "headersHelper must print a JSON object of headers"
+    out = {k: v for k, v in config.items() if k != "headersHelper"}
+    out["headers"] = {**(config.get("headers") or {}), **{str(k): str(v) for k, v in got.items()}}
+    return out, None
 
 
 def _wants_oauth(config: dict[str, Any]) -> bool:
@@ -383,6 +424,9 @@ class MCPRegistry:
         self._connecting: set[str] = set()  # connect() in flight
         self._pending: dict[str, MCPServerState] = {}  # remote servers still signing in / connecting
         self._needs_auth: set[str] = set()  # a quiet connect found the server wants a sign-in
+        # name → the config entry (before ${VAR} expansion) a live connection was
+        # started from, so an edited config file restarts it (``_restart_changed``).
+        self._started_from: dict[str, dict[str, Any]] = {}
         self._listeners: list[Callable[[str, str], None]] = []
         self._tls = threading.local()
         self._lock = threading.RLock()
@@ -725,8 +769,16 @@ class MCPRegistry:
             msg = "needs " + ", ".join(oauth_missing) + " — add it in the MCP dialog"
             self._record_connect_error(server_name, msg)
             return msg
+        started_from = dict(config)
         config = mcp_secrets.expand(config)
         transport_type = config.get("type", "stdio")
+        if transport_type in ("http", "sse") and config.get("headersHelper"):
+            config, helper_err = resolve_headers_helper(server_name, config)
+            if helper_err:
+                self._record_connect_error(server_name, helper_err)
+                return helper_err
+        with self._lock:
+            self._started_from[server_name] = started_from
         # A sign-in that just expired / was cancelled is still winding down for a
         # moment — wait for it to clear instead of answering "already connecting".
         settle_until = time.monotonic() + 3.0
@@ -1218,6 +1270,35 @@ class MCPRegistry:
         self._emit("disconnected", server_name)
         return None
 
+    def _restart_changed(self, _old: Any, new: Any) -> None:
+        """Config files changed: restart each live server whose entry is now
+        different (a new token in opencode.json, a Jarvis copy that took over…).
+        Runs the restarts on a worker — this is called from ``get_config()``."""
+        changed: list[tuple[str, dict[str, Any]]] = []
+        with self._lock:
+            for name, srv in self._servers.items():
+                if not srv.connected:
+                    continue
+                cfg = new.get_server(name)
+                if cfg is not None and cfg != self._started_from.get(name, cfg):
+                    changed.append((name, cfg))
+        if not changed:
+            return
+
+        def restart() -> None:
+            for name, cfg in changed:
+                with self._lock:
+                    srv = self._servers.get(name)
+                    if srv is None or not srv.connected or self._started_from.get(name) == cfg:
+                        continue  # stopped, or already restarted on the new entry (a manual reconnect)
+                self._log(f"'{name}' config changed on disk — restarting it", "info")
+                self.disconnect(name)
+                with self.startup_connect():
+                    self.connect(name, cfg)
+            self._invalidate_prompt()
+
+        threading.Thread(target=restart, name="mcp-config-restart", daemon=True).start()
+
     def disconnect_all(self) -> None:
         """Disconnect all MCP servers."""
         names = list(self._servers.keys())
@@ -1332,6 +1413,15 @@ class MCPRegistry:
 
 # Global singleton
 mcp_registry = MCPRegistry()
+
+
+def _watch_config() -> None:
+    from . import config as _mcp_config
+
+    _mcp_config.add_reload_listener(mcp_registry._restart_changed)
+
+
+_watch_config()
 
 
 def as_prompt_block() -> str:

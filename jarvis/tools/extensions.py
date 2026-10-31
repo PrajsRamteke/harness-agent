@@ -185,7 +185,9 @@ def mcp_list() -> str:
             "idle": "not connected",
             "off": "TURNED OFF by the user (don't connect it — they turn it on in /mcp)",
         }.get(st, st)
-        lines.append(f"  • {s['name']} [{s['scope']}, {s['transport']}] {word}")
+        src = s.get("source_label") or s["scope"]
+        where = s["scope"] if src in (s["scope"], "Project", "Jarvis") else f"{s['scope']} · from {src}"
+        lines.append(f"  • {s['name']} [{where}, {s['transport']}] {word}")
         if s["needs_credentials"]:
             lines.append(f"      needs: {', '.join(s['needs_credentials'])}")
     if data["pending_auth"]:
@@ -216,6 +218,8 @@ def mcp_connect(name: str, action: str = "connect") -> str:
         mcp_registry.disconnect(name)
     if act not in ("connect", "reconnect", "authenticate", "auth", "signin", "sign_in"):
         return "ERROR: action must be connect, reconnect, disconnect, authenticate or signout."
+    # Start from the config files as they are now (a token edited a moment ago).
+    cfg = mcp_install.reload_config().get_server(name) or cfg
 
     from ..mcp import secrets as mcp_secrets
 
@@ -312,7 +316,7 @@ EXTENSION_TOOLS = [
                             "description": "HTTP headers for a hosted server, e.g. Authorization. Stored outside the config file."},
                 "scope": _SCOPE_PROP,
                 "connect": {"type": "boolean", "description": "Connect right away (default true)."},
-                "replace": {"type": "boolean", "description": "Overwrite a server with the same name."},
+                "replace": {"type": "boolean", "description": "Overwrite a server with the same name. For one defined by another tool (Claude, OpenCode, Cursor…), saves Jarvis's own global copy that takes over — the way to change a server's token or URL."},
             },
             "required": [],
         },

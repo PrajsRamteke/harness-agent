@@ -9,7 +9,8 @@ Two scopes:
   ``state.global_mcp = True`` (toggled with ``/mcp global on``):
 
     - Jarvis     : ``~/.config/harness-agent/mcp.json``
-    - Claude Code: ``~/.claude.json``                (``mcpServers`` key)
+    - Claude Code: ``~/.claude.json``                (``projects.<cwd>.mcpServers``, then ``mcpServers``)
+    - Claude Code: ``.mcp.json`` in a parent folder up to ``~`` (Claude reads those too)
     - Claude Code: ``~/.claude/mcp.json``
     - OpenCode   : ``~/.config/opencode/opencode.json`` (``mcp`` key)
     - OpenCode   : ``~/.config/opencode/mcp.json``
@@ -60,15 +61,43 @@ def _project_config_path() -> pathlib.Path:
 
 # ── external-tool global sources ─────────────────────────────────────────
 # Each tuple is ``(label, path, json_pointer)`` where ``json_pointer`` is a
-# dotted path inside the loaded JSON ("" means the root document itself).
+# dotted path inside the loaded JSON ("" means the root document itself), or
+# a tuple of keys when a key holds dots (Claude's per-folder ``projects``).
 # The parser at that pointer must yield either ``{"servers": ...}``,
 # ``{"mcpServers": ...}`` or just a server-map at the top level.
 
-def _global_sources() -> list[tuple[str, pathlib.Path, str]]:
+def _parent_mcp_files() -> list[pathlib.Path]:
+    """``.mcp.json`` in each folder above the CWD up to ``~``, and ``~/.mcp.json``
+    itself — Claude Code reads those, so a server set up there works here too."""
+    home = pathlib.Path.home()
+    try:
+        cwd = pathlib.Path.cwd()
+    except OSError:
+        return []
+    if cwd == home:
+        return []  # ~/.mcp.json is the project file then
+    out = []
+    if home in cwd.parents:
+        for folder in cwd.parents:
+            if folder == home:
+                break
+            out.append(folder / MCP_PROJECT_CONFIG_FILENAME)
+    return out + [home / MCP_PROJECT_CONFIG_FILENAME]
+
+
+def _global_sources() -> list[tuple[str, pathlib.Path, Any]]:
     home = pathlib.Path.home()
     codex_home = pathlib.Path(os.environ.get("CODEX_HOME") or home / ".codex")
+    try:
+        cwd = str(pathlib.Path.cwd())
+    except OSError:
+        cwd = ""
     return [
         ("jarvis",       MCP_GLOBAL_CONFIG_FILE,                       ""),
+        # Claude Code's order: local (this folder, in ~/.claude.json) > project
+        # (.mcp.json, parents included) > user (~/.claude.json mcpServers).
+        ("claude",       home / ".claude.json",                        ("projects", cwd)),
+        *[("claude", f, "") for f in _parent_mcp_files()],
         ("claude",       home / ".claude.json",                        ""),
         ("claude",       home / ".claude" / "mcp.json",                ""),
         ("opencode",     home / ".config" / "opencode" / "opencode.json", "mcp"),
@@ -158,6 +187,10 @@ def _normalize_claude_code_entry(cfg: dict[str, Any]) -> dict[str, Any] | None:
             headers.setdefault("Authorization", "Bearer ${%s}" % cfg["bearer_token_env_var"])
         if headers:
             entry["headers"] = headers
+        if cfg.get("headersHelper"):
+            # Claude Code: a shell command printing a JSON object of headers,
+            # run at connect time (e.g. a token from `gh auth token`).
+            entry["headersHelper"] = str(cfg["headersHelper"])
         oauth = oauth_settings(cfg)
         if oauth is not None:
             entry["oauth"] = oauth
@@ -202,12 +235,12 @@ def oauth_settings(cfg: dict[str, Any]) -> dict[str, Any] | bool | None:
     return out
 
 
-def _descend(data: Any, pointer: str) -> Any:
-    """Navigate a dotted JSON pointer (empty string returns root)."""
+def _descend(data: Any, pointer: Any) -> Any:
+    """Navigate a dotted JSON pointer or a tuple of keys (empty returns root)."""
     if not pointer:
         return data
     cur = data
-    for part in pointer.split("."):
+    for part in (pointer.split(".") if isinstance(pointer, str) else pointer):
         if not isinstance(cur, dict):
             return None
         cur = cur.get(part)
@@ -268,7 +301,7 @@ def _extract_servers(
 
 def _parse_config_file(
     path: pathlib.Path,
-    pointer: str = "",
+    pointer: Any = "",
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     """Parse one config file. Returns ``(servers, auto_connect)`` — empty on miss."""
     if not path.exists():
@@ -949,27 +982,95 @@ def ensure_global_visible() -> bool:
 
 
 # ── module-level singleton ───────────────────────────────────────────────
+#
+# The config follows the files: a token changed in opencode.json / .claude.json
+# / .mcp.json (by hand, by another tool, or by the agent) is picked up on the
+# next ``get_config()`` — it used to stay cached until Jarvis restarted, so a
+# reconnect kept starting the server with the old token. Listeners hear about
+# every reload (the registry restarts live servers whose entry changed).
 
 _config: MCPConfig | None = None
+_fingerprint: tuple | None = None
+_checked_at = 0.0
+_CHECK_EVERY = 0.5  # seconds between stat() sweeps
+_listeners: list = []
+
+
+def add_reload_listener(fn) -> None:
+    """``fn(old_config | None, new_config)`` after every reload."""
+    if fn not in _listeners:
+        _listeners.append(fn)
+
+
+def _source_fingerprint() -> tuple:
+    try:
+        from .. import state
+        include_global = bool(getattr(state, "global_mcp", False))
+    except Exception:
+        include_global = False
+    try:
+        cwd = os.getcwd()
+    except OSError:
+        cwd = ""
+    files = [_project_config_path()] + [p for _l, p, _ptr in _global_sources()]
+    stats = []
+    for f in dict.fromkeys(files):
+        try:
+            st = f.stat()
+            stats.append((str(f), st.st_mtime_ns, st.st_size))
+        except OSError:
+            stats.append((str(f), None, None))
+    return (include_global, cwd, tuple(stats))
+
+
+def _swap(new: MCPConfig, fingerprint: tuple | None) -> MCPConfig:
+    global _config, _fingerprint
+    old, _config, _fingerprint = _config, new, fingerprint
+    for fn in list(_listeners):
+        try:
+            fn(old, new)
+        except Exception:
+            pass
+    return new
 
 
 def get_config() -> MCPConfig:
-    """Process-wide MCP config; reloads when ``state.global_mcp`` scope changes."""
-    global _config
+    """Process-wide MCP config; reloads when the scope, the folder or any
+    config file changes (checked at most every ``_CHECK_EVERY`` seconds)."""
+    global _checked_at
+    import time
+
+    now = time.monotonic()
     try:
         from .. import state
-        desired_global = bool(getattr(state, "global_mcp", False))
+        include_global = bool(getattr(state, "global_mcp", False))
     except Exception:
-        desired_global = False
-    if _config is None or _config._include_global != desired_global:
-        _config = MCPConfig()
-        _config.load()
+        include_global = False
+    try:
+        cwd = os.getcwd()
+    except OSError:
+        cwd = ""
+    if (
+        _config is not None and _fingerprint is not None
+        and now - _checked_at < _CHECK_EVERY and _fingerprint[:2] == (include_global, cwd)
+    ):
+        return _config
+    _checked_at = now
+    fp = _source_fingerprint()
+    if _config is None or fp != _fingerprint:
+        cfg = MCPConfig()
+        cfg.load(include_global=fp[0])
+        return _swap(cfg, fp)
     return _config
 
 
 def reload_config() -> MCPConfig:
     """Re-read every source from disk using the current ``state.global_mcp`` flag."""
-    global _config
-    _config = MCPConfig()
-    _config.load()
-    return _config
+    global _checked_at
+    import time
+
+    fp = _source_fingerprint()
+    cfg = MCPConfig()
+    cfg.load(include_global=fp[0])
+    _checked_at = time.monotonic()
+    return _swap(cfg, fp)

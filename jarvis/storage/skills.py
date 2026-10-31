@@ -31,6 +31,7 @@ is loaded on demand via load_skill().
 """
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import re
@@ -70,6 +71,7 @@ def global_skill_dirs() -> list[pathlib.Path]:
         CONFIG_DIR / "skills",                   # ~/.config/harness-agent/skills (legacy)
         home / ".config" / "opencode" / "skills",
         home / ".claude" / "skills",
+        *claude_plugin_skill_dirs(),             # Claude Code plugins switched on here
         home / ".agents" / "skills",             # shared: `npx skills`, Codex
         codex_home / "skills",
         home / ".cursor" / "skills",
@@ -77,6 +79,49 @@ def global_skill_dirs() -> list[pathlib.Path]:
         home / ".kiro" / "skills",
         home / ".copilot" / "skills",
     ]
+
+
+def _enabled_plugins(settings_file: pathlib.Path) -> dict:
+    try:
+        on = json.loads(settings_file.read_text(encoding="utf-8")).get("enabledPlugins")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return on if isinstance(on, dict) else {}
+
+
+def claude_plugin_skill_dirs() -> list[pathlib.Path]:
+    """``skills/`` of every Claude Code plugin that Claude itself would load in
+    this folder: installed (``~/.claude/plugins/installed_plugins.json``) for the
+    user, or for this project / a parent, and switched on in ``enabledPlugins``
+    (user settings, overridden by the project's ``.claude/settings[.local].json``)."""
+    home = pathlib.Path.home()
+    try:
+        installed = json.loads((home / ".claude" / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
+        cwd = pathlib.Path.cwd()
+    except (OSError, ValueError):
+        return []
+    plugins = installed.get("plugins") if isinstance(installed, dict) else None
+    if not isinstance(plugins, dict):
+        return []
+    user_on = _enabled_plugins(home / ".claude" / "settings.json")
+    out: list[pathlib.Path] = []
+    for key, entries in plugins.items():
+        for entry in entries if isinstance(entries, list) else [entries]:
+            if not isinstance(entry, dict) or not entry.get("installPath"):
+                continue
+            if entry.get("scope", "user") == "user":
+                on = user_on
+            else:
+                project = pathlib.Path(str(entry.get("projectPath") or ""))
+                if not entry.get("projectPath") or (project != cwd and project not in cwd.parents):
+                    continue
+                on = {**user_on,
+                      **_enabled_plugins(project / ".claude" / "settings.json"),
+                      **_enabled_plugins(project / ".claude" / "settings.local.json")}
+            folder = pathlib.Path(str(entry["installPath"])) / "skills"
+            if on.get(key) is True and folder.is_dir() and folder not in out:
+                out.append(folder)
+    return out
 
 # ── cache ──────────────────────────────────────────────────────────────────────
 _cache: list[dict] = []

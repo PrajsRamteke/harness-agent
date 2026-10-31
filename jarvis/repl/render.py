@@ -123,6 +123,7 @@ _SERIAL_TOOLS = {
 
 # All MCP-prefixed tools are treated as serial (stateful) too.
 from ..mcp.registry import is_mcp_tool
+from ..utils.redact import MARKER as SECRET_MARKER, has_marker as has_secret_marker, redact as redact_secrets
 
 # Context tools get a much higher output limit since they bundle many files at once.
 _CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle", "lesson_list", "lesson_search"}
@@ -143,6 +144,8 @@ def _cap_tool_output(name: str, out: str) -> str:
     )
 
 _FILE_WRITE_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
+# Tools that would write a "[hidden secret]" placeholder over the real value.
+_MARKER_GUARDED_TOOLS = _FILE_WRITE_TOOLS | {"run_bash", "run_bg", "mcp_add"}
 
 # The free Harness Agent tier must expose OpenCode's built-in tool names
 # ("shell"/"read") on the wire — see auth/harness_agent.py. Map any such name
@@ -265,6 +268,8 @@ def _run_tool(b):
     emit_tool_start(tool_id=b.id, name=b.name, label=activity_label, input=b.input)
 
     def _finish(out_str: str):
+        # Credentials never reach the model or the transcript (utils/redact.py).
+        out_str = redact_secrets(str(out_str))
         if dock:
             set_done(b.id, out_str)
         emit_tool_done(
@@ -332,6 +337,14 @@ def _run_tool(b):
                 + _unknown_tool_hint(b.name)
             )
         return _finish(str(out))
+
+    if b.name in _MARKER_GUARDED_TOOLS and has_secret_marker(call_input):
+        return _finish(
+            f"ERROR: this {b.name} call contains '{SECRET_MARKER}' — a placeholder Jarvis shows "
+            "instead of a credential, not the real value. Writing it would replace the real "
+            "secret. Leave secret lines untouched (match on the text around them); to change an "
+            "MCP server's token use mcp_add with replace=true, or ask the user to edit it."
+        )
 
     # Plan mode guard — the router withholds mutating schemas, but a model can
     # still emit a remembered tool name. Never execute one while planning.
