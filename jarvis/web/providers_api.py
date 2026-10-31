@@ -61,18 +61,32 @@ class Card:
     mark: str      # short monogram for the row's tile
     link: str = ""  # where to get a key
     catalog: bool = False  # a provider from models.dev (id "md:<id>")
+    safety: str = ""       # "safe" | "risky" — how the provider treats this sign-in
+    safety_note: str = ""  # the why, shown on hover / in the open row
+
+
+# Subscription sign-ins: is using them from Jarvis allowed by the provider?
+SAFE_CLAUDE_CODE = ("Safe: your own Claude Code signs in and sends every request itself, "
+                    "as Anthropic allows. Jarvis never touches your login.")
+SAFE_CHATGPT = ("Safe: OpenAI allows signing in with ChatGPT in third-party coding tools "
+                "like Jarvis.")
+RISKY_CLAUDE = ("May not be safe: Anthropic doesn't allow other apps to sign in with a Claude "
+                "plan, and has banned accounts for it. Use Claude Code CLI instead.")
+RISKY_ANTIGRAVITY = ("May not be safe: this uses Antigravity's own sign-in from outside the app, "
+                     "which Google may not allow — your Google account could be restricted.")
 
 
 CARDS: tuple[Card, ...] = (
     # Signed in by the user in Claude Code itself; Jarvis never sees the login.
     Card("claude_agent", "cli", "Claude Code CLI", "Your own signed-in claude — Pro, Max, Team or API key",
-         PROVIDER_CLAUDE_AGENT, "CC", "https://code.claude.com/docs/en/setup"),
+         PROVIDER_CLAUDE_AGENT, "CC", "https://code.claude.com/docs/en/setup",
+         safety="safe", safety_note=SAFE_CLAUDE_CODE),
     Card("anthropic", "oauth", "Claude Pro / Max", "Sign in with your Claude subscription",
-         PROVIDER_ANTHROPIC_AUTH, "C"),
+         PROVIDER_ANTHROPIC_AUTH, "C", safety="risky", safety_note=RISKY_CLAUDE),
     Card("openai_codex", "oauth", "ChatGPT Plus / Pro", "Codex models with your ChatGPT plan",
-         PROVIDER_OPENAI_CODEX_AUTH, "G"),
+         PROVIDER_OPENAI_CODEX_AUTH, "G", safety="safe", safety_note=SAFE_CHATGPT),
     Card("antigravity", "oauth", "Google Antigravity", "Gemini and Claude with your Google account",
-         PROVIDER_ANTIGRAVITY, "AG"),
+         PROVIDER_ANTIGRAVITY, "AG", safety="risky", safety_note=RISKY_ANTIGRAVITY),
     Card("anthropic_api", "key", "Anthropic API", "Claude models, pay as you go",
          PROVIDER_ANTHROPIC_API, "A", "https://console.anthropic.com/settings/keys"),
     Card("openrouter", "key", "OpenRouter", "Hundreds of models, many of them free",
@@ -197,6 +211,8 @@ def card_row(card: Card, active: str | None = None, *, sources: dict | None = No
         "key_prefix": "",
         "catalog": card.catalog,
         "checked": card.id in CHECKED_CARDS,
+        "safety": card.safety,
+        "safety_note": card.safety_note,
     }
     if card.kind == "free":
         row.update(connected=True, source="free")

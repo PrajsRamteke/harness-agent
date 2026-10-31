@@ -353,17 +353,31 @@ function freePanel(row) {
 function panelHtml(row) {
   const body = row.kind === 'oauth' ? oauthPanel(row) : row.kind === 'key' ? keyPanel(row)
     : row.kind === 'cli' ? cliPanel(row) : freePanel(row);
-  return body + noteHtml(row.id);
+  return riskNoteHtml(row) + body + noteHtml(row.id);
 }
 
 function rowClass(row) {
   return `pv-row${openId === row.id ? ' is-open' : ''}${row.active ? ' is-active' : ''}${row.connected ? ' is-connected' : ''}`;
 }
 
+/** Is this sign-in allowed by the provider? A small chip by the name; the why on hover. */
+function safetyHtml(row) {
+  if (!row.safety) return '';
+  const safe = row.safety === 'safe';
+  const note = escapeHtml(row.safety_note || '');
+  return `<span class="pv-safety ${safe ? 'is-safe' : 'is-risky'}" title="${note}" aria-label="${note}">${icon(safe ? 'shield-check' : 'triangle-alert')}<span>${safe ? 'Safe' : 'Ban risk'}</span></span>`;
+}
+
+/** Open risky row: say why, where touch screens can't hover. */
+function riskNoteHtml(row) {
+  if (row.safety !== 'risky') return '';
+  return `<p class="pv-risk">${icon('triangle-alert')}<span>${escapeHtml(row.safety_note || '')}</span></p>`;
+}
+
 function headHtml(row) {
   return `${mark(row.id, row.mark, row.connected && row.kind !== 'free' ? ' is-on' : '')}
     <span class="pv-text">
-      <span class="pv-title">${escapeHtml(row.label)}</span>
+      <span class="pv-title"><span class="pv-name">${escapeHtml(row.label)}</span>${safetyHtml(row)}</span>
       <span class="pv-sub">${escapeHtml(statusLine(row))}</span>
     </span>
     <span class="pv-chev">${icon('chevron-down')}</span>`;

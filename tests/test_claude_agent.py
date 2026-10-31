@@ -490,6 +490,10 @@ def test_web_card_and_use(ready, monkeypatch):
     row = rows["claude_agent"]
     assert row["kind"] == "cli" and row["connected"] and row["cli"]["account"] == "me@x.io · Claude Max"
     assert "token" not in json.dumps(row).lower()
+    # Subscription sign-ins say whether the provider allows them.
+    assert {i: rows[i]["safety"] for i in ("claude_agent", "openai_codex", "anthropic", "antigravity")} == {
+        "claude_agent": "safe", "openai_codex": "safe", "anthropic": "risky", "antigravity": "risky"}
+    assert "banned" in rows["anthropic"]["safety_note"]
     ready.logged_in = False
     res = pv.use_card("claude_agent")
     assert not res["ok"] and "signed in" in res["error"]

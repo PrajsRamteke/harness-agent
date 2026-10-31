@@ -1077,7 +1077,39 @@
 .pv-head:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus); }
 .pv-head:active .pv-mark { transform: scale(0.94); }
 .pv-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
-.pv-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-title { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 14px; font-weight: 600; }
+.pv-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Is this sign-in allowed by the provider: green "Safe" / red "Ban risk" (why on hover). */
+.pv-safety {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: help;
+}
+.pv-safety .ic { width: 12px; height: 12px; }
+.pv-safety.is-safe { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.pv-safety.is-risky { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+.pv-risk {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid var(--danger-line);
+  background: var(--danger-soft);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.pv-risk .ic { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; color: var(--danger); }
 .pv-sub { font-size: 12.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pv-row.is-connected .pv-sub { color: var(--text-2); }
 .pv-chev { display: grid; place-items: center; color: var(--text-3); transition: transform 0.32s var(--ease), color 0.2s; }
