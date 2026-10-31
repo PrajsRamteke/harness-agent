@@ -90,3 +90,59 @@ def test_dismissing_a_prompt_after_the_app_stopped_still_answers_the_waiter():
     t.start()
     t.join(timeout=2)
     assert waiter.wait(timeout=1) == "n"
+
+
+# ── commands that would stop Jarvis itself ─────────────────────────────────
+
+
+def test_rm_rf_root_blocked_but_rm_rf_tmp_dir_allowed():
+    from jarvis.tools.shell import is_dangerous
+
+    assert is_dangerous("rm -rf /")
+    assert is_dangerous("sudo rm -rf /* ; echo")
+    assert not is_dangerous("rm -rf /tmp/sv && python3 -c 'print(1)'")
+    assert not is_dangerous("cd /tmp && rm -rf /var/folders/x/shot.png")
+
+
+def test_killing_whatever_listens_on_jarvis_port_is_blocked():
+    """`lsof -ti tcp:<web port> | xargs kill` killed the Jarvis running it."""
+    import socket
+
+    from jarvis.tools import shell
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    port = srv.getsockname()[1]
+    try:
+        cmd = f"(lsof -ti tcp:{port} | xargs kill 2>/dev/null; true); git status --short"
+        with patch.object(state, "auto_approve", True), \
+                patch("jarvis.tools.shell._run_process") as run:
+            out = run_bash(cmd)
+        assert out.startswith("BLOCKED: this command would stop Jarvis itself")
+        assert str(port) in out
+        run.assert_not_called()
+        assert shell.self_kill_reason(f"fuser -k {port}/tcp")
+        assert shell.self_kill_reason(f"kill $(lsof -t -i:{port})")
+        # Mentioning the port without killing anything is fine, with a note.
+        assert shell.self_kill_reason(f"curl -s localhost:{port}/") is None
+        assert str(port) in shell.own_port_note(f"python3 -m http.server {port}")
+        assert shell.own_port_note(f"python3 -m http.server {port + 1}") == ""
+    finally:
+        srv.close()
+
+
+def test_killing_own_pid_or_python_by_name_is_blocked():
+    import os
+
+    from jarvis.tools.shell import self_kill_reason
+
+    assert self_kill_reason(f"kill -9 {os.getpid()}")
+    assert self_kill_reason("pkill python3")
+    assert self_kill_reason("killall Python")
+    assert self_kill_reason("pkill -f jarvis")
+    # Ordinary kills stay allowed.
+    assert self_kill_reason("kill %1") is None
+    assert self_kill_reason("pkill -f 'python3 -m http.server 9000'") is None
+    assert self_kill_reason("kill $!") is None
+    assert self_kill_reason("echo skill issue") is None
