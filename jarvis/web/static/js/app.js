@@ -1,7 +1,7 @@
 /** Application bootstrap */
 import { $, escapeHtml, showToast, BASE } from './utils.js';
 import { icon, hydrateIcons } from './icons.js';
-import { store, loadUiPrefs } from './store.js';
+import { store } from './store.js';
 import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
 import { handleEvent } from './events.js';
 import { initChat, invalidateSnapshot } from './chat.js';
@@ -25,6 +25,7 @@ import { initMcp } from './mcp.js';
 import { initSkills } from './skills.js';
 import { initCommands } from './commands.js';
 import { initPin } from './pin.js';
+import { initSettings } from './settings.js';
 import { initLocal } from './local.js';
 import { initQueue } from './queue.js';
 import { initTabs } from './tabs.js';
@@ -127,7 +128,6 @@ function boot() {
     return;
   }
 
-  loadUiPrefs();
   initModals();
   initDialogs();
   initChat();
@@ -152,6 +152,7 @@ function boot() {
   initSkills();
   initCommands();
   initPin();
+  initSettings({ onOpenPicker: openPickerByKind });
   initLocal();
   initQueue({ onFill: keepDraftAndFill });
   initPrompts();

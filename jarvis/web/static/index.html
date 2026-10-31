@@ -59,6 +59,7 @@
   <link rel="stylesheet" href="/static/css/projects.css">
   <link rel="stylesheet" href="/static/css/folders.css">
   <link rel="stylesheet" href="/static/css/tabs.css">
+  <link rel="stylesheet" href="/static/css/settings.css">
 </head>
 <body>
   <div class="backdrop" aria-hidden="true">
@@ -88,6 +89,7 @@
         <div class="side-head-actions">
           <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme" title="Switch theme"><span data-icon="moon"></span></button>
           <button class="icon-btn" id="appearance-btn" type="button" aria-label="Appearance" title="Appearance"><span data-icon="palette"></span></button>
+          <button class="icon-btn" id="settings-btn" type="button" aria-label="Settings" title="Settings"><span data-icon="settings"></span></button>
           <button class="icon-btn only-narrow" id="side-close" type="button" aria-label="Close panel"><span data-icon="x"></span></button>
         </div>
       </div>
@@ -118,17 +120,15 @@
           <div class="recent" id="recent-list" role="list"></div>
         </section>
 
+      </div>
+
+      <div class="side-toggles">
         <section class="side-sec">
           <h2 class="sec-title">Transcript</h2>
-          <label class="switch-row" for="sw-trace">
-            <span class="sw-icon" data-icon="list-tree"></span>
-            <span class="sw-text"><strong>Tool trace</strong><span>Thinking and tool details</span></span>
-            <input type="checkbox" class="switch" id="sw-trace" role="switch">
-          </label>
-          <label class="switch-row" for="sw-thoughts">
-            <span class="sw-icon" data-icon="eye"></span>
-            <span class="sw-text"><strong>Show thoughts here</strong><span id="thoughts-sub">Only on this device</span></span>
-            <input type="checkbox" class="switch" id="sw-thoughts" role="switch">
+          <label class="switch-row" for="sw-thinking">
+            <span class="sw-icon" data-icon="brain"></span>
+            <span class="sw-text"><strong>Show thinking</strong><span>The model's reasoning</span></span>
+            <input type="checkbox" class="switch" id="sw-thinking" role="switch">
           </label>
         </section>
 
@@ -140,7 +140,6 @@
             <input type="checkbox" class="switch" id="sw-auto" role="switch">
           </label>
         </section>
-
       </div>
 
       <div class="side-foot">
@@ -272,8 +271,8 @@
             <button class="tool-chip" id="qc-agent" type="button" title="Switch agent">
               <span data-icon="sparkles"></span><span class="tc-text" id="qc-agent-text">Agent</span>
             </button>
-            <button class="tool-chip is-icon" id="qc-trace" type="button" aria-pressed="false" title="Tool trace">
-              <span data-icon="list-tree"></span>
+            <button class="tool-chip is-icon" id="qc-trace" type="button" aria-pressed="false" title="Show thinking">
+              <span data-icon="brain"></span>
             </button>
             <button class="tool-chip is-icon is-warn" id="qc-auto" type="button" aria-pressed="false" title="Auto-approve shell commands">
               <span data-icon="shield"></span>
@@ -497,6 +496,24 @@
       <div class="dlg-bar" id="pin-bar"></div>
       <div class="pv-body dlg-body ex-body" id="pin-body"></div>
       <div class="dlg-foot" id="pin-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="settings" hidden>
+    <div class="modal-card glass-strong ext-card settings-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="picker-head">
+        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
+        <span class="picker-icon"><span data-icon="settings"></span></span>
+        <div class="picker-titles">
+          <h2 id="settings-title">Settings</h2>
+          <p>Changes apply right away, here and in the terminal</p>
+        </div>
+        <button class="icon-btn" data-close="settings" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="dlg-bar" id="settings-bar"></div>
+      <div class="pv-body dlg-body ex-body" id="settings-body"></div>
+      <div class="dlg-foot" id="settings-foot"></div>
+      <div class="set-menu" id="set-menu" role="listbox" hidden></div>
     </div>
   </div>
 

@@ -19,7 +19,6 @@ let nav = null;
 let openPicker = () => {};
 
 function toggleOn(item) {
-  if (item.toggle === 'showThoughts') return store.showThoughts && store.session.show_internal;
   return !!store.session[item.toggle];
 }
 

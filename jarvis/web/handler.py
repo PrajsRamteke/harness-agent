@@ -509,6 +509,12 @@ class WebHandler(BaseHTTPRequestHandler):
 
             self._send_json(200, pin_store.public())
             return
+        if path == "/api/settings/all":
+            # Every setting for the Settings dialog (jarvis/web/settings_api.py).
+            from .settings_api import public as settings_public
+
+            self._send_json(200, settings_public())
+            return
         if path == "/api/usage":
             # OpenRouter key spend; ``refresh=1`` asks OpenRouter now (this thread).
             from ..auth import openrouter_usage
@@ -699,6 +705,17 @@ class WebHandler(BaseHTTPRequestHandler):
                 result = {"ok": False, "error": "invalid response"}
             if result.get("pin") is not None:
                 self.bridge.emit("pin", result["pin"])
+            self._send_json(200, result)
+            return
+
+        if path == "/api/settings/all":
+            # One setting {op: set|reset, key, value}: runs on the terminal's
+            # thread (it repaints what it shows); every page refreshes.
+            result = self.bridge.request_action("settings_set", data)
+            if not isinstance(result, dict):
+                result = {"ok": False, "error": "invalid response"}
+            if result.get("settings") is not None:
+                self.bridge.emit("settings_all", result["settings"])
             self._send_json(200, result)
             return
 

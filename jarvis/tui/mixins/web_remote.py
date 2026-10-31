@@ -546,18 +546,29 @@ class WebRemoteMixin:
     def _handle_web_settings(self, data: dict) -> dict:
         from ...web.state_api import apply_settings
 
-        result = apply_settings(data)
-        if result:
-            parts = []
-            if "error" not in result and "think_mode" in result:
-                parts.append(f"think {'on' if result['think_mode'] else 'off'}")
-            if "show_internal" in result:
-                parts.append(f"trace {'on' if result['show_internal'] else 'off'}")
-            if "auto_approve" in result:
-                parts.append(f"auto-approve {'on' if result['auto_approve'] else 'off'}")
-            if parts:
-                self._tui_console.print(f"[{ui.FG_DIM}]web: {', '.join(parts)}[/]")
-        return result
+        # No transcript notice: the switches themselves show the new state,
+        # and "web: auto-approve on/off" lines piled up in both transcripts.
+        return apply_settings(data)
+
+    def _apply_web_setting(self, key: str) -> None:
+        """Show a setting changed in the web Settings dialog here too
+        (``web/settings_api.py`` already saved and applied it)."""
+        try:
+            if key == "theme":
+                self._apply_theme_runtime(state.theme, rebuild_transcript=True)
+            elif key == "trace.on":
+                self._sync_trace()
+            elif key == "ui.sticky_prompt":
+                self._load_sticky_pref()
+                self._sync_sticky_prompt()
+            elif key == "pet.enabled":
+                self._pet_apply_visibility()
+            elif key == "web.qr":
+                self._render_web_bar()
+            self._render_footer()
+            self._refresh_sidebar()
+        except Exception:
+            pass
 
     def _handle_web_action(self, action: str, data: dict) -> dict:
         from ...web.actions_api import run_web_action
@@ -610,6 +621,9 @@ class WebRemoteMixin:
 
             if action == "session_rename":  # the sidebar shows the title
                 self._refresh_sidebar()
+
+            if action == "settings_set":  # the web Settings dialog
+                self._apply_web_setting(str(result.get("key") or ""))
 
             if action == "cwd_change":  # the terminal shows the folder too (footer, context strip)
                 try:

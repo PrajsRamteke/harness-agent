@@ -1,5 +1,4 @@
 /** Central reactive store for session state + UI preferences */
-import { storageGet } from './utils.js';
 
 const listeners = new Set();
 
@@ -36,8 +35,6 @@ export const store = {
     tool_calls: 0,
     message_count: 0,
   },
-  /** This device only: show thinking in the transcript */
-  showThoughts: true,
   /** Labels of the queued messages (the activity line counts them). */
   queue: [],
   /** The queue panel's rows: `{ id, text, label, files, steer, steerable, command, editing }`. */
@@ -105,8 +102,4 @@ export function loadSnapshot(data) {
   if (data.pin && typeof data.pin === 'object') patchStore({ pin: { ...store.pin, ...data.pin } });
   // null is meaningful here (another provider: hide the card), unlike session keys.
   if ('openrouter' in data) patchStore({ openrouter: data.openrouter || null });
-}
-
-export function loadUiPrefs() {
-  store.showThoughts = storageGet('jarvis-show-thinking', '1') !== '0';
 }

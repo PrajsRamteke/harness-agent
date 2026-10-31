@@ -39,9 +39,9 @@ export const CATALOG = [
   { group: 'Conversation', fill: true, cmd: '/loop ', label: 'Loop a task', desc: 'Repeat a task; Jarvis paces itself (/loop 5m … for a fixed interval)', icon: 'timer', keys: 'repeat schedule watch interval recurring' },
   { group: 'Conversation', cmd: '/loop stop', label: 'Stop the loop', desc: 'End the running /loop', icon: 'square', keys: 'loop end cancel' },
 
+  { group: 'Settings', picker: 'settings', cmd: '/settings', label: 'Settings', desc: 'Every preference: model, thinking, sources, agents, terminal', icon: 'settings', keys: 'settings preferences options config configure all' },
   { group: 'Settings', action: 'toggle-think', label: 'Extended thinking', desc: 'Think before answering', icon: 'brain', toggle: 'think_mode' },
-  { group: 'Settings', action: 'toggle-trace', label: 'Tool trace', desc: 'Show thinking and tool details', icon: 'list-tree', toggle: 'show_internal' },
-  { group: 'Settings', action: 'toggle-thoughts', label: 'Show thoughts here', desc: 'Thinking in this browser only', icon: 'eye', toggle: 'showThoughts' },
+  { group: 'Settings', action: 'toggle-thinking', label: 'Show thinking', desc: "The model's reasoning in the chat", icon: 'brain', toggle: 'show_internal' },
   { group: 'Settings', action: 'toggle-auto', label: 'Auto-approve commands', desc: 'Run shell commands without asking', icon: 'shield', toggle: 'auto_approve', warn: true },
   { group: 'Settings', action: 'theme', label: 'Light or dark', desc: 'Flip the colour mode', icon: 'sun-moon', keys: 'dark light mode theme soft dim' },
   { group: 'Settings', action: 'glass', label: 'Frosted glass', desc: 'Translucent panels; messages scroll under them', icon: 'blend', keys: 'glass frosted blur translucent transparent transparency appearance' },
@@ -52,7 +52,6 @@ export const CATALOG = [
   { group: 'Memory', picker: 'pin', cmd: '/pin', label: 'Pinned context', desc: 'Rules sent with every message: add, edit or unpin them', icon: 'pin', keys: 'pin pinned unpin context rules instructions always standing system prompt' },
   { group: 'Memory', cmd: '/scan', label: 'Scan project', desc: 'Deep scan of identity and docs', icon: 'scan-search' },
 
-  { group: 'On your computer', cmd: '/settings', label: 'All settings', desc: 'Every preference, in the terminal', icon: 'sliders-horizontal', laptop: true },
   { group: 'On your computer', cmd: '/theme', label: 'Terminal theme', desc: 'Colours of the terminal app', icon: 'palette', laptop: true },
   { group: 'On your computer', cmd: '/agent init', label: 'Scaffold .harness/', desc: 'Create the project agent folders', icon: 'folder-plus', laptop: true },
 
@@ -77,6 +76,8 @@ export const LOCAL_PICKERS = {
   '/command': 'command',
   '/commands': 'command',
   '/pin': 'pin',
+  '/settings': 'settings',
+  '/setting': 'settings',
   '/pins': 'pin',
   '/provider': 'provider',
   '/providers': 'provider',

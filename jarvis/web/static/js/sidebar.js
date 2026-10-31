@@ -46,11 +46,8 @@ function renderSwitches(s) {
     el.classList.toggle('is-pending', !!pendingKey && s.pendingToggle === pendingKey);
     el.closest('.switch-row')?.classList.toggle('is-disabled', disabled);
   };
-  set('sw-trace', s.session.show_internal, 'show_internal');
-  set('sw-thoughts', s.showThoughts && s.session.show_internal, null, !s.session.show_internal);
+  set('sw-thinking', s.session.show_internal, 'show_internal');
   set('sw-auto', s.session.auto_approve, 'auto_approve');
-  const sub = $('thoughts-sub');
-  if (sub) sub.textContent = s.session.show_internal ? 'Only on this device' : 'Turn on tool trace first';
 }
 
 function renderUsage(s) {
@@ -122,7 +119,7 @@ async function loadRecent() {
   if (!list) return;
   if (!list.childElementCount) list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
   try {
-    const data = await fetchSessions(5);
+    const data = await fetchSessions(30);
     const sessions = (data.sessions || []).map((x) => ({
       ...x,
       // Still the live chat of another running project: open it there, never twice.
@@ -142,7 +139,7 @@ async function loadRecent() {
         ? `<span class="rr-tag is-live" title="Open in ${escapeHtml(x.openIn.project)} — click to switch there">${escapeHtml(x.openIn.project)}</span>`
         : x.from ? `<span class="rr-tag" title="From ${escapeHtml(x.from)}, which was closed">${escapeHtml(x.from)}</span>` : '';
       return `
-      <button type="button" class="recent-row" role="listitem" data-sid="${x.id}" ${x.openIn ? `data-project="${escapeHtml(x.openIn.id)}"` : ''} title="${escapeHtml(x.title)}" style="--i:${i}">
+      <button type="button" class="recent-row" role="listitem" data-sid="${x.id}" ${x.openIn ? `data-project="${escapeHtml(x.openIn.id)}"` : ''} title="${escapeHtml(x.title)}" style="--i:${Math.min(i, 8)}">
         <span class="rr-dot" aria-hidden="true"></span>
         <span class="rr-body">
           <span class="rr-title">${escapeHtml(x.title)}</span>
@@ -202,8 +199,7 @@ export function initSidebar({ onOpenPicker }) {
   // The native flip already matches the optimistic store value; a failed
   // save reverts the store, and render() puts the checkbox back.
   const wire = (id, key) => $(id)?.addEventListener('change', () => toggleSetting(key));
-  wire('sw-trace', 'show_internal');
-  wire('sw-thoughts', 'showThoughts');
+  wire('sw-thinking', 'show_internal');
   wire('sw-auto', 'auto_approve');
 
   onSessionChange(refreshRecent);

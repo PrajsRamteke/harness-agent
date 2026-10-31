@@ -15,6 +15,7 @@ import { openMcp } from './mcp.js';
 import { openSkills } from './skills.js';
 import { openCommands } from './commands.js';
 import { openPin } from './pin.js';
+import { openSettings } from './settings.js';
 import { openLocal } from './local.js';
 import { renameInline } from './rename.js';
 import {
@@ -149,6 +150,11 @@ function open(kind, arg = '') {
   if (kind === 'command') {
     if (isModalOpen('picker')) closePicker();
     openCommands(arg);
+    return;
+  }
+  if (kind === 'settings') {
+    if (isModalOpen('picker')) closePicker();
+    openSettings();
     return;
   }
   if (kind === 'pin') {

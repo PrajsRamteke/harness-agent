@@ -1172,7 +1172,7 @@ export function renderSnapshot(data) {
 // ─── Thinking visibility ──────────────────────────────────────────────────
 
 export function shouldShowThoughts() {
-  return store.session.show_internal !== false && store.showThoughts;
+  return store.session.show_internal !== false;
 }
 
 export function syncThoughtsVisibility() {

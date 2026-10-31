@@ -88,7 +88,7 @@ function render(s) {
   const trace = $('qc-trace');
   if (trace) {
     trace.setAttribute('aria-pressed', String(!!s.session.show_internal));
-    trace.title = s.session.show_internal ? 'Tool trace is on' : 'Tool trace is off';
+    trace.title = s.session.show_internal ? 'Thinking is shown' : 'Thinking is hidden';
   }
   const auto = $('qc-auto');
   if (auto) {

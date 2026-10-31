@@ -1,5 +1,5 @@
 /** Session actions + settings shared by the sidebar, palette and pickers */
-import { showToast, storageSet } from './utils.js';
+import { showToast } from './utils.js';
 import { store, patchSession, patchStore, loadSnapshot } from './store.js';
 import { pickerAction, updateSettings } from './api.js';
 import { renderSnapshot, syncThoughtsVisibility } from './chat.js';
@@ -106,9 +106,6 @@ export function toggleSetting(which) {
       return setSetting({ show_internal: !s.show_internal }, 'show_internal');
     case 'auto_approve':
       return setSetting({ auto_approve: !s.auto_approve }, 'auto_approve');
-    case 'showThoughts':
-      toggleThoughts();
-      return Promise.resolve(true);
     default:
       return Promise.resolve(false);
   }
@@ -116,10 +113,4 @@ export function toggleSetting(which) {
 
 export function setEffort(effort) {
   return setSetting({ think_effort: effort }, 'think_effort');
-}
-
-export function toggleThoughts(next = !store.showThoughts) {
-  patchStore({ showThoughts: next });
-  storageSet('jarvis-show-thinking', next ? '1' : '0');
-  syncThoughtsVisibility();
 }

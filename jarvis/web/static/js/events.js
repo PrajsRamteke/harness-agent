@@ -25,6 +25,7 @@ import { handleMcpEvent } from './mcp.js';
 import { handleSkillsEvent } from './skills.js';
 import { handleCommandsEvent } from './commands.js';
 import { handlePinEvent } from './pin.js';
+import { handleSettingsEvent } from './settings.js';
 import { handleLocalEvent } from './local.js';
 import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
@@ -125,6 +126,11 @@ export function handleEvent(evt) {
 
     case 'queue':
       setQueue(data.items || [], data.entries);
+      break;
+
+    case 'settings_all':
+      // A setting changed (Settings dialog here, another page, the terminal).
+      handleSettingsEvent(data);
       break;
 
     case 'pin':

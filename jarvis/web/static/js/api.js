@@ -301,6 +301,10 @@ export const cancelTurn = () => api('/api/cancel', 'POST', {});
 export const enhancePrompt = (text) => api('/api/enhance', 'POST', { text });
 export const respondPrompt = (id, result) => api('/api/respond', 'POST', { id, result });
 export const updateSettings = (patch) => api('/api/settings', 'POST', patch);
+/** Every setting for the Settings dialog (jarvis/web/settings_api.py). */
+export const fetchSettingsAll = () => api('/api/settings/all');
+/** `{op: set|reset, key, value}` → `{ ok, key, error?, settings }` (never throws). */
+export const settingsPost = (data) => extPost('settings/all', data);
 export const fetchState = () => api('/api/state');
 
 /** Picker mutation. Always resolves to `{ok, error?, state?}`. */

@@ -26,6 +26,11 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
 
         return apply(data)
 
+    if action == "settings_set":
+        from .settings_api import apply as apply_setting
+
+        return apply_setting(data)
+
     if action == "queue":
         from ..prompt_queue import apply_op
 

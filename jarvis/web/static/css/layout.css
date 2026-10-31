@@ -200,6 +200,20 @@
   animation: shimmer 1.6s linear infinite;
 }
 
+/* Transcript + Shell switches: pinned under the sessions list (which takes
+   the rest of the height and scrolls), above the counters. */
+.side-toggles {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.side-toggles .side-sec { gap: 2px; padding-top: 0; }
+.side-toggles .switch-row { padding: 7px 10px; }
+.side-toggles + .side-foot { border-top: none; padding-top: 0; }
+
 .side-foot {
   display: flex;
   flex-direction: column;
