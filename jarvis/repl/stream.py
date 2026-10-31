@@ -53,6 +53,7 @@ from .trim import (
 from .render import assistant_model_label
 from .stream_display import RichAssistantStreamDisplay
 from .turn_progress import report_turn_phase
+from ..tools.live_write import LIVE_TOOL, LiveWrites, partial_note, user_notice
 
 
 # Reference to the active stream context so another thread (e.g. the TUI Esc
@@ -238,22 +239,34 @@ def tool_input_label(name: str, head: str, chars: int) -> str:
     return f"Preparing {name or 'tool'} call… {size}"
 
 
-def check_tool_inputs(final) -> None:
+def check_tool_inputs(final, live: LiveWrites | None = None) -> None:
     """Refuse tool calls whose arguments didn't fully arrive: the reply was
     cut off by the output limit, or the streamed JSON is invalid (eager input
     streaming no longer has the API validate it). They get an error result
-    instead of running on half their input."""
+    instead of running on half their input. ``live`` (the reply's live
+    writes) adds where a cut-off write_file's content was already saved."""
     from .render import mark_tool_call_unusable
 
     blocks = [b for b in (getattr(final, "content", None) or []) if getattr(b, "type", None) == "tool_use"]
     if not blocks:
         return
+    nth_write = {}
+    for b in blocks:
+        if getattr(b, "name", "") == LIVE_TOOL:
+            nth_write[id(b)] = len(nth_write)
+
+    def _saved(b) -> str:
+        if live is None or id(b) not in nth_write:
+            return ""
+        r = live.result_for(nth_write[id(b)])
+        return partial_note(r) if r else ""
+
     if getattr(final, "stop_reason", None) == "max_tokens":
         mark_tool_call_unusable(
             getattr(blocks[-1], "id", ""),
             "this tool call was cut off by the model's output limit, so its arguments are "
             "incomplete and it was NOT run. Make it smaller: write a large file in parts "
-            "(write_file a first part, then edit_file to append the rest).",
+            "(write_file a first part, then edit_file to append the rest)." + _saved(blocks[-1]),
         )
     for b in blocks:
         buf = getattr(b, "__json_buf", None)
@@ -268,15 +281,23 @@ def check_tool_inputs(final) -> None:
                 getattr(b, "id", ""),
                 "the arguments for this tool call arrived as invalid or incomplete JSON, so it "
                 "was NOT run. Send it again with a valid JSON object (split very large content "
-                "into smaller calls).",
+                "into smaller calls)." + _saved(b),
             )
+
+
+def report_partial_writes(live: LiveWrites) -> None:
+    """The reply stopped mid-file (cut off, dropped, Esc): say what was kept."""
+    from rich.markup import escape
+
+    for r in live.incomplete():
+        console.print(f"[yellow]↳ {escape(user_notice(r))}[/]")
 
 
 # Models already told "thinking on but no separate reasoning" — say it once.
 _THINK_NOTICE_SHOWN: dict[str, bool] = {}
 
 
-def _consume_live_text_stream(stream, panel_title: str) -> None:
+def _consume_live_text_stream(stream, panel_title: str, live: LiveWrites | None = None) -> None:
     """Drain live thinking + text deltas for real-time UX; then call ``get_final_message()``.
 
     TUI: pushes deltas via ``TUIConsole`` helpers and sets stream UI flags.
@@ -284,6 +305,9 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
 
     Extended thinking emits reasoning deltas before text — without handling them the
     UI sits on a generic "streaming" label with no transcript motion.
+
+    ``live`` gets every tool-call argument delta, so a write_file's content
+    reaches disk while it streams (tools/live_write.py).
     """
     rich_live: RichAssistantStreamDisplay | None = None
     stop_watch = threading.Event()
@@ -345,6 +369,8 @@ def _consume_live_text_stream(stream, panel_title: str) -> None:
                 # A tool call's arguments streaming in (e.g. a whole file for
                 # write_file): show what's being written and how much so far.
                 key, name, delta = chunk
+                if live is not None:
+                    live.feed(key, name, delta)
                 tp = tool_progress.setdefault(key, {"name": "", "head": "", "chars": 0})
                 if name:
                     tp["name"] = name
@@ -907,13 +933,14 @@ def _call_claude_stream():
         try:
             report_turn_phase("Jarvis: API waiting...")
             globals()["_got_first_delta"] = False
+            live = LiveWrites()
             with state.client.messages.stream(**kwargs) as stream:
                 _current_stream = stream
                 _thread_streams[threading.get_ident()] = stream
                 try:
                     if state.stream_reply_live:
                         report_turn_phase("Waiting for model…")
-                        _consume_live_text_stream(stream, panel_title)
+                        _consume_live_text_stream(stream, panel_title, live)
                     else:
                         report_turn_phase("Jarvis: buffering full reply (stream off)…")
                     report_turn_phase("Jarvis: finalizing...")
@@ -922,7 +949,9 @@ def _call_claude_stream():
                     _thread_streams.pop(threading.get_ident(), None)
                     if _current_stream is stream:
                         _current_stream = None
-            check_tool_inputs(final)
+                    live.close()
+                    report_partial_writes(live)
+            check_tool_inputs(final, live)
             # input_tokens is the FULL prompt sent in THIS request (includes full
             # conversation history).  Accumulating it across turns massively
             # overcounts — just store the latest value which reflects total

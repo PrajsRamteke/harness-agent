@@ -293,14 +293,19 @@ def _call_model(team: Team, agent: AgentRun, cfg: RequestConfig, system: Any,
                 messages: list, tools: list) -> Any:
     from ..repl import prompt_cache
     from ..repl.stream import _iter_live_deltas, check_tool_inputs, tool_input_label
+    from ..tools.live_write import LIVE_TOOL, LiveWrites
 
     kwargs = _request_kwargs(cfg, system, messages, tools)
+    # A subagent's write goes through file claims before it runs, so its
+    # streaming content is only kept as a recovery draft, never the real file.
+    can_write = any(_real_tool_name(t.get("name", "")) == LIVE_TOOL for t in tools)
     cache_retried = thinking_retried = think_setting_retried = False
     attempt = 0
     while True:
         if team.stopped(agent):
             raise _Stop()
         team.set_activity(agent, "Thinking…")
+        live = LiveWrites(drafts_only=True)
         try:
             with cfg.client.messages.stream(**kwargs) as stream:
                 with team.lock:
@@ -321,6 +326,8 @@ def _call_model(team: Team, agent: AgentRun, cfg: RequestConfig, system: Any,
                                               if chars > 400 else "Writing…")
                         elif kind == "tool_input":
                             _key, name, delta = chunk
+                            if can_write:
+                                live.feed(_key, _real_tool_name(name) if name else "", delta)
                             if name:
                                 tool_name, tool_chars, tool_head = name, 0, ""
                             tool_chars += len(delta or "")
@@ -333,7 +340,8 @@ def _call_model(team: Team, agent: AgentRun, cfg: RequestConfig, system: Any,
                 finally:
                     with team.lock:
                         agent.stream = None
-            check_tool_inputs(final)
+                    live.close()
+            check_tool_inputs(final, live)
             return final
         except _Stop:
             raise

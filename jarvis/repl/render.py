@@ -8,6 +8,7 @@ from ..console import console, Panel, Markdown
 from ..constants import TOOL_ICONS, MAX_TOOL_OUTPUT, MAX_PARALLEL_TOOLS, CONTEXT_BUNDLE_MAX_CHARS
 from ..utils.tool_images import tool_result_content
 from ..tools import FUNC
+from ..tools import live_write
 from ..utils.tool_repair import REPAIR_NOTE_MARKER, has_repair_note, repair_tool_input
 from .. import state
 from .hallucination import _scrub_hallucinations
@@ -241,6 +242,12 @@ def mark_tool_call_unusable(tool_id: str, reason: str) -> None:
         _UNUSABLE_TOOL_CALLS[tool_id] = reason
 
 
+def _input_path(tool_input) -> str:
+    if not isinstance(tool_input, dict):
+        return ""
+    return str(tool_input.get("path") or tool_input.get("file_path") or "")
+
+
 def _run_tool(b):
     # Normalise free-tier wire aliases to Jarvis tool names first, so grouping,
     # icons, plan-mode gating and FUNC lookup all use the real name.
@@ -267,9 +274,13 @@ def _run_tool(b):
     report_turn_phase(activity_label)
     emit_tool_start(tool_id=b.id, name=b.name, label=activity_label, input=b.input)
 
-    def _finish(out_str: str):
+    def _finish(out_str: str, keep_live_file: bool = False):
         # Credentials never reach the model or the transcript (utils/redact.py).
         out_str = redact_secrets(str(out_str))
+        if b.name == live_write.LIVE_TOOL and out_str.startswith("ERROR") and not keep_live_file:
+            # Refused before it wrote: drop the file its live write created.
+            # A cut-off call keeps it — that's the content that did arrive.
+            live_write.discard(_input_path(b.input))
         if dock:
             set_done(b.id, out_str)
         emit_tool_done(
@@ -288,10 +299,10 @@ def _run_tool(b):
     # with a __stream_error__ sentinel so we can return an actionable error
     # instead of trying to invoke the tool with garbage.
     if isinstance(b.input, dict) and "__stream_error__" in b.input:
-        return _finish(f"ERROR: {b.input['__stream_error__']}")
+        return _finish(f"ERROR: {b.input['__stream_error__']}", keep_live_file=True)
     unusable = _UNUSABLE_TOOL_CALLS.pop(getattr(b, "id", "") or "", None)
     if unusable:
-        return _finish(f"ERROR: {unusable}")
+        return _finish(f"ERROR: {unusable}", keep_live_file=True)
 
     # Strip unknown kwargs that some models hallucinate (e.g. `language`,
     # `description`) which would otherwise crash the tool with a confusing

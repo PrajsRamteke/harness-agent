@@ -15,6 +15,7 @@ from ..constants import (
 )
 from .. import state
 from .dirs import SKIP_DIRS
+from . import live_write
 from ..path_resolve import project_scope_error, robust_resolve
 
 # Extensions that are almost never useful to read as text.
@@ -375,7 +376,8 @@ def write_file(path: str, content: str, allow_outside_project: bool = False) -> 
         if scope_err:
             return scope_err
     with _path_lock(p):
-        existed = p.exists()
+        # A file this call's live write created while it streamed is still new.
+        existed = p.exists() and not live_write.claim(p)
         if existed and _changed_since_seen(p):
             return (
                 f"ERROR: {path} changed on disk since you last read or wrote it "
@@ -383,7 +385,8 @@ def write_file(path: str, content: str, allow_outside_project: bool = False) -> 
                 "before overwriting it, so those changes aren't lost."
             )
         before = p.read_text(errors="ignore") if existed else ""
-        _save_backup(p)
+        if existed:
+            _save_backup(p)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         _cache_invalidate(p)
