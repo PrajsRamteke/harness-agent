@@ -513,3 +513,91 @@ def test_client_refuses_cleanly_when_not_set_up():
     with pytest.raises(cac.ClaudeAgentError) as ei:
         client.messages.stream(model="sonnet", messages=[{"role": "user", "content": "x"}], tools=[], system="")
     assert ei.value.status_code == 424 and "install" in str(ei.value).lower()
+
+
+# ─── Plan usage (what Claude Code's /usage shows) ─────────────────────────
+
+USAGE_RAW = {
+    "session": {"total_cost_usd": 0},
+    "subscription_type": "team",
+    "rate_limits_available": True,
+    "rate_limits": {
+        "five_hour": {"utilization": 41, "resets_at": "2026-10-31T19:20:00+00:00"},
+        "seven_day": {"utilization": 25, "resets_at": "2026-11-06T05:00:00+00:00"},
+        "extra_usage": {"is_enabled": False},
+        "limits": [
+            {"kind": "weekly_all", "group": "weekly", "percent": 25, "severity": "normal",
+             "resets_at": "2026-11-06T05:00:00+00:00", "is_active": False},
+            {"kind": "session", "group": "session", "percent": 93, "severity": "normal",
+             "resets_at": "2026-10-31T19:20:00+00:00", "is_active": True},
+        ],
+        "spend": {"used": {"amount_minor": 1250, "currency": "USD", "exponent": 2},
+                  "limit": {"amount_minor": 5000, "currency": "USD", "exponent": 2},
+                  "percent": 25, "enabled": True},
+    },
+}
+
+
+def test_usage_parses_claude_codes_answer():
+    from jarvis.auth import claude_agent_usage as u
+
+    d = u.parse(USAGE_RAW)
+    assert d["plan_label"] == "Claude Team" and d["available"]
+    assert [(x["kind"], x["percent"], x["level"]) for x in d["limits"]] == [
+        ("session", 93, "low"), ("weekly_all", 25, "ok")]
+    assert d["limits"][0]["label"] == "Current session"
+    assert d["extra"] == {"used": 12.5, "limit": 50.0, "currency": "USD", "percent": 25}
+    # An older Claude Code without `limits`: the per-window fields.
+    old = json.loads(json.dumps(USAGE_RAW))
+    del old["rate_limits"]["limits"]
+    assert [(x["kind"], x["percent"]) for x in u.parse(old)["limits"]] == [("session", 41), ("weekly_all", 25)]
+
+
+def test_usage_follows_rate_limit_events_and_hides_for_other_providers(ready, monkeypatch):
+    from jarvis import state
+    from jarvis.auth import claude_agent_usage as u
+
+    monkeypatch.setattr(u, "_ask", lambda: u.parse(USAGE_RAW))
+    monkeypatch.setattr(state, "provider", "openrouter")
+    assert u.public() is None
+    monkeypatch.setattr(state, "provider", "claude_agent")
+    u.refresh(wait=True)
+    snap = u.public(kick=False)
+    assert snap["status"] == "ok" and snap["session"]["percent"] == 93
+    # A reply's RateLimitEvent updates the window at once (fraction 0–1).
+    u.note_rate_limit(NS(rate_limit_type="five_hour", utilization=0.5, resets_at=1793560800,
+                         status="allowed"))
+    snap = u.public(kick=False)
+    assert snap["session"]["percent"] == 50 and snap["session"]["level"] == "ok"
+    assert snap["session"]["resets_at"].startswith("2026-")
+    u.note_rate_limit(NS(rate_limit_type="seven_day", utilization=0.95, resets_at=None, status="rejected"))
+    weekly = [x for x in u.public(kick=False)["limits"] if x["kind"] == "weekly_all"][0]
+    assert weekly["percent"] == 95 and weekly["level"] == "low"
+    assert weekly["resets_at"] == "2026-11-06T05:00:00+00:00"  # kept from the last ask
+
+    from jarvis.web.state_api import _claude_usage_fields
+
+    assert _claude_usage_fields()["plan_label"] == "Claude Team"
+
+
+def test_usage_asks_a_running_process(harness):
+    """A live `claude` answers the control request (no extra process)."""
+    asked = []
+
+    async def brain(fake, blocks):
+        await fake.say("hi")
+
+    harness.brains["brain"] = brain
+    _run(harness.client, [{"role": "user", "content": "hi"}])
+    fake = harness.brains["fakes"][0]
+
+    class _Q:
+        async def _send_control_request(self, req):
+            asked.append(req)
+            return USAGE_RAW
+
+    fake._query = _Q()
+    sess = harness.engine.live_session()
+    assert sess is not None
+    assert sess.command("control", {"subtype": "get_usage"}) == USAGE_RAW
+    assert asked == [{"subtype": "get_usage"}]

@@ -466,6 +466,10 @@ class _Session:
                 if cmd == "close":
                     done.set_result(None)
                     break
+                if cmd == "control":
+                    # Its own task: a slow answer must not hold up a query.
+                    asyncio.ensure_future(_control(client, arg, done))
+                    continue
                 try:
                     if cmd == "query":
                         await client.query(_one(arg))
@@ -550,10 +554,10 @@ class _Session:
         if not fut.done():
             fut.set_result(payload)
 
-    async def _send(self, cmd: str, arg: Any = None) -> None:
+    async def _send(self, cmd: str, arg: Any = None) -> Any:
         done = asyncio.get_running_loop().create_future()
         await self._cmds.put((cmd, arg, done))
-        await done
+        return await done
 
     # ── thread side ──
 
@@ -566,10 +570,10 @@ class _Session:
         if self.start_error is not None:
             raise _start_failure(self.start_error, self)
 
-    def command(self, cmd: str, arg: Any = None, timeout: float = 60.0) -> None:
+    def command(self, cmd: str, arg: Any = None, timeout: float = 60.0) -> Any:
         if self.phase == "dead" or not self.alive:
             raise _error(503, "The Claude Code process has stopped.")
-        _LOOP.run(self._send(cmd, arg), timeout)
+        return _LOOP.run(self._send(cmd, arg), timeout)
 
     def query(self, blocks: list[dict]) -> None:
         self.command("query", blocks)
@@ -622,6 +626,21 @@ class _Session:
 
     def stderr_tail(self) -> str:
         return "\n".join(list(self.stderr)[-6:]).strip()
+
+
+async def _control(client: Any, request: dict, done: asyncio.Future) -> None:
+    """One control request to the CLI (``get_usage`` …) — what Claude Code's
+    own screens ask; the binary answers with its own login."""
+    try:
+        send = getattr(getattr(client, "_query", None), "_send_control_request", None)
+        if send is None:
+            raise RuntimeError("this Claude Agent SDK can't ask Claude Code that")
+        result = await send(request)
+        if not done.done():
+            done.set_result(result)
+    except BaseException as e:  # noqa: BLE001
+        if not done.done():
+            done.set_exception(e)
 
 
 async def _one(blocks: list[dict]):
@@ -799,6 +818,13 @@ class _Engine:
     def finish(self, sess: _Session) -> None:
         self._release(sess)
         self.slots.release()
+
+    def live_session(self) -> "_Session | None":
+        """A running process to ask a control request (idle ones first)."""
+        with self.lock:
+            live = [s for s in self.sessions if s.alive and s.phase != "dead"]
+        live.sort(key=lambda s: (s.phase != "idle", -s.last_used))
+        return live[0] if live else None
 
     def close_all(self) -> None:
         with self.lock:
@@ -1080,6 +1106,12 @@ class _Stream:
                 self._assistant_error(item)
             elif name == "RateLimitEvent":
                 info = getattr(item, "rate_limit_info", None)
+                try:
+                    from . import claude_agent_usage
+
+                    claude_agent_usage.note_rate_limit(info)
+                except Exception:
+                    pass
                 resets = getattr(info, "resets_at", None) if info is not None else None
                 if resets:
                     try:
@@ -1169,6 +1201,35 @@ class ClaudeAgentClient:
 
     def close(self) -> None:
         pass  # processes are shared by every client; they stop when idle
+
+
+# ─── Plan usage ───────────────────────────────────────────────────────────
+
+
+def control_request(request: dict, *, timeout: float = 30.0) -> Any:
+    """Ask Claude Code a control request (no model request). A running
+    process answers when there is one; else one is started just for it."""
+    live = engine().live_session()
+    if live is not None:
+        return live.command("control", request, timeout)
+    from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+
+    env = dict(cfg.child_env())
+
+    async def run() -> Any:
+        opts = ClaudeAgentOptions(cli_path=cfg.status().cli_path or cfg.find_cli(), tools=[],
+                                  setting_sources=[], strict_mcp_config=True, env=env,
+                                  permission_mode="dontAsk")
+        client = ClaudeSDKClient(opts)
+        await client.connect()
+        try:
+            done = asyncio.get_running_loop().create_future()
+            await _control(client, request, done)
+            return await done
+        finally:
+            await asyncio.wait_for(client.disconnect(), 8)
+
+    return _LOOP.run(run(), timeout + 30)
 
 
 # ─── Model list ───────────────────────────────────────────────────────────

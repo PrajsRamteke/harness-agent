@@ -217,5 +217,9 @@ def _isolated_claude_agent(monkeypatch):
     monkeypatch.setattr(claude_agent, "STATUS_CACHE", f"claude_agent_status_{tag}")
     monkeypatch.setattr(claude_agent, "MODELS_CACHE", f"claude_agent_models_{tag}")
     claude_agent.reset()
+    from jarvis.auth import claude_agent_usage
+
+    claude_agent_usage.reset()
     yield
     claude_agent.reset()
+    claude_agent_usage.reset()

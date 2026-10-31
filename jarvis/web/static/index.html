@@ -165,6 +165,28 @@
             </div>
           </div>
         </section>
+        <section class="or-card cc-card" id="cc-card" aria-label="Claude plan usage" hidden>
+          <button type="button" class="or-main" id="cc-main" aria-expanded="false" aria-controls="cc-more" title="Claude plan usage — click for the weekly limits">
+            <span class="or-top">
+              <span class="or-mark cc-mark" data-icon="gauge"></span>
+              <span class="or-name" id="cc-name">Claude plan</span>
+              <span class="or-left" id="cc-left"></span>
+              <span class="or-chev" data-icon="chevron-down"></span>
+            </span>
+            <span class="or-bar" id="cc-bar" role="img"><i id="cc-fill"></i></span>
+            <span class="or-meta"><span id="cc-sub"></span><span id="cc-reset"></span></span>
+          </button>
+          <div class="fold" id="cc-more">
+            <div class="fold-inner">
+              <dl class="or-grid cc-grid" id="cc-grid"></dl>
+              <div class="or-actions">
+                <span class="or-updated" id="cc-updated"></span>
+                <button type="button" class="icon-btn or-icon" id="cc-refresh" aria-label="Refresh usage" title="Ask Claude Code now"><span data-icon="refresh-cw"></span></button>
+                <a class="icon-btn or-icon" href="https://claude.ai/settings/usage" target="_blank" rel="noopener" aria-label="Usage on claude.ai" title="Usage on claude.ai"><span data-icon="external-link"></span></a>
+              </div>
+            </div>
+          </div>
+        </section>
         <div class="usage" id="usage" aria-label="Usage this session">
           <div class="usage-cell"><span class="usage-num" id="use-in">0</span><span class="usage-lbl">tokens in</span><span class="usage-badge" id="use-in-cache" hidden></span></div>
           <div class="usage-cell"><span class="usage-num" id="use-out">0</span><span class="usage-lbl">tokens out</span></div>

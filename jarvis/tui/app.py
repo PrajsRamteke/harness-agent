@@ -2097,6 +2097,12 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
             openrouter_usage.invalidate()
         except Exception:
             pass
+        try:  # … and the Claude plan's limits moved
+            from ..auth import claude_agent_usage
+
+            claude_agent_usage.invalidate()
+        except Exception:
+            pass
         finish_cmd = getattr(self._tui_console, "finish_command_progress", None)
         if callable(finish_cmd):
             finish_cmd()

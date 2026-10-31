@@ -419,7 +419,19 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "tool_calls": state.tool_calls_count,
         "jobs": jobs_fields(),
         "openrouter": _openrouter_fields(),
+        "claude_usage": _claude_usage_fields(),
     }
+
+
+def _claude_usage_fields() -> dict[str, Any] | None:
+    """Claude plan limits while the Claude Code CLI is the provider (``None``
+    hides the card). Memory only — refreshes run on a worker."""
+    try:
+        from ..auth import claude_agent_usage
+
+        return claude_agent_usage.public()
+    except Exception:
+        return None
 
 
 def _openrouter_fields() -> dict[str, Any] | None:

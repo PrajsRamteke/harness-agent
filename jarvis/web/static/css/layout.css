@@ -260,6 +260,23 @@
   --or-tone: var(--accent);
 }
 .or-card[hidden] { display: none; }
+/* Claude plan (Claude Code CLI): the 5-hour session on top, weekly limits folded. */
+.or-mark.cc-mark { color: rgb(232, 139, 104); }
+:root[data-theme="light"] .or-mark.cc-mark { color: rgb(194, 85, 45); }
+.or-grid.cc-grid { display: flex; flex-direction: column; gap: 9px; padding-top: 2px; padding-bottom: 10px; }
+.cc-limit { display: flex; flex-direction: column; gap: 4px; }
+.cc-limit-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
+.cc-limit-top dt { display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-limit-top dd { margin: 0; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.cc-limit .or-bar { height: 4px; }
+.cc-limit .or-bar i { background: var(--cc-tone, var(--accent)); }
+.cc-limit[data-level="warn"] { --cc-tone: var(--warn); }
+.cc-limit[data-level="low"] { --cc-tone: var(--danger); }
+.cc-limit[data-level="warn"] dd { color: var(--warn); }
+.cc-limit[data-level="low"] dd { color: var(--danger); }
+.cc-limit-sub { font-size: 10.5px; color: var(--text-3); }
+.cc-limit-top dt .ic { width: 12px; height: 12px; flex: none; }
+.cc-note { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--text-3); }
 .or-card[data-level="warn"] { --or-tone: var(--warn); }
 .or-card[data-level="low"] { --or-tone: var(--danger); }
 .or-main {
