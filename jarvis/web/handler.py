@@ -557,6 +557,8 @@ class WebHandler(BaseHTTPRequestHandler):
             result = run("provider_use", {"id": card_id})
         elif path == "/api/providers/signout":
             result = run("provider_sign_out", {"id": card_id})
+        elif path == "/api/providers/cli/check":
+            result = pv.check_cli(run_action=run)
         elif path == "/api/providers/oauth/start":
             result = pv.start_oauth(card_id, run_action=run)
         elif path == "/api/providers/oauth/finish":

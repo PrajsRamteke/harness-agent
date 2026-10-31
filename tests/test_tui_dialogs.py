@@ -399,3 +399,52 @@ def test_think_picker_lists_only_what_the_model_takes(hermetic_app, monkeypatch)
 
     asyncio.run(run())
     assert picked == ["low"]
+
+
+def test_claude_code_dialog_checklist_and_use(hermetic_app, monkeypatch):
+    """/claude-code: a checklist from the binary's own answer (never its
+    credentials); signed out → the sign-in button + the exact command; ready
+    → ↵ picks it. The provider hub has a row for it."""
+    import time
+
+    from jarvis import state
+    from jarvis.auth import claude_agent as ca
+    from jarvis.tui.claude_code_modal import ClaudeCodeScreen, USE
+    from jarvis.tui.provider_hub import ProviderHubScreen
+
+    status = ca.Status(cli_path="/x/claude", cli_version="2.1.316", sdk_version="0.2.176",
+                       logged_in=False, checked_at=time.time())
+    monkeypatch.setattr(ca, "refresh", lambda: status)
+    monkeypatch.setattr(ca, "status", lambda: status)
+    monkeypatch.setattr(ca, "models_are_live", lambda: True)
+    picked: list = []
+
+    async def run() -> None:
+        app = hermetic_app()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            monkeypatch.setattr(state, "provider", "opencode_zen")
+            app.push_screen(ClaudeCodeScreen(), picked.append)
+            await pilot.pause(0.4)
+            body = str(app.screen.query_one("#cc_body").render())
+            assert "Claude Code 2.1.316" in body and "claude auth login" in body
+            assert app.screen.query_one("#cc_login").display
+            assert app.screen.query_one("#cc_use").disabled
+            # Signed in (the user ran `claude auth login` themselves) → Recheck → ↵ uses it.
+            status.logged_in, status.auth_method, status.plan, status.email = True, "claude.ai", "max", "me@x.io"
+            await pilot.press("r")
+            await pilot.pause(0.4)
+            body = str(app.screen.query_one("#cc_body").render())
+            assert "me@x.io · Claude Max" in body
+            assert not app.screen.query_one("#cc_use").disabled
+            assert not app.screen.query_one("#cc_login").display
+            await pilot.press("enter")
+            await pilot.pause(0.2)
+            assert picked == [USE]
+            app.push_screen(ProviderHubScreen())
+            await pilot.pause(0.3)
+            opts = app.screen.query_one("#mode_list")
+            ids = [opts.get_option_at_index(i).id for i in range(opts.option_count)]
+            assert "claude" in ids
+
+    asyncio.run(run())

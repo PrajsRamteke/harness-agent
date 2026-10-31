@@ -21,6 +21,7 @@ export const CATALOG = [
   { group: 'Go to', action: 'inspector-activity', label: 'Activity', desc: 'What Jarvis is doing, its tool calls and background jobs', icon: 'activity', keys: 'tools jobs progress timeline running side panel' },
   { group: 'Go to', picker: 'local', cmd: '/local-models', label: 'Local models', desc: 'Ollama, LM Studio, llama.cpp … on your own hardware — no key, no cost', icon: 'monitor', keys: 'local offline ollama lm studio lmstudio llama llama.cpp gguf vllm jan gpt4all private self hosted server' },
   { group: 'Go to', picker: 'provider', cmd: '/provider', label: 'Providers and login', desc: 'Sign in, add API keys, switch provider', icon: 'key-round', keys: 'login logout sign in oauth api key keys account anthropic claude chatgpt codex google antigravity gemini openrouter opencode zen' },
+  { group: 'Go to', picker: 'provider', pickerArg: 'claude_agent', cmd: '/claude-code', label: 'Claude Code CLI', desc: 'Claude through your own signed-in Claude Code — plan or API key', icon: 'terminal', keys: 'claude code cli agent sdk subscription pro max team plan anthropic login sign in' },
 
   { group: 'Conversation', action: 'session_new', cmd: '/new', label: 'New chat', desc: 'Start a fresh conversation', icon: 'plus', keys: 'clear fresh' },
   { group: 'Conversation', action: 'tab_new', cmd: '/tab new', label: 'New chat tab', desc: 'Another chat in this folder — this one keeps going in its tab', icon: 'plus', keys: 'tab tabs new window parallel side by side another second chat open' },
@@ -86,9 +87,14 @@ export const LOCAL_PICKERS = {
   '/auth': 'provider',
   '/key': 'provider',
   '/local-models': 'local',
+  '/claude-code': 'provider',
+  '/claudecode': 'provider',
   '/localmodels': 'local',
   '/keys': 'provider',
 };
+
+/** Bare commands that open a picker on one row: `/claude-code` → Providers, Claude Code. */
+export const LOCAL_PICKER_ARGS = { '/claude-code': 'claude_agent', '/claudecode': 'claude_agent' };
 
 /** Commands whose argument the web picker takes too: `/provider openrouter`. */
 export const LOCAL_PICKERS_WITH_ARG = new Set(['/provider', '/providers', '/login', '/key']);

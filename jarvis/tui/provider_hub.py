@@ -23,6 +23,7 @@ _MODE_OPTIONS = [
     ("oauth", "Auth (OAuth)",     "Claude · ChatGPT · Google Antigravity — subscription sign-in"),
     ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode + 200 more via models.dev"),
     ("local", "Local models",     "Ollama, LM Studio, llama.cpp … on this computer — no key"),
+    ("claude", "Claude Code CLI", "Your own signed-in `claude` — Pro / Max / Team plan or API key"),
 ]
 
 
@@ -53,7 +54,7 @@ class ProviderHubScreen(TuiModalScreen[str | None]):
         max-height: 54%;
     }
     ProviderHubScreen OptionList {
-        height: 9;
+        height: 10;
         margin-top: 1;
     }
     """
@@ -108,7 +109,7 @@ class ProviderHubScreen(TuiModalScreen[str | None]):
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Fired by OptionList when Enter is pressed or option clicked."""
         mode = str(event.option.id) if event.option.id else ""
-        if mode in ("oauth", "api", "local"):
+        if mode in ("oauth", "api", "local", "claude"):
             self.dismiss(mode)
         else:
             self.dismiss(None)

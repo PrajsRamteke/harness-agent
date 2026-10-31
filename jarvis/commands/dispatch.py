@@ -53,6 +53,11 @@ def handle_slash(inp: str):
         cmd_upgrade(arg)
         return ("ok", False, inp)
 
+    if c in ("/claude-code", "/claudecode"):
+        from .claude_code import handle_claude_code
+        handle_claude_code(arg)
+        return ("ok", False, inp)
+
     if c in ("/local-models", "/localmodels"):
         from .local_models import handle_local_models
         handle_local_models(arg)

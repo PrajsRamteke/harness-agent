@@ -5,7 +5,7 @@ import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, 
 import { icon } from './icons.js';
 import { store, subscribe, patchStore } from './store.js';
 import { sendPrompt, cancelTurn, enhancePrompt } from './api.js';
-import { CATALOG, LOCAL_PICKERS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchItem, rankItems, getCustomItems, wantCustomItems, commandPickerArg } from './catalog.js';
+import { CATALOG, LOCAL_PICKERS, LOCAL_PICKER_ARGS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchItem, rankItems, getCustomItems, wantCustomItems, commandPickerArg } from './catalog.js';
 import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
 import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
@@ -131,7 +131,7 @@ export async function submitPrompt(text) {
   const pickerKind = LOCAL_PICKERS[value.toLowerCase()] || (withArg ? LOCAL_PICKERS[head.toLowerCase()] : '');
   if (pickerKind && openPicker && !withFiles) {
     if (text === undefined && el) setPromptValue('');
-    openPicker(pickerKind, withArg ? rest.join(' ') : '');
+    openPicker(pickerKind, withArg ? rest.join(' ') : (LOCAL_PICKER_ARGS[value.toLowerCase()] || ''));
     return;
   }
 

@@ -193,3 +193,29 @@ def ext_env(tmp_path, monkeypatch):
     yield types.SimpleNamespace(home=home, proj=proj)
     monkeypatch.setattr(mcp_config, "_config", None)
     skills.invalidate_cache()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_claude_agent(monkeypatch):
+    """The Claude Code CLI provider (``jarvis/auth/claude_agent.py``): never
+    find or run the developer's real ``claude`` (it would ask their account),
+    never read their cached status. Tests that want it patch ``find_cli`` /
+    ``_run`` or drive the client with a fake SDK client."""
+    from jarvis.auth import claude_agent
+
+    monkeypatch.setattr(claude_agent, "_candidates", lambda: [])
+    monkeypatch.setattr(claude_agent, "_bundled_cli", lambda: None)
+
+    def _no_cli(*_a, **_k):
+        return -1, "", "claude disabled in tests"
+
+    monkeypatch.setattr(claude_agent, "_run", _no_cli)
+    # Status and model list are cached on disk: one file per test.
+    import uuid
+
+    tag = uuid.uuid4().hex[:10]
+    monkeypatch.setattr(claude_agent, "STATUS_CACHE", f"claude_agent_status_{tag}")
+    monkeypatch.setattr(claude_agent, "MODELS_CACHE", f"claude_agent_models_{tag}")
+    claude_agent.reset()
+    yield
+    claude_agent.reset()

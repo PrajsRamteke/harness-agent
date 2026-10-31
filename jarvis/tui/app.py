@@ -75,6 +75,7 @@ from .app_commands import (  # noqa: F401
     _is_provider_hub_command,
     _is_local_command,
     _is_local_models_command,
+    _is_claude_code_command,
     _is_pet_card_command,
     _is_pet_badges_command,
 )
@@ -931,6 +932,8 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
             self._rename_command(stripped)
         elif _is_bare_model_command(stripped):
             self._route_modal_slash(stripped)  # bare → picker; with arg → switch
+        elif _is_claude_code_command(stripped):
+            self._open_claude_code()
         elif _is_provider_hub_command(stripped):
             self._open_provider_hub()
         elif _is_local_models_command(stripped):
@@ -980,15 +983,34 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
             if option_id == LOCAL_ID:
                 self._open_local_models()
                 return
+            if option_id == CLAUDE_ID:
+                self._open_claude_code()
+                return
             if option_id.startswith(CONNECT_ID):
                 self._connect_provider_from_picker(option_id[len(CONNECT_ID):])
                 return
             from ..constants.providers import parse_model_option_id
             source, model_id = parse_model_option_id(option_id)
             self._apply_model_selection_worker(model_id, source=source)
-        from .model_modal import ModelPickerScreen, CONNECT_ID, LOCAL_ID
+        from .model_modal import ModelPickerScreen, CONNECT_ID, LOCAL_ID, CLAUDE_ID
 
         self.push_screen(ModelPickerScreen(), after)
+
+    def _open_claude_code(self) -> None:
+        """``/claude-code``: the user's own Claude Code CLI — status, sign in
+        (Anthropic's own flow, in this terminal), use it."""
+        from .claude_code_modal import ClaudeCodeScreen, USE
+
+        def after(result: str | None) -> None:
+            self._set_status("ready")
+            if result != USE:
+                return
+            from ..constants.providers import PROVIDER_CLAUDE_AGENT, normalize_model_for_provider
+
+            model = normalize_model_for_provider(state.MODEL, PROVIDER_CLAUDE_AGENT)
+            self._apply_model_selection_worker(model, source=PROVIDER_CLAUDE_AGENT)
+
+        self.push_screen(ClaudeCodeScreen(), after)
 
     def _open_local_models(self) -> None:
         """``/local-models``: running servers + models; ↵ on a model uses it."""
@@ -1279,6 +1301,8 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
                 )
             elif mode == "local":
                 self._open_local_models()
+            elif mode == "claude":
+                self._open_claude_code()
             elif mode == "api":
                 self.push_screen(KeyModalScreen(), lambda _r: self._set_status("ready"))
             else:

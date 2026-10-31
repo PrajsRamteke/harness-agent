@@ -471,6 +471,8 @@ def describe(kind: str, *, provider: str = "", provider_id: str = "", model: str
     if provider_id.startswith("local:"):
         title, msg, actions = _local_wording(kind, provider_id, who, model, title, msg, actions,
                                              mid_reply=mid_reply, said=said)
+    elif provider_id == "claude_agent":
+        title, msg, actions, said = _claude_agent_wording(kind, status, model, title, msg, actions, said)
 
     if said and kind not in ("request",) and not _says_nothing_new(said, f"{title} {msg}"):
         msg = f"{msg}\n{who} said: “{said}”."
@@ -479,6 +481,31 @@ def describe(kind: str, *, provider: str = "", provider_id: str = "", model: str
         status=status, code=code, detail=clean_detail(detail), retry_after=retry_after,
         attempts=attempts,
     )
+
+
+def _claude_agent_wording(kind: str, status: int | None, model: str, title: str, msg: str,
+                          actions: list[Action], said: str) -> tuple[str, str, list[Action], str]:
+    """The user's own Claude Code CLI failed: the fix is in Claude Code (sign
+    in there, install / update it), never a key or a sign-in inside Jarvis."""
+    check = Action("Claude Code status", "/claude-code", primary=True)
+    other = Action("Change provider", "/provider")
+    retry = Action("Retry", RETRY)
+    if kind == "auth":
+        return ("Claude Code is signed out",
+                "Jarvis runs your own Claude Code CLI, and it isn't signed in. Run `claude auth login` "
+                "in a terminal — that's Anthropic's own sign-in; Jarvis never sees it — then retry.",
+                [check, retry, other], "")
+    if status == 424:
+        return ("Claude Code CLI isn't set up", said or msg, [check, other], "")
+    if kind in ("quota", "rate_limit"):
+        return ("Claude plan limit reached",
+                "Claude Code says your plan's usage limit is reached for now." + (f" {said}." if said else "")
+                + " Switch to another provider to keep going.",
+                [Action("Change provider", "/provider", primary=True), retry], "")
+    if kind in ("server", "overloaded"):
+        return (title, msg.replace(" Retrying usually works.", "")
+                + " Claude Code already retried before giving up.", [retry, Action("Switch model", "/model")], said)
+    return title, msg, actions, said
 
 
 def _local_wording(kind: str, provider_id: str, who: str, model: str, title: str, msg: str,

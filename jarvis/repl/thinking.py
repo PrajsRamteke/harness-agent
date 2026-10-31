@@ -27,6 +27,7 @@ from ..constants import DEFAULT_THINK_EFFORT, THINKING_BUDGET_TOKENS
 from ..constants.providers import (
     PROVIDER_ANTHROPIC,
     PROVIDER_ANTIGRAVITY,
+    PROVIDER_CLAUDE_AGENT,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENCODE,
@@ -121,6 +122,15 @@ def apply(
     except Exception:
         eff = Effective(bool(think_mode) and effort != "none", effort, "", caps_mod.UNKNOWN, effort)
     caps = eff.caps
+    if provider == PROVIDER_CLAUDE_AGENT:
+        # Claude Code takes an effort level and adaptive / disabled thinking
+        # (claude_agent_client.build_spec); a model it says can't switch
+        # thinking off is sent its lowest level instead.
+        if eff.on or (caps.known and not caps.can_off):
+            kwargs["thinking"] = {"type": "adaptive", "effort": eff.effort or caps.lowest or "low"}
+        else:
+            kwargs["thinking"] = {"type": "disabled"}
+        return eff
     if provider == PROVIDER_ANTHROPIC and claude_uses_adaptive_thinking(model):
         # Claude 5: adaptive thinking + effort; budget_tokens is a 400 there.
         kwargs.update(claude_thinking_kwargs(eff.on, eff.effort or DEFAULT_THINK_EFFORT))

@@ -77,6 +77,7 @@ COMMANDS = [
     ("/usage", "OpenRouter spend — what's left on the key, today / month, account credit"),
     ("/provider", "one command for everything — OAuth login, API keys, provider switch"),
     ("/local-models", "models on this computer — Ollama, LM Studio, llama.cpp … (no key, no cost)"),
+    ("/claude-code", "Claude through your own signed-in Claude Code CLI — status, sign in, use"),
 ]
 
 

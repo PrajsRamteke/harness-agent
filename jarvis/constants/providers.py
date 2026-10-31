@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from typing import Any
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
-PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "antigravity")
+PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "antigravity",
+             "claude_agent")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
@@ -32,6 +33,9 @@ PROVIDER_OPENAI_CODEX = "openai_codex"
 # Google Antigravity (Google account sign-in) — Gemini + Claude via Cloud Code.
 # Also its own model-picker source.
 PROVIDER_ANTIGRAVITY = "antigravity"
+# The user's own Claude Code CLI (signed in by the user, run unmodified through
+# the Claude Agent SDK) — auth/claude_agent*.py. Also its own picker source.
+PROVIDER_CLAUDE_AGENT = "claude_agent"
 # Model-picker only — free OpenCode Zen tier (no API key). Backend: opencode_zen.
 PROVIDER_HARNESS_AGENT = "harness_agent"
 
@@ -52,6 +56,7 @@ PROVIDER_LABELS = {
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX: "OpenAI Codex",
     PROVIDER_ANTIGRAVITY: "Google Antigravity",
+    PROVIDER_CLAUDE_AGENT: "Claude Code CLI",
 }
 
 MODEL_SOURCE_LABELS = {
@@ -63,6 +68,7 @@ MODEL_SOURCE_LABELS = {
     PROVIDER_OPENCODE_ZEN: "OpenCode Zen",
     PROVIDER_OPENAI_CODEX_AUTH: "OpenAI Codex Auth",
     PROVIDER_ANTIGRAVITY: "Google Antigravity",
+    PROVIDER_CLAUDE_AGENT: "Claude Code CLI",
 }
 
 # Picker display order (Harness Agent first — always free, no setup).
@@ -75,6 +81,7 @@ MODEL_SOURCES = (
     PROVIDER_OPENCODE_ZEN,
     PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_ANTIGRAVITY,
+    PROVIDER_CLAUDE_AGENT,
 )
 
 # ── SINGLE SOURCE OF TRUTH: all models ────────────────────────────────────────
@@ -170,6 +177,8 @@ def model_supports_images(model_id: str, provider: str | None = None) -> bool:
         except Exception:
             am = None
         return bool(am and am.supports_images)
+    if provider == PROVIDER_CLAUDE_AGENT:
+        return True  # every model Claude Code serves reads images
     if is_local_provider(provider):
         try:
             lm = _local().get_model(provider, model_id)
@@ -427,6 +436,8 @@ def model_pricing(model: str, provider: str | None = None) -> tuple[float, float
     """
     if provider in (PROVIDER_HARNESS_AGENT, PROVIDER_ANTIGRAVITY) or is_local_provider(provider):
         return (0.0, 0.0)  # the free tier / your own hardware / a Google plan: no cost
+    if provider == PROVIDER_CLAUDE_AGENT:
+        return claude_agent_pricing(model)
     if is_catalog_provider(provider):
         try:
             m = _catalog().get_model(provider, model)
@@ -629,6 +640,52 @@ def antigravity_models_for_picker(live: bool = False) -> list[tuple[str, str]]:
         return rows
     except Exception:
         return []
+
+
+def claude_agent_models_for_picker() -> list[tuple[str, str]]:
+    """Claude Code CLI rows: what the binary listed for this account (cached),
+    else its aliases (default / opus / sonnet / haiku). Never in MODEL_INFO —
+    the ids are Anthropic's too."""
+    try:
+        from ..auth.claude_agent import models_for_picker
+
+        return models_for_picker()
+    except Exception:
+        return []
+
+
+def claude_agent_default_model() -> str:
+    try:
+        from ..auth.claude_agent import default_model
+
+        return default_model()
+    except Exception:
+        return "default"
+
+
+def claude_agent_pricing(model: str) -> tuple[float, float] | None:
+    """A Claude plan: (0, 0) — usage is part of the plan. Signed in with an
+    API key: Anthropic's price for the model the alias resolves to."""
+    try:
+        from ..auth import claude_agent as ca
+
+        if ca.status().subscription or not ca.status().logged_in:
+            return (0.0, 0.0)
+        m = ca.get_model(model)
+        real = (m or {}).get("resolved") or model
+    except Exception:
+        return (0.0, 0.0)
+    p = PRICING.get(real)
+    return (p[0], p[1]) if p else None
+
+
+def _has_claude_agent() -> bool:
+    try:
+        from ..auth.claude_agent import is_ready
+
+        return is_ready()
+    except Exception:
+        return False
 
 
 def antigravity_default_model() -> str:
@@ -972,6 +1029,8 @@ def connected_model_sources() -> list[str]:
         sources.append(PROVIDER_OPENAI_CODEX_AUTH)
     if _has_antigravity_oauth():
         sources.append(PROVIDER_ANTIGRAVITY)
+    if _has_claude_agent():
+        sources.append(PROVIDER_CLAUDE_AGENT)
     if os.getenv("OPENROUTER_API_KEY"):
         sources.append(PROVIDER_OPENROUTER)
     else:
@@ -1071,6 +1130,8 @@ def models_for_source(source: str, live: bool = False, cached: bool = False):
         return codex_models_for_picker(live=live)
     if source == PROVIDER_ANTIGRAVITY:
         return antigravity_models_for_picker(live=live)
+    if source == PROVIDER_CLAUDE_AGENT:
+        return claude_agent_models_for_picker()
     if is_catalog_provider(source):
         return catalog_models_for_picker(source)
     if is_local_provider(source):
@@ -1116,6 +1177,8 @@ def connected_providers() -> set[str]:
         connected.add(PROVIDER_OPENAI_CODEX)
     if _has_antigravity_oauth():
         connected.add(PROVIDER_ANTIGRAVITY)
+    if _has_claude_agent():
+        connected.add(PROVIDER_CLAUDE_AGENT)
     if _has_content(OPENROUTER_KEY_FILE):
         connected.add(PROVIDER_OPENROUTER)
     if _has_content(OPENCODE_KEY_FILE):
@@ -1166,6 +1229,8 @@ def models_for(provider: str):
         return codex_models_for_picker()
     if provider == PROVIDER_ANTIGRAVITY:
         return antigravity_models_for_picker()
+    if provider == PROVIDER_CLAUDE_AGENT:
+        return claude_agent_models_for_picker()
     if is_catalog_provider(provider):
         return catalog_models_for_picker(provider)
     if is_local_provider(provider):
@@ -1193,6 +1258,14 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
         return False
     if provider == PROVIDER_HARNESS_AGENT:
         return is_harness_agent_model(m)
+    if provider == PROVIDER_CLAUDE_AGENT:
+        # Strict: what Claude Code listed (aliases + full ids it accepts).
+        try:
+            from ..auth.claude_agent import get_model as _ca_model
+
+            return _ca_model(m) is not None
+        except Exception:
+            return False
     if provider == PROVIDER_ANTIGRAVITY:
         # Strict: only the account's own line-up (ids overlap Anthropic's).
         try:
@@ -1266,6 +1339,10 @@ def infer_provider_for_model(model: str) -> str:
 
 def normalize_model_for_provider(model: str, provider: str) -> str:
     """Use ``model`` when valid for ``provider``; otherwise the provider default."""
+    if provider == PROVIDER_CLAUDE_AGENT:
+        if model_belongs_to_provider(model, provider):
+            return model.strip()
+        return claude_agent_default_model()
     if provider == PROVIDER_ANTIGRAVITY:
         try:
             from ..auth.antigravity_catalog import refused_ids
@@ -1369,6 +1446,17 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
         from ..auth.antigravity_catalog import refresh_models as _ag_refresh
 
         ok = bool(_ag_refresh(retry_refused=retry_blocked)) or ok
+    except Exception:
+        pass
+    try:
+        # Claude Code CLI: its own model list for the signed-in account. Only
+        # when it's set up — the binary is started once, no model request.
+        from ..auth import claude_agent as _ca
+
+        if _ca.status_is_stale() and _ca.find_cli() and _ca.sdk_version():
+            _ca.refresh()  # installed + SDK: is it (still) signed in?
+        if _ca.is_ready() and (retry_blocked or not _ca.models_cache_is_fresh()):
+            ok = bool(_ca.refresh_models()) or ok
     except Exception:
         pass
     try:

@@ -36,6 +36,7 @@ from ..constants.providers import (
     PROVIDER_ANTHROPIC_API,
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_ANTIGRAVITY,
+    PROVIDER_CLAUDE_AGENT,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENAI_CODEX_AUTH,
@@ -53,7 +54,7 @@ class Card:
     """One provider as the web dialog shows it."""
 
     id: str        # API-key spec id, OAuth provider id, or "harness_agent"
-    kind: str      # "oauth" | "key" | "free"
+    kind: str      # "oauth" | "key" | "free" | "cli" (the user's own Claude Code)
     label: str
     blurb: str
     source: str    # model-picker source "Use" switches to
@@ -63,6 +64,9 @@ class Card:
 
 
 CARDS: tuple[Card, ...] = (
+    # Signed in by the user in Claude Code itself; Jarvis never sees the login.
+    Card("claude_agent", "cli", "Claude Code CLI", "Your own signed-in claude — Pro, Max, Team or API key",
+         PROVIDER_CLAUDE_AGENT, "CC", "https://code.claude.com/docs/en/setup"),
     Card("anthropic", "oauth", "Claude Pro / Max", "Sign in with your Claude subscription",
          PROVIDER_ANTHROPIC_AUTH, "C"),
     Card("openai_codex", "oauth", "ChatGPT Plus / Pro", "Codex models with your ChatGPT plan",
@@ -196,6 +200,12 @@ def card_row(card: Card, active: str | None = None, *, sources: dict | None = No
     }
     if card.kind == "free":
         row.update(connected=True, source="free")
+    elif card.kind == "cli":
+        from ..auth import claude_agent as ca
+
+        st = ca.status()
+        row.update(connected=st.ready, source="cli" if st.ready else "none", cli=st.public(),
+                   hint=st.account_line())
     elif card.kind == "oauth":
         signed_in = _signed_in(card.id)
         row.update(connected=signed_in, source="oauth" if signed_in else "none")
@@ -448,6 +458,8 @@ def _default_model(source: str) -> str:
         return p.codex_default_model()
     if source == PROVIDER_ANTIGRAVITY:
         return p.antigravity_default_model()
+    if source == PROVIDER_CLAUDE_AGENT:
+        return p.claude_agent_default_model()
     if source == PROVIDER_OPENCODE:  # live (models.dev + the gateway's list)
         return p.opencode_go_default_model() or state.MODEL
     if source == PROVIDER_OPENCODE_ZEN:
@@ -481,6 +493,8 @@ def use_card(card_id: str) -> dict[str, Any]:
         return _err("Unknown provider")
     row = card_row(card)
     if not row["connected"]:
+        if card.kind == "cli":
+            return _err(row["cli"].get("message") or "Claude Code CLI isn't set up yet")
         verb = "Sign in to" if card.kind == "oauth" else "Add a key for"
         return _err(f"{verb} {card.label} first")
     if row["active"]:
@@ -603,6 +617,8 @@ def run_provider_action(action: str, data: dict[str, Any], *, console_print: Cal
         result = activate_signed_in(card_id)
     elif action == "provider_sign_out":
         result = sign_out(card_id)
+    elif action == "provider_changed":
+        return _ok()  # the caller emits the fresh list
     else:
         return _err(f"unknown action: {action}")
     if result.get("ok") and result.get("message"):
@@ -610,6 +626,22 @@ def run_provider_action(action: str, data: dict[str, Any], *, console_print: Cal
 
         console_print(f"[dim]web · {escape(str(result['message']))}[/]")
     return result
+
+
+def check_cli(*, run_action: Callable) -> dict[str, Any]:
+    """Ask the user's Claude Code again (installed? signed in?) and, once it's
+    ready, which models it has. HTTP handler thread (runs ``claude`` twice).
+    Signing in itself is never done from here: it happens in Claude Code."""
+    from ..auth import claude_agent as ca
+
+    st = ca.refresh()
+    if st.ready and not ca.models_are_live():
+        ca.refresh_models()
+    run_action("provider_changed", {})
+    if st.ready:
+        return _ok(f"Claude Code is ready · {st.account_line()}".rstrip(" ·"))
+    code, msg, fix = st.problem()
+    return _err(msg, fix=fix, problem=code)
 
 
 # ─── OAuth sign-in ────────────────────────────────────────────────────────

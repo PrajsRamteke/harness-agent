@@ -36,6 +36,7 @@ from ..constants.providers import (
 )
 from ..constants import (
     PROVIDER_ANTHROPIC, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY,
+    PROVIDER_CLAUDE_AGENT,
     PROVIDER_OPENROUTER, OPENROUTER_DEFAULT_MODEL,
 )
 from ..auth.oauth_tokens import learn_claude_code_version, load_oauth_tokens, oauth_refresh
@@ -1153,6 +1154,11 @@ def _call_claude_stream():
                 ]
                 _fail(rep, "model not available")
             code = getattr(e, "status_code", None)
+            if state.provider == PROVIDER_CLAUDE_AGENT:
+                # Claude Code retried server errors itself; a second round of
+                # retries here would only start fresh processes.
+                _fail(api_errors.classify(e, attempts=attempt, mid_reply=_got_first_delta),
+                      f"claude code {code}")
             if is_catalog_provider(state.provider) and code in (401, 402, 403, 404):
                 _report_catalog_error(code, e)
             if is_local_provider(state.provider):

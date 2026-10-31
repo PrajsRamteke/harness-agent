@@ -23,7 +23,7 @@ from ..constants import (
     OPENCODE_ZEN_BASE_URL,
     harness_agent_default_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_HARNESS_AGENT, PROVIDERS,
+    PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_AGENT, PROVIDER_HARNESS_AGENT, PROVIDERS,
     is_harness_agent_model, is_catalog_provider, is_local_provider,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
@@ -202,7 +202,7 @@ def _resolve_provider(*, interactive: bool = True) -> str:
     """Decide provider from env → saved → stored → first-run Harness Agent default."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
     if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-                        PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY):
+                        PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_AGENT):
         return env_provider
     if env_provider.startswith(CATALOG_PREFIX) or is_local_provider(env_provider):
         return env_provider
@@ -235,6 +235,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_OPENAI_CODEX
     if saved_provider == PROVIDER_ANTIGRAVITY and load_antigravity_tokens():
         return PROVIDER_ANTIGRAVITY
+    if saved_provider == PROVIDER_CLAUDE_AGENT and _claude_agent_usable():
+        return PROVIDER_CLAUDE_AGENT
     if saved_provider == PROVIDER_ANTHROPIC and _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if saved_provider == PROVIDER_OPENROUTER and _has_openrouter_key():
@@ -256,6 +258,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
             return PROVIDER_OPENAI_CODEX
         if stored == PROVIDER_ANTIGRAVITY and load_antigravity_tokens():
             return PROVIDER_ANTIGRAVITY
+        if stored == PROVIDER_CLAUDE_AGENT and _claude_agent_usable():
+            return PROVIDER_CLAUDE_AGENT
         if stored == PROVIDER_ANTHROPIC and _has_usable_anthropic_auth():
             return PROVIDER_ANTHROPIC
         if stored == PROVIDER_OPENROUTER and _has_openrouter_key():
@@ -452,6 +456,31 @@ def _build_antigravity_client():
     if not get_fresh_antigravity_token():
         return None
     return AntigravityClient()
+
+
+def _claude_agent_usable() -> bool:
+    try:
+        from .claude_agent import is_usable
+
+        return is_usable()
+    except Exception:
+        return False
+
+
+def _build_claude_agent_client():
+    """The user's own Claude Code CLI, or None when it isn't installed / set up
+    / signed in. Never reads or passes the CLI's credentials: the binary signs
+    in by itself (``claude_agent.py``)."""
+    from . import claude_agent as ca
+
+    s = ca.status()
+    if not s.checked_at or not s.ready:
+        s = ca.refresh()  # asks the binary (≈0.5 s): installed? signed in?
+    if not s.ready:
+        return None
+    from .claude_agent_client import ClaudeAgentClient
+
+    return ClaudeAgentClient()
 
 
 def _fallback_harness_agent_client(*, preferred_model: str = ""):
@@ -665,6 +694,30 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
                     continue
                 raise
         console.print("[red]Too many OpenAI Codex auth failures[/]"); sys.exit(1)
+
+    if state.provider == PROVIDER_CLAUDE_AGENT:
+        state.auth_mode = AUTH_OAUTH
+        try:
+            c = _build_claude_agent_client()
+        except Exception:
+            c = None
+        if c is not None:
+            state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_CLAUDE_AGENT)
+            return c
+        # Uninstalled, or signed out in Claude Code: never block startup.
+        if interactive:
+            from .claude_agent import status as _ca_status
+
+            _code, msg, fix = _ca_status().problem()
+            console.print(f"[yellow]Claude Code CLI: {msg or 'not available'}"
+                          + (f" — run [bold]{fix}[/bold]" if fix else "") + "[/]")
+        if not _retried:
+            fallback = _pick_fallback_provider(interactive=interactive)
+            if fallback and fallback != PROVIDER_CLAUDE_AGENT:
+                state.provider = fallback
+                _secure_write(PROVIDER_FILE, state.provider)
+                return make_client(interactive=interactive, _retried=True)
+        return _fallback_harness_agent_client(preferred_model=harness_agent_default_model())
 
     if state.provider == PROVIDER_ANTIGRAVITY:
         state.auth_mode = AUTH_OAUTH

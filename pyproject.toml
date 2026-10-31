@@ -23,6 +23,13 @@ dependencies = [
     "qrcode>=7.4",
 ]
 
+[project.optional-dependencies]
+# The Claude Code CLI provider (/claude-code). Install from source so pip
+# doesn't download the wheel's bundled copy of the CLI (~130 MB) — Jarvis uses
+# the `claude` you already have:
+#   pip install --no-binary claude-agent-sdk -e ".[claude]"
+claude = ["claude-agent-sdk>=0.2.176"]
+
 [tool.setuptools.dynamic]
 version = {attr = "jarvis.constants.models.VERSION"}
 

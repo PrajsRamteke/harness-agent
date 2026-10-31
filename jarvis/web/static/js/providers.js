@@ -15,7 +15,7 @@
  * opens one), and "Add API key" is a sub-view (header back button, Esc goes
  * back, its buttons in the footer).
  */
-import { $, escapeHtml, showToast, haptic, debounce } from './utils.js';
+import { $, escapeHtml, showToast, haptic, debounce, copyText } from './utils.js';
 import { icon } from './icons.js';
 import { subscribe, loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
@@ -25,6 +25,7 @@ import { usageCardHtml } from './usage.js';
 import { openLocal } from './local.js';
 
 const TONES = {
+  claude_agent: 'clay',
   anthropic: 'clay',
   anthropic_api: 'clay',
   openai_codex: 'mint',
@@ -36,7 +37,9 @@ const TONES = {
 };
 
 const GROUPS = [
-  { kind: 'oauth', title: 'Subscriptions', sub: 'Use a plan you already pay for' },
+  // The user's own Claude Code (kind "cli") leads: it's the account-safe way
+  // to use a Claude plan here (Claude Code itself makes every request).
+  { kind: 'oauth', kinds: ['cli', 'oauth'], title: 'Subscriptions', sub: 'Use a plan you already pay for' },
   // Only providers that have a key (saved here or from an env var).
   { kind: 'key', title: 'API keys', sub: 'Providers you’ve added a key for', only: (p) => p.connected },
   // Everything else: the built-ins first, then models.dev. Searchable.
@@ -176,6 +179,10 @@ function btn(act, label, { cls = '', ic = '', use = '', busy = false, disabled =
 }
 
 function statusLine(row) {
+  if (row.kind === 'cli') {
+    if (row.connected) return row.hint || 'Ready';
+    return row.cli?.checked_at ? (row.cli.message || row.blurb) : row.blurb;
+  }
   if (!row.connected || row.kind === 'free') return row.blurb;
   if (row.kind === 'oauth') return 'Signed in';
   if (row.source === 'env') return `From ${row.env_var} on your computer`;
@@ -199,7 +206,8 @@ function sideMainHtml(row) {
   // Open: the panel below has the real buttons.
   if (openId === row.id) return '';
   if (row.connected) return '<button type="button" class="row-btn" data-act="use">Use</button>';
-  return `<button type="button" class="row-btn is-go" data-act="open">${row.kind === 'oauth' ? 'Sign in' : 'Add key'}</button>`;
+  const verb = row.kind === 'oauth' ? 'Sign in' : row.kind === 'cli' ? 'Set up' : 'Add key';
+  return `<button type="button" class="row-btn is-go" data-act="open">${verb}</button>`;
 }
 
 function noteHtml(id) {
@@ -293,13 +301,58 @@ function oauthPanel(row) {
     </div>`;
 }
 
+/** The user's own Claude Code: a checklist, the one command to run next (in
+ * a terminal on the computer running Jarvis — sign-in is Anthropic's own and
+ * never passes through Jarvis or this page), Check again, Use. */
+function cliPanel(row) {
+  const c = row.cli || {};
+  const busy = busyId === row.id;
+  const checked = !!c.checked_at;
+  const item = (ok, title, detail) => `<li class="pv-check${ok === true ? ' is-ok' : ok === false ? ' is-bad' : ''}">
+      ${icon(ok === true ? 'circle-check' : ok === false ? 'circle-alert' : 'circle-dashed')}
+      <span><strong>${escapeHtml(title)}</strong>${detail ? ` <span class="pv-hint">${escapeHtml(detail)}</span>` : ''}</span>
+    </li>`;
+  const checks = `<ul class="pv-checks">
+      ${item(c.installed ? (c.cli_version ? c.cli_ok : null) : (checked ? false : null), `Claude Code ${c.cli_version || ''}`.trim(), c.installed ? c.cli_path : 'not found')}
+      ${item(c.sdk_version ? true : (checked ? false : null), `Claude Agent SDK ${c.sdk_version || ''}`.trim(), 'the Python package Jarvis drives it with')}
+      ${item(checked ? !!c.logged_in : null, 'Signed in', c.account || (checked ? 'no' : 'not checked yet'))}
+    </ul>`;
+  const fix = c.fix && !row.connected && checked
+    ? `<div class="pv-cmd-wrap">
+        <strong>${escapeHtml(c.message || 'One step left')}</strong>
+        <span class="pv-hint">Run this in a terminal on the computer running Jarvis${c.problem === 'signed_out' ? ' — it opens Anthropic’s own sign-in; Jarvis never sees it' : ''}:</span>
+        <div class="pv-cmd"><code>${escapeHtml(c.fix)}</code>
+          <button type="button" class="pv-field-btn" data-act="copy-cmd" data-cmd="${escapeHtml(c.fix)}" aria-label="Copy command" title="Copy">${icon('copy')}</button></div>
+      </div>`
+    : '';
+  const actions = `<div class="pv-actions">
+      ${row.connected && !row.active ? btn('use', 'Use Claude Code', { cls: 'btn-primary', busy }) : ''}
+      ${btn('cli-check', row.connected ? 'Check again' : 'I’ve done it — check again', { cls: row.connected ? 'btn-quiet' : 'btn-primary', ic: 'refresh-cw', busy: busy && !row.connected, disabled: busy })}
+      <a class="pv-link" href="${escapeHtml(row.link || c.docs || '')}" target="_blank" rel="noopener noreferrer"><span>Setup guide</span>${icon('external-link')}</a>
+    </div>`;
+  const note = `<p class="pv-note">${icon('shield-check')}<span>Claude Code makes every request to Anthropic itself, signed in with your account — a Claude plan or an API key. Jarvis never reads or stores that login and doesn’t modify Claude Code; it only provides its tools and shows the replies. Usage counts against your plan like normal Claude Code use.</span></p>`;
+  return `${checks}${fix}${actions}${note}`;
+}
+
+async function checkCli(id, { quiet = false } = {}) {
+  if (busyId === id) return;
+  if (quiet) {
+    const res = await providerPost('cli/check', { id });
+    applyResult(res);
+    render();
+    return;
+  }
+  await run(id, 'cli/check', { id });
+}
+
 function freePanel(row) {
   return `<p class="pv-note">${icon('zap')}<span>Free models from OpenCode Zen’s public tier. No sign-up, no key.</span></p>
     ${row.active ? '' : `<div class="pv-actions">${btn('use', 'Use Harness Agent', { cls: 'btn-primary', busy: busyId === row.id })}</div>`}`;
 }
 
 function panelHtml(row) {
-  const body = row.kind === 'oauth' ? oauthPanel(row) : row.kind === 'key' ? keyPanel(row) : freePanel(row);
+  const body = row.kind === 'oauth' ? oauthPanel(row) : row.kind === 'key' ? keyPanel(row)
+    : row.kind === 'cli' ? cliPanel(row) : freePanel(row);
   return body + noteHtml(row.id);
 }
 
@@ -373,7 +426,8 @@ function sigOf(rows) {
 }
 
 function groupRows(g) {
-  return data.providers.filter((p) => p.kind === g.kind && (!g.only || g.only(p)));
+  const kinds = g.kinds || [g.kind];
+  return data.providers.filter((p) => kinds.includes(p.kind) && (!g.only || g.only(p)));
 }
 
 function build(body) {
@@ -840,6 +894,7 @@ function toggleRow(id) {
   if (!opening && replaceId === id) replaceId = null;
   const row = rowById(id);
   if (opening && row?.kind === 'oauth' && !row.connected) startFlow(id);
+  if (opening && row?.kind === 'cli') checkCli(id, { quiet: true });
   render();
   if (opening) focusRow(id);
 }
@@ -909,6 +964,12 @@ function handleClick(e) {
       break;
     case 'use':
       useProvider(id);
+      break;
+    case 'cli-check':
+      checkCli(id);
+      break;
+    case 'copy-cmd':
+      copyText(el.dataset.cmd || '').then(() => showToast('Copied'));
       break;
     case 'save':
       saveKey(id, el.dataset.use === '1');

@@ -129,6 +129,29 @@ def model_tags(*, free: bool, images: bool, free_slot: bool = False) -> Text:
 CONNECT_ID = "__connect__:"
 # The "Local models…" row: the app opens /local-models.
 LOCAL_ID = "__local__"
+# The "Claude Code CLI…" row (not set up yet): the app opens /claude-code.
+CLAUDE_ID = "__claude_code__"
+_CLAUDE_WORDS = ("claude code", "claude-code", "claude cli", "cli")
+
+
+def _claude_code_offer(q: str) -> str:
+    """Detail for the "Claude Code CLI…" row, or "" when it shouldn't show:
+    only while it isn't connected, and only when the binary is here or the
+    search asks for it."""
+    try:
+        from ..auth import claude_agent as ca
+
+        if ca.is_ready():
+            return ""
+        s = ca.status()
+        asked = bool(q) and any(w in q for w in _CLAUDE_WORDS)
+        if not (s.cli_path or asked):
+            return ""
+        code, _msg, _fix = s.problem()
+        return {"no_cli": "not installed", "no_sdk": "needs the SDK", "signed_out": "sign in to use",
+                "cli_old": "update needed"}.get(code, "your own signed-in claude")
+    except Exception:
+        return ""
 _LOCAL_WORDS = ("local", "ollama", "lm studio", "lmstudio", "llama", "offline", "gguf", "vllm")
 
 
@@ -469,6 +492,15 @@ class ModelPickerScreen(TuiModalScreen[str | None]):
                 picker_row("⌂ Local models…", detail=local, right="/local-models",
                            title_style=ui.ACCENT),
                 id=LOCAL_ID,
+            ))
+        offer = _claude_code_offer(q)
+        if offer:
+            out.append(section_header("Claude Code CLI", "your own login · not set up",
+                                      first=not has_models and not out))
+            out.append(Option(
+                picker_row("◆ Claude Code CLI…", detail=offer, right="/claude-code",
+                           title_style=ui.ACCENT),
+                id=CLAUDE_ID,
             ))
         return out + self._catalog_connect_rows(q, has_models=has_models or bool(out))
 

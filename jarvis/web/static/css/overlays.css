@@ -1156,6 +1156,34 @@
 .pv-note .ic { width: 15px; height: 15px; margin-top: 1px; color: var(--text-3); }
 .pv-row.is-connected .pv-note .ic { color: var(--ok); }
 
+/* Claude Code CLI row: checklist + the one command to run next. */
+.pv-checks { display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.pv-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.4; color: var(--text-2); min-width: 0; }
+.pv-check > span { min-width: 0; overflow-wrap: anywhere; }
+.pv-check strong { font-weight: 600; color: var(--text); }
+.pv-check .ic { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; color: var(--text-3); }
+.pv-check.is-ok .ic { color: var(--ok); }
+.pv-check.is-bad .ic { color: var(--warn); }
+.pv-cmd-wrap { display: flex; flex-direction: column; gap: 6px; }
+.pv-cmd-wrap > strong { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.pv-cmd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 4px 4px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--card-sunk);
+}
+.pv-cmd code {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .pv-wait {
   display: flex;
   align-items: center;

@@ -110,6 +110,16 @@ def _is_provider_hub_command(text: str) -> bool:
     return s == "/provider" or s.startswith("/provider ")
 
 
+def _is_claude_code_command(text: str) -> bool:
+    """``/claude-code`` (and ``/provider claude``) open the Claude Code CLI dialog."""
+    s = " ".join((text or "").strip().lower().split())
+    if s in ("/claude-code", "/claudecode", "/claude-code status"):
+        return True
+    from ..commands.control import CLAUDE_AGENT_ALIASES
+
+    return any(s == f"/provider {a}" for a in CLAUDE_AGENT_ALIASES)
+
+
 def _is_local_models_command(text: str) -> bool:
     """Bare ``/local-models`` opens the dialog; with arguments it runs as text."""
     s = (text or "").strip().lower()
