@@ -23,8 +23,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -43,7 +45,12 @@ MIN_CLI_VERSION = "2.1.248"
 SDK_PACKAGE = "claude-agent-sdk"
 # The SDK's PyPI wheel bundles a second copy of the CLI (~130 MB); the source
 # package is a few hundred KB and uses the `claude` already installed.
-SDK_INSTALL_CMD = f"pip install --no-binary {SDK_PACKAGE} {SDK_PACKAGE}"
+# Spelled with *this* interpreter: a bare `pip` is whichever one comes first on
+# PATH (a repo's .venv, Homebrew…), so the install landed somewhere Jarvis never
+# looks and "check again" kept saying the SDK was missing.
+SDK_INSTALL_CMD = (
+    f"{shlex.quote(sys.executable or 'python3')} -m pip install --no-binary {SDK_PACKAGE} {SDK_PACKAGE}"
+)
 CLI_INSTALL_CMD = "curl -fsSL https://claude.ai/install.sh | bash"
 CLI_DOCS_URL = "https://code.claude.com/docs/en/setup"
 LOGIN_CMD = "claude auth login"
@@ -292,6 +299,11 @@ class Status:
 
 def probe() -> Status:
     """Ask the binary now (slow: runs `claude` twice). Worker threads only."""
+    # An SDK installed while Jarvis runs ("I've done it — check again") is
+    # only importable once the path finders forget their directory listings.
+    import importlib
+
+    importlib.invalidate_caches()
     s = Status(checked_at=time.time(), sdk_version=sdk_version() or "")
     cli = find_cli()
     if not cli:
