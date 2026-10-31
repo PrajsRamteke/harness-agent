@@ -89,14 +89,6 @@ export function setQueue(items, entries) {
   patchStore(patch);
 }
 
-function statusText(s) {
-  if (!s.connected) return s.everConnected ? 'Offline' : 'Connecting';
-  if (s.activePrompt) return 'Waiting for you';
-  if (s.busy) return s.statusLabel || 'Working';
-  if (s.doneFlash) return s.doneFlash.label;
-  return 'Ready';
-}
-
 /** Swap a label with a short slide so changes read as changes. */
 function swapText(el, text) {
   if (!el || el.textContent === text) return;
@@ -134,18 +126,6 @@ function sessionTitle(s) {
 }
 
 function renderTop(s) {
-  const pill = $('status-pill');
-  const waiting = s.connected && !!s.activePrompt;
-  const idle = s.connected && !s.busy && !waiting;
-  if (pill) {
-    pill.classList.toggle('is-busy', s.connected && s.busy && !waiting);
-    pill.classList.toggle('is-offline', !s.connected);
-    pill.classList.toggle('is-waiting', waiting);
-    pill.classList.toggle('is-done', idle && s.doneFlash?.kind === 'done');
-    pill.classList.toggle('is-stopped', idle && s.doneFlash?.kind === 'stopped');
-    pill.title = statusText(s);
-  }
-  swapText($('status-text'), statusText(s));
   syncFavicon(s);
 
   const title = $('session-title');
@@ -159,9 +139,13 @@ function renderTop(s) {
     meta.innerHTML = parts.join('');
   }
   if (!isAlertTitle()) {
+    // The pill is gone: the outcome of a turn flashes here instead.
     document.title = s.activePrompt
       ? `(!) Waiting for you — Jarvis`
-      : s.busy ? `● ${sessionTitle(s)} — Jarvis` : `${sessionTitle(s)} — Jarvis`;
+      : s.busy ? `● ${sessionTitle(s)} — Jarvis`
+        : s.doneFlash
+          ? (s.doneFlash.kind === 'stopped' ? `■ Stopped — Jarvis` : `✓ ${s.doneFlash.label} — Jarvis`)
+          : `${sessionTitle(s)} — Jarvis`;
   }
 
   const conn = $('conn-line');

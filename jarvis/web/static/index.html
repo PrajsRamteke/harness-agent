@@ -193,10 +193,6 @@
             <p id="session-meta"></p>
           </div>
         </div>
-        <div class="status-pill" id="status-pill" role="status" aria-live="polite">
-          <span class="status-dot" aria-hidden="true"></span>
-          <span id="status-text">Connecting</span>
-        </div>
         <button class="icon-btn only-wide" id="qr-btn" type="button" aria-label="Share this session: QR code and link" title="Share — scan the QR code or copy the link">
           <span data-icon="qr-code"></span>
         </button>
@@ -249,7 +245,7 @@
         <section class="queue-panel glass" id="queue-panel" aria-label="Queued messages" hidden></section>
         <div class="composer glass" id="composer">
           <div class="slash-menu glass-strong" id="slash-menu" role="listbox" hidden></div>
-          <div class="activity" id="activity" hidden>
+          <div class="activity" id="activity" role="status" aria-live="polite" hidden>
             <span class="spinner" aria-hidden="true"></span>
             <span class="activity-text" id="activity-text">Working</span>
             <span class="activity-time" id="activity-time"></span>

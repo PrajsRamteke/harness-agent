@@ -17,7 +17,7 @@
    name only, and the tabs get the room. Round buttons never squash. */
 .topbar.has-tabs .title-wrap { flex: 0 1 auto; max-width: 30%; }
 .topbar.has-tabs .cwd-parent { display: none; }
-.topbar.has-tabs > :is(.status-pill, .icon-btn, .cmd-btn, .insp-btn) { flex-shrink: 0; }
+.topbar.has-tabs > :is(.icon-btn, .cmd-btn, .insp-btn) { flex-shrink: 0; }
 /* Sized by the bar, not the window: side panels make it narrow on desktops too. */
 .topbar { container-type: inline-size; }
 @container (max-width: 640px) {

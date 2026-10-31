@@ -462,12 +462,9 @@ body.is-offline .glow { opacity: 0.15; }
 }
 
 /* Backing off the neon: state reads by colour alone. */
-:root[data-surface="glass"] .status-dot,
 :root[data-surface="glass"] .now-dot::before {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
-:root[data-surface="glass"] .status-pill.is-busy .status-dot,
-:root[data-surface="glass"] .status-pill.is-waiting .status-dot,
 :root[data-surface="glass"] .act-now.is-busy .now-dot::before,
 :root[data-surface="glass"] .act-now.is-waiting .now-dot::before,
 :root[data-surface="glass"] .typing-dot {
