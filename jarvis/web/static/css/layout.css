@@ -489,45 +489,6 @@
 }
 .title-input.lr-rename { margin: -2px 0 -2px -9px; font-size: 14px; font-weight: 600; line-height: 1.3; }
 
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  max-width: 280px;
-  padding: 0 14px 0 12px;
-  border-radius: var(--r-pill);
-  background: var(--card);
-  border: 1px solid var(--line);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-2);
-  white-space: nowrap;
-  transition: color 0.25s, background 0.25s, border-color 0.25s;
-}
-#status-text { display: inline-block; overflow: hidden; text-overflow: ellipsis; }
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 10px var(--ok);
-  transition: background 0.3s, box-shadow 0.3s;
-}
-.status-pill.is-busy { color: var(--text); background: var(--accent-soft); border-color: var(--accent-line); }
-.status-pill.is-busy .status-dot { background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: breathe 1.4s ease-in-out infinite; }
-.status-pill.is-offline { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
-.status-pill.is-offline .status-dot { background: var(--danger); box-shadow: none; }
-.status-pill.is-waiting { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
-.status-pill.is-waiting .status-dot { background: var(--warn); box-shadow: 0 0 10px var(--warn); animation: breathe 1s ease-in-out infinite; }
-/* After a turn: "Done in 42s" / "Stopped" for a few seconds. */
-.status-pill.is-done { color: var(--ok); background: var(--ok-soft); border-color: var(--accent-line); }
-.status-pill.is-done .status-dot { animation: pop-in 0.45s var(--spring); }
-.status-pill.is-stopped { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
-.status-pill.is-stopped .status-dot { background: var(--warn); box-shadow: none; }
-
 .cmd-btn {
   display: inline-flex;
   align-items: center;
@@ -756,8 +717,6 @@
 }
 
 @media (max-width: 560px) {
-  .status-pill { width: 36px; height: 36px; padding: 0; justify-content: center; }
-  .status-pill #status-text { display: none; }
   .title-wrap p { font-size: 12px; }
   .toasts { top: calc(66px + var(--safe-top)); }
 }
