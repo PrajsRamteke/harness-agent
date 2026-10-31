@@ -53,6 +53,7 @@ def test_public_lists_every_setting_with_value_and_default():
     for s in pub["sections"]:
         for it in s["items"]:
             assert it["label"] and it["kind"] in ("switch", "number", "choice")
+            assert it.get("icon"), f"{it['key']} has no icon"
             assert "value" in it and "default" in it
     from jarvis.tui.theme import PALETTES
 
