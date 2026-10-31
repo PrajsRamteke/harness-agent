@@ -235,13 +235,19 @@ def _headline(job: Job) -> str:
 def run_bg(cmd: str) -> str:
     """Start ``cmd`` in the background; return its job id immediately."""
     global _next_id
-    from .shell import _bash_lock, ask_approval, is_dangerous
+    from .shell import (
+        _bash_lock, ask_approval, is_dangerous, own_port_note, self_kill_block,
+        self_kill_reason,
+    )
 
     cmd = (cmd or "").strip()
     if not cmd:
         return "ERROR: cmd is required"
     if is_dangerous(cmd):
         return "BLOCKED: dangerous command"
+    reason = self_kill_reason(cmd)
+    if reason:
+        return self_kill_block(reason)
     running = [j for j in jobs() if j.running]
     if len(running) >= MAX_RUNNING:
         return (f"ERROR: {len(running)} background jobs are already running — "
@@ -281,8 +287,12 @@ def run_bg(cmd: str) -> str:
         body, omitted = _read(job, tail=DEFAULT_TAIL, new_only=False)
         job.read_done = True
         more = f"(… {omitted} earlier lines)\n" if omitted else ""
-        return f"$ {cmd}\nexit={job.code} (finished within a second — no need to poll)\n{more}{body}"
+        return (f"$ {cmd}\nexit={job.code} (finished within a second — no need to poll)\n"
+                f"{more}{body}{own_port_note(cmd)}")
     head = f"started background job #{job_id} (pid {proc.pid}): {cmd}\nlog: {log}\n"
+    note = own_port_note(cmd).lstrip()
+    if note:
+        head += note + "\n"
     if _auto_wake:
         return head + (
             "Don't wait for it. Carry on with other work; if there's nothing else to do, "

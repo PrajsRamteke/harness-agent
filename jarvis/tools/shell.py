@@ -148,11 +148,95 @@ def _is_safe_readonly_command(cmd: str) -> bool:
     return bool(_SAFE_READONLY.match((cmd or "").strip()))
 
 
-_DANGEROUS = ["rm -rf /", "mkfs", ":(){:|:&};:", "dd if=/dev/zero"]
+_DANGEROUS = ["mkfs", ":(){:|:&};:", "dd if=/dev/zero"]
+# `rm -rf /` itself (or `/*`) — not `rm -rf /tmp/x`, which is everyday cleanup.
+_RM_ROOT = re.compile(r"\brm\s+-[a-zA-Z]*\s+/\*?(?=$|[\s;&|)])")
 
 
 def is_dangerous(cmd: str) -> bool:
-    return any(d in cmd for d in _DANGEROUS)
+    return any(d in cmd for d in _DANGEROUS) or bool(_RM_ROOT.search(cmd))
+
+
+# ── commands that would stop Jarvis itself ─────────────────────────────────
+# `lsof -ti :8765 | xargs kill` with 8765 = the web remote's port killed the
+# Jarvis running the command (the model had picked that port for a test server).
+
+_KILL_WORD = re.compile(r"(?<![\w-])(?:kill|pkill|killall|fuser)(?![\w-])")
+_PROC_NAMES = {"python", "python3", "Python", "jarvis", "agent.py"}
+
+
+def _own_listen_ports() -> set[int]:
+    """TCP ports this process listens on (web remote, sign-in callbacks …)."""
+    try:
+        out = subprocess.run(
+            ["lsof", "-nP", "-a", "-p", str(os.getpid()), "-iTCP", "-sTCP:LISTEN", "-Fn"],
+            capture_output=True, text=True, timeout=3,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {int(m) for m in re.findall(r"^n.*:(\d+)$", out, re.MULTILINE)}
+
+
+def _mentions(cmd: str, number: int) -> bool:
+    return re.search(rf"(?<!\d){number}(?!\d)", cmd) is not None
+
+
+def _kills_by_name(cmd: str) -> str | None:
+    """A ``pkill`` / ``killall`` pattern that matches Jarvis's own process."""
+    import shlex
+
+    for seg in re.split(r"[;&|\n]+", cmd):
+        try:
+            words = shlex.split(seg)
+        except ValueError:
+            words = seg.split()
+        for i, word in enumerate(words):
+            if os.path.basename(word) not in ("pkill", "killall"):
+                continue
+            for arg in words[i + 1:]:
+                if arg.startswith("-"):
+                    continue
+                if arg in _PROC_NAMES or "jarvis" in arg.lower() or "agent.py" in arg:
+                    return arg
+    return None
+
+
+def self_kill_reason(cmd: str) -> str | None:
+    """Why ``cmd`` would stop the Jarvis running it, or None."""
+    if not _KILL_WORD.search(cmd or ""):
+        return None
+    for pid in {os.getpid(), os.getppid()}:
+        if pid > 1 and _mentions(cmd, pid):
+            return f"process {pid} is Jarvis itself"
+    for port in sorted(_own_listen_ports()):
+        if _mentions(cmd, port):
+            return (f"port {port} is Jarvis's own web remote / listener, so the "
+                    "process found on it is Jarvis itself (and any browser "
+                    "connected to it)")
+    name = _kills_by_name(cmd)
+    if name:
+        return f"`{name}` matches Jarvis's own process"
+    return None
+
+
+def self_kill_block(reason: str) -> str:
+    return (f"BLOCKED: this command would stop Jarvis itself — {reason}. Nothing "
+            "was run. Kill your own process by its PID (from `$!` or `ps`) instead, "
+            "and run test servers on a port Jarvis isn't using.")
+
+
+def own_port_note(cmd: str) -> str:
+    """A note when ``cmd`` names a port Jarvis listens on — a server started
+    there can't bind, and requests to it reach Jarvis, not the new server."""
+    if not re.search(r"(?<!\d)\d{4,5}(?!\d)", cmd or ""):
+        return ""
+    ports = [p for p in sorted(_own_listen_ports()) if _mentions(cmd, p)]
+    if not ports:
+        return ""
+    names = ", ".join(map(str, ports))
+    return (f"\n[note] port {names} is in use by Jarvis itself (its web remote) — "
+            "a server started there can't bind, and requests to it reach Jarvis. "
+            "Use another port, and never kill whatever listens on it.")
 
 
 def ask_approval(cmd: str) -> str | None:
@@ -218,6 +302,9 @@ def _format_result(cmd: str, code: int, out: str) -> str:
 def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
     if is_dangerous(cmd):
         return "BLOCKED: dangerous command"
+    reason = self_kill_reason(cmd)
+    if reason:
+        return self_kill_block(reason)
 
     with _bash_lock:
         denied = ask_approval(cmd)
@@ -235,7 +322,7 @@ def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
             finally:
                 settle_changes()
             out = (stdout or "") + (f"\n[stderr]\n{stderr}" if stderr else "")
-            return _format_result(cmd, code, out)
+            return _format_result(cmd, code, out) + own_port_note(cmd)
         except subprocess.TimeoutExpired:
             return f"TIMEOUT after {timeout}s"
         except _Cancelled:
