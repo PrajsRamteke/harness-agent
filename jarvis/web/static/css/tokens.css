@@ -59,6 +59,9 @@
 
   --blur: 20px;
   --blur-strong: 28px;
+  /* Soft contrast strength, 0–100 (theme.js); only soft themes read it. */
+  --soft-amt: 100;
+  --soft-pct: calc(var(--soft-amt) * 1%);
   --shadow: 0 16px 40px -20px rgba(0, 0, 0, 0.9);
   --shadow-lg: 0 30px 80px -24px rgba(0, 0, 0, 0.95);
 
@@ -126,58 +129,60 @@
    "light" (so every light rule below and in the other sheets applies) plus
    data-variant "soft"; only the surface, ink and shadow tokens change.
    Higher specificity than the light block, so these win without reordering. */
+/* Strength: --soft-amt (0–100, Appearance → Soft contrast) blends every token
+   below from its crisp light value (0) to the full warm-paper value (100). */
 :root[data-theme="light"][data-variant="soft"] {
-  --bg: #f4f1ea;
+  --bg: color-mix(in srgb, #f4f1ea var(--soft-pct), #f6f6f5);
 
-  --text: #2b2a26;
-  --text-2: #5f5b53;
-  --text-3: #8d887e;
+  --text: color-mix(in srgb, #2b2a26 var(--soft-pct), #0a0a0a);
+  --text-2: color-mix(in srgb, #5f5b53 var(--soft-pct), #525252);
+  --text-3: color-mix(in srgb, #8d887e var(--soft-pct), #8a8a8a);
 
-  --glass: rgba(255, 254, 250, 0.72);
-  --glass-strong: rgba(255, 254, 250, 0.92);
-  --card: rgba(255, 254, 250, 0.72);
-  --card-hover: #fffefb;
-  --card-sunk: rgba(70, 60, 40, 0.05);
-  --tile: linear-gradient(180deg, #fffefb, #f0ede5);
-  --line: rgba(60, 54, 42, 0.1);
-  --line-2: rgba(60, 54, 42, 0.18);
+  --glass: color-mix(in srgb, rgba(255, 254, 250, 0.72) var(--soft-pct), rgba(255, 255, 255, 0.7));
+  --glass-strong: color-mix(in srgb, rgba(255, 254, 250, 0.92) var(--soft-pct), rgba(255, 255, 255, 0.9));
+  --card: color-mix(in srgb, rgba(255, 254, 250, 0.72) var(--soft-pct), rgba(255, 255, 255, 0.75));
+  --card-hover: color-mix(in srgb, #fffefb var(--soft-pct), #ffffff);
+  --card-sunk: color-mix(in srgb, rgba(70, 60, 40, 0.05) var(--soft-pct), rgba(0, 0, 0, 0.035));
+  --tile: linear-gradient(180deg, color-mix(in srgb, #fffefb var(--soft-pct), #ffffff), color-mix(in srgb, #f0ede5 var(--soft-pct), #f2f2f1));
+  --line: color-mix(in srgb, rgba(60, 54, 42, 0.1) var(--soft-pct), rgba(0, 0, 0, 0.08));
+  --line-2: color-mix(in srgb, rgba(60, 54, 42, 0.18) var(--soft-pct), rgba(0, 0, 0, 0.15));
   --highlight: rgba(255, 255, 255, 0.9);
 
-  --you-fill: #fffefb;
-  --you-line: rgba(60, 54, 42, 0.12);
-  --code-bg: #1f1e1a;
+  --you-fill: color-mix(in srgb, #fffefb var(--soft-pct), #ffffff);
+  --you-line: color-mix(in srgb, rgba(60, 54, 42, 0.12) var(--soft-pct), rgba(0, 0, 0, 0.1));
+  --code-bg: color-mix(in srgb, #1f1e1a var(--soft-pct), #0b0b0b);
   --code-line: rgba(255, 255, 255, 0.08);
 
-  --shadow: 0 14px 34px -20px rgba(60, 50, 30, 0.22);
-  --shadow-lg: 0 30px 70px -28px rgba(60, 50, 30, 0.32);
+  --shadow: 0 14px 34px -20px color-mix(in srgb, rgba(60, 50, 30, 0.22) var(--soft-pct), rgba(0, 0, 0, 0.25));
+  --shadow-lg: 0 30px 70px -28px color-mix(in srgb, rgba(60, 50, 30, 0.32) var(--soft-pct), rgba(0, 0, 0, 0.35));
 }
 
 /* Soft dark: charcoal instead of pure black — lifted panels, gentler
    contrast, same accents as Dark. Only the surfaces and text change. */
 :root[data-theme="dim"] {
-  --bg: #1c1d21;
+  --bg: color-mix(in srgb, #1c1d21 var(--soft-pct), #000000);
 
-  --text: #ebebee;
-  --text-2: #b1b2b9;
-  --text-3: #868790;
+  --text: color-mix(in srgb, #ebebee var(--soft-pct), #fafafa);
+  --text-2: color-mix(in srgb, #b1b2b9 var(--soft-pct), #a3a3a3);
+  --text-3: color-mix(in srgb, #868790 var(--soft-pct), #737373);
 
-  --glass: rgba(40, 41, 47, 0.62);
-  --glass-strong: rgba(44, 45, 52, 0.9);
-  --card: rgba(255, 255, 255, 0.045);
-  --card-hover: rgba(255, 255, 255, 0.075);
-  --card-sunk: rgba(0, 0, 0, 0.16);
-  --tile: linear-gradient(180deg, #313238, #27282d);
-  --line: rgba(255, 255, 255, 0.09);
-  --line-2: rgba(255, 255, 255, 0.16);
-  --highlight: rgba(255, 255, 255, 0.06);
+  --glass: color-mix(in srgb, rgba(40, 41, 47, 0.62) var(--soft-pct), rgba(10, 10, 10, 0.66));
+  --glass-strong: color-mix(in srgb, rgba(44, 45, 52, 0.9) var(--soft-pct), rgba(14, 14, 14, 0.86));
+  --card: color-mix(in srgb, rgba(255, 255, 255, 0.045) var(--soft-pct), rgba(255, 255, 255, 0.03));
+  --card-hover: color-mix(in srgb, rgba(255, 255, 255, 0.075) var(--soft-pct), rgba(255, 255, 255, 0.055));
+  --card-sunk: color-mix(in srgb, rgba(0, 0, 0, 0.16) var(--soft-pct), rgba(0, 0, 0, 0.45));
+  --tile: linear-gradient(180deg, color-mix(in srgb, #313238 var(--soft-pct), #171717), color-mix(in srgb, #27282d var(--soft-pct), #0c0c0c));
+  --line: color-mix(in srgb, rgba(255, 255, 255, 0.09) var(--soft-pct), rgba(255, 255, 255, 0.085));
+  --line-2: color-mix(in srgb, rgba(255, 255, 255, 0.16) var(--soft-pct), rgba(255, 255, 255, 0.15));
+  --highlight: color-mix(in srgb, rgba(255, 255, 255, 0.06) var(--soft-pct), rgba(255, 255, 255, 0.05));
 
-  --you-fill: rgba(255, 255, 255, 0.085);
-  --you-line: rgba(255, 255, 255, 0.14);
-  --code-bg: #15161a;
+  --you-fill: color-mix(in srgb, rgba(255, 255, 255, 0.085) var(--soft-pct), rgba(255, 255, 255, 0.07));
+  --you-line: color-mix(in srgb, rgba(255, 255, 255, 0.14) var(--soft-pct), rgba(255, 255, 255, 0.13));
+  --code-bg: color-mix(in srgb, #15161a var(--soft-pct), #070707);
   --code-line: rgba(255, 255, 255, 0.08);
 
-  --shadow: 0 16px 40px -22px rgba(0, 0, 0, 0.6);
-  --shadow-lg: 0 30px 70px -26px rgba(0, 0, 0, 0.7);
+  --shadow: 0 16px 40px -22px color-mix(in srgb, rgba(0, 0, 0, 0.6) var(--soft-pct), rgba(0, 0, 0, 0.9));
+  --shadow-lg: 0 30px 70px -26px color-mix(in srgb, rgba(0, 0, 0, 0.7) var(--soft-pct), rgba(0, 0, 0, 0.95));
 }
 
 /* Accents — dark values first, then light-mode shades (darker for contrast). */
@@ -282,7 +287,7 @@ kbd {
 
 :root[data-theme="light"] .glow { background: radial-gradient(closest-side, rgba(var(--accent-rgb), 0.1), transparent); }
 :root[data-theme="light"] .grid { background-image: radial-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 1px); }
-:root[data-theme="dim"] .grid { background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px); }
+:root[data-theme="dim"] .grid { background-image: radial-gradient(color-mix(in srgb, rgba(255, 255, 255, 0.06) var(--soft-pct), rgba(255, 255, 255, 0.07)) 1px, transparent 1px); }
 
 body.is-busy .glow { opacity: 1; animation: glowpulse 3.6s ease-in-out infinite; }
 body.is-offline .glow { opacity: 0.15; }
@@ -335,17 +340,19 @@ body.is-offline .glow { opacity: 0.15; }
   --amb-3: rgba(176, 110, 255, 0.085);
 }
 
+/* Soft contrast strength (--soft-amt) blends these from the dark glass
+   above (0) to the full charcoal glass (100), like the solid palettes. */
 :root[data-surface="glass"][data-theme="dim"] {
-  --glass: rgba(40, 43, 51, 0.74);
-  --glass-strong: rgba(38, 41, 49, 0.88);
-  --card: rgba(255, 255, 255, 0.05);
-  --card-hover: rgba(255, 255, 255, 0.08);
-  --card-sunk: rgba(0, 0, 0, 0.24);
-  --tile: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025));
+  --glass: color-mix(in srgb, rgba(40, 43, 51, 0.74) var(--soft-pct), rgba(18, 20, 25, 0.72));
+  --glass-strong: color-mix(in srgb, rgba(38, 41, 49, 0.88) var(--soft-pct), rgba(16, 18, 23, 0.86));
+  --card: color-mix(in srgb, rgba(255, 255, 255, 0.05) var(--soft-pct), rgba(255, 255, 255, 0.04));
+  --card-hover: color-mix(in srgb, rgba(255, 255, 255, 0.08) var(--soft-pct), rgba(255, 255, 255, 0.07));
+  --card-sunk: color-mix(in srgb, rgba(0, 0, 0, 0.24) var(--soft-pct), rgba(0, 0, 0, 0.32));
+  --tile: linear-gradient(180deg, color-mix(in srgb, rgba(255, 255, 255, 0.09) var(--soft-pct), rgba(255, 255, 255, 0.075)), color-mix(in srgb, rgba(255, 255, 255, 0.025) var(--soft-pct), rgba(255, 255, 255, 0.02)));
   --line: rgba(255, 255, 255, 0.1);
   --line-2: rgba(255, 255, 255, 0.17);
-  --highlight: rgba(255, 255, 255, 0.13);
-  --chrome: rgba(40, 43, 51, 0.66);
+  --highlight: color-mix(in srgb, rgba(255, 255, 255, 0.13) var(--soft-pct), rgba(255, 255, 255, 0.12));
+  --chrome: color-mix(in srgb, rgba(40, 43, 51, 0.66) var(--soft-pct), rgba(18, 20, 25, 0.62));
   --amb-1: color-mix(in oklab, var(--accent) 11%, transparent);
   --amb-2: rgba(96, 130, 255, 0.11);
   --amb-3: rgba(176, 110, 255, 0.085);
@@ -373,21 +380,22 @@ body.is-offline .glow { opacity: 0.15; }
   --amb-3: rgba(196, 140, 255, 0.1);
 }
 
+/* Blended by --soft-amt from the light glass above (0) to warm paper (100). */
 :root[data-surface="glass"][data-theme="light"][data-variant="soft"] {
-  --glass: rgba(255, 253, 248, 0.82);
-  --glass-strong: rgba(255, 253, 248, 0.92);
-  --card: rgba(255, 253, 248, 0.62);
-  --card-hover: rgba(255, 254, 250, 0.9);
-  --card-sunk: rgba(70, 60, 40, 0.06);
-  --tile: linear-gradient(180deg, rgba(255, 254, 250, 0.94), rgba(255, 254, 250, 0.55));
-  --line: rgba(60, 54, 42, 0.11);
-  --line-2: rgba(60, 54, 42, 0.19);
-  --grid-dot: rgba(60, 54, 42, 0.055);
-  --chrome: rgba(255, 253, 248, 0.7);
+  --glass: color-mix(in srgb, rgba(255, 253, 248, 0.82) var(--soft-pct), rgba(255, 255, 255, 0.78));
+  --glass-strong: color-mix(in srgb, rgba(255, 253, 248, 0.92) var(--soft-pct), rgba(255, 255, 255, 0.9));
+  --card: color-mix(in srgb, rgba(255, 253, 248, 0.62) var(--soft-pct), rgba(255, 255, 255, 0.62));
+  --card-hover: color-mix(in srgb, rgba(255, 254, 250, 0.9) var(--soft-pct), rgba(255, 255, 255, 0.88));
+  --card-sunk: color-mix(in srgb, rgba(70, 60, 40, 0.06) var(--soft-pct), rgba(15, 20, 35, 0.05));
+  --tile: linear-gradient(180deg, color-mix(in srgb, rgba(255, 254, 250, 0.94) var(--soft-pct), rgba(255, 255, 255, 0.92)), color-mix(in srgb, rgba(255, 254, 250, 0.55) var(--soft-pct), rgba(255, 255, 255, 0.52)));
+  --line: color-mix(in srgb, rgba(60, 54, 42, 0.11) var(--soft-pct), rgba(15, 20, 35, 0.09));
+  --line-2: color-mix(in srgb, rgba(60, 54, 42, 0.19) var(--soft-pct), rgba(15, 20, 35, 0.16));
+  --grid-dot: color-mix(in srgb, rgba(60, 54, 42, 0.055) var(--soft-pct), rgba(15, 20, 35, 0.06));
+  --chrome: color-mix(in srgb, rgba(255, 253, 248, 0.7) var(--soft-pct), rgba(255, 255, 255, 0.66));
 
   --amb-1: color-mix(in oklab, var(--accent) 8%, transparent);
-  --amb-2: rgba(150, 170, 230, 0.12);
-  --amb-3: rgba(220, 170, 200, 0.095);
+  --amb-2: color-mix(in srgb, rgba(150, 170, 230, 0.12) var(--soft-pct), rgba(120, 150, 255, 0.13));
+  --amb-3: color-mix(in srgb, rgba(220, 170, 200, 0.095) var(--soft-pct), rgba(196, 140, 255, 0.1));
 }
 
 /* The specular edge, per polarity. Applied via the token so the many
@@ -399,7 +407,7 @@ body.is-offline .glow { opacity: 0.15; }
   --edge-specular: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(15, 20, 35, 0.05);
 }
 :root[data-surface="glass"][data-theme="light"][data-variant="soft"] {
-  --edge-specular: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(60, 54, 42, 0.06);
+  --edge-specular: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 color-mix(in srgb, rgba(60, 54, 42, 0.06) var(--soft-pct), rgba(15, 20, 35, 0.05));
 }
 
 /* Backdrop: three soft lights placed mostly off-screen, so they show as
@@ -499,9 +507,9 @@ body.is-offline .glow { opacity: 0.15; }
    is solid (the colour each one shows over the plain backdrop). */
 @media (prefers-reduced-transparency: reduce) {
   :root[data-surface="glass"] { --glass: #0e0f13; --glass-strong: #101116; --chrome: #0e0f13; --blur: 0px; --blur-strong: 0px; --chrome-blur: 0px; }
-  :root[data-surface="glass"][data-theme="dim"] { --glass: #25272e; --glass-strong: #272931; --chrome: #25272e; }
+  :root[data-surface="glass"][data-theme="dim"] { --glass: color-mix(in srgb, #25272e var(--soft-pct), #0e0f13); --glass-strong: color-mix(in srgb, #272931 var(--soft-pct), #101116); --chrome: color-mix(in srgb, #25272e var(--soft-pct), #0e0f13); }
   :root[data-surface="glass"][data-theme="light"] { --glass: #fdfdfd; --glass-strong: #ffffff; --chrome: #fdfdfd; }
-  :root[data-surface="glass"][data-theme="light"][data-variant="soft"] { --glass: #fdfaf5; --glass-strong: #fefcf7; --chrome: #fdfaf5; }
+  :root[data-surface="glass"][data-theme="light"][data-variant="soft"] { --glass: color-mix(in srgb, #fdfaf5 var(--soft-pct), #fdfdfd); --glass-strong: color-mix(in srgb, #fefcf7 var(--soft-pct), #ffffff); --chrome: color-mix(in srgb, #fdfaf5 var(--soft-pct), #fdfdfd); }
 }
 
 /* ─── Glass ───────────────────────────────────────────────────────────── */
@@ -529,12 +537,12 @@ body.is-offline .glow { opacity: 0.15; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass { background: rgba(10, 10, 10, 0.94); }
   .glass-strong { background: rgba(14, 14, 14, 0.98); }
-  :root[data-theme="dim"] .glass { background: rgba(38, 39, 45, 0.96); }
-  :root[data-theme="dim"] .glass-strong { background: rgba(44, 45, 52, 0.98); }
+  :root[data-theme="dim"] .glass { background: color-mix(in srgb, rgba(38, 39, 45, 0.96) var(--soft-pct), rgba(10, 10, 10, 0.94)); }
+  :root[data-theme="dim"] .glass-strong { background: color-mix(in srgb, rgba(44, 45, 52, 0.98) var(--soft-pct), rgba(14, 14, 14, 0.98)); }
   :root[data-theme="light"] .glass,
   :root[data-theme="light"] .glass-strong { background: rgba(250, 250, 255, 0.96); }
   :root[data-theme="light"][data-variant="soft"] .glass,
-  :root[data-theme="light"][data-variant="soft"] .glass-strong { background: rgba(255, 254, 250, 0.96); }
+  :root[data-theme="light"][data-variant="soft"] .glass-strong { background: color-mix(in srgb, rgba(255, 254, 250, 0.96) var(--soft-pct), rgba(250, 250, 255, 0.96)); }
 }
 
 /* ─── Mark (brand + avatar): a tile with a live dot ───────────────────── */

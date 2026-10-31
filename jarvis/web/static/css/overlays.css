@@ -11,7 +11,7 @@
   animation: fade 0.2s ease;
 }
 :root[data-theme="light"] .modal { background: rgba(0, 0, 0, 0.18); }
-:root[data-theme="dim"] .modal { background: rgba(10, 10, 12, 0.45); }
+:root[data-theme="dim"] .modal { background: color-mix(in srgb, rgba(10, 10, 12, 0.45) var(--soft-pct), rgba(0, 0, 0, 0.62)); }
 .modal-prompt { z-index: 70; align-items: center; padding-top: 24px; }
 /* Closing: the stack already treats it as closed; this is only the fade (modal.js). */
 .modal.is-closing { animation: fade-out 0.18s ease forwards; pointer-events: none; }
@@ -97,8 +97,8 @@
   transition: background 0.15s;
 }
 :root[data-theme="light"] .mdrawer-head { --head-bg: rgba(255, 255, 255, 0.97); }
-:root[data-theme="light"][data-variant="soft"] .mdrawer-head { --head-bg: rgba(255, 254, 250, 0.97); }
-:root[data-theme="dim"] .mdrawer-head { --head-bg: rgba(44, 45, 52, 0.98); }
+:root[data-theme="light"][data-variant="soft"] .mdrawer-head { --head-bg: color-mix(in srgb, rgba(255, 254, 250, 0.97) var(--soft-pct), rgba(255, 255, 255, 0.97)); }
+:root[data-theme="dim"] .mdrawer-head { --head-bg: color-mix(in srgb, rgba(44, 45, 52, 0.98) var(--soft-pct), rgba(14, 14, 14, 0.97)); }
 .mdrawer-head:hover:not(:disabled) { background: linear-gradient(var(--card-hover), var(--card-hover)), var(--head-bg); }
 .mdrawer-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .mdrawer-head:disabled { cursor: default; }
@@ -488,6 +488,47 @@
 .mode-card[aria-checked="true"] .mode-look i:nth-child(2) { background: var(--accent); }
 
 .setting-block .soft-row { margin: 10px -8px 0; }
+
+/* Soft contrast strength: a slider under the switch (theme.js) */
+.soft-amount { display: flex; align-items: center; gap: 12px; padding: 4px 0 6px 38px; }
+.soft-amount[hidden] { display: none; }
+.soft-amount label { font-size: 12.5px; color: var(--text-3); }
+.soft-amount output { min-width: 40px; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.soft-range {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  margin: 0;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--accent) var(--fill, 100%), var(--line-2) var(--fill, 100%));
+  cursor: pointer;
+  outline: none;
+}
+.soft-range:focus-visible { box-shadow: 0 0 0 3px var(--focus); }
+.soft-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition: transform 0.22s var(--spring);
+}
+.soft-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition: transform 0.22s var(--spring);
+}
+.soft-range:hover::-webkit-slider-thumb { transform: scale(1.08); }
+.soft-range:active::-webkit-slider-thumb { transform: scale(1.2); }
+.soft-range:active::-moz-range-thumb { transform: scale(1.2); }
 
 .accent-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .accent-chip {

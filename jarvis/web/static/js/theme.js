@@ -130,9 +130,19 @@ if (LEGACY_SOFT[savedMode]) {
   storageSet('jarvis-soft', '1');
 }
 
+export const SOFT_AMT_MIN = 10;
+export const SOFT_AMT_MAX = 100;
+
+/** Saved soft-contrast strength, clamped; anything unreadable means full strength. */
+function validSoftAmt(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? Math.max(SOFT_AMT_MIN, Math.min(SOFT_AMT_MAX, n)) : SOFT_AMT_MAX;
+}
+
 export const prefs = {
   mode: MODES.some((m) => m.id === savedMode) ? savedMode : 'dark',
   soft: storageGet('jarvis-soft', '0') === '1',
+  softAmt: validSoftAmt(storageGet('jarvis-soft-amt', String(SOFT_AMT_MAX))),
   glass: storageGet('jarvis-glass', '0') === '1',
   accent: storageGet('jarvis-accent', 'green'),
   custom: validHex(storageGet('jarvis-accent-custom', '')) || CUSTOM_DEFAULT,
@@ -160,6 +170,8 @@ function apply() {
   root.dataset.theme = theme === 'soft' ? 'light' : theme;
   if (theme === 'soft') root.dataset.variant = 'soft';
   else delete root.dataset.variant;
+  // How far the soft palette is blended in (tokens.css reads --soft-amt).
+  root.style.setProperty('--soft-amt', String(prefs.softAmt));
   // Frosted glass is an independent surface choice, not a theme: it rides
   // on its own attribute so it combines with any mode AND soft contrast.
   if (prefs.glass) root.dataset.surface = 'glass';
@@ -239,6 +251,14 @@ export function setSoft(on, src) {
   prefs.soft = on;
   storageSet('jarvis-soft', on ? '1' : '0');
   retheme(before, src);
+}
+
+/** Soft-contrast strength from the slider; recolours live, no reveal animation. */
+export function setSoftAmount(amount) {
+  prefs.softAmt = validSoftAmt(amount);
+  storageSet('jarvis-soft-amt', String(prefs.softAmt));
+  apply();
+  paintSoftAmount();
 }
 
 /**
@@ -404,6 +424,7 @@ function paintAppearance() {
   if (soft) soft.checked = prefs.soft;
   const softSub = $('soft-sub');
   if (softSub) softSub.textContent = SOFT_SUB[prefs.mode];
+  paintSoftAmount();
   const glass = $('sw-glass');
   if (glass) glass.checked = prefs.glass;
   const glassSub = $('glass-sub');
@@ -421,6 +442,19 @@ function paintAppearance() {
   }
   const compact = $('sw-compact');
   if (compact) compact.checked = prefs.compact;
+}
+
+/** The strength slider only shows while soft contrast is on. */
+function paintSoftAmount() {
+  const wrap = $('soft-amount');
+  if (wrap) wrap.hidden = !prefs.soft;
+  const range = $('soft-amt');
+  if (range) {
+    if (Number(range.value) !== prefs.softAmt) range.value = String(prefs.softAmt);
+    range.style.setProperty('--fill', `${((prefs.softAmt - SOFT_AMT_MIN) / (SOFT_AMT_MAX - SOFT_AMT_MIN)) * 100}%`);
+  }
+  const out = $('soft-amt-val');
+  if (out) out.textContent = `${prefs.softAmt}%`;
 }
 
 function paintAccents() {
@@ -497,6 +531,7 @@ export function initTheme() {
   $('accent-exact')?.addEventListener('input', (e) => setCustomAccent(e.target.value, { live: true }));
   $('accent-exact')?.addEventListener('change', paintAccents);
   $('sw-soft')?.addEventListener('change', (e) => setSoft(e.target.checked, e));
+  $('soft-amt')?.addEventListener('input', (e) => setSoftAmount(e.target.value));
   $('sw-glass')?.addEventListener('change', (e) => setGlass(e.target.checked, e));
   $('sw-alert')?.addEventListener('change', (e) => setAlert(e.target.checked));
   $('sw-compact')?.addEventListener('change', (e) => setCompact(e.target.checked));
