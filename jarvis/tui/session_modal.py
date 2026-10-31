@@ -313,6 +313,7 @@ def resume_session_into_state(sid: int, console_print, preview: bool = True, *, 
     # resumed session show "0 tool calls" in the sidebars and /stats.
     state.tool_calls_count = count_tool_calls(loaded)
     state.total_in, state.total_out, state.total_tokens = estimate_session_tokens(loaded)
+    state.claude_cost_usd = 0.0  # not known for a resumed chat
     if not quiet:
         console_print(f"[green]▶ resumed session #{sid} ({len(state.messages)} messages)[/]")
     if not preview:

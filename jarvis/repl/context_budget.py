@@ -60,6 +60,15 @@ def _catalog_context(model: str) -> int | None:
                     or local_models.context_setting())
         except Exception:
             return None
+    if state.provider == "claude_agent":
+        try:
+            from ..auth import claude_agent
+
+            found = claude_agent.context_window(model)
+        except Exception:
+            found = None
+        if found:
+            return found
     try:
         from ..auth import models_dev
 

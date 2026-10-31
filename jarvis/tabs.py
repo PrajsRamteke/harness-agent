@@ -41,6 +41,9 @@ def _session_defaults() -> dict[str, Any]:
         "total_tokens": 0,
         "cache_read_tokens": 0,
         "cache_write_tokens": 0,
+        # Claude Code CLI: what Claude Code estimates this chat has cost (its
+        # own `total_cost_usd`; on a plan it's covered by the subscription).
+        "claude_cost_usd": 0.0,
         "plan_mode": False,
         "session_start": time.time(),
         "tool_calls_count": 0,

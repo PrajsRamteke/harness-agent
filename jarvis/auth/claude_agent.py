@@ -470,6 +470,53 @@ def models_for_picker() -> list[tuple[str, str]]:
     return out
 
 
+CONTEXT_CACHE = "claude_agent_context"
+
+
+def note_context(model: str, info: Any) -> None:
+    """``get_context_usage`` for ``model``: its window and the real model id."""
+    if not isinstance(info, dict) or not info.get("maxTokens"):
+        return
+    try:
+        row = {"max": int(info["maxTokens"]), "model": str(info.get("model") or "")}
+    except (TypeError, ValueError):
+        return
+    with _lock:
+        known = dict(_memo.get("context") or {})
+        known[model or DEFAULT_MODEL] = row
+        _memo["context"] = known
+    catalog_cache.write(CONTEXT_CACHE, known)
+
+
+def _contexts() -> dict:
+    with _lock:
+        known = _memo.get("context")
+    if known is None:
+        payload, _fresh = catalog_cache.read(CONTEXT_CACHE)
+        known = payload if isinstance(payload, dict) else {}
+        with _lock:
+            _memo["context"] = known
+    return known
+
+
+def context_window(model: str) -> int | None:
+    """Tokens the model's window holds, as Claude Code said (None: not asked yet)."""
+    row = _contexts().get(model or DEFAULT_MODEL)
+    return int(row["max"]) if isinstance(row, dict) and row.get("max") else None
+
+
+def display_name(model: str) -> str:
+    """``default`` → ``Opus 5.5``: the name of the model the alias runs."""
+    m = get_model(model) or {}
+    real = (_contexts().get(model or DEFAULT_MODEL) or {}).get("model") or m.get("resolved") or ""
+    if real:
+        for row in models():
+            if (row["id"] == real or row.get("resolved") == real) and not row["label"].lower().startswith("default"):
+                return row["label"]
+    label = m.get("label") or model or "Claude"
+    return label.split(" (")[0]
+
+
 def refresh_models() -> bool:
     """Ask Claude Code which models this account has (starts the binary once,
     no model request). Worker threads only. True when a list arrived."""

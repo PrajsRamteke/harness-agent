@@ -49,6 +49,7 @@ think_effort: str = DEFAULT_THINK_EFFORT
 show_internal: bool = True
 total_in: int = 0
 total_out: int = 0
+claude_cost_usd: float = 0.0  # per tab (tabs.SESSION_FIELDS); Claude Code CLI estimate
 total_tokens: int = 0
 # Prompt-cache tokens of the latest request (Anthropic): read from / written to cache.
 cache_read_tokens: int = 0

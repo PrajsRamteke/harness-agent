@@ -48,6 +48,38 @@ function money(v, currency) {
 
 let lastSig = '';
 
+/** "$19.7191" in Claude Code; here two decimals ("<$0.01" for crumbs). */
+function cost(v) {
+  const n = Number(v) || 0;
+  if (n === 0) return '$0.00';
+  if (n < 0.01) return '<$0.01';
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+const tokensK = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n || 0));
+
+/** This chat, like Claude Code's status line: context used · model · cost. */
+function renderChat(c) {
+  const row = $('cc-chat');
+  row.hidden = !c;
+  if (!c) return;
+  const pct = c.context_pct;
+  const ctx = $('cc-ctx');
+  ctx.dataset.level = pct == null ? '' : pct >= 90 ? 'low' : pct >= 70 ? 'warn' : '';
+  $('cc-ctx-fill').style.width = `${pct ? Math.max(2, pct) : 0}%`;
+  $('cc-ctx-pct').textContent = pct == null ? '—' : `${pct}%`;
+  ctx.title = c.context_max
+    ? `Context window: ${tokensK(c.context_tokens)} of ${tokensK(c.context_max)} tokens used by this chat`
+    : 'Context window used by this chat (known after the first reply)';
+  $('cc-model').textContent = c.model_label || '';
+  $('cc-model').title = 'Model Claude Code runs for this chat';
+  const el = $('cc-cost');
+  el.textContent = cost(c.cost_usd);
+  el.title = c.subscription
+    ? 'What Claude Code estimates this chat would cost at API prices — covered by your plan, not billed'
+    : 'What this chat has cost so far (Claude Code’s estimate)';
+}
+
 function render(s) {
   const card = $('cc-card');
   if (!card) return;
@@ -59,6 +91,7 @@ function render(s) {
   }
   $('cc-updated').textContent = d.status === 'ok' && d.fetched_at ? updatedAgo(d.fetched_at) : '';
   card.classList.toggle('is-loading', !!d.loading);
+  renderChat(s.claude_chat);
   const sig = JSON.stringify([d.status, d.error, d.plan_label, d.limits, d.extra, d.available]);
   if (sig === lastSig) return;
   lastSig = sig;

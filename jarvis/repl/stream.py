@@ -934,6 +934,8 @@ def _call_claude_stream():
             # Anthropic's Usage exposes only input/output tokens; OpenCode's
             # fake Usage adds total_tokens. Compute when absent.
             state.total_tokens = int(getattr(final.usage, "total_tokens", 0) or 0) or (in_tok + out_tok)
+            if state.provider == PROVIDER_CLAUDE_AGENT:
+                state.claude_cost_usd += float(getattr(final, "cost_usd", 0) or 0)
             return final
         except _STREAM_TIMEOUT_ERRORS:
             _current_stream = None

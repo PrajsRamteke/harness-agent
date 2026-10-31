@@ -31,6 +31,7 @@ def handle_history(c: str, arg: str):
         state.total_in = 0
         state.total_out = 0
         state.total_tokens = 0
+        state.claude_cost_usd = 0.0
         state.current_session_id = db_create_session(state.MODEL)
         if c == "/new":
             console.clear(); welcome_banner(); header_panel()

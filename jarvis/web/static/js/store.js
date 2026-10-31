@@ -43,6 +43,8 @@ export const store = {
   openrouter: null,
   /** Claude plan limits while the Claude Code CLI is the provider (server: auth/claude_agent_usage.py public()); null hides it. */
   claude_usage: null,
+  /** This chat on the Claude Code CLI: context %, model, cost (server: state_api._claude_chat_fields). */
+  claude_chat: null,
   /** Pinned context summary (`{ lines, enabled, chars }`): an open Pin dialog reloads when it changes. */
   pin: { lines: 0, enabled: true },
   /** Pending agent prompt (approval / question / input) awaiting an answer */
@@ -105,4 +107,5 @@ export function loadSnapshot(data) {
   // null is meaningful here (another provider: hide the card), unlike session keys.
   if ('openrouter' in data) patchStore({ openrouter: data.openrouter || null });
   if ('claude_usage' in data) patchStore({ claude_usage: data.claude_usage || null });
+  if ('claude_chat' in data) patchStore({ claude_chat: data.claude_chat || null });
 }

@@ -420,7 +420,32 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "jobs": jobs_fields(),
         "openrouter": _openrouter_fields(),
         "claude_usage": _claude_usage_fields(),
+        "claude_chat": _claude_chat_fields(),
     }
+
+
+def _claude_chat_fields() -> dict[str, Any] | None:
+    """This chat on the Claude Code CLI, like Claude Code's status line:
+    context used, the model, what Claude Code estimates it has cost."""
+    from .. import state
+
+    if state.provider != "claude_agent":
+        return None
+    try:
+        from ..auth import claude_agent
+
+        window = claude_agent.context_window(state.MODEL)
+        used = int(state.total_in or 0)
+        return {
+            "context_tokens": used,
+            "context_max": window,
+            "context_pct": min(100, round(used * 100 / window)) if window and used else (0 if window else None),
+            "model_label": claude_agent.display_name(state.MODEL),
+            "cost_usd": round(float(state.claude_cost_usd or 0), 4),
+            "subscription": claude_agent.status().subscription,
+        }
+    except Exception:
+        return None
 
 
 def _claude_usage_fields() -> dict[str, Any] | None:

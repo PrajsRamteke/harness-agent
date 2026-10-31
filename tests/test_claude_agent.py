@@ -600,4 +600,48 @@ def test_usage_asks_a_running_process(harness):
     sess = harness.engine.live_session()
     assert sess is not None
     assert sess.command("control", {"subtype": "get_usage"}) == USAGE_RAW
-    assert asked == [{"subtype": "get_usage"}]
+    # (the window lookup after the first reply asks too: get_context_usage)
+    assert [r for r in asked if r["subtype"] == "get_usage"] == [{"subtype": "get_usage"}]
+
+
+# ─── This chat: context · model · cost (Claude Code's status line) ───────
+
+
+def test_chat_cost_adds_claude_codes_running_total(harness):
+    totals = iter([0.5, 1.25, 0.2])  # a running total per process; 0.2 = it was reset
+
+    async def brain(fake, blocks):
+        await fake.say("ok", result=False)
+        r = ResultMessage(fake.sid)
+        r.total_cost_usd = next(totals)
+        await fake.emit(r)
+
+    harness.brains["brain"] = brain
+    msgs = [{"role": "user", "content": "a"}]
+    costs = []
+    for text in ("b", "c", None):
+        final, _ = _run(harness.client, msgs)
+        costs.append(final.cost_usd)
+        if text:
+            msgs += [{"role": "assistant", "content": final.content}, {"role": "user", "content": text}]
+    assert costs == [0.5, 0.75, 0.2]
+
+
+def test_context_window_and_model_name_from_claude_code(ready, monkeypatch):
+    from jarvis import state
+    from jarvis.repl import context_budget
+    from jarvis.web.state_api import _claude_chat_fields
+
+    ca.note_context("default", {"maxTokens": 1_000_000, "model": "claude-opus-5-5", "percentage": 3})
+    ca.store_models([{"value": "default", "displayName": "Default (recommended)", "resolvedModel": "claude-opus-5-5"},
+                     {"value": "opus", "displayName": "Opus 5.5", "resolvedModel": "claude-opus-5-5"}])
+    assert ca.context_window("default") == 1_000_000 and ca.display_name("default") == "Opus 5.5"
+    monkeypatch.setattr(state, "provider", "claude_agent")
+    monkeypatch.setattr(state, "MODEL", "default")
+    assert context_budget.context_window("default") == 1_000_000  # Jarvis's own guard agrees
+    monkeypatch.setattr(state, "total_in", 510_000)
+    monkeypatch.setattr(state, "claude_cost_usd", 19.71914)
+    assert _claude_chat_fields() == {"context_tokens": 510_000, "context_max": 1_000_000, "context_pct": 51,
+                                     "model_label": "Opus 5.5", "cost_usd": 19.7191, "subscription": True}
+    monkeypatch.setattr(state, "provider", "openrouter")
+    assert _claude_chat_fields() is None

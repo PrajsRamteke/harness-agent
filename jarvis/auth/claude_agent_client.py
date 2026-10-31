@@ -361,6 +361,8 @@ class _Session:
         self.last_used = time.monotonic()
         self.stderr: deque[str] = deque(maxlen=40)
         self.saw_init = False
+        self.cost_seen = 0.0     # Claude Code's running total_cost_usd for this process
+        self.cost_pending = 0.0  # not yet handed to Jarvis
         # Loop side (only touched on the event loop).
         self._announced: list[tuple[str, str, Any]] = []
         self._claimed: set[str] = set()
@@ -511,6 +513,26 @@ class _Session:
                         self._announced.append((b.id, strip_prefix(b.name), b.input))
                         self._announce_evt.set()
 
+    def take_cost(self, result: Any) -> None:
+        """A ResultMessage's ``total_cost_usd`` (Claude Code's own estimate,
+        a running total per process): add what's new since the last one."""
+        try:
+            total = float(getattr(result, "total_cost_usd", 0) or 0)
+        except (TypeError, ValueError):
+            return
+        delta = total - self.cost_seen if total >= self.cost_seen else total  # reset: a new total
+        self.cost_seen = total
+        self.cost_pending += max(0.0, delta)
+
+    async def _learn_context(self) -> None:
+        """Ask Claude Code once per model how big its context window is (and
+        which model the alias runs) — what its own status line uses."""
+        try:
+            r = await self._send("control", {"subtype": "get_context_usage"})
+            cfg.note_context(self.spec.model, r)
+        except BaseException:  # noqa: BLE001 — a nicety; the % just stays unknown
+            pass
+
     def _future(self, tid: str) -> asyncio.Future:
         fut = self._results.get(tid)
         if fut is None:
@@ -616,6 +638,7 @@ class _Session:
             if item is _END or isinstance(item, _Failure):
                 return False
             if type(item).__name__ == "ResultMessage":
+                self.take_cost(item)
                 self.phase = "idle"
                 return True
         return False
@@ -1008,7 +1031,10 @@ class _Stream:
         else:
             sess.phase = "idle"
         final = NS(content=list(self._content), usage=self._usage, stop_reason=stop or "end_turn",
-                   model=self.spec.model)
+                   model=self.spec.model, cost_usd=sess.cost_pending)
+        sess.cost_pending = 0.0
+        if cfg.context_window(self.spec.model) is None and sess.alive:
+            _LOOP.call(lambda s=sess: asyncio.ensure_future(s._learn_context()))
         sess.sig = sig_of({"content": final.content})
         sess.fed = 0
         self._final = final
@@ -1044,6 +1070,7 @@ class _Stream:
                     status = 400
                 self._error = _error(status, text)
             self._fail(self._error)
+        self.sess.take_cost(m)
         stop = str(getattr(m, "stop_reason", "") or "") or self._stop or "end_turn"
         if stop not in ("end_turn", "max_tokens", "stop_sequence", "refusal", "pause_turn"):
             stop = "end_turn"

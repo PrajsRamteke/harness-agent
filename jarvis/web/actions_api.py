@@ -61,6 +61,7 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
         state.total_in = 0
         state.total_out = 0
         state.total_tokens = 0
+        state.claude_cost_usd = 0.0
         state.current_session_id = db_create_session(state.MODEL)
         console_print(f"[green]▶ new session #{state.current_session_id}[/]")
         return {"ok": True, "session_id": state.current_session_id}
