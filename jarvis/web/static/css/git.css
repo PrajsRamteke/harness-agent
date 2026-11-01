@@ -39,8 +39,7 @@
   min-width: 0;
   padding: 0 10px;
   border-radius: var(--r-ctl) 0 0 var(--r-ctl);
-  background: var(--card-hover);
-  color: var(--text);
+  color: var(--text-2);
 }
 .gc-main span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gc-more {
@@ -48,14 +47,21 @@
   width: var(--h-md);
   flex: none;
   padding: 0;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid transparent;
   border-radius: 0 var(--r-ctl) var(--r-ctl) 0;
-  background: var(--card-hover);
   color: var(--text-3);
 }
 .gc-more .ic { width: 14px; height: 14px; transition: transform var(--dur) var(--ease); }
 .gc-more[aria-expanded="true"] .ic, .gc-row[aria-expanded="true"] .gc-chev .ic { transform: rotate(180deg); }
-.gc-main:hover:not(:disabled), .gc-more:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--text); }
+/* Every row is quiet until you point at it; a split button then shows its
+   two halves (fill + the divider before the chevron). */
+.gc-split:hover .gc-main:not(:disabled),
+.gc-split:hover .gc-more,
+.gc-more[aria-expanded="true"],
+.gc-split:has(.gc-more[aria-expanded="true"]) .gc-main:not(:disabled) { background: var(--card-hover); }
+.gc-split:hover .gc-more,
+.gc-more[aria-expanded="true"] { border-left-color: var(--line); }
+.gc-main:hover:not(:disabled), .gc-more:hover { color: var(--text); }
 .gc-main:disabled { color: var(--text-3); cursor: default; }
 .gc-main .spinner { width: 13px; height: 13px; }
 
