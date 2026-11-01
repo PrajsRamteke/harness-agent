@@ -17,13 +17,14 @@ const SOFT_SUB = {
   dark: 'Charcoal instead of pure black',
 };
 
-const THEME_COLOR = { light: '#f6f6f5', soft: '#f4f1ea', dim: '#1c1d21', dark: '#000000' };
+const THEME_COLOR = { light: '#fafafa', soft: '#f4f1ea', dim: '#18181b', dark: '#0a0a0b' };
 export const THEME_LABEL = { light: 'Light', soft: 'Soft light', dim: 'Soft dark', dark: 'Dark' };
 
 /** Themes that use the light palette (tokens.css keys off data-theme). */
 const LIGHT_THEMES = new Set(['light', 'soft']);
 
 export const ACCENTS = [
+  { id: 'violet', label: 'Violet', dark: '#8b7cff', light: '#6d5dfc' },
   { id: 'green', label: 'Green', dark: '#4ade80', light: '#16a34a' },
   { id: 'blue', label: 'Blue', dark: '#60a5fa', light: '#2563eb' },
   { id: 'teal', label: 'Teal', dark: '#2dd4bf', light: '#0d9488' },
@@ -144,7 +145,7 @@ export const prefs = {
   soft: storageGet('jarvis-soft', '0') === '1',
   softAmt: validSoftAmt(storageGet('jarvis-soft-amt', String(SOFT_AMT_MAX))),
   glass: storageGet('jarvis-glass', '0') === '1',
-  accent: storageGet('jarvis-accent', 'green'),
+  accent: storageGet('jarvis-accent', 'violet'),
   custom: validHex(storageGet('jarvis-accent-custom', '')) || CUSTOM_DEFAULT,
   alert: storageGet('jarvis-alert', '1') !== '0',
   compact: storageGet('jarvis-compact', '0') === '1',
@@ -177,7 +178,7 @@ function apply() {
   if (prefs.glass) root.dataset.surface = 'glass';
   else delete root.dataset.surface;
   const custom = prefs.accent === 'custom';
-  root.dataset.accent = custom || ACCENTS.some((a) => a.id === prefs.accent) ? prefs.accent : 'green';
+  root.dataset.accent = custom || ACCENTS.some((a) => a.id === prefs.accent) ? prefs.accent : 'violet';
   // A custom accent is set inline (beats every preset rule in tokens.css).
   if (custom) {
     const v = customAccentVars(prefs.custom, theme);

@@ -6,22 +6,22 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" content="#0a0a0b">
   <title>Jarvis Remote</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='9' fill='%230b0b0b' stroke='%23333'/%3E%3Ccircle cx='16' cy='16' r='5.5' fill='%234ade80'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='8' fill='%23161618' stroke='%23333'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%238b7cff'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script>
     // Apply the saved appearance before first paint (no flash). See js/theme.js.
     (function () {
-      var mode = 'dark', soft = null, accent = 'green', glass = null, softAmt = null;
+      var mode = 'dark', soft = null, accent = 'violet', glass = null, softAmt = null;
       try {
         mode = localStorage.getItem('jarvis-theme') || 'dark';
         soft = localStorage.getItem('jarvis-soft');
         glass = localStorage.getItem('jarvis-glass');
         softAmt = parseInt(localStorage.getItem('jarvis-soft-amt'), 10);
-        accent = localStorage.getItem('jarvis-accent') || 'green';
+        accent = localStorage.getItem('jarvis-accent') || 'violet';
       } catch (e) {}
       // Old builds saved the soft themes as modes ('dim', 'soft').
       if (mode === 'dim' || mode === 'soft') soft = '1';
@@ -78,6 +78,7 @@
 
   <div class="shell" id="shell">
     <aside class="sidebar glass" id="sidebar" aria-label="Session controls">
+      <div class="side-resize" id="side-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-controls="sidebar" tabindex="0" title="Drag to resize · double-click to reset"></div>
       <div class="side-head">
         <div class="brand">
           <span class="mark" aria-hidden="true"></span>
@@ -210,7 +211,7 @@
 
     <main class="main">
       <header class="topbar glass">
-        <button class="icon-btn only-narrow" id="menu-btn" type="button" aria-label="Open panel"><span data-icon="panel-left"></span></button>
+        <button class="icon-btn" id="menu-btn" type="button" aria-label="Toggle sidebar" aria-controls="sidebar"><span data-icon="panel-left"></span></button>
         <nav class="chat-tabs" id="chat-tabs" aria-label="Chat tabs" hidden></nav>
         <div class="title-wrap">
           <h1 id="session-title">New session</h1>
@@ -223,8 +224,8 @@
             <p id="session-meta"></p>
           </div>
         </div>
-        <button class="icon-btn only-wide" id="qr-btn" type="button" aria-label="Share this session: QR code and link" title="Share — scan the QR code or copy the link">
-          <span data-icon="qr-code"></span>
+        <button class="icon-btn only-wide" id="qr-btn" type="button" aria-label="Open on your phone: QR code, link and Anywhere access" title="Open on your phone — QR code, link, Anywhere link">
+          <span data-icon="smartphone"></span>
         </button>
         <button class="cmd-btn" id="palette-btn" type="button" aria-label="Commands (Ctrl+K)">
           <span data-icon="command"></span><span class="cmd-btn-label">Commands</span><kbd id="palette-kbd">Ctrl K</kbd>
@@ -426,12 +427,20 @@
   <div class="modal" id="qr" hidden>
     <div class="modal-card glass-strong qr-card" role="dialog" aria-modal="true" aria-labelledby="qr-title">
       <div class="picker-head">
-        <span class="picker-icon"><span data-icon="qr-code"></span></span>
+        <span class="picker-icon"><span data-icon="smartphone"></span></span>
         <div class="picker-titles">
           <h2 id="qr-title">Open on your phone</h2>
           <p id="qr-sub">Scan with your camera to continue this session</p>
         </div>
         <button class="icon-btn" data-close="qr" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="qr-anywhere" id="qr-anywhere">
+        <label class="switch-row" for="sw-anywhere">
+          <span class="sw-icon" data-icon="globe"></span>
+          <span class="sw-text"><strong>Anywhere link</strong><span id="qr-anywhere-sub">Off · works on this Wi-Fi only</span></span>
+          <span class="spinner" id="qr-anywhere-spin" aria-hidden="true" hidden></span>
+          <input type="checkbox" class="switch" id="sw-anywhere" role="switch" aria-describedby="qr-anywhere-sub">
+        </label>
       </div>
       <div class="qr-body">
         <div class="qr-frame" id="qr-frame" aria-live="polite"></div>

@@ -259,3 +259,97 @@ def test_close_releases_a_waiting_poll():
     _threading.Timer(0.2, b.close).start()
     body = _json.loads(b.poll(b.latest_seq(), timeout=5))
     assert body.get("closed") is True
+
+
+# ─── The web QR dialog's "Anywhere" switch (/api/tunnel) ────────────────
+
+class _FakeApp:
+    """Just enough of the TUI for WebRemoteMixin's tunnel methods."""
+
+    def __init__(self, bridge):
+        self._web_bridge = bridge
+        self._web_tunnel = None
+        self._web_public_link = ""
+        self._thread_id = None
+        self.screen = None
+        self.printed = []
+        self._tui_console = type("C", (), {"print": lambda _s, *a, **k: self.printed.append(a)})()
+
+    def _render_footer(self):
+        pass
+
+    def notify(self, *a, **k):
+        pass
+
+    def call_from_thread(self, fn, *args):
+        fn(*args)
+
+
+def _mixin_app(bridge):
+    from jarvis.tui.mixins.web_remote import WebRemoteMixin
+
+    cls = type("App", (WebRemoteMixin, _FakeApp), {})
+    app = cls(bridge)
+    app._tunnel_preference = lambda: "auto"
+    app._keep_awake_pref = lambda: False
+    return app
+
+
+def test_web_anywhere_switch_starts_and_stops_the_tunnel(fake_cloudflared, monkeypatch):
+    from jarvis import state
+
+    monkeypatch.setattr(state, "web_port", 8765, raising=False)
+    bridge = WebBridge()
+    bridge.token = "tok"
+    events = []
+    real_emit = bridge.emit
+    monkeypatch.setattr(bridge, "emit", lambda kind, data=None: (events.append((kind, data)), real_emit(kind, data)))
+    app = _mixin_app(bridge)
+
+    assert app._handle_web_tunnel({"op": "status"})["status"] == "off"
+    assert app._handle_web_tunnel({"op": "start"})["status"] in ("starting", "live")
+    assert _wait(lambda: app._web_tunnel_status()["status"] == "live")
+    live = app._web_tunnel_status()
+    assert live["link"] == "https://fake-quick-tunnel.trycloudflare.com/?token=tok"
+    assert bridge.public_host == "fake-quick-tunnel.trycloudflare.com"
+    # open pages hear about it without polling
+    assert any(k == "tunnel" and d["status"] == "live" for k, d in events)
+
+    proc = app._web_tunnel._proc
+    off = app._handle_web_tunnel({"op": "stop"})
+    assert off["status"] == "off" and off["link"] == ""
+    assert bridge.public_host == ""
+    assert _wait(lambda: proc.poll() is not None)
+    assert events[-1][0] == "tunnel" and events[-1][1]["status"] == "off"
+
+
+def test_web_anywhere_switch_says_when_no_tunnel_tool_is_installed(monkeypatch):
+    monkeypatch.setattr(tun, "binary_for", lambda p: None)
+    app = _mixin_app(WebBridge())
+    assert app._handle_web_tunnel({"op": "start"})["status"] == "missing"
+    assert app._web_tunnel is None
+
+
+def test_only_a_local_visit_may_switch_the_anywhere_link():
+    seen = []
+
+    def on_action(action, data, done):
+        seen.append((action, dict(data)))
+        done({"ok": True, "status": "live", "link": "https://x.trycloudflare.com/?token=t"})
+
+    local = _handler("192.168.0.20", {"Host": "192.168.0.105:8765"})
+    local.bridge.set_handlers(on_action=on_action)
+    assert local._tunnel_request("stop")["can_toggle"] is True
+    assert seen[-1] == ("tunnel", {"op": "stop"})
+
+    remote = _handler("127.0.0.1", {"Host": "x.trycloudflare.com", "Cf-Connecting-Ip": "8.8.8.8"})
+    remote.bridge.set_handlers(on_action=on_action)
+    res = remote._tunnel_request("stop")
+    assert res["ok"] is False and res["code"] == "remote" and res["can_toggle"] is False
+    assert seen[-1] == ("tunnel", {"op": "status"})  # never stopped from outside
+
+
+def test_anywhere_needs_the_terminal_app():
+    h = _handler("127.0.0.1", {"Host": "localhost:8765"})
+    res = h._tunnel_request("start")
+    assert res["status"] == "unavailable" and res["can_toggle"] is False

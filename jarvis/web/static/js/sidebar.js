@@ -1,5 +1,5 @@
 /** Sidebar: reasoning and transcript switches, recent sessions, usage */
-import { $, escapeHtml, formatCount, debounce, countTo, animateEl, SPRING } from './utils.js';
+import { $, escapeHtml, formatCount, debounce, countTo, animateEl, SPRING, isMac, storageGet, storageSet } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
 import { fetchSessions } from './api.js';
@@ -33,6 +33,93 @@ export function closeSidebar() {
 
 function closeOnNarrow() {
   if (window.matchMedia('(max-width: 960px)').matches) closeSidebar();
+}
+
+// ─── Collapse (wide screens) ─────────────────────────────────────────────
+
+const COLLAPSE_KEY = 'jarvis-side-collapsed';
+
+function setCollapsed(on) {
+  document.body.classList.toggle('side-collapsed', on);
+  const btn = $('menu-btn');
+  if (btn) {
+    const narrow = window.matchMedia('(max-width: 960px)').matches;
+    btn.setAttribute('aria-expanded', String(narrow ? document.body.classList.contains('side-open') : !on));
+    btn.title = narrow ? 'Open panel' : `${on ? 'Show' : 'Hide'} sidebar (${isMac ? '⌥' : 'Alt'} B)`;
+  }
+  storageSet(COLLAPSE_KEY, on ? '1' : '0');
+}
+
+// ─── Width (wide screens): drag the right edge, ← →, double-click resets ───
+
+const WIDTH_KEY = 'jarvis-side-w';
+const DEFAULT_W = 280;
+const MIN_W = 220;
+const maxWidth = () => Math.max(MIN_W, Math.min(420, Math.round(window.innerWidth * 0.4)));
+const clampWidth = (w) => Math.max(MIN_W, Math.min(maxWidth(), Math.round(w)));
+let sideWidth = DEFAULT_W;
+
+function applySideWidth() {
+  const w = clampWidth(sideWidth);
+  document.documentElement.style.setProperty('--side-w', `${w}px`);
+  const handle = $('side-resize');
+  if (handle) {
+    handle.setAttribute('aria-valuemin', String(MIN_W));
+    handle.setAttribute('aria-valuemax', String(maxWidth()));
+    handle.setAttribute('aria-valuenow', String(w));
+  }
+}
+
+function setSideWidth(w) {
+  sideWidth = clampWidth(w);
+  applySideWidth();
+  storageSet(WIDTH_KEY, String(sideWidth));
+}
+
+function initSideResize() {
+  sideWidth = Number(storageGet(WIDTH_KEY, DEFAULT_W)) || DEFAULT_W;
+  applySideWidth();
+  window.addEventListener('resize', applySideWidth);
+  const handle = $('side-resize');
+  if (!handle) return;
+  let startLeft = 0;
+  const move = (e) => {
+    sideWidth = clampWidth(e.clientX - startLeft);
+    applySideWidth();
+  };
+  const stop = () => {
+    document.body.classList.remove('is-side-resizing');
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', stop);
+    handle.removeEventListener('pointercancel', stop);
+    storageSet(WIDTH_KEY, String(sideWidth));
+  };
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    startLeft = $('sidebar').getBoundingClientRect().left;
+    handle.setPointerCapture(e.pointerId);
+    document.body.classList.add('is-side-resizing');
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+  });
+  handle.addEventListener('dblclick', () => setSideWidth(DEFAULT_W));
+  handle.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const step = e.shiftKey ? 64 : 24;
+    setSideWidth(sideWidth + (e.key === 'ArrowRight' ? step : -step));
+  });
+}
+
+/** The top bar's panel button and Alt+B: a drawer on phones, a collapse on desktops. */
+export function toggleSidebar() {
+  if (window.matchMedia('(max-width: 960px)').matches) {
+    if (document.body.classList.contains('side-open')) closeSidebar();
+    else openSidebar();
+    return;
+  }
+  setCollapsed(!document.body.classList.contains('side-collapsed'));
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────
@@ -138,12 +225,14 @@ async function loadRecent() {
       const tag = x.openIn
         ? `<span class="rr-tag is-live" title="Open in ${escapeHtml(x.openIn.project)} — click to switch there">${escapeHtml(x.openIn.project)}</span>`
         : x.from ? `<span class="rr-tag" title="From ${escapeHtml(x.from)}, which was closed">${escapeHtml(x.from)}</span>` : '';
+      const count = x.msg_count ? `${x.msg_count} message${x.msg_count === 1 ? '' : 's'}` : '';
+      const meta = [x.updated_label || '', count].filter(Boolean).join(' · ');
       return `
       <button type="button" class="recent-row" role="listitem" data-sid="${x.id}" ${x.openIn ? `data-project="${escapeHtml(x.openIn.id)}"` : ''} title="${escapeHtml(x.title)}" style="--i:${Math.min(i, 8)}">
         <span class="rr-dot" aria-hidden="true"></span>
         <span class="rr-body">
           <span class="rr-title">${escapeHtml(x.title)}</span>
-          <span class="rr-meta">${tag}${escapeHtml(x.updated_label || '')}${x.msg_count ? `, ${x.msg_count} messages` : ''}</span>
+          <span class="rr-meta">${tag}${escapeHtml(meta)}</span>
         </span>
       </button>`;
     }).join('');
@@ -175,7 +264,9 @@ export const refreshRecent = debounce(loadRecent, 250);
 export function initSidebar({ onOpenPicker }) {
   openPicker = onOpenPicker;
 
-  $('menu-btn')?.addEventListener('click', openSidebar);
+  $('menu-btn')?.addEventListener('click', toggleSidebar);
+  setCollapsed(storageGet(COLLAPSE_KEY, '0') === '1');
+  initSideResize();
   $('side-close')?.addEventListener('click', closeSidebar);
   $('scrim')?.addEventListener('click', closeSidebar);
   document.addEventListener('keydown', (e) => {

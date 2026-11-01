@@ -160,6 +160,7 @@ class WebRemoteMixin:
         self._web_tunnel = tunnel
         self._web_public_link = ""
         tunnel.start()
+        self._emit_web_tunnel()
         return "starting"
 
     def _on_tunnel_change(self, tunnel) -> None:
@@ -192,6 +193,17 @@ class WebRemoteMixin:
         if isinstance(self.screen, WebConnectScreen):
             self.screen._paint()
         self._render_footer()
+        self._emit_web_tunnel()
+
+    def _emit_web_tunnel(self) -> None:
+        """Open web QR dialogs follow the tunnel live (``tunnel`` event)."""
+        bridge = self._web_bridge
+        if bridge is None:
+            return
+        try:
+            bridge.emit("tunnel", self._web_tunnel_status())
+        except Exception:
+            pass
 
     def _stop_tunnel(self, *, quiet: bool = False) -> None:
         tunnel = getattr(self, "_web_tunnel", None)
@@ -203,8 +215,39 @@ class WebRemoteMixin:
         if tunnel is None:
             return
         threading.Thread(target=tunnel.stop, daemon=True, name="tunnel-stop").start()
+        self._emit_web_tunnel()
         if not quiet:
             self._tui_console.print(f"[{ui.FG_DIM}]🌍 anywhere link closed · local network only[/]")
+
+    def _web_tunnel_status(self) -> dict:
+        """What the web QR dialog shows: off · starting · live · error · missing."""
+        from ...web.tunnel import pick_provider
+
+        tunnel = getattr(self, "_web_tunnel", None)
+        link = getattr(self, "_web_public_link", "") or ""
+        status = "off" if tunnel is None or tunnel.status == "stopped" else tunnel.status
+        available = pick_provider(self._tunnel_preference()) is not None
+        if status == "off" and not available:
+            status = "missing"
+        return {
+            "ok": True,
+            "status": status,
+            "link": link if status == "live" else "",
+            "error": (tunnel.error if tunnel is not None and status == "error" else ""),
+            "provider": getattr(tunnel, "provider", "") if tunnel is not None else "",
+            "awake": bool(tunnel is not None and status == "live" and tunnel.awake),
+        }
+
+    def _handle_web_tunnel(self, data: dict) -> dict:
+        """``{op: status|start|stop}`` from the web: same tunnel as ``/web anywhere`` / ``/web local``."""
+        op = str((data or {}).get("op") or "status")
+        if op == "start":
+            if self._start_tunnel() == "missing":
+                return self._web_tunnel_status()
+        elif op == "stop":
+            if getattr(self, "_web_tunnel", None) is not None:
+                self._stop_tunnel()
+        return self._web_tunnel_status()
 
     def _install_cloudflared(self) -> None:
         """One-key install from the /web dialog (Homebrew)."""
@@ -577,6 +620,8 @@ class WebRemoteMixin:
             return self._handle_web_queue(data)
         if action == "tabs":  # new / switch / close a chat tab
             return self._handle_web_tabs(data)
+        if action == "tunnel":  # the web QR dialog's "Anywhere" switch
+            return self._handle_web_tunnel(data)
         if action == "session_resume":
             try:
                 other = tabs.find_session(int(data.get("session_id") or 0))

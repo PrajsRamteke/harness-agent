@@ -1,14 +1,14 @@
 /* Chat tabs (js/tabs.js) — in the top bar's one row, in place of the title
    (the active tab *is* the title): [tabs … +]  📁 folder  Ready  ⌘  ▣.
-   One pill per chat, the shown one lifted with an accent underline. Uses only
-   theme tokens, so light / dim / accents follow. */
+   One flat tab per chat; the shown one sits on a raised fill with a hairline.
+   Uses only theme tokens, so light / dim / accents follow. */
 .chat-tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex: 1 1 auto;
   min-width: 0;
-  margin-left: -10px; /* the first tab's text lines up where the title was */
+  margin-left: 2px;
 }
 .chat-tabs[hidden] { display: none; }
 .chat-tabs.is-pending { cursor: progress; }
@@ -29,7 +29,7 @@
 .ct-list {
   flex: 0 1 auto;
   display: flex;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -46,31 +46,18 @@
   flex: 0 1 auto;
   min-width: 64px; /* shrink like browser tabs, never to nothing; the list scrolls past that */
   max-width: 220px;
-  height: 30px;
+  height: var(--h-md);
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   color: var(--text-3);
-  transition: background 0.16s, color 0.16s, border-color 0.16s;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
-.ct-tab:hover { background: var(--card-hover); color: var(--text-2); }
+.ct-tab:hover { background: var(--card); color: var(--text-2); }
 .ct-tab.is-active {
   min-width: 116px; /* the chat on screen stays readable */
   background: var(--card-hover);
-  border-color: var(--line-2);
+  border-color: var(--line);
   color: var(--text);
-  box-shadow: inset 0 1px 0 var(--highlight);
-}
-/* The shown tab's accent underline. */
-.ct-tab.is-active::after {
-  content: "";
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-  opacity: 0.85;
 }
 
 .ct-main {
@@ -79,7 +66,7 @@
   gap: 7px;
   min-width: 0;
   height: 100%;
-  padding: 0 4px 0 11px;
+  padding: 0 4px 0 10px;
   border: 0;
   background: none;
   color: inherit;
@@ -87,7 +74,7 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  border-radius: 10px 0 0 10px;
+  border-radius: var(--r-ctl) 0 0 var(--r-ctl);
 }
 .ct-main:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ct-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -104,16 +91,14 @@
 .ct-mark.is-new::before,
 .ct-mark.is-wait::before {
   content: "";
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
-  animation: pop-in 0.4s var(--spring, var(--ease));
+  animation: pop-in var(--dur) var(--ease);
 }
 .ct-mark.is-wait::before {
   background: var(--warn);
-  box-shadow: 0 0 8px var(--warn);
   animation: breathe 1s ease-in-out infinite;
 }
 
@@ -121,19 +106,19 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  margin-right: 4px;
+  width: 20px;
+  height: 20px;
+  margin-right: 5px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 4px;
   background: none;
   color: var(--text-3);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.14s, background 0.14s, color 0.14s;
+  transition: opacity var(--dur-fast), background var(--dur-fast), color var(--dur-fast);
 }
-.ct-close svg { width: 14px; height: 14px; }
+.ct-close svg { width: 13px; height: 13px; }
 .ct-tab.is-active .ct-close,
 .ct-close:focus-visible { opacity: 1; }
 /* Other tabs keep no room for ×: it shows over the end of the title on hover. */
@@ -149,26 +134,25 @@
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent calc(100% - 16px));
           mask-image: linear-gradient(to right, #000 calc(100% - 30px), transparent calc(100% - 16px));
 }
-.ct-close:hover { background: var(--danger-soft); color: var(--danger); }
+.ct-close:hover { background: var(--card-hover); color: var(--text); }
 .ct-close:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 
 .ct-new {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: var(--h-md);
+  height: var(--h-md);
   padding: 0;
-  border: 1px dashed var(--line-2);
-  border-radius: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
   background: none;
-  color: var(--text-2);
+  color: var(--text-3);
   cursor: pointer;
-  transition: background 0.16s, color 0.16s, border-color 0.16s, transform 0.15s var(--ease);
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
-.ct-new svg { width: 16px; height: 16px; }
-.ct-new:hover { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
-.ct-new:active { transform: scale(0.94); }
+.ct-new svg { width: 15px; height: 15px; }
+.ct-new:hover { background: var(--card-hover); color: var(--text); }
 .ct-new:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Touch: no hover, so × is always there; rows a thumb can hit. */
@@ -179,8 +163,8 @@
   .chat-tabs { margin-left: 0; }
 }
 @media (max-width: 560px) {
-  .ct-tab { max-width: 168px; height: 34px; }
-  .ct-new { width: 34px; height: 34px; }
+  .ct-tab { max-width: 168px; height: var(--h-lg); }
+  .ct-new { width: var(--h-lg); height: var(--h-lg); }
   .ct-main { font-size: 13.5px; }
 }
 @media (prefers-reduced-motion: reduce) {

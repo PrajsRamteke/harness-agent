@@ -440,6 +440,10 @@ export const openProjectAt = (path, reuse = true) => hostJson('/api/projects/ope
 export const fetchLaunch = (id) => hostJson(`/api/projects/launch?id=${encodeURIComponent(id)}`);
 /** Stop a Jarvis that was opened from the web. */
 export const stopProjectById = (id) => hostJson('/api/projects/stop', 'POST', { id });
+/** The Anywhere link (public tunnel) of the server this page came through — whichever
+ * project is on screen, hence no `BASE`. */
+export const fetchTunnel = () => hostJson('/api/tunnel');
+export const setTunnel = (op) => hostJson('/api/tunnel', 'POST', { op });
 /** "Move this chat here": the project on screen changes folder. */
 export const moveChat = (path) => api('/api/cwd', 'POST', { path });
 

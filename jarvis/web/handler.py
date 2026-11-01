@@ -110,6 +110,26 @@ class WebHandler(BaseHTTPRequestHandler):
             return False
         return ip.is_loopback or ip.is_private or ip.is_link_local
 
+    def _tunnel_request(self, op: str) -> dict[str, Any]:
+        """The QR dialog's "Anywhere" switch (``/web anywhere`` / ``/web local``).
+
+        Only a direct visit (this computer, the LAN) may turn the public link
+        on or off; a page that came in through the tunnel just sees its state.
+        """
+        if getattr(self.bridge, "_on_action", None) is None:
+            return {"ok": True, "status": "unavailable", "link": "", "can_toggle": False,
+                    "error": "Start Jarvis in a terminal (jarvis --web) to use an Anywhere link."}
+        can = self._may_hand_out_token()
+        result = self.bridge.request_action("tunnel", {"op": op if can else "status"})
+        if not isinstance(result, dict):
+            result = {"ok": False, "status": "error", "error": "invalid response"}
+        result = dict(result)
+        if op != "status" and not can:
+            result.update(ok=False, code="remote",
+                          error="Turn the Anywhere link on or off from this computer or your own network.")
+        result["can_toggle"] = can
+        return result
+
     def _token_ok(self, token: str) -> bool:
         return hmac.compare_digest(token.encode("utf-8"), self.bridge.token.encode("utf-8"))
 
@@ -454,6 +474,9 @@ class WebHandler(BaseHTTPRequestHandler):
             from .extensions_api import mcp_auth_status
 
             self._send_json(200, mcp_auth_status(self._query_str(qs, "name")))
+            return
+        if path == "/api/tunnel":
+            self._send_json(200, self._tunnel_request("status"))
             return
         if path == "/api/qr":
             # QR for the link the page would copy. The page may pass the link
@@ -942,6 +965,14 @@ class WebHandler(BaseHTTPRequestHandler):
             else:
                 result = launcher.stop_project(str(data.get("id") or ""))
             self._send_json(200, result)
+            return
+
+        if path == "/api/tunnel":
+            op = str(data.get("op") or "status")
+            if op not in ("status", "start", "stop"):
+                self._send_json(400, {"ok": False, "error": "op must be start, stop or status"})
+                return
+            self._send_json(200, self._tunnel_request(op))
             return
 
         if path == "/api/cwd":

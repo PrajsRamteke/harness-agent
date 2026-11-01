@@ -8,7 +8,7 @@ import { initChat, invalidateSnapshot } from './chat.js';
 import { initComposer, fillPrompt, submitPrompt, insertQuote, enhanceMessage } from './composer.js';
 import { initMedia, openFilePicker } from './media.js';
 import { initStatus, setConnected } from './status.js';
-import { initSidebar } from './sidebar.js';
+import { initSidebar, toggleSidebar } from './sidebar.js';
 import { initUsageCard } from './usage.js';
 import { initClaudeUsageCard } from './claude_usage.js';
 import { initTitleRename } from './rename.js';
@@ -159,7 +159,7 @@ function boot() {
   initQueue({ onFill: keepDraftAndFill });
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
-  initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector });
+  initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector, toggleSidebar });
   renderStarters();
 
   loadInitialState();

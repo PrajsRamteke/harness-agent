@@ -31,6 +31,7 @@ import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
 import { handleProjectsEvent } from './projects.js';
 import { setTabs } from './tabs.js';
+import { handleTunnelEvent } from './qr.js';
 
 let runningTools = 0;
 
@@ -141,6 +142,11 @@ export function handleEvent(evt) {
     case 'local':
       // A local model server was added / removed, or the context changed.
       handleLocalEvent(data);
+      break;
+
+    case 'tunnel':
+      // The Anywhere link started, went live, failed or closed.
+      handleTunnelEvent(data);
       break;
 
     case 'stream_start':
