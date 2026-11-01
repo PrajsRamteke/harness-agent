@@ -19,9 +19,15 @@ import time
 from pathlib import Path
 from typing import Any
 
+# Bumped when the page needs something new from this module. A page newer
+# than its server (Python only reloads when Jarvis restarts) checks it before
+# relying on it — e.g. a PR From/Into, which older servers ignored.
+GIT_API_VERSION = 2
+
 GIT_TIMEOUT = 20.0
 NET_TIMEOUT = 180.0
-DIFF_MAX_CHARS = 24_000      # what the model sees of the diff
+DIFF_MAX_CHARS = 12_000      # what the model sees of the diff (less = a faster answer)
+GEN_CACHE_TTL = 600.0        # same changes, same question → the answer again, at once
 UNTRACKED_MAX_FILES = 300    # untracked files whose lines count towards +N
 UNTRACKED_MAX_BYTES = 2_000_000
 MESSAGE_TIMEOUT = 90.0
@@ -179,8 +185,13 @@ def _count_lines(path: Path) -> int:
 
 def status(cwd: str) -> dict[str, Any]:
     """Everything the card shows. ``repo: False`` outside a git repository."""
-    base: dict[str, Any] = {"ok": True, "repo": False, "cwd": cwd, "editors": editors(),
-                            "gh": bool(shutil.which("gh"))}
+    try:
+        from .fs_api import display
+        shown = display(cwd)
+    except Exception:
+        shown = cwd
+    base: dict[str, Any] = {"ok": True, "api": GIT_API_VERSION, "repo": False, "cwd": cwd, "display": shown,
+                            "editors": editors(), "gh": bool(shutil.which("gh"))}
     code, top, _ = _git(cwd, "rev-parse", "--show-toplevel")
     if code != 0:
         return base
@@ -243,16 +254,23 @@ def branches(cwd: str) -> dict[str, Any]:
         local.append(name)
         if head.strip() == "*":
             current = name
-    remote = []
+    remote, remote_short = [], []
     _, rout, _ = _git(cwd, "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/remotes")
     for name in rout.splitlines():
         name = name.strip()
         if not name or name.endswith("/HEAD") or "/" not in name:
             continue
         short = name.split("/", 1)[1]
+        if short not in remote_short:
+            remote_short.append(short)
         if short not in local and len(remote) < 50:
             remote.append(name)
-    return {"ok": True, "current": current, "local": local, "remote": remote}
+    # What a PR can merge into: the remote's branches (a PR's base must exist
+    # there), else the local ones; the repository's default branch first.
+    base = _default_base(cwd).split("/", 1)[-1] if _default_base(cwd) else ""
+    bases = list(dict.fromkeys(([base] if base else []) + (remote_short or local)))
+    return {"ok": True, "current": current, "local": local, "remote": remote,
+            "bases": bases[:80], "base": base or (bases[0] if bases else "")}
 
 
 # ─── Mutations ────────────────────────────────────────────────────────────
@@ -346,15 +364,79 @@ def commit(cwd: str, message: str, *, then_push: bool = False) -> dict[str, Any]
 _URL = re.compile(r"https?://\S+")
 
 
-def create_pr(cwd: str, title: str = "", body: str = "", *, draft: bool = False) -> dict[str, Any]:
+def slug_branch(text: str, prefix: str = "") -> str:
+    """"feat(web): Add the git card" → "feat/add-the-git-card" (a valid branch name)."""
+    text = (text or "").strip()
+    m = re.match(r"^(feat|fix|chore|docs|refactor|perf|test|build|ci|style)(?:\([^)]*\))?!?:\s*(.*)$", text, re.I)
+    if m:
+        prefix, text = m.group(1).lower(), m.group(2)
+    elif not prefix and re.match(r"^(fixes|fixed|fix)\b", text, re.I):
+        prefix, text = "fix", re.sub(r"^(fixes|fixed|fix)\s*", "", text, flags=re.I)
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    slug = "-".join(slug.split("-")[:7])[:48].strip("-")
+    if not slug:
+        return ""
+    return f"{prefix or 'feat'}/{slug}"
+
+
+def _pr_plan(st: dict[str, Any], head: str, base: str, local: list[str]) -> str:
+    """What creating this PR will do, in one line (the form shows it too)."""
+    files = int(st.get("files") or 0)
+    current = st.get("branch") or ""
+    if head == current:
+        return "commit_push" if files else "push"
+    if head in local:
+        return "push_other"
+    return "new_branch"
+
+
+def create_pr(cwd: str, title: str = "", body: str = "", *, base: str = "", head: str = "",
+              draft: bool = False) -> dict[str, Any]:
+    """Open a PR from ``head`` into ``base``.
+
+    ``head`` empty = the branch you're on. A ``head`` that doesn't exist yet is
+    created from your current work (``switch -c``, so uncommitted changes come
+    along). Uncommitted changes on the head are committed with the title as the
+    message, then the head is pushed and ``gh pr create --base --head`` runs.
+    """
     if not shutil.which("gh"):
         return {"ok": False, "error": "Creating a PR needs the GitHub CLI — brew install gh, then gh auth login"}
     with _lock:
         try:
             st = status(cwd)
-            if not st.get("upstream") or st.get("ahead") or st.get("upstream_gone"):
-                _push_locked(cwd)  # gh needs the branch on the remote
-            args = ["gh", "pr", "create"]
+            if not st.get("repo"):
+                raise GitError("Not a git repository")
+            remotes = st.get("remotes") or []
+            if not remotes:
+                raise GitError("This repository has no remote to open a PR on")
+            remote = "origin" if "origin" in remotes else remotes[0]
+            current = "" if st.get("detached") else (st.get("branch") or "")
+            head = (head or "").strip() or current
+            base = (base or "").strip() or _default_base(cwd).split("/", 1)[-1]
+            if not head:
+                raise GitError("Name the branch this PR comes from")
+            if not base:
+                raise GitError("Pick the branch to merge into")
+            if head == base:
+                raise GitError(f"A PR merges one branch into another — pick a branch other than “{base}” to open it from")
+            head = _valid_branch(cwd, head)
+            local = [n for n in _git(cwd, "for-each-ref", "--format=%(refname:short)", "refs/heads")[1].split() if n]
+            plan = _pr_plan(st, head, base, local)
+            committed = ""
+            if plan == "new_branch":
+                _ok(cwd, "switch", "-c", head)  # your changes come along
+                current = head
+            if head == current and int(st.get("files") or 0):
+                message = title.strip()
+                if not message:
+                    raise GitError("Add a title — it's also the commit message for your changes")
+                _ok(cwd, "add", "--all")
+                if _git(cwd, "diff", "--cached", "--quiet")[0] != 0:
+                    _ok(cwd, "commit", "-m", message)
+                    committed = _git(cwd, "rev-parse", "--short", "HEAD")[1].strip()
+            # gh needs the branch on the remote.
+            _ok(cwd, "push", "-u", remote, head if head != current else "HEAD", timeout=NET_TIMEOUT)
+            args = ["gh", "pr", "create", "--base", base, "--head", head]
             if title.strip():
                 args += ["--title", title.strip(), "--body", body.strip()]
             else:
@@ -363,13 +445,14 @@ def create_pr(cwd: str, title: str = "", body: str = "", *, draft: bool = False)
                 args.append("--draft")
             code, out, err = _run(args, cwd, timeout=NET_TIMEOUT)
             text = f"{out}\n{err}"
+            extra = {"head": head, "base": base, "created_branch": plan == "new_branch", "commit": committed}
             if code != 0:
                 m = _URL.search(text)
                 if m and "already exists" in text:
-                    return {"ok": True, "url": m.group(0), "existing": True}
+                    return {"ok": True, "url": m.group(0), "existing": True, **extra}
                 raise GitError(_first_error(err or out) or "gh pr create failed")
             m = _URL.search(text)
-            return {"ok": True, "url": m.group(0) if m else ""}
+            return {"ok": True, "url": m.group(0) if m else "", **extra}
         except GitError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -382,12 +465,17 @@ _COMMIT_SYSTEM = """You write git commit messages for a developer.
 - Describe only what the diff shows. No preamble, no quotes, no code fences, no sign-off lines."""
 
 _PR_SYSTEM = """You write GitHub pull request descriptions for a developer.
-- First line: the PR title, at most 72 characters, no "Title:" label.
-- Then a blank line and a Markdown body: "## Summary" with 2–6 bullets on what changed and why, then "## Testing" with how it was or can be checked.
+- Line 1: the PR title, at most 72 characters, no "Title:" label.
+- Line 2: "Branch: " and a branch name for this work, like feat/short-topic or fix/short-topic (lowercase, 2–5 words joined by hyphens).
+- Then a blank line and a short Markdown body: "## Summary" with 2–5 bullets on what changed and why, then "## Testing" with one or two lines.
 - Describe only what the diff and commits show. No preamble and no code fences around the whole answer."""
 
 
-def _diff_for_model(cwd: str, *, against: str = "HEAD") -> str:
+_BRANCH_SYSTEM = """You name git branches.
+Reply with one branch name only, like feat/short-topic or fix/short-topic: lowercase, a type prefix (feat, fix, chore, docs, refactor, perf, test), a slash, then 2–5 words joined by hyphens. No quotes, no explanation."""
+
+
+def _diff_for_model(cwd: str, *, against: str = "HEAD", limit: int = DIFF_MAX_CHARS) -> str:
     parts = []
     has_head = _git(cwd, "rev-parse", "--verify", "-q", "HEAD")[0] == 0
     stat = _git(cwd, "diff", "--stat", against)[1] if has_head else _git(cwd, "diff", "--stat", "--cached")[1]
@@ -400,15 +488,15 @@ def _diff_for_model(cwd: str, *, against: str = "HEAD") -> str:
     diff = _git(cwd, "diff", against)[1] if has_head else _git(cwd, "diff", "--cached")[1]
     if diff.strip():
         parts.append("Diff:\n" + diff)
-    for rel in untracked[:8]:  # a peek at new files' content
+    for rel in untracked[:5]:  # a peek at new files' content
         try:
-            head = Path(cwd, rel).read_text(errors="replace")[:1500]
+            head = Path(cwd, rel).read_text(errors="replace")[:800]
         except OSError:
             continue
         parts.append(f"New file {rel}:\n{head}")
     text = "\n\n".join(parts)
-    if len(text) > DIFF_MAX_CHARS:
-        text = text[:DIFF_MAX_CHARS] + "\n… (diff cut here)"
+    if len(text) > limit:
+        text = text[:limit] + "\n… (diff cut here)"
     return text
 
 
@@ -422,8 +510,32 @@ def _default_base(cwd: str) -> str:
     return ""
 
 
-def _ask_model(system: str, user: str) -> str:
-    """One side request to the current model (not part of the conversation)."""
+_gen_cache: dict[str, tuple[float, str]] = {}
+
+
+def _ask_model(system: str, user: str, *, max_tokens: int = 1024) -> str:
+    """One side request to the current model (not part of the conversation).
+
+    Answers are kept for ``GEN_CACHE_TTL`` keyed by model + prompt, so asking
+    again for unchanged changes is instant.
+    """
+    import hashlib
+
+    from .. import state
+
+    key = hashlib.sha1(f"{state.provider}|{state.MODEL}|{max_tokens}|{system}|{user}".encode("utf-8", "replace")).hexdigest()
+    hit = _gen_cache.get(key)
+    if hit and time.monotonic() - hit[0] < GEN_CACHE_TTL:
+        return hit[1]
+    text = _ask_model_uncached(system, user, max_tokens=max_tokens)
+    if text:
+        _gen_cache[key] = (time.monotonic(), text)
+        while len(_gen_cache) > 32:
+            _gen_cache.pop(next(iter(_gen_cache)))
+    return text
+
+
+def _ask_model_uncached(system: str, user: str, *, max_tokens: int) -> str:
     from .. import state
     from ..constants import AUTH_OAUTH, OAUTH_IDENTITY, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN
     from ..prompt_enhance import _blocks, _short_error
@@ -438,7 +550,7 @@ def _ask_model(system: str, user: str) -> str:
         "name": "write_text", "description": "Return the text you wrote. Call it once.",
         "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
     }
-    kwargs: dict[str, Any] = dict(model=state.MODEL, max_tokens=4096, system=sys_prompt,
+    kwargs: dict[str, Any] = dict(model=state.MODEL, max_tokens=max_tokens, system=sys_prompt,
                                   messages=[{"role": "user", "content": user}])
     if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
         kwargs["thinking"] = {"type": "disabled"}
@@ -479,28 +591,54 @@ def _clean_message(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def generate(cwd: str, kind: str = "commit") -> dict[str, Any]:
+def _branch_line(lines: list[str]) -> tuple[str, list[str]]:
+    """Pull a "Branch: feat/x" line out of the model's answer."""
+    for i, ln in enumerate(lines[:4]):
+        m = re.match(r"^\s*\**branch\**\s*:\s*`?([A-Za-z0-9._/-]+)`?\s*$", ln, re.I)
+        if m:
+            return m.group(1).lower().strip("/"), lines[:i] + lines[i + 1:]
+    return "", lines
+
+
+def generate(cwd: str, kind: str = "commit", *, title: str = "") -> dict[str, Any]:
     try:
         if kind == "pr":
             base = _default_base(cwd)
-            log = _git(cwd, "log", f"{base}..HEAD", "--format=- %s%n%b", "-30")[1] if base else ""
-            committed = _git(cwd, "diff", f"{base}...HEAD")[1] if base else ""
-            pending = _diff_for_model(cwd)
-            diff = (committed + "\n" + pending)[:DIFF_MAX_CHARS]
-            if not (log.strip() or diff.strip()):
+            log = _git(cwd, "log", f"{base}..HEAD", "--format=- %s", "-30")[1] if base else ""
+            committed = _git(cwd, "diff", f"{base}...HEAD")[1][:DIFF_MAX_CHARS // 2] if base else ""
+            pending = _diff_for_model(cwd, limit=DIFF_MAX_CHARS - len(committed))
+            diff = (committed + "\n" + pending).strip()
+            if not (log.strip() or diff):
                 raise GitError("No changes on this branch yet")
             user = (f"Branch commits (vs {base or 'the default branch'}):\n{log.strip() or '(none yet)'}\n\n"
-                    f"Changes:\n{diff}\n\nWrite the pull request title and description.")
-            text = _ask_model(_PR_SYSTEM, user)
-            title, _, body = text.partition("\n")
-            return {"ok": True, "title": title.strip(), "body": body.strip()}
+                    f"Changes:\n{diff}\n\nWrite the pull request title, branch name and description.")
+            lines = _ask_model(_PR_SYSTEM, user, max_tokens=900).splitlines()
+            branch, lines = _branch_line(lines)
+            title_line = lines[0].strip() if lines else ""
+            body = "\n".join(lines[1:]).strip()
+            if not branch or not re.fullmatch(r"[a-z0-9]+(?:/[a-z0-9][a-z0-9._-]*)+", branch):
+                branch = slug_branch(title_line)
+            return {"ok": True, "title": title_line, "body": body, "branch": branch[:60]}
+        if kind == "branch":
+            if title.strip():  # a title is there: name the branch after it, no model needed
+                return {"ok": True, "branch": slug_branch(title)}
+            diff = _diff_for_model(cwd, limit=4000)  # a name needs the gist, not the whole diff
+            if not diff.strip():
+                raise GitError("No changes to name a branch after")
+            log = _git(cwd, "log", "-5", "--format=%s")[1].strip()
+            text = _ask_model(_BRANCH_SYSTEM, f"Recent commits:\n{log or '(none)'}\n\nChanges:\n{diff}\n\nSuggest the branch name.",
+                              max_tokens=60)
+            name = text.strip().splitlines()[0].strip().strip("`'\"") if text.strip() else ""
+            if "/" in name and re.fullmatch(r"[a-z0-9]+/[a-z0-9][a-z0-9-]*", name):
+                return {"ok": True, "branch": name[:60]}
+            return {"ok": True, "branch": slug_branch(name)}
         diff = _diff_for_model(cwd)
         if not diff.strip():
             raise GitError("Nothing to commit")
         recent = _git(cwd, "log", "-8", "--format=%s")[1].strip()
         user = (f"Recent commit subjects in this repository:\n{recent or '(none yet)'}\n\n"
                 f"Changes to commit:\n{diff}\n\nWrite the commit message.")
-        return {"ok": True, "message": _ask_model(_COMMIT_SYSTEM, user)}
+        return {"ok": True, "message": _ask_model(_COMMIT_SYSTEM, user, max_tokens=400)}
     except GitError as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -528,8 +666,14 @@ def post(op: str, data: dict[str, Any], *, busy: bool = False) -> dict[str, Any]
     if op == "push":
         return push(cwd)
     if op == "pr":
+        head = str(data.get("head") or "").strip()
+        if busy and head and head != status(cwd).get("branch"):
+            return {"ok": False, "code": "busy",
+                    "error": "Jarvis is working in these files. Wait for it to finish before moving them to another branch."}
         return create_pr(cwd, str(data.get("title") or ""), str(data.get("body") or ""),
+                         base=str(data.get("base") or ""), head=str(data.get("head") or ""),
                          draft=bool(data.get("draft")))
     if op == "generate":
-        return generate(cwd, "pr" if data.get("kind") == "pr" else "commit")
+        kind = str(data.get("kind") or "commit")
+        return generate(cwd, kind if kind in ("pr", "branch") else "commit", title=str(data.get("title") or ""))
     return {"ok": False, "error": f"unknown git op: {op}"}

@@ -2,13 +2,17 @@
  * create a branch, Commit & push (with Commit · Push · Create PR · Stash in its
  * menu), a model-written message, and the +/− of the working tree.
  * Server side: jarvis/web/git_api.py via GET/POST /api/git (the project shown). */
-import { $, escapeHtml, showToast, storageGet, storageSet } from './utils.js';
+import { $, escapeHtml, showToast, storageGet, storageSet, BASE } from './utils.js';
 import { icon } from './icons.js';
 import { api } from './api.js';
 import { store, subscribe } from './store.js';
 import { isInspectorOpen, onInspectorChange, selectTab } from './inspector.js';
 
 const EDITOR_KEY = 'jarvis-git-editor';
+/** The git_api.py this page was written for (GIT_API_VERSION). */
+const NEEDS_API = 2;
+const RESTART_NOTE = 'Restart Jarvis to finish updating — it still runs older git code that can only open a PR from the branch you are on';
+const serverCurrent = () => num(st?.api) >= NEEDS_API;
 const EDITOR_ICON = { finder: 'folder', terminal: 'terminal' };
 const POLL_MS = 15000;
 
@@ -20,6 +24,8 @@ let branchList = null;    // { current, local, remote }
 let lastPr = '';          // URL of the PR just created
 let pollTimer = null;
 let wasBusy = false;
+let seq = 0;              // newest /api/git request; older answers are dropped
+let shownFor = null;      // the project (BASE + folder) the card shows
 
 const card = () => $('git-card');
 const num = (n) => Number(n) || 0;
@@ -27,13 +33,40 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // ─── Data ─────────────────────────────────────────────────────────────────
 
+/** Which project the page is on right now (switching projects changes both). */
+const projectKey = () => `${BASE}|${store.session?.cwd || ''}`;
+
 export async function refreshGit() {
+  const mine = ++seq;
+  const forKey = projectKey();
+  let res;
   try {
-    st = await api('/api/git');
+    res = await api('/api/git');
   } catch {
     return; // keep what we had (a reconnect fixes it)
   }
+  if (mine !== seq) return; // a newer request is on its way
+  // The page moved to another project meanwhile: this answer is for another folder.
+  if (forKey !== projectKey()) {
+    refreshGit();
+    return;
+  }
+  st = res;
+  shownFor = forKey;
   render();
+}
+
+/** The page moved to another project / folder: show it at once, then load its git. */
+function projectChanged() {
+  menu = null;
+  form = null;
+  branchList = null;
+  lastPr = '';
+  st = { loading: true, repo: false, display: store.session?.cwd_display || store.session?.cwd || '', editors: [] };
+  shownFor = projectKey();
+  card()?.querySelectorAll('.gc-menu, .gc-form, .gc-result').forEach((n) => n.remove());
+  render();
+  refreshGit();
 }
 
 async function post(op, data = {}) {
@@ -51,6 +84,8 @@ async function post(op, data = {}) {
 /** `git` event: a commit / push / switch happened (this page, another one). */
 export function handleGitEvent(data) {
   if (data && typeof data === 'object' && 'repo' in data) {
+    if (data.cwd && st?.cwd && data.cwd !== st.cwd) return; // another project's news
+    seq += 1; // newer than any request still on its way
     st = data;
     render();
   }
@@ -96,7 +131,12 @@ function render() {
   el.classList.toggle('is-working', !!working);
   const rows = el.querySelector('.gc-rows') || el.appendChild(Object.assign(document.createElement('div'), { className: 'gc-rows' }));
   const ed = editorChoice();
-  const parts = [];
+  const parts = [pathHeader()];
+  if (st.loading) {
+    parts.push(`<p class="gc-note"><span class="spinner"></span><span>Reading git…</span></p>`);
+    rows.innerHTML = parts.join('');
+    return;
+  }
   if (ed) {
     parts.push(`
       <div class="gc-split">
@@ -141,6 +181,18 @@ function render() {
   paintForm();
 }
 
+/** Which project this card is for: the folder's name (full path on hover). */
+function pathHeader() {
+  const full = String(st.cwd || st.display || '').replace(/\/+$/, '');
+  const name = full.split('/').pop() || full;
+  if (!name) return '';
+  return `
+    <div class="gc-path" title="${escapeHtml(st.display || full)}">
+      <span class="gc-path-ic">${icon('folder')}</span>
+      <span class="gc-path-name">${escapeHtml(name)}</span>
+    </div>`;
+}
+
 /** The inline form under the rows; rebuilt only when it changes (typing survives). */
 function paintForm() {
   const el = card();
@@ -170,7 +222,24 @@ function paintForm() {
       </div>`;
   } else if (want === 'pr') {
     box.innerHTML = `
-      <label class="gc-label" for="gc-pr-title">Pull request</label>
+      <label class="gc-label">Pull request</label>
+      <div class="gc-pr-route">
+        <div class="gc-field" title="The branch with your work">
+          <span class="gc-field-k">From</span>
+          <input id="gc-pr-head" class="gc-input gc-mono" type="text" placeholder="new branch, e.g. feat/…" autocomplete="off" spellcheck="false"
+            role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="gc-pop-head" aria-label="Branch to open the PR from">
+          <button type="button" class="gc-suggest" data-act="gen-branch" title="Suggest a branch name from your changes" aria-label="Suggest a branch name">${icon('wand-sparkles')}</button>
+          <div class="gc-pop" id="gc-pop-head" role="listbox" aria-label="Branches" hidden></div>
+        </div>
+        <div class="gc-field" title="Where the changes should land">
+          <span class="gc-field-k">Into</span>
+          <button type="button" id="gc-pr-base" class="gc-input gc-mono gc-select" data-value="" aria-haspopup="listbox" aria-expanded="false" aria-controls="gc-pop-base" aria-label="Branch to merge into">
+            <span class="gc-select-v">Loading…</span>${icon('chevron-down')}
+          </button>
+          <div class="gc-pop" id="gc-pop-base" role="listbox" aria-label="Branches to merge into" hidden></div>
+        </div>
+      </div>
+      <p class="gc-plan" id="gc-pr-plan"></p>
       <input id="gc-pr-title" class="gc-input" type="text" placeholder="Title (empty = from the commits)" autocomplete="off">
       <textarea id="gc-pr-body" class="gc-input gc-textarea" rows="5" placeholder="Description (Markdown)"></textarea>
       <div class="gc-actions">
@@ -192,13 +261,257 @@ function paintForm() {
       </div>`;
   }
   el.appendChild(box);
-  box.querySelector('.gc-input')?.focus({ preventScroll: true });
+  if (want === 'pr') initPrRoute(box);
+  else box.querySelector('.gc-input')?.focus({ preventScroll: true });
   syncFormButtons(box);
   paintResult();
 }
 
+// ─── PR route: From (head) → Into (base) ─────────────────────────────────
+
+/** "feat(web): Add the git card" → "feat/add-the-git-card" (git_api.slug_branch's twin). */
+function slugBranch(text) {
+  let t = String(text || '').trim();
+  let prefix = '';
+  const m = t.match(/^(feat|fix|chore|docs|refactor|perf|test|build|ci|style)(?:\([^)]*\))?!?:\s*(.*)$/i);
+  if (m) {
+    prefix = m[1].toLowerCase();
+    t = m[2];
+  } else if (/^(fixes|fixed|fix)\b/i.test(t)) {
+    prefix = 'fix';
+    t = t.replace(/^(fixes|fixed|fix)\s*/i, '');
+  }
+  const slug = t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    .split('-').slice(0, 7).join('-').slice(0, 48).replace(/-+$/, '');
+  return slug ? `${prefix || 'feat'}/${slug}` : '';
+}
+
+/** Put a branch name in From (unless you already chose a real one there). */
+function fillHead(name) {
+  const head = $('gc-pr-head');
+  if (!head || !name) return;
+  const cur = head.value.trim();
+  if (!cur || cur === $('gc-pr-base')?.dataset.value) head.value = name;
+}
+
+// A small custom dropdown (no native <select> / <datalist>): a list of
+// branches under its field, ↑ ↓ to move, Enter to pick, Esc to close.
+
+function popOpen(pop) {
+  return pop && !pop.hidden;
+}
+
+function closePop(pop) {
+  if (!pop || pop.hidden) return;
+  pop.hidden = true;
+  pop.parentElement.querySelector('[aria-expanded]')?.setAttribute('aria-expanded', 'false');
+}
+
+function showPop(pop, items, { current = '', onPick, filter = false, empty = 'No branches match', preselect = true } = {}) {
+  pop._items = items;
+  pop._onPick = onPick;
+  // A typed field (From) starts with nothing highlighted: Enter keeps what you typed.
+  pop._i = preselect ? Math.max(0, items.indexOf(current)) : items.indexOf(current);
+  const list = items.length
+    ? items.map((it, i) => `
+      <button type="button" class="gc-opt${it === current ? ' is-current' : ''}" role="option" data-i="${i}" aria-selected="${it === current}" tabindex="-1">
+        ${icon('git-branch')}<span>${escapeHtml(it)}</span>${it === current ? icon('check', 'gc-check') : ''}
+      </button>`).join('')
+    : `<p class="gc-empty">${escapeHtml(empty)}</p>`;
+  const search = filter ? pop.querySelector('.gc-pop-search') : null;
+  if (filter && !search) {
+    pop.innerHTML = `<label class="gc-pop-search">${icon('search')}<input type="text" placeholder="Filter branches" autocomplete="off" spellcheck="false" aria-label="Filter branches"></label><div class="gc-pop-list"></div>`;
+  } else if (!filter) {
+    pop.innerHTML = '<div class="gc-pop-list"></div>';
+  }
+  pop.querySelector('.gc-pop-list').innerHTML = list;
+  pop.hidden = false;
+  pop.parentElement.querySelector('[aria-expanded]')?.setAttribute('aria-expanded', 'true');
+  markPop(pop);
+}
+
+function markPop(pop) {
+  pop.querySelectorAll('.gc-opt').forEach((b) => b.classList.toggle('is-hi', Number(b.dataset.i) === pop._i));
+  pop.querySelector('.gc-opt.is-hi')?.scrollIntoView({ block: 'nearest' });
+}
+
+/** Arrow keys / Enter / Esc for an open dropdown. True when the key was used. */
+function popKey(pop, e) {
+  if (!popOpen(pop)) return false;
+  const n = pop._items?.length || 0;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (n) pop._i = pop._i < 0 ? (e.key === 'ArrowDown' ? 0 : n - 1) : (pop._i + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+    markPop(pop);
+    return true;
+  }
+  if (e.key === 'Enter' && n && pop._i >= 0) {
+    e.preventDefault();
+    pop._onPick?.(pop._items[pop._i]);
+    return true;
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation(); // closes the list, not the form
+    closePop(pop);
+    return true;
+  }
+  return false;
+}
+
+function wirePop(pop) {
+  // pointerdown: pick before the field loses focus.
+  pop.addEventListener('pointerdown', (e) => {
+    const opt = e.target.closest('.gc-opt');
+    if (!opt) return;
+    e.preventDefault();
+    pop._onPick?.(pop._items[Number(opt.dataset.i)]);
+  });
+}
+
+function setBase(box, value) {
+  const btn = box.querySelector('#gc-pr-base');
+  btn.dataset.value = value || '';
+  btn.querySelector('.gc-select-v').textContent = value || 'Pick a branch';
+  paintPrPlan(box);
+}
+
+async function initPrRoute(box) {
+  const head = box.querySelector('#gc-pr-head');
+  const base = box.querySelector('#gc-pr-base');
+  const headPop = box.querySelector('#gc-pop-head');
+  const basePop = box.querySelector('#gc-pop-base');
+  wirePop(headPop);
+  wirePop(basePop);
+
+  const headItems = () => {
+    const q = head.value.trim().toLowerCase();
+    return (branchList?.local || []).filter((b) => b !== base.dataset.value && (!q || b.toLowerCase().includes(q))).slice(0, 30);
+  };
+  const showHeads = () => {
+    if (!branchList) return;
+    const items = headItems();
+    if (!items.length) {
+      closePop(headPop); // a new name: nothing to suggest, the plan line says what happens
+      return;
+    }
+    showPop(headPop, items, {
+      current: head.value.trim(),
+      preselect: false,
+      onPick: (v) => {
+        head.value = v;
+        closePop(headPop);
+        paintPrPlan(box);
+      },
+    });
+  };
+  head.addEventListener('focus', showHeads);
+  head.addEventListener('input', () => {
+    paintPrPlan(box);
+    showHeads();
+  });
+  head.addEventListener('keydown', (e) => {
+    if (popKey(headPop, e)) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      showHeads();
+    }
+  });
+  head.addEventListener('blur', () => setTimeout(() => closePop(headPop), 120));
+
+  const bases = () => (branchList?.bases?.length ? branchList.bases : branchList?.local || []);
+  const showBases = (q = '') => {
+    const all = bases();
+    const items = all.filter((b) => !q || b.toLowerCase().includes(q.toLowerCase()));
+    showPop(basePop, items, {
+      current: base.dataset.value,
+      filter: all.length > 8,
+      onPick: (v) => {
+        setBase(box, v);
+        closePop(basePop);
+        base.focus({ preventScroll: true });
+      },
+    });
+  };
+  base.addEventListener('click', () => {
+    if (popOpen(basePop)) closePop(basePop);
+    else {
+      closePop(headPop);
+      showBases();
+      basePop.querySelector('.gc-pop-search input')?.focus({ preventScroll: true });
+    }
+  });
+  base.addEventListener('keydown', (e) => {
+    if (popKey(basePop, e)) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      showBases();
+    }
+  });
+  basePop.addEventListener('input', (e) => {
+    if (e.target.matches('.gc-pop-search input')) showBases(e.target.value);
+  });
+  basePop.addEventListener('keydown', (e) => {
+    if (e.target.matches('.gc-pop-search input')) popKey(basePop, e);
+  });
+  // Clicks elsewhere close both lists.
+  box.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('#gc-pop-head, #gc-pr-head')) closePop(headPop);
+    if (!e.target.closest('#gc-pop-base, #gc-pr-base')) closePop(basePop);
+  });
+
+  const res = await post('branches');
+  render();
+  branchList = res.ok ? res : { current: st.branch, local: [], remote: [], bases: [], base: '' };
+  const first = bases();
+  setBase(box, branchList.base || first[0] || '');
+  // From: the branch you're on, unless that's the one you'd merge into.
+  if (!head.value) head.value = st.branch && st.branch !== base.dataset.value && !st.detached ? st.branch : '';
+  paintPrPlan(box);
+  if (head.value) box.querySelector('#gc-pr-title').focus({ preventScroll: true });
+  else head.focus({ preventScroll: true });
+}
+
+/** One line saying what Create PR will do with these two branches. */
+function paintPrPlan(box) {
+  const plan = box.querySelector('#gc-pr-plan');
+  const submit = box.querySelector('[data-act="do-pr"]');
+  if (!plan) return;
+  const head = box.querySelector('#gc-pr-head').value.trim();
+  const base = box.querySelector('#gc-pr-base').dataset.value || '';
+  const files = num(st.files);
+  const changes = plural(files, 'changed file');
+  let text = '';
+  let warn = false;
+  if (!serverCurrent() && head && head !== st.branch) {
+    text = RESTART_NOTE;
+    warn = true;
+  } else if (!head) {
+    text = `Name a branch for your work — or ✦ suggest one`;
+    warn = true;
+  } else if (head === base) {
+    text = `A PR merges one branch into another — pick a branch other than ${base}`;
+    warn = true;
+  } else if (!branchList?.local?.includes(head)) {
+    text = `Creates ${head} from your current work${files ? `, commits ${changes} with the title` : ''}, pushes it, opens the PR`;
+  } else if (head === st.branch) {
+    text = `${files ? `Commits ${changes} with the title, ` : ''}pushes ${head}, opens the PR`;
+  } else {
+    text = `Pushes ${head} as it is${files ? ` — your ${changes} stay here on ${st.branch}` : ''}`;
+  }
+  plan.textContent = text;
+  plan.classList.toggle('is-warn', warn);
+  // With changes to commit, the title is also the commit message: it's needed.
+  const commits = files > 0 && head && head !== base && (head === st.branch || !branchList?.local?.includes(head));
+  const title = box.querySelector('#gc-pr-title');
+  if (title) title.placeholder = commits ? 'Title (also the commit message)' : 'Title (empty = from the commits)';
+  if (submit) submit.dataset.blocked = warn ? '1' : '';
+}
+
 function syncFormButtons(box) {
   box.querySelectorAll('button').forEach((b) => { b.disabled = !!working; });
+  const suggest = box.querySelector('.gc-suggest');
+  if (suggest) suggest.innerHTML = working === 'generate' ? '<span class="spinner"></span>' : icon('wand-sparkles');
   const gen = box.querySelector('.gc-gen');
   if (gen) gen.innerHTML = working === 'generate'
     ? '<span class="spinner"></span><span>Writing…</span>'
@@ -396,7 +709,28 @@ async function act(name, btn) {
       if (res.ok) {
         if ($('gc-pr-title')) $('gc-pr-title').value = res.title || '';
         if ($('gc-pr-body')) $('gc-pr-body').value = res.body || '';
+        // From empty (you're on the base branch): the suggested branch, or one named after the title.
+        fillHead(res.branch || slugBranch(res.title));
+        const box = card().querySelector('.gc-form');
+        if (box) paintPrPlan(box);
       } else showToast(res.error || 'Could not write a description', true);
+      break;
+    }
+    case 'gen-branch': {
+      // A title is written: name the branch after it right here (instant, no model).
+      const title = $('gc-pr-title')?.value.trim() || '';
+      const local = slugBranch(title);
+      const res = local ? { ok: true, branch: local } : await post('generate', { kind: 'branch' });
+      if (!local) render();
+      if (res.ok && res.branch) {
+        const head = $('gc-pr-head');
+        if (head) {
+          head.value = res.branch;
+          head.focus();
+        }
+        const box = card().querySelector('.gc-form');
+        if (box) paintPrPlan(box);
+      } else showToast(res.error || 'Could not suggest a name', true);
       break;
     }
     case 'do-commit': {
@@ -412,12 +746,26 @@ async function act(name, btn) {
       break;
     }
     case 'do-pr': {
-      const res = await post('pr', { title: $('gc-pr-title')?.value || '', body: $('gc-pr-body')?.value || '' });
+      const head = $('gc-pr-head')?.value.trim() || '';
+      const base = $('gc-pr-base')?.dataset.value || '';
+      if (!head || head === base) {
+        showToast(!head ? 'Name the branch this PR comes from' : `Pick a branch other than ${base} to open the PR from`, true);
+        $('gc-pr-head')?.focus();
+        break;
+      }
+      if (!serverCurrent() && head !== st.branch) {
+        // An older server would ignore From / Into and run gh from this branch.
+        showToast(RESTART_NOTE, true);
+        break;
+      }
+      const res = await post('pr', { title: $('gc-pr-title')?.value || '', body: $('gc-pr-body')?.value || '', head, base });
       if (res.ok) {
         setForm(null);
         lastPr = res.url || '';
       }
-      await after(res, res.ok ? (res.existing ? 'That branch already has a PR' : 'Pull request created') : '');
+      const done = res.existing ? 'That branch already has a PR'
+        : res.created_branch ? `Created ${res.head}, pushed it and opened the PR` : 'Pull request created';
+      await after(res, res.ok ? done : '');
       break;
     }
     case 'do-stash': {
@@ -478,6 +826,11 @@ export function initGit() {
   onInspectorChange(({ open }) => { if (open) refreshGit(); });
   // A turn just ended: Jarvis may have changed files or committed.
   subscribe((s) => {
+    if (shownFor !== null && projectKey() !== shownFor) {
+      projectChanged();
+      wasBusy = !!s.busy;
+      return;
+    }
     if (wasBusy && !s.busy) refreshGit();
     else if (s.busy !== wasBusy) render();
     wasBusy = !!s.busy;
