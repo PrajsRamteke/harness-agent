@@ -451,6 +451,9 @@ export const stopProjectById = (id) => hostJson('/api/projects/stop', 'POST', { 
  * project is on screen, hence no `BASE`. */
 export const fetchTunnel = () => hostJson('/api/tunnel');
 export const setTunnel = (op) => hostJson('/api/tunnel', 'POST', { op });
+/** The QR dialog's "Terminal on the link" switch: shells for a tunnel visitor. */
+export const fetchTerminalTunnel = () => hostJson('/api/terminal/tunnel');
+export const setTerminalTunnel = (on) => hostJson('/api/terminal/tunnel', 'POST', { on });
 /** "Move this chat here": the project on screen changes folder. */
 export const moveChat = (path) => api('/api/cwd', 'POST', { path });
 

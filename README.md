@@ -172,7 +172,7 @@ jarvis --web             # start with the web remote (default port 8765)
 jarvis --web --tunnel    # also open a public HTTPS link
 ```
 
-Or from inside a session: `/web` shows a QR code and link, `/web open` opens it in this computer's browser, and `/web anywhere` opens a tunnel (Cloudflare quick tunnel or ngrok) so it works from any network. The browser and terminal stay in sync. You can approve commands, review file changes, attach photos and documents, switch models and manage providers from your phone.
+Or from inside a session: `/web` shows a QR code and link, `/web open` opens it in this computer's browser, and `/web anywhere` opens a tunnel (Cloudflare quick tunnel or ngrok) so it works from any network. The browser and terminal stay in sync. You can approve commands, review file changes, attach photos and documents, switch models and manage providers from your phone. A tunnel visitor gets no shell on your computer — the terminal stays local — until you flip **Terminal on the link** in the QR dialog (or press `t` in `/web`). That switch only works from this computer or your own network, and starts off again when the Anywhere link closes.
 
 ### macOS control
 

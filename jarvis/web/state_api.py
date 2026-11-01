@@ -402,6 +402,9 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "global_skills": bool(getattr(state, "global_skills", False)),
         "global_mcp": bool(getattr(state, "global_mcp", False)),
         "busy": busy,
+        # When the shown tab's turn started (epoch s; stable while it runs, so
+        # polling stays quiet) — each chat tab has its own timer.
+        "busy_since": (tabs.current().busy_since or None) if busy else None,
         "tabs": tabs.public(),
         "queue": prompt_queue.labels(),
         "queue_items": prompt_queue.public(),
@@ -487,12 +490,16 @@ def _think_fields() -> dict[str, Any]:
 
 
 def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
-    from .. import file_changes, media
+    import time
+
+    from .. import file_changes, media, tabs
 
     snap = state_fields(busy=busy)
     snap["messages"] = snapshot_messages()
     snap["changes"] = file_changes.summaries()
     snap["upload_limits"] = {"max_mb": media.MAX_FILE_MB, "max_files": media.MAX_FILES}
+    snap["now"] = time.time()  # the page's clock may differ: timers use busy_since against this
+    snap["activity"] = tabs.current().activity_label if busy else ""
     # Why the last request failed, while nothing happened since — a page that
     # reconnects (a phone waking up) still shows the error card.
     from ..repl.api_errors import current_error

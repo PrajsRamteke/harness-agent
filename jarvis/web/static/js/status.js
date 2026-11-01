@@ -33,14 +33,50 @@ function flashOutcome(since) {
   flashTimer = setTimeout(() => patchStore({ doneFlash: null }), 4200);
 }
 
-export function setBusy(next) {
+/** When the turn on screen started, on this device's clock (ms): the server's
+ * `busy_since` (epoch s) of the shown tab, else now. */
+function sinceMs(busySince, now) {
+  if (Number.isFinite(now) && now > 0) store.skew = now - Date.now() / 1000;
+  if (!busySince) return Date.now();
+  return Math.min(Date.now(), (busySince - (store.skew || 0)) * 1000);
+}
+
+/** The shown chat is working or not.
+ *
+ * `busySince` / `now` come from the server, so every chat tab has its own
+ * timer. `switched`: another tab (or chat) is now on screen — its state is
+ * shown as is, without the "Done in …" flash or the reply-ready alert that
+ * belong to a turn finishing. */
+export function setBusy(next, { busySince = 0, now = 0, switched = false, label = '' } = {}) {
   const busy = !!next;
-  if (busy === store.busy) return;
+  if (busy === store.busy) {
+    // Same state, maybe another tab's turn: keep its own start time.
+    if (busy && busySince) {
+      const at = sinceMs(busySince, now);
+      if (Math.abs(at - store.busySince) > 1500) {
+        patchStore({ busySince: at, ...(switched ? { statusLabel: label || 'Working', stopRequested: false } : {}) });
+      }
+    }
+    return;
+  }
   const since = store.busySince;
   const stopped = store.stopRequested;
+  if (switched) {
+    clearTimeout(flashTimer);
+    patchStore({
+      busy,
+      busySince: busy ? sinceMs(busySince, now) : 0,
+      statusLabel: busy ? (label || 'Working') : '',
+      doneFlash: null,
+      stopRequested: false,
+    });
+    if (busy) noteBusy(true);
+    syncTyping();
+    return;
+  }
   patchStore({
     busy,
-    busySince: busy ? Date.now() : 0,
+    busySince: busy ? sinceMs(busySince, now) : 0,
     statusLabel: busy ? 'Thinking' : '',
     ...(busy ? { doneFlash: null, stopRequested: false } : {}),
   });

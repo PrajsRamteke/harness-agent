@@ -53,6 +53,10 @@ class WebBridge:
         self.token = secrets.token_urlsafe(18)
         # Host of the public tunnel link, while one runs ("Anywhere" mode).
         self.public_host = ""
+        # The QR dialog's "Terminal on the link" switch: a tunnel visitor gets a
+        # shell only while this is on. Direct visits (this computer, the LAN)
+        # always do. Reset when the tunnel closes (TUI mixin _stop_tunnel).
+        self.terminal_over_tunnel = False
         # (text, upload ids) — ids are already checked by the handler.
         self._on_submit: Callable[[str, list[str]], None] | None = None
         self._on_cancel: Callable[[], None] | None = None

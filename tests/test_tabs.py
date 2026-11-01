@@ -429,6 +429,21 @@ def test_switching_tabs_shows_each_tabs_own_model(tui):
     asyncio.run(run())
 
 
+def test_web_busy_timer_is_the_shown_tabs_own():
+    from jarvis.web.state_api import snapshot_from_state, state_fields
+
+    first = tabs.active()
+    first.busy, first.busy_since, first.activity_label = True, 1000.0, "Thinking"
+    second = tabs.create()
+    second.busy, second.busy_since, second.activity_label = True, 2000.0, "Running tests"
+    assert state_fields(busy=True)["busy_since"] == 2000.0
+    snap = snapshot_from_state(busy=True)
+    assert snap["busy_since"] == 2000.0 and snap["activity"] == "Running tests" and snap["now"] > 0
+    tabs.activate(first)
+    assert state_fields(busy=True)["busy_since"] == 1000.0
+    assert state_fields(busy=False)["busy_since"] is None
+
+
 def test_web_tabs_endpoint_and_state_fields(tui):
     from jarvis.web.state_api import state_fields
 

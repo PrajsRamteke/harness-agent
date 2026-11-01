@@ -438,12 +438,40 @@ class WebHandler(BaseHTTPRequestHandler):
 
     # ─── Terminal (terminal_api.py): a real shell on a PTY ───────────────
     def _terminal_allowed(self) -> bool:
-        """A shell is outside the approval flow: direct visits only.
+        """A shell is outside the approval flow: direct visits only, unless the
+        QR dialog's "Terminal on the link" switch was turned on.
 
         The token is private, but an Anywhere link is made to be handed to a
-        phone, so a page that came through the tunnel never gets one.
+        phone, so a page that came through the tunnel gets no shell until a
+        direct visit flips ``bridge.terminal_over_tunnel``.
         """
-        return self._may_hand_out_token()
+        if self._may_hand_out_token():
+            return True
+        return bool(getattr(self.bridge, "terminal_over_tunnel", False))
+
+    def _terminal_tunnel_state(self) -> dict[str, Any]:
+        """The "Terminal on the link" switch, as the QR dialog reads it."""
+        return {
+            "ok": True,
+            "allowed": self._terminal_allowed(),
+            "on": bool(getattr(self.bridge, "terminal_over_tunnel", False)),
+            "can_toggle": self._may_hand_out_token(),
+        }
+
+    def _terminal_tunnel_request(self, on: bool) -> dict[str, Any]:
+        """Flip the switch — direct visits only, so a tunnel page can never
+        hand itself a shell."""
+        if not self._may_hand_out_token():
+            state = self._terminal_tunnel_state()
+            state.update(ok=False, code="remote",
+                         error="Turn this on from this computer or your own network.")
+            return state
+        self.bridge.terminal_over_tunnel = bool(on)
+        setter = getattr(self.app, "_set_terminal_over_tunnel", None)
+        if callable(setter):
+            # The app prints the warning to the terminal and tells other pages.
+            setter(bool(on))
+        return self._terminal_tunnel_state()
 
     _TERMINAL_DENIED = {
         "ok": False,
@@ -457,11 +485,16 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/terminal/list":
             self._send_json(200, {
                 "ok": True,
-                "allowed": self._may_hand_out_token(),
+                "allowed": self._terminal_allowed(),
+                "on": bool(getattr(self.bridge, "terminal_over_tunnel", False)),
+                "can_toggle": self._may_hand_out_token(),
                 "terminals": terminal_api.list_terminals(),
                 "cwd": os.getcwd(),
                 "shell": os.environ.get("SHELL") or "",
             })
+            return True
+        if path == "/api/terminal/tunnel":
+            self._send_json(200, self._terminal_tunnel_state())
             return True
         if path == "/api/terminal/read":
             if not self._terminal_allowed():
@@ -486,6 +519,13 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if not path.startswith("/api/terminal/"):
             return False
+        if path == "/api/terminal/tunnel":
+            on = data.get("on")
+            if not isinstance(on, bool):
+                self._send_json(400, {"ok": False, "error": "on must be true or false"})
+                return True
+            self._send_json(200, self._terminal_tunnel_request(on))
+            return True
         if not self._terminal_allowed():
             self._send_json(403, self._TERMINAL_DENIED)
             return True

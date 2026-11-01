@@ -736,18 +736,37 @@ function onProjectSwitched() {
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────
+/** Ask the server whether this page may open shells (a tunnel page may not). */
+async function refreshAllowed() {
+  try {
+    const res = await api('/api/terminal/list');
+    state.allowed = res.allowed !== false;
+    syncAllowed();
+    // Shells already running (a reload): show the live dot so they aren't forgotten.
+    state.remoteLive = state.allowed && (res.terminals || []).some((t) => !t.exited);
+    syncDot();
+    return res;
+  } catch {
+    return null;
+  }
+}
+
+/** The QR dialog's "Terminal on the link" switch moved: show or hide the button at once. */
+async function onAccessChanged() {
+  const was = state.allowed;
+  await refreshAllowed();
+  if (was && !state.allowed) {
+    hide();
+    showToast('The terminal is no longer available on the public link.', true);
+  }
+}
+
 export function initTerminal() {
   build();
-  // A tunnel visitor never gets a shell: hide the button rather than offer one that refuses.
-  api('/api/terminal/list')
-    .then((res) => {
-      state.allowed = res.allowed !== false;
-      syncAllowed();
-      // Shells already running (a reload): show the live dot so they aren't forgotten.
-      state.remoteLive = state.allowed && (res.terminals || []).some((t) => !t.exited);
-      syncDot();
-    })
-    .catch(() => {});
+  // A tunnel visitor gets no shell unless the QR dialog's "Terminal on the link"
+  // switch is on — the server answers `allowed` for this page.
+  refreshAllowed();
+  document.addEventListener('jarvis:terminal-access', onAccessChanged);
   // Copy / paste buttons only where there's no keyboard shortcut or right-click.
   const syncCoarse = () => el.panel.classList.toggle('is-touch', !!COARSE?.matches);
   syncCoarse();

@@ -31,7 +31,7 @@ import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
 import { handleProjectsEvent } from './projects.js';
 import { setTabs } from './tabs.js';
-import { handleTunnelEvent } from './qr.js';
+import { handleTunnelEvent, handleTerminalTunnelEvent } from './qr.js';
 import { handleGitEvent } from './git.js';
 
 let runningTools = 0;
@@ -50,7 +50,10 @@ export function handleEvent(evt) {
       const prevSession = store.session.session_id;
       loadSnapshot(data);
       renderSnapshot(data);
-      setBusy(!!data.busy);
+      setBusy(!!data.busy, {
+        busySince: data.busy_since, now: data.now, label: data.activity,
+        switched: !!prevSession && prevSession !== data.session_id,
+      });
       setQueue(data.queue || [], data.queue_items);
       setTabs(data.tabs);
       loadChanges(data.changes, data.session_id);
@@ -65,7 +68,7 @@ export function handleEvent(evt) {
     case 'state':
       // Changed elsewhere (terminal, another tab) — see jarvis/web/sync.py.
       loadSnapshot(data);
-      setBusy(!!data.busy);
+      setBusy(!!data.busy, { busySince: data.busy_since });
       setQueue(data.queue || [], data.queue_items);
       setTabs(data.tabs);
       if ('jobs' in data) setJobs(data.jobs);
@@ -122,7 +125,7 @@ export function handleEvent(evt) {
 
     case 'busy':
       if (!data.busy) runningTools = 0;
-      setBusy(data.busy);
+      setBusy(data.busy, { busySince: data.busy_since, now: data.now });
       if (!data.busy) refreshRecent();
       break;
 
@@ -153,6 +156,11 @@ export function handleEvent(evt) {
     case 'tunnel':
       // The Anywhere link started, went live, failed or closed.
       handleTunnelEvent(data);
+      break;
+
+    case 'terminal_tunnel':
+      // The QR dialog's "Terminal on the link" switch moved.
+      handleTerminalTunnelEvent(data);
       break;
 
     case 'stream_start':

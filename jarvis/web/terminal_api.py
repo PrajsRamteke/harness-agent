@@ -10,7 +10,10 @@ which is all the page's existing ThreadingHTTPServer needs.
 
 A terminal is a shell on the computer, outside the approval flow, so the
 handler only exposes it to a direct visit (this computer / the LAN). A page
-arriving through an Anywhere tunnel gets ``local_only`` instead.
+arriving through an Anywhere tunnel gets ``local_only`` instead — unless the
+QR dialog's "Terminal on the link" switch was turned on from a direct visit
+(``bridge.terminal_over_tunnel``), which the other instance in ``hub.py``
+keeps its own copy of.
 """
 from __future__ import annotations
 

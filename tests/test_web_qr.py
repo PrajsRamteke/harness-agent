@@ -58,3 +58,15 @@ def test_page_has_qr_button_and_dialog():
     html = (STATIC / "index.html").read_text()
     assert 'id="qr-btn"' in html and 'id="qr"' in html
     assert "initQr" in (STATIC / "js" / "app.js").read_text()
+
+
+def test_qr_dialog_has_the_terminal_on_the_link_switch():
+    html = (STATIC / "index.html").read_text()
+    # The switch sits inside the Anywhere row group, with its own sub-label.
+    assert 'id="sw-term-tunnel"' in html and 'id="qr-term-sub"' in html
+    assert html.index('id="sw-term-tunnel"') > html.index('id="qr-anywhere"')
+    qr = (STATIC / "js" / "qr.js").read_text()
+    assert "setTerminalTunnel" in qr and "handleTerminalTunnelEvent" in qr
+    # A flip anywhere (this page, another page, the terminal) reaches the pages.
+    assert "terminal_tunnel" in (STATIC / "js" / "events.js").read_text()
+    assert "jarvis:terminal-access" in (STATIC / "js" / "terminal.js").read_text()

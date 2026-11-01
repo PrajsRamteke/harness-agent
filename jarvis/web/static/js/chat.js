@@ -918,8 +918,12 @@ function paintGroupHead(box) {
   const t1 = Math.max(...rows.map((r) => Number(r.dataset.t1) || 0));
   let label;
   if (running) {
-    // Whole seconds while it runs (this device's clock: it ticks smoothly).
-    const secs = Math.max(1, Math.round((performance.now() - (box._startedAt || performance.now())) / 1000));
+    // Whole seconds while it runs: from the first step's server start time
+    // (a tab shown again keeps its count), else since this page saw it.
+    const fromServer = Number.isFinite(t0) ? Date.now() / 1000 + (store.skew || 0) - t0 : NaN;
+    const secs = Math.max(1, Math.round(Number.isFinite(fromServer) && fromServer >= 0
+      ? fromServer
+      : (performance.now() - (box._startedAt || performance.now())) / 1000));
     label = `Working for ${secs < 60 ? `${secs}s` : fmtDuration(secs)}`;
   } else if (Number.isFinite(t0) && t1 > t0) {
     label = `Worked for ${fmtDuration(t1 - t0)}`;

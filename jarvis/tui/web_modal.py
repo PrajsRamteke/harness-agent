@@ -96,6 +96,7 @@ class WebConnectScreen(TuiModalScreen[str | None]):
         Binding("o", "pick('open')", "Open", show=False),
         Binding("h", "pick('toggle_qr')", "Corner QR", show=False),
         Binding("i", "pick('install')", "Install cloudflared", show=False),
+        Binding("t", "pick('terminal')", "Terminal on link", show=False),
         Binding("s", "pick('stop')", "Stop", show=False),
     ]
 
@@ -149,11 +150,16 @@ class WebConnectScreen(TuiModalScreen[str | None]):
             return self._public_link()
         return self._url
 
+    def _terminal_on(self) -> bool:
+        """Is the public link allowed to open shells? (off by default)"""
+        bridge = getattr(self.app, "_web_bridge", None)
+        return bool(getattr(bridge, "terminal_over_tunnel", False))
+
     # ─── painting ──────────────────────────────────────────────────────
     def _paint(self, *, force: bool = False) -> None:
         tunnel = self._tunnel()
         key = (self._mode, self._anywhere_state(), self._public_link(),
-               getattr(tunnel, "error", ""), self._corner_qr)
+               getattr(tunnel, "error", ""), self._corner_qr, self._terminal_on())
         if key == self._painted and not force:
             return
         self._painted = key
@@ -219,6 +225,16 @@ class WebConnectScreen(TuiModalScreen[str | None]):
                 lines.append(Text.from_markup(
                     f"[{ui.FG_DIM}]ngrok's free plan shows a one-time \"Visit site\" page — tap it once.[/]"
                 ))
+            if self._terminal_on():
+                lines.append(Text.from_markup(
+                    f"[{ui.WARN}]⚠ Terminal on this link: anyone holding it opens a shell — press[/] "
+                    f"[bold]t[/] [{ui.WARN}]to turn that off.[/]"
+                ))
+            else:
+                lines.append(Text.from_markup(
+                    f"[{ui.FG_DIM}]Terminal on this link:[/] [{ui.FG_MUTE}]off[/] "
+                    f"[{ui.FG_DIM}]— press[/] [bold]t[/] [{ui.FG_DIM}]to give the browser a shell too.[/]"
+                ))
             links.update(Group(*lines))
         elif st == "starting":
             self._show_message(
@@ -262,6 +278,10 @@ class WebConnectScreen(TuiModalScreen[str | None]):
             segs.append((f"[bold {ui.ACCENT}]install cloudflared[/]", "screen.pick('install')"))
         elif self._tunnel() is not None:
             segs.append((f"[{ui.FG}]turn off Anywhere[/]", "screen.mode('local_off')"))
+        if self._anywhere_state() == "live":
+            term = (f"[{ui.WARN}]terminal on · turn off[/]" if self._terminal_on()
+                    else f"[{ui.FG}]terminal on link[/]")
+            segs.append((term, "screen.pick('terminal')"))
         segs.append((f"[{ui.ERR}]stop web remote[/]", "screen.pick('stop')"))
         self.query_one("#web_actions", FooterBar).set_segments(segs)
 
@@ -273,6 +293,8 @@ class WebConnectScreen(TuiModalScreen[str | None]):
             pairs.append(("h", "corner QR"))
         elif self._anywhere_state() == "missing":
             pairs.append(("i", "install"))
+        elif self._anywhere_state() == "live":
+            pairs.append(("t", "terminal"))
         pairs += [("s", "stop"), ("esc", "close")]
         self.query_one("#modal_hint", Static).update(hint_line(*pairs))
 
@@ -334,6 +356,9 @@ class WebConnectScreen(TuiModalScreen[str | None]):
             self._paint(force=True)
         elif what == "install" and self._anywhere_state() == "missing":
             app._install_cloudflared()
+        elif what == "terminal" and self._anywhere_state() == "live":
+            app._set_terminal_over_tunnel(not self._terminal_on())
+            self._paint(force=True)
         elif what == "stop":
             self.dismiss("stop")
 

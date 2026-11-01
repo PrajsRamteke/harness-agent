@@ -10,6 +10,7 @@ app instance.
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import nullcontext
 
 from rich.markup import escape as _rich_escape
@@ -211,10 +212,13 @@ class WebRemoteMixin:
         self._web_public_link = ""
         if self._web_bridge is not None:
             self._web_bridge.public_host = ""
+            # No public link, no shell over it: the switch starts off again.
+            self._web_bridge.terminal_over_tunnel = False
         self._render_footer()
         if tunnel is None:
             return
         threading.Thread(target=tunnel.stop, daemon=True, name="tunnel-stop").start()
+        self._emit_web_terminal_tunnel()
         self._emit_web_tunnel()
         if not quiet:
             self._tui_console.print(f"[{ui.FG_DIM}]🌍 anywhere link closed · local network only[/]")
@@ -248,6 +252,32 @@ class WebRemoteMixin:
             if getattr(self, "_web_tunnel", None) is not None:
                 self._stop_tunnel()
         return self._web_tunnel_status()
+
+    def _terminal_over_tunnel(self) -> bool:
+        """A shell for a tunnel visitor stays off until someone asks for it."""
+        bridge = self._web_bridge
+        return bool(getattr(bridge, "terminal_over_tunnel", False)) if bridge is not None else False
+
+    def _set_terminal_over_tunnel(self, on: bool) -> None:
+        """The /web dialog's "t" switch, and the web QR dialog's own toggle."""
+        if self._web_bridge is not None:
+            self._web_bridge.terminal_over_tunnel = bool(on)
+        if on:
+            self._tui_console.print(
+                f"[{ui.WARN}]⚠ terminal on the public link[/] "
+                f"[{ui.FG_DIM}]· anyone with the Anywhere link gets a shell · /web to turn it off[/]"
+            )
+        self._emit_web_terminal_tunnel()
+
+    def _emit_web_terminal_tunnel(self) -> None:
+        """Open pages and the /web dialog follow the switch live."""
+        bridge = self._web_bridge
+        if bridge is None:
+            return
+        try:
+            bridge.emit("terminal_tunnel", {"on": self._terminal_over_tunnel()})
+        except Exception:
+            pass
 
     def _install_cloudflared(self) -> None:
         """One-key install from the /web dialog (Homebrew)."""
@@ -496,7 +526,12 @@ class WebRemoteMixin:
         bridge = self._web_bridge
         if bridge is None or not self._tab_visible():  # the page shows the active tab
             return
-        bridge.emit("busy", {"busy": self._busy})
+        tab = tabs.current()
+        bridge.emit("busy", {
+            "busy": self._busy,
+            "busy_since": (tab.busy_since or None) if self._busy else None,
+            "now": time.time(),
+        })
 
     def _sync_web_queue(self) -> None:
         bridge = self._web_bridge

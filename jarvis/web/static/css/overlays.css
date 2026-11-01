@@ -1389,4 +1389,12 @@
 .qr-anywhere.is-live .sw-text span { color: var(--text-2); }
 .qr-anywhere[data-status="error"] .sw-text span { color: var(--danger); }
 .qr-anywhere .spinner { width: 13px; height: 13px; }
+/* The terminal switch is its own choice, not part of the link going live: it
+   keeps the plain frame, and turns amber while shells are exposed. */
+.qr-anywhere .switch-row.qr-term { margin-top: 6px; border: 1px solid var(--line); border-radius: var(--r-card); padding: 8px 10px; }
+.qr-anywhere.is-live .switch-row.qr-term { border-color: var(--line); background: transparent; }
+.qr-anywhere.is-live .switch-row.qr-term .sw-icon { color: var(--text-3); }
+.qr-anywhere .switch-row.qr-term.is-on { border-color: var(--warn-line); background: var(--warn-soft); }
+.qr-anywhere .switch-row.qr-term.is-on .sw-icon,
+.qr-anywhere .switch-row.qr-term.is-on .sw-text span { color: var(--warn); }
 .qr-frame.is-waiting { opacity: 0.35; transition: opacity var(--dur); }
