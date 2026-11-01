@@ -291,8 +291,12 @@ def test_rate_limit_stops_with_a_card(stream_env):
         raise _status(429, {"error": {"message": "slow down"}}, cls=anthropic.RateLimitError)
 
     stream_env.install([limited])
-    with pytest.raises(anthropic.RateLimitError):
+    from jarvis.console import HarnessAPIError
+
+    with pytest.raises(HarnessAPIError):
         stream_env.stream.call_claude_stream()
+    # exactly one card — the outer handlers skip HarnessAPIError
+    assert len(stream_env.shown) == 1
     assert stream_env.shown[0].kind == "rate_limit"
 
 

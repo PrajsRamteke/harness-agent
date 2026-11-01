@@ -491,11 +491,15 @@ def _antigravity_refused_model(e: Exception) -> bool:
 
 
 def _stop_on_rate_limit(err: BaseException) -> None:
-    """Show a rate-limit / usage-limit card and abort the turn (no backoff retries)."""
+    """Show a rate-limit / usage-limit card and abort the turn (no backoff retries).
+
+    Raises ``HarnessAPIError`` (card already shown) — re-raising the raw
+    provider error would make the outer handlers draw the card a second time.
+    """
     rep = api_errors.classify(err)
     if rep.kind not in ("rate_limit", "quota"):
         rep = api_errors.classify(err, kind="rate_limit")
-    _show_error(rep)
+    _fail(rep, rep.kind)
 
 
 def _report_catalog_error(code: int, err: Exception) -> None:
