@@ -21,6 +21,10 @@ VERSION = "0.3.3"
 # startup picks from the live list (harness_agent_default_model).
 MODEL = os.getenv("CLAUDE_MODEL", HARNESS_AGENT_FALLBACK_MODEL)
 MAX_TOOL_OUTPUT = 6000   # trimmed from 15000 — cuts tool-result token cost ~60%
+# run_bash keeps head + tail of long output within this. 6K cut 1 in 8 commands
+# in real sessions, and each cut cost a follow-up round trip to re-read it —
+# slower than the extra tokens (which the prompt cache mostly absorbs anyway).
+BASH_MAX_OUTPUT = _env_int("HARNESS_BASH_MAX_OUTPUT", 16_000, 2_000, 100_000)
 MAX_FILE_READ = 200_000
 # What one read_file call hands the model: numbered lines, at most this many
 # lines / characters (a note says where to continue), very long lines clipped.
@@ -39,7 +43,8 @@ TOOL_UI_VIEWER_MAX_CHARS = _env_int("HARNESS_TOOL_UI_VIEWER_MAX_CHARS", 500_000,
 TOOL_UI_HISTORY_SIZE = 32
 OAUTH_EXPIRY_BUFFER = 60      # seconds before expiry to trigger refresh
 OAUTH_DEFAULT_EXPIRY = 3600   # fallback when expires_in missing
-DEFAULT_BASH_TIMEOUT = 60
+DEFAULT_BASH_TIMEOUT = 120   # seconds; a test run / build often needs > 60
+MAX_BASH_TIMEOUT = 600
 DEFAULT_RETRIES = 3
 # Hard cap on a single API response. The old 8192 default routinely truncated
 # tool-call arguments mid-stream when the model wrote large files (HTML, JSON,

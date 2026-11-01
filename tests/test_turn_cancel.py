@@ -294,5 +294,5 @@ def test_run_bash_timeout_unchanged(monkeypatch, tmp_path):
     monkeypatch.setattr(state, "auto_approve", True)
     monkeypatch.setattr(shell, "CWD", tmp_path)
     t0 = time.monotonic()
-    assert shell.run_bash("sleep 10", timeout=1) == "TIMEOUT after 1s"
+    assert shell.run_bash("sleep 10", timeout=1).startswith("TIMEOUT after 1s")
     assert time.monotonic() - t0 < 4

@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from jarvis import state
-from jarvis.constants import MAX_TOOL_OUTPUT, READ_MAX_LINES
+from jarvis.constants import BASH_MAX_OUTPUT, MAX_TOOL_OUTPUT, READ_MAX_LINES
 from jarvis.repl import prompt_cache
 from jarvis.tools import files
 
@@ -112,7 +112,7 @@ def test_bash_keeps_head_and_tail_within_the_cap():
     assert out.startswith("$ pytest\nexit=1\nFIRST ERROR")
     assert out.rstrip().endswith("3 failed, 10 passed")
     assert "chars of output omitted" in out
-    assert len(out) <= MAX_TOOL_OUTPUT
+    assert len(out) <= BASH_MAX_OUTPUT
     assert _format_result("ls", 0, "a\nb\n") == "$ ls\nexit=0\na\nb\n"
 
 
@@ -120,7 +120,7 @@ def test_bash_long_command_echo_is_shortened():
     from jarvis.tools.shell import _format_result
 
     out = _format_result("cat <<EOF\n" + "y" * 20_000 + "\nEOF", 0, "ok")
-    assert "command truncated" in out and out.endswith("ok") and len(out) <= MAX_TOOL_OUTPUT
+    assert "command truncated" in out and out.endswith("ok") and len(out) <= BASH_MAX_OUTPUT
 
 
 # ── edits ────────────────────────────────────────────────────────────────

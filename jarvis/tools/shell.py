@@ -9,7 +9,7 @@ import time
 from rich.markup import escape
 
 from ..console import console
-from ..constants import CWD, MAX_TOOL_OUTPUT, DEFAULT_BASH_TIMEOUT
+from ..constants import CWD, BASH_MAX_OUTPUT, DEFAULT_BASH_TIMEOUT, MAX_BASH_TIMEOUT
 from .. import file_changes, state
 
 _bash_lock = threading.Lock()
@@ -133,19 +133,113 @@ def _run_process(cmd: str, timeout: int, env: dict) -> tuple[int, str, str]:
             _drain(proc)
         raise
 
-# Read-only agent tools (search_code, git_status, …) must not block on approval.
-_SAFE_READONLY = re.compile(
-    r"^(?:"
-    r"rg\b|grep\b|"
-    r"git(?:\s+--no-pager)?\s+(?:status|log|diff|show|rev-parse|branch|remote)\b|"
-    r"which\b|file\b|wc\b|head\b|tail\b|cat\b|pwd\b|echo\b|test\b|\["
-    r")",
-    re.IGNORECASE,
-)
+# ── read-only commands ──────────────────────────────────────────────────────
+# A command made only of these (joined by | && || ;) changes nothing on disk:
+# it needs no approval and runs in parallel with other read-only calls instead
+# of queueing behind _bash_lock. Read-only agent tools (search_code,
+# git_status, …) go through here too. The check is per segment, so
+# `cat x; rm -rf y` is *not* read-only (the old prefix regex let it through).
+_READONLY_CMDS = frozenset({
+    "rg", "grep", "egrep", "fgrep", "cat", "head", "tail", "wc", "file", "which",
+    "pwd", "echo", "printf", "test", "[", "ls", "tree", "stat", "du", "df",
+    "basename", "dirname", "realpath", "readlink", "cut", "tr", "nl", "diff",
+    "cmp", "comm", "true", "cd", "type", "column", "jq", "sort", "uniq", "find",
+    "sed", "git", "shasum", "md5",
+})
+_GIT_READONLY = frozenset({
+    "status", "log", "diff", "show", "rev-parse", "branch", "remote", "ls-files",
+    "blame", "grep", "describe", "shortlog",
+})
+_FIND_WRITES = frozenset({
+    "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0",
+    "-fprintf", "-fls",
+})
+_SED_PRINT = re.compile(r"^\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?\s*p\s*;?\s*)+$")
+_SEPARATORS = frozenset({"|", "||", "&&", ";"})
+
+
+def _segment_is_readonly(words: list[str]) -> bool:
+    if not words:
+        return False
+    name, args = words[0], words[1:]
+    if name not in _READONLY_CMDS:
+        return False
+    if name == "find":
+        return not any(a in _FIND_WRITES for a in args)
+    if name == "sed":
+        # Only `sed -n '10,40p' file` style printing — no -i, no w/e commands.
+        if "-n" not in args or any(a.startswith(("-i", "--in-place", "-I")) for a in args):
+            return False
+        scripts = [a for a in args if not a.startswith("-")]
+        return bool(scripts) and bool(_SED_PRINT.match(scripts[0]))
+    if name in ("sort", "tree"):
+        return not any(a == "-o" or a.startswith("--output") for a in args)
+    if name == "uniq":
+        return len([a for a in args if not a.startswith("-")]) <= 1
+    if name == "git":
+        rest = list(args)
+        while rest and rest[0] in ("--no-pager", "-C"):
+            rest = rest[2:] if rest[0] == "-C" else rest[1:]
+        # (`-c key=val` is refused: config overrides can run programs — core.pager …)
+        if not rest or rest[0] not in _GIT_READONLY:
+            return False
+        sub, sub_args = rest[0], rest[1:]
+        if any(a.startswith("--output") or a == "--ext-diff" for a in sub_args):
+            return False
+        if sub == "branch":
+            # listing only — `git branch name` creates, -d/-D/-m delete/rename
+            return all(a in ("-a", "-r", "-v", "-vv", "-l", "--list", "--all",
+                             "--remotes", "--show-current", "--no-color", "--color")
+                       for a in sub_args)
+        if sub == "remote":
+            # `git remote add/remove/set-url …` change config
+            return not sub_args or sub_args[0] in ("-v", "--verbose", "show", "get-url")
+        return True
+    return True
 
 
 def _is_safe_readonly_command(cmd: str) -> bool:
-    return bool(_SAFE_READONLY.match((cmd or "").strip()))
+    """True when every part of ``cmd`` only reads (see _READONLY_CMDS)."""
+    import shlex
+
+    cmd = (cmd or "").strip()
+    # Command substitution, backgrounding, multi-line scripts: never "read-only".
+    if not cmd or "\n" in cmd or "`" in cmd or "$(" in cmd or "<(" in cmd:
+        return False
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        tokens = list(lex)
+    except ValueError:
+        return False
+    words: list[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _SEPARATORS:
+            if not _segment_is_readonly(words):
+                return False
+            words = []
+        elif tok in (">", ">>", "&>"):
+            # Only throwing output away: `2>/dev/null`, `>/dev/null`.
+            if i + 1 >= len(tokens) or tokens[i + 1] != "/dev/null":
+                return False
+            if words and words[-1].isdigit():
+                words.pop()
+            i += 1
+        elif tok == ">&":
+            # `2>&1`
+            if i + 1 >= len(tokens) or not tokens[i + 1].isdigit():
+                return False
+            if words and words[-1].isdigit():
+                words.pop()
+            i += 1
+        elif tok and set(tok) <= set("();<>|&"):
+            return False  # subshells, `&`, `<`, anything unexpected
+        else:
+            words.append(tok)
+        i += 1
+    return _segment_is_readonly(words)
 
 
 _DANGEROUS = ["mkfs", ":(){:|:&};:", "dd if=/dev/zero"]
@@ -280,13 +374,13 @@ _CMD_ECHO_MAX = 1500
 
 
 def _format_result(cmd: str, code: int, out: str) -> str:
-    """``$ cmd`` / ``exit=N`` / output, kept within MAX_TOOL_OUTPUT. Long output
+    """``$ cmd`` / ``exit=N`` / output, kept within BASH_MAX_OUTPUT. Long output
     keeps its start and its end (first errors *and* the final summary) with a
     note in between, instead of silently keeping only the tail."""
     if len(cmd) > _CMD_ECHO_MAX:
         cmd = cmd[:1000] + f" … [command truncated, {len(cmd):,} chars]"
     header = f"$ {cmd}\nexit={code}\n"
-    budget = max(2000, MAX_TOOL_OUTPUT - len(header))
+    budget = max(2000, BASH_MAX_OUTPUT - len(header))
     if len(out) > budget:
         note_room = 120
         head_n = (budget - note_room) // 3
@@ -300,30 +394,43 @@ def _format_result(cmd: str, code: int, out: str) -> str:
 
 
 def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
+    try:
+        timeout = max(1, min(int(timeout or DEFAULT_BASH_TIMEOUT), MAX_BASH_TIMEOUT))
+    except (TypeError, ValueError):
+        timeout = DEFAULT_BASH_TIMEOUT
     if is_dangerous(cmd):
         return "BLOCKED: dangerous command"
     reason = self_kill_reason(cmd)
     if reason:
         return self_kill_block(reason)
 
+    env = os.environ.copy()
+    env.setdefault("GIT_PAGER", "cat")
+    env.setdefault("PAGER", "cat")
+    if _is_safe_readonly_command(cmd):
+        # Changes nothing and asks nothing: no lock, so several read-only
+        # calls from one step run side by side (render.py batches them).
+        return _exec(cmd, timeout, env, watch=False)
     with _bash_lock:
         denied = ask_approval(cmd)
         if denied:
             return denied
+        return _exec(cmd, timeout, env, watch=True)
+
+
+def _exec(cmd: str, timeout: int, env: dict, *, watch: bool) -> str:
+    try:
+        # Files the command deletes / renames / edits in place show up in
+        # the web Changes panel (nothing is recorded if nothing changed).
+        settle_changes = file_changes.watch_shell(cmd) if watch else (lambda: None)
         try:
-            env = os.environ.copy()
-            env.setdefault("GIT_PAGER", "cat")
-            env.setdefault("PAGER", "cat")
-            # Files the command deletes / renames / edits in place show up in
-            # the web Changes panel (nothing is recorded if nothing changed).
-            settle_changes = file_changes.watch_shell(cmd)
-            try:
-                code, stdout, stderr = _run_process(cmd, timeout, env)
-            finally:
-                settle_changes()
-            out = (stdout or "") + (f"\n[stderr]\n{stderr}" if stderr else "")
-            return _format_result(cmd, code, out) + own_port_note(cmd)
-        except subprocess.TimeoutExpired:
-            return f"TIMEOUT after {timeout}s"
-        except _Cancelled:
-            return CANCELLED_RESULT
+            code, stdout, stderr = _run_process(cmd, timeout, env)
+        finally:
+            settle_changes()
+        out = (stdout or "") + (f"\n[stderr]\n{stderr}" if stderr else "")
+        return _format_result(cmd, code, out) + own_port_note(cmd)
+    except subprocess.TimeoutExpired:
+        return (f"TIMEOUT after {timeout}s — pass a larger timeout (max "
+                f"{MAX_BASH_TIMEOUT}s), or use run_bg for long builds / test runs")
+    except _Cancelled:
+        return CANCELLED_RESULT

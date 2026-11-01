@@ -158,7 +158,11 @@ CORE_TOOLS = [
         "path":{"type":"string"},
         "show_all":{"type":"boolean"},
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to inspect outside the current project."}}}},
-    {"name":"run_bash","description":"Execute a shell command in the working directory",
+    {"name":"run_bash","description":(
+        "Run a shell command (/bin/sh) in the project root — no need to `cd` there first. "
+        "Read-only commands (ls, cat, head, tail, rg, grep, find, sed -n 'N,Mp', wc, "
+        "git status/log/diff/show) need no approval and run in parallel: issue several in one "
+        "turn. Default timeout 120s (max 600); for long builds / test suites / servers use run_bg."),
      "input_schema":{"type":"object","properties":{
         "cmd":{"type":"string"},"timeout":{"type":"integer"}},"required":["cmd"]}},
     {"name":"search_code","description":"Regex search with ripgrep (or grep fallback). Project-scoped by default.",

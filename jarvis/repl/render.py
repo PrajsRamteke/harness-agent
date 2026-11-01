@@ -105,7 +105,6 @@ def assistant_model_label() -> str:
 _SERIAL_TOOLS = {
     "run_bash", "run_bg", "bg_kill",
     "git_status", "git_log", "git_diff",
-    "search_code",
     "click_at", "click_element", "click_menu", "key_press", "type_text",
     "launch_app", "focus_app", "quit_app", "applescript", "shortcut_run",
     "clipboard_set", "mac_control", "speck",
@@ -130,7 +129,8 @@ from ..utils.redact import MARKER as SECRET_MARKER, has_marker as has_secret_mar
 _CONTEXT_TOOL_NAMES = {"resolve_context", "read_bundle", "lesson_list", "lesson_search"}
 # Tools that bound their own output (and say where to continue) — the generic
 # cap below would silently cut them mid-file.
-_SELF_LIMITED_TOOLS = _CONTEXT_TOOL_NAMES | {"read_file"}
+# run_bash keeps head + tail within its own (larger) BASH_MAX_OUTPUT.
+_SELF_LIMITED_TOOLS = _CONTEXT_TOOL_NAMES | {"read_file", "run_bash"}
 
 
 def _cap_tool_output(name: str, out: str) -> str:
@@ -210,6 +210,20 @@ def _tool_executor() -> ThreadPoolExecutor:
 
 def _batch_has_tool(batch, names: frozenset[str]) -> bool:
     return any(b.name in names for b in batch)
+
+
+def _runs_serially(block) -> bool:
+    """Whether ``block`` must run alone, in order. A read-only shell command
+    (ls / cat / rg / git log … — shell._is_safe_readonly_command) joins the
+    parallel batch: models do most of their exploring through run_bash, and
+    queueing those one by one was a big part of a slow step."""
+    name = _FREE_TIER_TOOL_ALIASES.get(block.name) or _resolve_tool_alias(block.name) or block.name
+    if name == "run_bash":
+        from ..tools.shell import _is_safe_readonly_command
+
+        args = block.input if isinstance(block.input, dict) else {}
+        return not _is_safe_readonly_command(str(args.get("cmd") or args.get("command") or ""))
+    return name in _SERIAL_TOOLS or is_mcp_tool(block.name)
 
 
 def _should_flush_parallel_batch(batch, new_block) -> bool:
@@ -546,7 +560,7 @@ def render_assistant(resp) -> bool:
                     # Skip remaining tools: the turn is being cancelled.
                     break
 
-                if b.name in _SERIAL_TOOLS or is_mcp_tool(b.name):
+                if _runs_serially(b):
                     _run_parallel_batch(parallel_batch, outputs)
                     parallel_batch = []
                     _, icon, ap, out_str = _run_tool(b)

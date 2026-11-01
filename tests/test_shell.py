@@ -18,8 +18,9 @@ def test_run_bash_serializes_parallel_calls():
 
     with patch.object(state, "auto_approve", True):
         with patch("jarvis.tools.shell._run_process", side_effect=fake_run):
-            t1 = threading.Thread(target=lambda: run_bash("echo one"))
-            t2 = threading.Thread(target=lambda: run_bash("echo two"))
+            # Commands that change things queue behind each other.
+            t1 = threading.Thread(target=lambda: run_bash("touch one"))
+            t2 = threading.Thread(target=lambda: run_bash("touch two"))
             t1.start()
             t2.start()
             t1.join(timeout=2)
@@ -30,6 +31,111 @@ def test_run_bash_serializes_parallel_calls():
     later_starts = [i for i, ev in enumerate(order) if ev.startswith("start:") and i > 0]
     if later_starts:
         assert first_end < later_starts[0]
+
+
+def test_readonly_commands_run_side_by_side():
+    """Read-only commands skip _bash_lock, so a step's ls / cat / rg calls
+    overlap instead of queueing one by one."""
+    import time
+
+    active = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def fake_run(cmd, timeout, env):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.1)
+        with lock:
+            active -= 1
+        return 0, "ok\n", ""
+
+    with patch.object(state, "auto_approve", False):
+        with patch("jarvis.tools.shell._run_process", side_effect=fake_run):
+            ts = [threading.Thread(target=lambda c=c: run_bash(c))
+                  for c in ("ls -la", "cat a.py | head -20", "git log --oneline -n 5")]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join(timeout=2)
+    assert peak == 3
+
+
+def test_readonly_classifier_checks_every_part():
+    ok = [
+        "ls -la",
+        "cd /Users/x/proj && ls jarvis/ && grep -rn 'serve\\|ws' jarvis | head -40",
+        "cat CLAUDE.md 2>/dev/null | head -100",
+        "rg -n 'a|b > c' src",           # operators inside quotes are text
+        "sed -n '10,40p' jarvis/web/handler.py",
+        "sed -n 425,470p a.py && echo ---- && sed -n 1,20p b.py",
+        "find . -name '*.py' -type f | wc -l",
+        "git --no-pager diff HEAD -- a.py",
+        "git -C sub log --oneline -n 3",
+        "git branch -a",
+        "wc -l a b c 2>&1",
+    ]
+    for cmd in ok:
+        assert _is_safe_readonly_command(cmd), cmd
+    bad = [
+        "cat x; rm -rf y",                  # the old prefix check let this through
+        "grep foo bar && touch done",
+        "echo hi > out.txt",
+        "cat a >> b",
+        "ls $(rm -rf x)",
+        "ls `rm x`",
+        "ls &",
+        "(cd x && rm y)",
+        "ls\nrm x",
+        "find . -name '*.pyc' -delete",
+        "find . -exec rm {} +",
+        "sed -i '' 's/a/b/' f",
+        "sed -n 's/a/b/w out' f",
+        "sed 's/a/b/' f",
+        "sort -o f f",
+        "uniq in out",
+        "git branch new-feature",
+        "git branch -D old",
+        "git remote add origin x",
+        "git -c core.pager=evil log",
+        "git diff --output=/tmp/x",
+        "git commit -m x",
+        "git checkout main",
+        "ls | xargs rm",
+        "FOO=1 ls",
+        "python3 -c 'print(1)'",
+        "npm test",
+    ]
+    for cmd in bad:
+        assert not _is_safe_readonly_command(cmd), cmd
+
+
+def test_readonly_bash_joins_the_parallel_batch():
+    from types import SimpleNamespace
+
+    from jarvis.repl.render import _runs_serially
+
+    def blk(name, **inp):
+        return SimpleNamespace(name=name, input=inp)
+
+    assert not _runs_serially(blk("run_bash", cmd="ls -la"))
+    assert not _runs_serially(blk("Bash", command="cat a | head"))  # alias
+    assert _runs_serially(blk("run_bash", cmd="npm install"))
+    assert _runs_serially(blk("Bash", command="rm -rf build"))
+    assert _runs_serially(blk("run_bg", cmd="ls"))
+    assert not _runs_serially(blk("search_code", pattern="x"))
+
+
+def test_bash_timeout_is_capped():
+    seen = []
+    with patch.object(state, "auto_approve", True), \
+            patch("jarvis.tools.shell._run_process", side_effect=lambda c, t, e: seen.append(t) or (0, "", "")):
+        run_bash("touch x", 99999)
+        run_bash("touch x", "abc")
+        run_bash("touch x")
+    assert seen == [600, 120, 120]
 
 
 def test_safe_readonly_rg_skips_approval():
