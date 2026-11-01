@@ -32,6 +32,7 @@ import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.j
 import { handleProjectsEvent } from './projects.js';
 import { setTabs } from './tabs.js';
 import { handleTunnelEvent } from './qr.js';
+import { handleGitEvent } from './git.js';
 
 let runningTools = 0;
 
@@ -142,6 +143,11 @@ export function handleEvent(evt) {
     case 'local':
       // A local model server was added / removed, or the context changed.
       handleLocalEvent(data);
+      break;
+
+    case 'git':
+      // A commit / push / branch switch (this page, another one).
+      handleGitEvent(data);
       break;
 
     case 'tunnel':

@@ -3,12 +3,49 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Any
 
 from .bridge import WebBridge
 from .plaintext import to_plain
+
+
+# Tool call id → [started, finished | None] (epoch seconds), so web rows can say
+# "603ms" and a group "Worked for 4.7s" — live and after a reload (snapshots read
+# it through ``tool_times``). Memory only; the oldest entries go first.
+_TOOL_TIMES: dict[str, list[float | None]] = {}
+_TOOL_TIMES_MAX = 4000
+_times_lock = threading.Lock()
+
+
+def note_tool_time(event_type: str, tool_id: str) -> dict[str, float]:
+    """Record a tool's start / finish; returns the ``t0`` / ``t1`` fields for its event."""
+    if not tool_id:
+        return {}
+    now = time.time()
+    with _times_lock:
+        rec = _TOOL_TIMES.get(tool_id)
+        if event_type == "tool_start":
+            if rec is None or rec[1] is not None:
+                rec = _TOOL_TIMES[tool_id] = [now, None]
+            while len(_TOOL_TIMES) > _TOOL_TIMES_MAX:
+                _TOOL_TIMES.pop(next(iter(_TOOL_TIMES)))
+            return {"t0": rec[0]}
+        if event_type == "tool_done" and rec is not None:
+            if rec[1] is None:
+                rec[1] = now
+            return {"t0": rec[0], "t1": rec[1]}
+    return {}
+
+
+def tool_times(tool_id: str) -> dict[str, float]:
+    with _times_lock:
+        rec = _TOOL_TIMES.get(str(tool_id or ""))
+    if not rec:
+        return {}
+    return {"t0": rec[0], "t1": rec[1]} if rec[1] is not None else {"t0": rec[0]}
 
 
 def _show_thinking_to_web() -> bool:
@@ -305,6 +342,7 @@ class WebMuxConsole:
         ))
         if event_type == "tool_done" and slim.pop("summary_error", False):
             slim["error"] = True
+        slim.update(note_tool_time(event_type, str(data.get("id") or "")))
         if data.get("name") == "spawn_agents":
             # The parallel-agents card: names/briefs at start, every report at the end.
             try:

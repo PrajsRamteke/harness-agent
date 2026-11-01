@@ -33,6 +33,19 @@
       if (softAmt >= 10 && softAmt <= 100) document.documentElement.style.setProperty('--soft-amt', softAmt);
       // Frosted glass rides on its own attribute, independent of theme/variant.
       if (glass === '1') document.documentElement.dataset.surface = 'glass';
+      // Appearance → glass opacity + layout (text size, chat width, corners, font). See js/theme.js.
+      try {
+        var op = parseInt(localStorage.getItem('jarvis-glass-op'), 10);
+        if (op >= 20 && op <= 100) {
+          document.documentElement.dataset.glassOp = '';
+          document.documentElement.style.setProperty('--glass-op', op + '%');
+        }
+        var layout = { 'jarvis-text': ['text', 's l'], 'jarvis-width': ['width', 'narrow wide'], 'jarvis-radius': ['radius', 'sharp round'], 'jarvis-font': ['font', 'system'] };
+        for (var k in layout) {
+          var v = localStorage.getItem(k);
+          if (v && (' ' + layout[k][1] + ' ').indexOf(' ' + v + ' ') >= 0) document.documentElement.dataset[layout[k][0]] = v;
+        }
+      } catch (e) {}
       document.documentElement.dataset.accent = accent;
       // Custom accent: the raw colour now; theme.js tunes it for the theme.
       try {
@@ -60,6 +73,7 @@
   <link rel="stylesheet" href="/static/css/folders.css">
   <link rel="stylesheet" href="/static/css/tabs.css">
   <link rel="stylesheet" href="/static/css/settings.css">
+  <link rel="stylesheet" href="/static/css/git.css">
 </head>
 <body>
   <div class="backdrop" aria-hidden="true">
@@ -342,6 +356,8 @@
         <button class="icon-btn" id="insp-close" type="button" aria-label="Close panel" title="Close"><span data-icon="x"></span></button>
       </header>
 
+      <section class="git-card" id="git-card" aria-label="Git" hidden></section>
+
       <div class="insp-body">
         <section class="insp-pane is-active" id="pane-changes" role="tabpanel" aria-labelledby="tab-changes">
           <div class="chg-top" id="chg-top" hidden>
@@ -618,6 +634,12 @@
           <span class="sw-text"><strong>Frosted glass</strong><span id="glass-sub">Translucent panels; messages scroll under them</span></span>
           <input type="checkbox" class="switch" id="sw-glass" role="switch">
         </label>
+        <div class="soft-amount" id="glass-amount" hidden>
+          <label for="glass-op">Opacity</label>
+          <input type="range" class="soft-range" id="glass-op" min="20" max="100" step="2" value="72" aria-describedby="glass-op-val" title="Clearer ← → more solid · double-click for Auto">
+          <output id="glass-op-val" for="glass-op">Auto</output>
+          <button type="button" class="link-btn glass-op-reset" id="glass-op-reset" title="Back to the built-in translucency">Auto</button>
+        </div>
       </div>
       <div class="setting-block">
         <h3 class="setting-label">Accent</h3>
@@ -630,6 +652,33 @@
           </label>
         </div>
         <p class="hue-hint">Drag the bar for any colour. It's kept readable in light and dark.</p>
+      </div>
+      <div class="setting-block">
+        <h3 class="setting-label">Layout</h3>
+        <div class="ap-row">
+          <span class="ap-label" id="ap-text">Text size</span>
+          <div class="seg" role="group" aria-labelledby="ap-text" data-pref="text">
+            <button type="button" data-val="s">Small</button><button type="button" data-val="m">Default</button><button type="button" data-val="l">Large</button>
+          </div>
+        </div>
+        <div class="ap-row">
+          <span class="ap-label" id="ap-width">Chat width</span>
+          <div class="seg" role="group" aria-labelledby="ap-width" data-pref="width">
+            <button type="button" data-val="narrow">Narrow</button><button type="button" data-val="default">Default</button><button type="button" data-val="wide">Wide</button>
+          </div>
+        </div>
+        <div class="ap-row">
+          <span class="ap-label" id="ap-radius">Corners</span>
+          <div class="seg" role="group" aria-labelledby="ap-radius" data-pref="radius">
+            <button type="button" data-val="sharp">Sharp</button><button type="button" data-val="default">Default</button><button type="button" data-val="round">Round</button>
+          </div>
+        </div>
+        <div class="ap-row">
+          <span class="ap-label" id="ap-font">Font</span>
+          <div class="seg" role="group" aria-labelledby="ap-font" data-pref="font">
+            <button type="button" data-val="geist">Geist</button><button type="button" data-val="system">System</button>
+          </div>
+        </div>
       </div>
       <div class="setting-block">
         <h3 class="setting-label">This device</h3>

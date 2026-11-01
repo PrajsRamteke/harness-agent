@@ -18,7 +18,7 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 780px;
+  max-width: var(--chat-w, 780px);
   margin: 0 auto;
 }
 .chat:empty { display: none; }
@@ -110,7 +110,7 @@
   border-radius: var(--r-card);
   background: var(--you-fill);
   border: 1px solid var(--you-line);
-  font-size: 14px;
+  font-size: calc(var(--msg-fs, 14.5px) - 0.5px);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -163,7 +163,7 @@
   border: none;
   border-radius: 0;
   background: none;
-  font-size: 14.5px;
+  font-size: var(--msg-fs, 14.5px);
   line-height: 1.65;
   overflow-wrap: break-word;
 }
@@ -208,7 +208,6 @@
 .err-entry:hover .msg-actions,
 .msg-actions:focus-within { opacity: 1; }
 .agent-text { position: relative; }
-.agent-text .msg-actions,
 .stats-entry .msg-actions,
 .err-entry .msg-actions,
 .turn-you .msg-actions {
@@ -221,7 +220,6 @@
   border: 1px solid var(--line-2);
   box-shadow: var(--shadow-pop);
 }
-.agent-text .msg-actions { right: 0; }
 .stats-entry .msg-actions,
 .err-entry .msg-actions { right: 8px; }
 .turn-you { position: relative; }
@@ -244,6 +242,39 @@
 .act-btn:hover { background: var(--card-hover); color: var(--text); }
 .act-btn .ic { width: 13px; height: 13px; }
 .act-btn.is-done { color: var(--ok); }
+.act-btn.is-icon { width: var(--h-sm); height: var(--h-sm); padding: 0; justify-content: center; border-radius: var(--r-ctl); }
+.act-btn.is-icon .ic { width: 15px; height: 15px; }
+.act-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* A reply's own row — Copy · Retry · Branch — sits under the text, inline
+   and quiet (the floating mini toolbar above stays for other entries).
+   Retry only on the latest reply, and never while Jarvis works. */
+.agent-text .msg-actions {
+  position: static;
+  margin: 4px 0 0 -6px;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+.agent-text .act-retry { display: none; }
+.chat > .turn-agent:last-child .agent-body > .agent-text:last-child .act-retry { display: inline-flex; }
+body.is-busy .agent-text .act-retry,
+body.is-busy .agent-text .act-branch { display: none; }
+/* The reply you're reading keeps its row visible; others show it on hover. */
+.agent-body > .agent-text:last-child .msg-actions { opacity: 1; }
+.agent-text:not(:last-child) .msg-actions {
+  position: absolute;
+  right: 0;
+  bottom: -14px;
+  z-index: 2;
+  margin: 0;
+  padding: 2px;
+  border-radius: var(--r-ctl);
+  background: var(--glass-strong);
+  border: 1px solid var(--line-2);
+  box-shadow: var(--shadow-pop);
+}
 
 /* Touch: no hover, so the actions sit quietly under the message instead. */
 @media (hover: none) {
@@ -338,6 +369,54 @@
 
 .tool + .tool { border-top: 1px solid var(--line); }
 .tool.is-new { animation: fade var(--dur) var(--ease); }
+
+/* Group header (2+ calls in a row): "✓ Worked for 4.7s · 4 steps ⌄" folds them all. */
+.tools-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.tools-head:hover { background: var(--card); color: var(--text); }
+.tools.is-collapsed > .tools-head { border-bottom-color: transparent; }
+.tools.is-collapsed > :not(.tools-head) { display: none !important; }
+.th-state { display: grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--text-3); }
+.th-state .ic { width: 14px; height: 14px; }
+.th-state .spinner { width: 12px; height: 12px; }
+.tools-head[data-state="error"] .th-state { color: var(--danger); }
+.tools-head[data-state="running"] .th-title { color: var(--text); }
+.th-title { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.th-meta { color: var(--text-3); white-space: nowrap; }
+.th-failed {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 18px;
+}
+.th-chev { display: grid; place-items: center; margin-left: auto; color: var(--text-3); transition: transform var(--dur) var(--ease); }
+.th-chev .ic { width: 14px; height: 14px; }
+.tools:not(.is-collapsed) > .tools-head .th-chev { transform: rotate(180deg); }
+.tools-head + .tool,
+.tools-head + .tools-more { border-top: none; }
+
+.tool-time {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 /* Long runs fold: all but the newest 3 rows hide behind a toggle (chat.js). */
 .tools.is-folded > .tool:not(:nth-last-child(-n + 3)) { display: none; }
@@ -914,7 +993,8 @@
 .md .md-code-copy.is-done { opacity: 1; }
 @media (hover: none) { .md .md-code-copy { opacity: 1; } }
 .md .md-code-copy:hover { background: var(--card-hover); color: var(--code-text); }
-.md .md-code-copy .ic { width: 13px; height: 13px; }
+.md .md-code-copy .ic { width: 14px; height: 14px; }
+.md .md-code-copy.is-icon { width: 26px; height: 26px; padding: 0; justify-content: center; }
 .md .md-code-copy.is-done { color: var(--ok); }
 .md .md-pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
 .md .md-pre code {
@@ -955,8 +1035,8 @@
 /* ─── Compact transcript (Appearance → Compact) ───────────────────────── */
 body.is-compact .chat { gap: 12px; }
 body.is-compact .agent-body { gap: 6px; }
-body.is-compact .bubble-agent { font-size: 13.5px; line-height: 1.55; }
-body.is-compact .bubble-you { padding: 7px 12px; font-size: 13.5px; }
+body.is-compact .bubble-agent { font-size: calc(var(--msg-fs, 14.5px) - 1px); line-height: 1.55; }
+body.is-compact .bubble-you { padding: 7px 12px; font-size: calc(var(--msg-fs, 14.5px) - 1px); }
 body.is-compact .tool-head { min-height: 28px; padding: 3px 10px; font-size: 12.5px; }
 body.is-compact .think-head { min-height: 24px; padding: 2px 6px; font-size: 12.5px; }
 body.is-compact .md p { margin-bottom: 0.5em; }
@@ -1109,7 +1189,7 @@ body.is-compact .stats-row { min-height: 30px; padding: 4px 0; }
 @media (max-width: 560px) {
   .chat { gap: 16px; }
   .turn-you { padding-left: 10%; }
-  .bubble-agent { font-size: 15px; }
+  .bubble-agent { font-size: calc(var(--msg-fs, 14.5px) + 0.5px); }
   .err-head { padding: 12px 12px 0; column-gap: 10px; }
   .err-code { margin-left: 38px; }
   .err-body,

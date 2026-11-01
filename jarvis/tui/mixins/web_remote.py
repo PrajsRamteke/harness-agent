@@ -622,6 +622,9 @@ class WebRemoteMixin:
             return self._handle_web_tabs(data)
         if action == "tunnel":  # the web QR dialog's "Anywhere" switch
             return self._handle_web_tunnel(data)
+        if action in ("reply_retry", "reply_branch") and getattr(self, "_busy", False):
+            return {"ok": False, "code": "busy",
+                    "error": "Jarvis is working. Wait for it to finish, or stop it first."}
         if action == "session_resume":
             try:
                 other = tabs.find_session(int(data.get("session_id") or 0))
@@ -663,6 +666,15 @@ class WebRemoteMixin:
                     result = dict(result)
                     result["stopped"] = stopped
                     self._tui_console.print(f"[{ui.FG_DIM}]⏹ web · {stopped}[/]")
+
+            if action == "reply_retry":  # the conversation was cut back: the terminal shows the same
+                try:
+                    self._transcript().clear()
+                    self._tui_console.forget_tools()
+                    self._render_loaded_session()
+                except Exception as exc:
+                    result = dict(result)
+                    result["render_warning"] = str(exc)
 
             if action == "session_rename":  # the sidebar shows the title
                 self._refresh_sidebar()

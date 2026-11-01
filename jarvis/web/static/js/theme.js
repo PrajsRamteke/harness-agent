@@ -140,11 +140,38 @@ function validSoftAmt(v) {
   return Number.isFinite(n) ? Math.max(SOFT_AMT_MIN, Math.min(SOFT_AMT_MAX, n)) : SOFT_AMT_MAX;
 }
 
+/** Frosted glass opacity (Appearance → Frosted glass → Opacity), percent. Unset = the
+ * built-in per-theme translucency (tokens.css); set = one value for every glass panel. */
+export const GLASS_OP_MIN = 20;
+export const GLASS_OP_MAX = 100;
+export const GLASS_OP_DEFAULT = 72;
+
+function validGlassOp(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? Math.max(GLASS_OP_MIN, Math.min(GLASS_OP_MAX, n)) : null;
+}
+
+/** Appearance → Layout. Each is a root attribute tokens.css reads; the default sets none. */
+export const LAYOUT = {
+  text: { key: 'jarvis-text', attr: 'text', def: 'm', opts: [['s', 'Small'], ['m', 'Default'], ['l', 'Large']] },
+  width: { key: 'jarvis-width', attr: 'width', def: 'default', opts: [['narrow', 'Narrow'], ['default', 'Default'], ['wide', 'Wide']] },
+  radius: { key: 'jarvis-radius', attr: 'radius', def: 'default', opts: [['sharp', 'Sharp'], ['default', 'Default'], ['round', 'Round']] },
+  font: { key: 'jarvis-font', attr: 'font', def: 'geist', opts: [['geist', 'Geist'], ['system', 'System']] },
+};
+
+function savedLayout(name) {
+  const spec = LAYOUT[name];
+  const v = storageGet(spec.key, spec.def);
+  return spec.opts.some(([id]) => id === v) ? v : spec.def;
+}
+
 export const prefs = {
   mode: MODES.some((m) => m.id === savedMode) ? savedMode : 'dark',
   soft: storageGet('jarvis-soft', '0') === '1',
   softAmt: validSoftAmt(storageGet('jarvis-soft-amt', String(SOFT_AMT_MAX))),
   glass: storageGet('jarvis-glass', '0') === '1',
+  glassOp: validGlassOp(storageGet('jarvis-glass-op', '')),
+  layout: Object.fromEntries(Object.keys(LAYOUT).map((k) => [k, savedLayout(k)])),
   accent: storageGet('jarvis-accent', 'violet'),
   custom: validHex(storageGet('jarvis-accent-custom', '')) || CUSTOM_DEFAULT,
   alert: storageGet('jarvis-alert', '1') !== '0',
@@ -177,6 +204,18 @@ function apply() {
   // on its own attribute so it combines with any mode AND soft contrast.
   if (prefs.glass) root.dataset.surface = 'glass';
   else delete root.dataset.surface;
+  if (prefs.glassOp !== null) {
+    root.dataset.glassOp = '';
+    root.style.setProperty('--glass-op', `${prefs.glassOp}%`);
+  } else {
+    delete root.dataset.glassOp;
+    root.style.removeProperty('--glass-op');
+  }
+  for (const [name, spec] of Object.entries(LAYOUT)) {
+    const v = prefs.layout[name];
+    if (v === spec.def) delete root.dataset[spec.attr];
+    else root.dataset[spec.attr] = v;
+  }
   const custom = prefs.accent === 'custom';
   root.dataset.accent = custom || ACCENTS.some((a) => a.id === prefs.accent) ? prefs.accent : 'violet';
   // A custom accent is set inline (beats every preset rule in tokens.css).
@@ -274,6 +313,25 @@ export function setGlass(on, src) {
     apply();
     paintAppearance();
   });
+}
+
+/** Glass opacity from the slider (live); `null` goes back to the built-in look. */
+export function setGlassOpacity(value) {
+  prefs.glassOp = value === null ? null : validGlassOp(value);
+  if (prefs.glassOp === null) storageSet('jarvis-glass-op', '');
+  else storageSet('jarvis-glass-op', String(prefs.glassOp));
+  apply();
+  paintGlassOpacity();
+}
+
+/** Text size, chat width, corners, font (Appearance → Layout). */
+export function setLayout(name, value) {
+  const spec = LAYOUT[name];
+  if (!spec || !spec.opts.some(([id]) => id === value) || prefs.layout[name] === value) return;
+  prefs.layout[name] = value;
+  storageSet(spec.key, value);
+  apply();
+  paintLayout();
 }
 
 export function isGlass() {
@@ -430,8 +488,10 @@ function paintAppearance() {
   if (glass) glass.checked = prefs.glass;
   const glassSub = $('glass-sub');
   if (glassSub) glassSub.textContent = lessTransparency.matches ? GLASS_SUB_SOLID : GLASS_SUB;
+  paintGlassOpacity();
 
   paintAccents();
+  paintLayout();
 
   const alert = $('sw-alert');
   if (alert) alert.checked = prefs.alert;
@@ -456,6 +516,29 @@ function paintSoftAmount() {
   }
   const out = $('soft-amt-val');
   if (out) out.textContent = `${prefs.softAmt}%`;
+}
+
+/** The opacity slider shows while frosted glass is on (and the system allows transparency). */
+function paintGlassOpacity() {
+  const wrap = $('glass-amount');
+  if (wrap) wrap.hidden = !prefs.glass || lessTransparency.matches;
+  const v = prefs.glassOp ?? GLASS_OP_DEFAULT;
+  const range = $('glass-op');
+  if (range) {
+    if (Number(range.value) !== v) range.value = String(v);
+    range.style.setProperty('--fill', `${((v - GLASS_OP_MIN) / (GLASS_OP_MAX - GLASS_OP_MIN)) * 100}%`);
+  }
+  const out = $('glass-op-val');
+  if (out) out.textContent = prefs.glassOp === null ? 'Auto' : `${v}%`;
+}
+
+function paintLayout() {
+  document.querySelectorAll('#appearance .seg[data-pref]').forEach((seg) => {
+    const current = prefs.layout[seg.dataset.pref];
+    seg.querySelectorAll('[data-val]').forEach((btn) => {
+      btn.setAttribute('aria-pressed', String(btn.dataset.val === current));
+    });
+  });
 }
 
 function paintAccents() {
@@ -534,6 +617,15 @@ export function initTheme() {
   $('sw-soft')?.addEventListener('change', (e) => setSoft(e.target.checked, e));
   $('soft-amt')?.addEventListener('input', (e) => setSoftAmount(e.target.value));
   $('sw-glass')?.addEventListener('change', (e) => setGlass(e.target.checked, e));
+  $('glass-op')?.addEventListener('input', (e) => setGlassOpacity(e.target.value));
+  $('glass-op')?.addEventListener('dblclick', () => setGlassOpacity(null)); // back to Auto
+  $('glass-op-reset')?.addEventListener('click', () => setGlassOpacity(null));
+  document.querySelectorAll('#appearance .seg[data-pref]').forEach((seg) => {
+    seg.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-val]');
+      if (btn) setLayout(seg.dataset.pref, btn.dataset.val);
+    });
+  });
   $('sw-alert')?.addEventListener('change', (e) => setAlert(e.target.checked));
   $('sw-compact')?.addEventListener('change', (e) => setCompact(e.target.checked));
 }

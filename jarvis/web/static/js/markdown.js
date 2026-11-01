@@ -325,8 +325,8 @@ function renderCodeBlock(lang, code, store) {
     `<div class="md-code-block">` +
       `<div class="md-code-head">` +
         `<span class="md-code-lang">${langLabel}</span>` +
-        `<button type="button" class="md-code-copy" aria-label="Copy code">` +
-          `${icon('copy')}<span>Copy</span>` +
+        `<button type="button" class="md-code-copy is-icon" aria-label="Copy code" title="Copy code">` +
+          `${icon('copy')}` +
         `</button>` +
       `</div>` +
       `<pre class="md-pre"><code class="language-${escapeHtml(lang || 'text')}">${escapeHtml(trimmed)}</code></pre>` +

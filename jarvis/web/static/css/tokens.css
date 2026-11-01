@@ -500,6 +500,30 @@ kbd {
   backdrop-filter: blur(var(--blur)) saturate(var(--sat));
 }
 
+/* Appearance → Frosted glass → Opacity (theme.js sets data-glass-op and
+   --glass-op only once the slider was moved; "Auto" keeps the per-theme
+   values above). Each panel is its theme's solid colour faded to the chosen
+   opacity — dialogs a step more solid, the floating top bar / composer a
+   step clearer. The attribute is repeated so this beats every theme variant
+   of the glass palette; reduced transparency still wins (solid panels). */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-surface="glass"][data-glass-op] { --gs: #0e0f13; --gs-strong: #101116; }
+  :root[data-surface="glass"][data-theme="dim"][data-glass-op] {
+    --gs: color-mix(in srgb, #25272e var(--soft-pct), #0e0f13);
+    --gs-strong: color-mix(in srgb, #272931 var(--soft-pct), #101116);
+  }
+  :root[data-surface="glass"][data-theme="light"][data-glass-op] { --gs: #fdfdfd; --gs-strong: #ffffff; }
+  :root[data-surface="glass"][data-theme="light"][data-variant="soft"][data-glass-op] {
+    --gs: color-mix(in srgb, #fdfaf5 var(--soft-pct), #fdfdfd);
+    --gs-strong: color-mix(in srgb, #fefcf7 var(--soft-pct), #ffffff);
+  }
+  :root[data-surface="glass"][data-glass-op][data-glass-op][data-glass-op] {
+    --glass: color-mix(in srgb, var(--gs) var(--glass-op, 72%), transparent);
+    --glass-strong: color-mix(in srgb, var(--gs-strong) min(100%, calc(var(--glass-op, 72%) + 14%)), transparent);
+    --chrome: color-mix(in srgb, var(--gs) max(12%, calc(var(--glass-op, 72%) - 10%)), transparent);
+  }
+}
+
 /* System "Reduce transparency": the glass palette stays, but every panel
    is solid (the colour each one shows over the plain backdrop). */
 @media (prefers-reduced-transparency: reduce) {
@@ -814,4 +838,18 @@ body.is-offline .mark::before { background: var(--text-3); }
     scroll-behavior: auto !important;
   }
   .spinner { animation: spin 1.6s linear infinite !important; }
+}
+
+/* ─── Appearance → Layout (theme.js / the boot script set these on :root) ── */
+:root { --msg-fs: 14.5px; --chat-w: 780px; }
+:root[data-text="s"] { --msg-fs: 13.5px; }
+:root[data-text="l"] { --msg-fs: 16px; }
+:root[data-width="narrow"] { --chat-w: 680px; }
+:root[data-width="wide"] { --chat-w: 980px; }
+:root[data-radius="sharp"] { --r-ctl: 4px; --r-row: 4px; --r-card: 6px; --r-panel: 8px; }
+:root[data-radius="round"] { --r-ctl: 9px; --r-row: 9px; --r-card: 14px; --r-panel: 20px; }
+:root[data-font="system"] {
+  --font-display: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }

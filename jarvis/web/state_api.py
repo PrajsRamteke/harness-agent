@@ -112,6 +112,9 @@ def _tool_entry(block: dict, results: dict[str, tuple[str, bool]],
         "status": ("error" if error else "done") if done else "pending",
         "text": name,
     }
+    from .console_mux import tool_times
+
+    entry.update(tool_times(tid))  # when this run timed it: "603ms", "Worked for 4.7s"
     # Full output lives in tool_output_history (keyed by tool id); keep it out
     # of every transcript payload (SSE/poll/snapshot) so loads stay fast, and
     # let the page fetch it on demand from /api/tool-output?id=<tool id>.

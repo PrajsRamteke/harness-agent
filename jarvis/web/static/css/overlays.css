@@ -489,6 +489,11 @@
 /* ─── Appearance / shortcuts ──────────────────────────────────────────── */
 .small-card { max-width: 480px; max-height: min(740px, 86vh); }
 .small-card .picker-head { border-bottom: 1px solid var(--line); }
+/* Appearance: the same size as Settings, Commands, Skills, MCP (.dlg-card). */
+#appearance .modal-card { max-width: 680px; height: min(720px, 84vh); max-height: none; }
+#appearance .picker-head { padding: 10px 10px 10px 14px; }
+#appearance .settings-body { flex: 1; }
+#appearance .setting-block { padding: 14px 18px 6px; }
 /* The card caps its height and clips; the settings scroll under the head
    instead of the last rows being cut off on shorter screens. */
 .settings-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
@@ -560,6 +565,12 @@
 
 /* Soft contrast strength: a slider under the switch (theme.js) */
 .soft-amount { display: flex; align-items: center; gap: 12px; padding: 4px 0 6px 38px; }
+.glass-op-reset { flex: none; }
+#glass-amount output { min-width: 34px; }
+/* Appearance → Layout: a label and its segmented control per row. */
+.ap-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 2px 0; }
+.ap-label { font-size: 13px; color: var(--text); }
+.ap-row .seg { flex: none; }
 .soft-amount[hidden] { display: none; }
 .soft-amount label { font-size: 12px; color: var(--text-3); }
 .soft-amount output { min-width: 40px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-2); }

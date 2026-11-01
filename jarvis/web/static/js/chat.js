@@ -237,17 +237,25 @@ export function syncTyping() {
 }
 
 function afterAppend({ scroll = true } = {}) {
+  foldSettledGroups();
   syncTyping();
   if (scroll) scrollToBottom();
 }
 
 // ─── Entries ──────────────────────────────────────────────────────────────
 
-function actionButton(iconName, label, onClick) {
+function actionButton(iconName, label, onClick, { iconOnly = false, cls = '' } = {}) {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'act-btn';
-  btn.innerHTML = `${icon(iconName)}<span>${escapeHtml(label)}</span>`;
+  btn.className = `act-btn${iconOnly ? ' is-icon' : ''}${cls ? ` ${cls}` : ''}`;
+  if (iconOnly) {
+    // Just the icon; the name is the tooltip and what screen readers say.
+    btn.innerHTML = icon(iconName);
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+  } else {
+    btn.innerHTML = `${icon(iconName)}<span>${escapeHtml(label)}</span>`;
+  }
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     onClick(btn);
@@ -258,7 +266,57 @@ function actionButton(iconName, label, onClick) {
 function copyAction(getText) {
   return actionButton('copy', 'Copy', async (btn) => {
     if (await copyText(getText())) flashDone(btn);
-  });
+  }, { iconOnly: true });
+}
+
+// ─── Reply actions: Retry (latest reply) · Branch into new chat ──────────
+
+const normText = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+
+/** Which reply this is, for the server: its text + which occurrence of that text. */
+function replyRef(wrap) {
+  const text = wrap.dataset.raw || '';
+  const want = normText(text);
+  let nth = 0;
+  for (const el of chat()?.querySelectorAll('.agent-text') || []) {
+    if (el === wrap) break;
+    if (normText(el.dataset.raw) === want) nth += 1;
+  }
+  return { text, nth };
+}
+
+async function retryReply(wrap, btn) {
+  if (store.busy) {
+    showToast('Jarvis is working — wait for it to finish, or stop it first', true);
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const { runAction } = await import('./actions.js');
+    const res = await runAction('reply_retry', replyRef(wrap));
+    if (!res.ok) return;
+    const { submitPrompt } = await import('./composer.js');
+    await submitPrompt('/retry');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function branchReply(wrap, btn) {
+  if (store.busy) {
+    showToast('Jarvis is working — wait for it to finish, or stop it first', true);
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const { runAction } = await import('./actions.js');
+    const res = await runAction('reply_branch', replyRef(wrap));
+    if (!res.ok) return;
+    const opened = await runAction('session_resume', { session_id: res.session_id });
+    if (opened.ok) showToast('Branched into a new chat — the original is in Recent sessions');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function appendUser(text, files = [], { steered = false } = {}) {
@@ -343,7 +401,11 @@ function makeAgentText(text, { title = '', liveStream = false } = {}) {
   wrap.dataset.raw = text || '';
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
-  actions.appendChild(copyAction(() => wrap.dataset.raw || ''));
+  actions.append(
+    copyAction(() => wrap.dataset.raw || ''),
+    actionButton('rotate-ccw', 'Retry', (btn) => retryReply(wrap, btn), { iconOnly: true, cls: 'act-retry' }),
+    actionButton('git-branch', 'Branch into new chat', (btn) => branchReply(wrap, btn), { iconOnly: true, cls: 'act-branch' }),
+  );
   if (liveStream) actions.hidden = true;
   wrap.append(bubble, actions);
   return { wrap, bubble, body, actions };
@@ -666,6 +728,16 @@ function toolsContainer() {
 
 const STATE_ICON = { done: 'check', error: 'x', pending: 'minus' };
 
+/** 0.603 → "603ms", 4.7 → "4.7s", 75 → "1m 15s". */
+function fmtDuration(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  if (s < 1) return `${Math.max(1, Math.round(s * 1000))}ms`;
+  if (s < 10) return `${s.toFixed(1).replace(/\.0$/, '')}s`;
+  if (s < 60) return `${Math.round(s)}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${Math.round(s - m * 60)}s`;
+}
+
 /** Icon for the kind of work a tool does (falls back to a wrench). */
 function toolKindIcon(name) {
   const n = String(name || '');
@@ -703,6 +775,11 @@ function paintTool(row, data) {
   row.dataset.title = title;
   const args = data.args ?? row.dataset.args ?? '';
   row.dataset.args = args;
+  // Server clock (epoch s) — set on tool_start / tool_done and in snapshots.
+  if (data.t0) row.dataset.t0 = String(data.t0);
+  if (data.t1) row.dataset.t1 = String(data.t1);
+  const took = status !== 'running' && row.dataset.t0 && row.dataset.t1
+    ? fmtDuration(Number(row.dataset.t1) - Number(row.dataset.t0)) : '';
   const hasFull = Boolean(data.has_full) || row.dataset.hasFull === '1';
   const fullChars = data.full_chars ?? data.output_chars ?? row.dataset.fullChars ?? 0;
   if (data.has_full) {
@@ -722,6 +799,7 @@ function paintTool(row, data) {
       <span class="tool-kind">${icon(toolKindIcon(row.dataset.name || data.name))}</span>
       <span class="tool-title">${escapeHtml(title)}</span>
       <span class="tool-args">${escapeHtml(args)}</span>
+      ${took ? `<span class="tool-time">${took}</span>` : ''}
       <span class="tool-state" title="${stateLabel}" aria-label="${stateLabel}">${stateHtml}</span>
       <span class="tool-chev">${hasOut ? icon('chevron-right') : ''}</span>
     </button>
@@ -769,6 +847,7 @@ function createToolRow(data) {
   box.appendChild(markNew(row));
   if (data.id) toolRows.set(String(data.id), row);
   syncToolFold(box);
+  syncToolGroup(box);
   return row;
 }
 
@@ -795,7 +874,9 @@ function syncToolFold(box) {
       box.classList.toggle('is-folded', !expanded);
       syncToolFold(box);
     });
-    box.prepend(btn);
+    const head = box.querySelector(':scope > .tools-head');
+    if (head) head.after(btn);
+    else box.prepend(btn);
   }
   const expanded = box.classList.contains('is-expanded');
   box.classList.toggle('is-folded', !expanded);
@@ -806,6 +887,106 @@ function syncToolFold(box) {
   btn.innerHTML = expanded
     ? `${icon('chevrons-down-up')}<span>Hide earlier tool calls</span>`
     : `${icon('chevrons-up-down')}<span>${hidden.length} earlier tool call${hidden.length === 1 ? '' : 's'}</span>${failed ? `<span class="tm-failed">${failed} failed</span>` : ''}`;
+}
+
+// ─── Tool groups: "Worked for 4.7s · 4 steps" ─────────────────────────────
+// Two or more tool calls in a row get a header that folds them all away.
+// A finished group folds by itself once the reply moves on (unless a step
+// failed, or you opened / closed it yourself — that choice is kept across
+// re-renders, keyed by the group's first tool id).
+
+const groupChoice = new Map(); // first tool id → 'open' | 'closed'
+let groupTicker = null;
+
+function groupKey(box) {
+  return box.querySelector(':scope > .tool')?.dataset.id || '';
+}
+
+function setGroupOpen(box, open) {
+  box.classList.toggle('is-collapsed', !open);
+  box.querySelector(':scope > .tools-head')?.setAttribute('aria-expanded', String(open));
+}
+
+function paintGroupHead(box) {
+  const head = box.querySelector(':scope > .tools-head');
+  if (!head) return;
+  const rows = [...box.querySelectorAll(':scope > .tool')];
+  const running = rows.some((r) => r.dataset.status === 'running');
+  const failed = rows.filter((r) => r.dataset.status === 'error').length;
+  const t0 = Math.min(...rows.map((r) => Number(r.dataset.t0) || Infinity));
+  const t1 = Math.max(...rows.map((r) => Number(r.dataset.t1) || 0));
+  let label;
+  if (running) {
+    // Whole seconds while it runs (this device's clock: it ticks smoothly).
+    const secs = Math.max(1, Math.round((performance.now() - (box._startedAt || performance.now())) / 1000));
+    label = `Working for ${secs < 60 ? `${secs}s` : fmtDuration(secs)}`;
+  } else if (Number.isFinite(t0) && t1 > t0) {
+    label = `Worked for ${fmtDuration(t1 - t0)}`;
+  } else {
+    label = 'Worked';
+  }
+  const state = running ? '<span class="spinner"></span>' : icon(failed ? 'x' : 'check');
+  head.dataset.state = running ? 'running' : failed ? 'error' : 'done';
+  head.innerHTML = `
+    <span class="th-state">${state}</span>
+    <span class="th-title">${escapeHtml(label)}</span>
+    <span class="th-meta">· ${rows.length} steps</span>
+    ${failed ? `<span class="th-failed">${failed} failed</span>` : ''}
+    <span class="th-chev">${icon('chevron-down')}</span>`;
+}
+
+function syncToolGroup(box) {
+  if (!box?.classList?.contains('tools')) return;
+  const rows = box.querySelectorAll(':scope > .tool');
+  let head = box.querySelector(':scope > .tools-head');
+  if (rows.length < 2) {
+    head?.remove();
+    box.classList.remove('is-grouped', 'is-collapsed');
+    return;
+  }
+  if (!head) {
+    head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'tools-head';
+    head.addEventListener('click', () => {
+      const open = box.classList.contains('is-collapsed');
+      setGroupOpen(box, open);
+      const key = groupKey(box);
+      if (key) groupChoice.set(key, open ? 'open' : 'closed');
+    });
+    box.prepend(head);
+    box.classList.add('is-grouped');
+    if (!box._startedAt) box._startedAt = performance.now();
+    const choice = groupChoice.get(groupKey(box));
+    setGroupOpen(box, choice !== 'closed');
+  }
+  paintGroupHead(box);
+  if ([...rows].some((r) => r.dataset.status === 'running')) startGroupTicker();
+}
+
+/** Running groups count their seconds up while visible. */
+function startGroupTicker() {
+  if (groupTicker) return;
+  groupTicker = setInterval(() => {
+    const busyGroups = [...(chat()?.querySelectorAll('.tools.is-grouped') || [])]
+      .filter((b) => b.querySelector(':scope > .tool[data-status="running"]'));
+    busyGroups.forEach(paintGroupHead);
+    if (!busyGroups.length) {
+      clearInterval(groupTicker);
+      groupTicker = null;
+    }
+  }, 1000);
+}
+
+/** Finished groups the reply has moved past fold away (once, unless you chose). */
+function foldSettledGroups() {
+  for (const box of chat()?.querySelectorAll('.tools.is-grouped:not(.is-collapsed)') || []) {
+    if (box._autoFolded || !box.nextElementSibling) continue;
+    if (box.querySelector(':scope > .tool:is([data-status="running"], [data-status="error"])')) continue;
+    if (groupChoice.get(groupKey(box)) === 'open') continue;
+    box._autoFolded = true;
+    setGroupOpen(box, false);
+  }
 }
 
 /** A running row just finished: its check draws in (or it nudges on error). */
@@ -822,6 +1003,7 @@ export function toolStart(data) {
   if (existing?.isConnected && existing.dataset.status === 'running') return;
   if (existing?.isConnected && existing.dataset.status === 'pending') {
     paintTool(existing, { ...data, status: 'running' });
+    syncToolGroup(existing.parentElement);
   } else {
     finalizeLive();
     createToolRow({ ...data, status: 'running' });
@@ -843,6 +1025,7 @@ export function toolDone(data) {
       row.querySelector('.tool-head')?.setAttribute('aria-expanded', 'true');
     }
     syncToolFold(row.parentElement);
+    syncToolGroup(row.parentElement);
   } else {
     createToolRow({ ...data, status });
   }
@@ -857,9 +1040,14 @@ export function updateAgents(board) {
 
 /** Turn ended or was cancelled: nothing is running any more. */
 export function settleTools() {
+  const boxes = new Set();
   for (const row of toolRows.values()) {
-    if (row.isConnected && row.dataset.status === 'running') paintTool(row, { status: 'pending' });
+    if (row.isConnected && row.dataset.status === 'running') {
+      paintTool(row, { status: 'pending' });
+      boxes.add(row.parentElement);
+    }
   }
+  boxes.forEach(syncToolGroup);
 }
 
 // ─── Diffs ────────────────────────────────────────────────────────────────
@@ -1162,6 +1350,7 @@ export function renderSnapshot(data) {
   } finally {
     restoring = false;
   }
+  foldSettledGroups();
   lastSnapshotSig = sig;
   syncThoughtsVisibility();
   syncTyping();

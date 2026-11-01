@@ -21,6 +21,11 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
 
         return run_local_action(action, data, console_print=console_print)
 
+    if action in ("reply_retry", "reply_branch"):
+        from .branch_api import run as run_reply_action
+
+        return run_reply_action(action, data, console_print=console_print)
+
     if action == "pin":
         from .pin_api import apply
 

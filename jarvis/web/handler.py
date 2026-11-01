@@ -5,6 +5,7 @@ import hmac
 import ipaddress
 import json
 import mimetypes
+import os
 import queue
 import re
 import urllib.parse
@@ -477,6 +478,12 @@ class WebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/tunnel":
             self._send_json(200, self._tunnel_request("status"))
+            return
+        if path == "/api/git":
+            # The inspector's git card: branch, ahead/behind, +/−, editors (git_api.py).
+            from . import git_api
+
+            self._send_json(200, git_api.status(os.getcwd()))
             return
         if path == "/api/qr":
             # QR for the link the page would copy. The page may pass the link
@@ -964,6 +971,20 @@ class WebHandler(BaseHTTPRequestHandler):
                 result = launcher.open_project(str(data.get("path") or ""), reuse=bool(data.get("reuse", True)))
             else:
                 result = launcher.stop_project(str(data.get("id") or ""))
+            self._send_json(200, result)
+            return
+
+        if path == "/api/git":
+            # Switch branch, stash, commit, push, PR, open in an editor, write a message.
+            from . import git_api
+
+            op = str(data.get("op") or "")
+            result = git_api.post(op, data, busy=self._busy())
+            if result.get("ok") and op in git_api.MUTATING:
+                try:
+                    self.bridge.emit("git", git_api.status(os.getcwd()))
+                except Exception:
+                    pass
             self._send_json(200, result)
             return
 

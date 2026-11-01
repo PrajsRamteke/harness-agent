@@ -15,6 +15,7 @@ import { initTitleRename } from './rename.js';
 import { initProjects, projectGone, serverLost } from './projects.js';
 import { initFolders } from './folders.js';
 import { initInspector, toggleInspector } from './inspector.js';
+import { initGit } from './git.js';
 import { initChanges } from './changes.js';
 import { initActivity } from './activity.js';
 import { initModals } from './modal.js';
@@ -145,6 +146,7 @@ function boot() {
   initProjects({ onEvent: handleEvent });
   initFolders();
   initInspector();
+  initGit();
   initChanges();
   initActivity();
   initPalette({ onOpenPicker: openPickerByKind });

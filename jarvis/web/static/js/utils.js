@@ -205,7 +205,8 @@ export function flashDone(btn, label = 'Copied') {
   if (!btn) return;
   const prev = btn.innerHTML;
   btn.classList.add('is-done');
-  btn.innerHTML = `${icon('check')}<span>${escapeHtml(label)}</span>`;
+  // Icon-only buttons (Copy under a message, on a code block) stay icon-only.
+  btn.innerHTML = btn.classList.contains('is-icon') ? icon('check') : `${icon('check')}<span>${escapeHtml(label)}</span>`;
   setTimeout(() => {
     btn.classList.remove('is-done');
     btn.innerHTML = prev;

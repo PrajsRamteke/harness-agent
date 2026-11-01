@@ -7,7 +7,7 @@
   z-index: 5;
   flex-shrink: 0;
   width: 100%;
-  max-width: 812px; /* 780px composer + 16px gutters */
+  max-width: calc(var(--chat-w, 780px) + 32px); /* the chat column + 16px gutters */
   margin: 0 auto;
   padding: 0 16px 10px;
 }
