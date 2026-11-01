@@ -22,7 +22,7 @@ from typing import Any
 # Bumped when the page needs something new from this module. A page newer
 # than its server (Python only reloads when Jarvis restarts) checks it before
 # relying on it — e.g. a PR From/Into, which older servers ignored.
-GIT_API_VERSION = 2
+GIT_API_VERSION = 3
 
 GIT_TIMEOUT = 20.0
 NET_TIMEOUT = 180.0
@@ -361,6 +361,221 @@ def commit(cwd: str, message: str, *, then_push: bool = False) -> dict[str, Any]
             return {"ok": False, "error": str(exc)}
 
 
+def _pull_error(text: str) -> str:
+    low = (text or "").lower()
+    if "not possible to fast-forward" in low or "diverging branches" in low or "divergent branches" in low:
+        return ("Your branch and the remote both have new commits, so it can't just move forward — "
+                "merge or rebase in a terminal")
+    if "would be overwritten" in low:
+        names = [ln.strip() for ln in text.splitlines() if ln.startswith(("\t", "    ")) and ln.strip()]
+        which = f" ({', '.join(names[:3])}{'…' if len(names) > 3 else ''})" if names else ""
+        return f"Pulling would overwrite your uncommitted changes{which} — commit or stash them first"
+    if "no tracking information" in low or "no such ref was fetched" in low:
+        return "This branch doesn't track a remote branch — nothing to pull from"
+    return _first_error(text) or "git pull failed"
+
+
+def pull(cwd: str) -> dict[str, Any]:
+    """Fast-forward the branch to its upstream (``git pull --ff-only``): never
+    a merge commit or a rebase made behind your back."""
+    with _lock:
+        st = status(cwd)
+        if not st.get("repo"):
+            return {"ok": False, "error": "Not a git repository"}
+        if st.get("detached"):
+            return {"ok": False, "error": "You're not on a branch — switch to one first"}
+        if not st.get("upstream") or st.get("upstream_gone"):
+            return {"ok": False, "error": "This branch doesn't track a remote branch — nothing to pull from"}
+        before = _git(cwd, "rev-parse", "HEAD")[1].strip()
+        code, out, err = _git(cwd, "pull", "--no-rebase", "--ff-only", timeout=NET_TIMEOUT)
+        if code != 0:
+            return {"ok": False, "error": _pull_error(f"{err}\n{out}")}
+        after = _git(cwd, "rev-parse", "HEAD")[1].strip()
+        if not before or before == after:
+            return {"ok": True, "commits": 0, "upstream": st["upstream"]}
+        n = _git(cwd, "rev-list", "--count", f"{before}..{after}")[1].strip()
+        stat = _git(cwd, "diff", "--shortstat", before, after)[1].strip()
+        return {"ok": True, "commits": int(n) if n.isdigit() else 0, "summary": stat, "upstream": st["upstream"]}
+
+
+# ─── Changed files + one file's diff (the Changes dialog) ─────────────────
+
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"  # git's empty tree: "before" in a repo with no commit
+FILES_MAX = 500               # files listed per side
+COMMITS_MAX = 50              # incoming commits listed
+DIFF_FILE_MAX_BYTES = 1_500_000
+_STATUS = {"A": "added", "D": "deleted", "R": "renamed", "C": "copied", "M": "modified",
+           "T": "modified", "U": "conflict"}
+
+
+def _root(cwd: str) -> str:
+    code, top, _ = _git(cwd, "rev-parse", "--show-toplevel")
+    if code != 0 or not top.strip():
+        raise GitError("Not a git repository")
+    return top.strip()
+
+
+def _name_status(out: str) -> list[dict[str, Any]]:
+    """``git diff --name-status -z`` → [{path, old_path, status}]."""
+    parts, rows, i = out.split("\0"), [], 0
+    while i < len(parts):
+        code = parts[i]
+        if not code:
+            i += 1
+            continue
+        kind = code[0]
+        if kind in "RC" and i + 2 < len(parts):
+            rows.append({"path": parts[i + 2], "old_path": parts[i + 1], "status": _STATUS[kind]})
+            i += 3
+        elif i + 1 < len(parts):
+            rows.append({"path": parts[i + 1], "old_path": "", "status": _STATUS.get(kind, "modified")})
+            i += 2
+        else:
+            break
+    return rows
+
+
+def _numstat(out: str) -> dict[str, tuple[int, int, bool]]:
+    """``git diff --numstat -z`` → {path: (added, removed, binary)}."""
+    parts, res, i = out.split("\0"), {}, 0
+    while i < len(parts):
+        rec = parts[i]
+        if not rec:
+            i += 1
+            continue
+        a, _, rest = rec.partition("\t")
+        r, _, path = rest.partition("\t")
+        if path == "" and i + 2 < len(parts):  # a rename: the paths follow as their own fields
+            path = parts[i + 2]
+            i += 3
+        else:
+            i += 1
+        res[path] = (int(a) if a.isdigit() else 0, int(r) if r.isdigit() else 0, a == "-")
+    return res
+
+
+def _diff_files(root: str, *revs: str) -> list[dict[str, Any]]:
+    names = _name_status(_ok(root, "diff", "-M", "--name-status", "-z", *revs))
+    counts = _numstat(_ok(root, "diff", "-M", "--numstat", "-z", *revs))
+    for row in names:
+        added, removed, binary = counts.get(row["path"], (0, 0, False))
+        row.update(added=added, removed=removed, binary=binary)
+    return names[:FILES_MAX]
+
+
+def _int(v: Any) -> int:
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def changed_files(cwd: str) -> dict[str, Any]:
+    """What differs, file by file: uncommitted work (``local``, vs HEAD, new
+    files included) and what a pull would bring (``incoming``, upstream vs the
+    merge base, with its commits)."""
+    try:
+        st = status(cwd)
+        if not st.get("repo"):
+            raise GitError("Not a git repository")
+        root = _root(cwd)
+        local = _diff_files(root, "HEAD" if st.get("has_head") else EMPTY_TREE)
+        listed = {r["path"] for r in local}
+        others = _git(root, "ls-files", "--others", "--exclude-standard", "-z")[1]
+        for rel in [p for p in others.split("\0") if p][:FILES_MAX]:
+            if rel in listed:
+                continue
+            path = Path(root, rel)
+            lines = _count_lines(path)
+            binary = lines == 0 and path.is_file() and path.stat().st_size > 0
+            local.append({"path": rel, "old_path": "", "status": "untracked", "added": lines,
+                          "removed": 0, "binary": binary})
+        incoming = None
+        up = st.get("upstream") or ""
+        if up and not st.get("upstream_gone") and st.get("has_head") and _int(st.get("behind")):
+            commits = []
+            log = _git(root, "log", f"-n{COMMITS_MAX}", "--format=%h%x1f%s%x1f%an%x1f%cr", f"HEAD..{up}")[1]
+            for ln in log.splitlines():
+                sha, subject, author, when = (ln.split("\x1f") + ["", "", ""])[:4]
+                commits.append({"sha": sha, "subject": subject, "author": author, "when": when})
+            incoming = {"upstream": up, "behind": _int(st.get("behind")), "commits": commits,
+                        "files": _diff_files(root, f"HEAD...{up}")}
+        return {"ok": True, "branch": st.get("branch", ""), "upstream": up,
+                "behind": _int(st.get("behind")), "local": local[:FILES_MAX], "incoming": incoming}
+    except GitError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _blob(root: str, rev: str, path: str) -> str | None:
+    """A file's text at ``rev``; None when it's binary or too big to show."""
+    code, size, _ = _git(root, "cat-file", "-s", f"{rev}:{path}")
+    if code != 0:
+        return ""
+    if not size.strip().isdigit() or int(size) > DIFF_FILE_MAX_BYTES:
+        return None
+    try:
+        code, out, _ = _git(root, "show", f"{rev}:{path}")
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if code != 0:
+        return ""
+    return None if "\0" in out[:8000] else out
+
+
+def _disk(root: str, path: str) -> str | None:
+    full = Path(root, path)
+    try:
+        if not full.resolve().is_relative_to(Path(root).resolve()):
+            return ""
+        if not full.is_file():
+            return ""
+        if full.stat().st_size > DIFF_FILE_MAX_BYTES:
+            return None
+        data = full.read_bytes()
+    except OSError:
+        return ""
+    if b"\0" in data[:8000]:
+        return None
+    return data.decode("utf-8", errors="replace")
+
+
+def file_diff(cwd: str, path: str, side: str = "local") -> dict[str, Any]:
+    """One listed file's diff as numbered hunks (file_changes.build_hunks, the
+    same rows the Changes tab draws). Only paths ``changed_files`` lists."""
+    from ..file_changes import build_hunks
+
+    side = "incoming" if side == "incoming" else "local"
+    listing = changed_files(cwd)
+    if not listing.get("ok"):
+        return listing
+    rows = (listing.get("incoming") or {}).get("files", []) if side == "incoming" else listing.get("local", [])
+    row = next((r for r in rows if r["path"] == path), None)
+    if row is None:
+        return {"ok": False, "code": "gone", "error": "That file has no changes any more"}
+    out: dict[str, Any] = {"ok": True, "side": side, **row, "hunks": [], "hidden": 0}
+    if row.get("binary"):
+        return {**out, "binary": True}
+    try:
+        root = _root(cwd)
+        old_path = row.get("old_path") or path
+        status_ = row["status"]
+        if side == "incoming":
+            up = listing["upstream"]
+            base = _ok(root, "merge-base", "HEAD", up).strip()
+            before = "" if status_ == "added" else _blob(root, base, old_path)
+            after = "" if status_ == "deleted" else _blob(root, up, path)
+        else:
+            has_head = _git(root, "rev-parse", "--verify", "-q", "HEAD")[0] == 0
+            before = "" if status_ in ("added", "untracked") or not has_head else _blob(root, "HEAD", old_path)
+            after = "" if status_ == "deleted" else _disk(root, path)
+    except GitError as exc:
+        return {"ok": False, "error": str(exc)}
+    if before is None or after is None:
+        return {**out, "binary": True, "too_large": True}
+    hunks, hidden = build_hunks(before, after)
+    return {**out, "hunks": hunks, "hidden": hidden}
+
+
 _URL = re.compile(r"https?://\S+")
 
 
@@ -645,12 +860,12 @@ def generate(cwd: str, kind: str = "commit", *, title: str = "") -> dict[str, An
 
 # ─── Entry point for the HTTP handler ─────────────────────────────────────
 
-MUTATING = {"checkout", "stash", "commit", "push", "pr"}
+MUTATING = {"checkout", "stash", "commit", "push", "pr", "pull"}
 
 
 def post(op: str, data: dict[str, Any], *, busy: bool = False) -> dict[str, Any]:
     cwd = os.getcwd()
-    if op in ("checkout", "stash") and busy:
+    if op in ("checkout", "stash", "pull") and busy:
         return {"ok": False, "code": "busy",
                 "error": "Jarvis is working in these files. Wait for it to finish, or stop it first."}
     if op == "open":
@@ -665,6 +880,12 @@ def post(op: str, data: dict[str, Any], *, busy: bool = False) -> dict[str, Any]
         return commit(cwd, str(data.get("message") or ""), then_push=bool(data.get("push")))
     if op == "push":
         return push(cwd)
+    if op == "pull":
+        return pull(cwd)
+    if op == "files":
+        return changed_files(cwd)
+    if op == "diff":
+        return file_diff(cwd, str(data.get("path") or ""), str(data.get("side") or "local"))
     if op == "pr":
         head = str(data.get("head") or "").strip()
         if busy and head and head != status(cwd).get("branch"):

@@ -303,3 +303,220 @@
 .gc-path-ic .ic { width: 13px; height: 13px; }
 .gc-path-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--text); }
 .gc-note .spinner { width: 12px; height: 12px; }
+
+/* Branch row + its pull button: quiet while nothing waits; a solid accent
+   button with the count (and a soft pulse) when there are commits to pull. */
+.gc-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.gc-line .gc-row { flex: 1; min-width: 0; }
+.gc-pull {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: none;
+  min-width: var(--h-md);
+  height: var(--h-md);
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.gc-pull .ic { width: 15px; height: 15px; }
+.gc-pull .spinner { width: 13px; height: 13px; }
+.gc-pull:hover:not(:disabled) { background: var(--card-hover); color: var(--text); }
+.gc-pull.has-new {
+  padding: 0 10px 0 8px;
+  color: var(--primary-fg);
+  background: var(--primary-bg);
+  box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.55);
+  animation: gc-pull-pulse 2.4s var(--ease) infinite;
+}
+.gc-pull.has-new:hover:not(:disabled) { background: var(--primary-hover); color: var(--primary-fg); animation: none; }
+.gc-pull.has-new .ic { animation: gc-pull-bob 2.4s var(--ease) infinite; }
+.gc-pull:disabled { opacity: 0.55; cursor: default; animation: none; }
+.gc-pull:disabled .ic { animation: none; }
+@keyframes gc-pull-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5); }
+  55%, 100% { box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0); }
+}
+@keyframes gc-pull-bob {
+  0%, 60%, 100% { transform: none; }
+  30% { transform: translateY(1.5px); }
+}
+/* The big button, when its job is a pull, wears the accent too. */
+.gc-main[data-op="pull"]:not(:disabled) { color: var(--accent); }
+.gc-changes .gc-nums .gc-incoming { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .gc-pull.has-new, .gc-pull.has-new .ic { animation: none; }
+}
+
+/* ─── Git changes drawer (js/gitchanges.js) ─────────────────────────────── */
+/* Wider than a phone: a full-height panel sliding in from the right. */
+@media (min-width: 561px) {
+  .modal.gx-drawer { justify-content: flex-end; align-items: stretch; padding: 0; }
+  .modal-card.gitchanges-card {
+    width: min(1240px, 92vw);
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    border-radius: var(--r-panel) 0 0 var(--r-panel);
+    border-right: none;
+    animation: gx-in 0.26s var(--ease);
+  }
+  .modal.gx-drawer.is-closing .modal-card { animation: gx-out 0.18s var(--ease) forwards; }
+}
+@keyframes gx-in { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes gx-out { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .modal-card.gitchanges-card, .modal.gx-drawer.is-closing .modal-card { animation: none; }
+}
+
+.gx-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); }
+.gx-side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+.gx-bar { flex: none; padding: 10px 10px 6px; }
+.gx-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 8px 12px; }
+.gx-list.is-loading { opacity: 0.6; transition: opacity 0.2s 0.12s; }
+.gx-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--code-bg); }
+
+/* Narrow (phones, small windows): one pane at a time. */
+@media (max-width: 899px) {
+  .gx-split { grid-template-columns: minmax(0, 1fr); }
+  .gx-side { border-right: none; }
+  .gx-main { display: none; }
+  .gitchanges-card.is-reading .gx-side { display: none; }
+  .gitchanges-card.is-reading .gx-main { display: flex; }
+  .gx-only-wide { display: none !important; }
+  /* The header already names the file: the bar keeps the numbers + tools. */
+  .gx-filehead { min-height: 44px; justify-content: flex-end; }
+  .gx-filehead > .gx-st, .gx-fh-titles { display: none; }
+  .gx-filehead .gx-nums { display: inline-flex !important; margin-right: auto; }
+}
+@media (max-width: 560px) {
+  .modal-card.gitchanges-card { height: 88dvh; }
+}
+
+.gx-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 48px 0; color: var(--text-3); font-size: 13px; }
+.gx-list .dlg-section { margin: 10px 2px 4px; }
+.gx-files { display: flex; flex-direction: column; gap: 1px; }
+.gx-none { margin: 0; padding: 6px 8px; font-size: 12.5px; color: var(--text-3); }
+
+/* Incoming: a card with the commits and the Pull button. */
+.gx-incoming {
+  margin: 4px 0 6px;
+  padding: 10px 10px 8px;
+  border-radius: var(--r-card);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.07);
+}
+.gx-inc-head { display: flex; align-items: center; gap: 10px; }
+.gx-inc-ic { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: var(--r-ctl); background: rgba(var(--accent-rgb), 0.16); color: var(--accent); }
+.gx-inc-ic .ic { width: 15px; height: 15px; }
+.gx-inc-titles { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
+.gx-inc-titles strong { font-size: 13px; font-weight: 600; color: var(--text); }
+.gx-inc-titles span { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-pull { flex: none; height: var(--h-sm); padding: 0 12px; font-size: 12.5px; gap: 6px; }
+.gx-pull .ic { width: 14px; height: 14px; }
+.gx-pull .spinner { width: 12px; height: 12px; }
+.gx-commits { list-style: none; margin: 10px 0 0; padding: 0 0 0 4px; }
+.gx-commit {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: 8px;
+  padding: 3px 0 5px;
+}
+.gx-commit::before { content: ""; position: absolute; left: 4.5px; top: 14px; bottom: -6px; width: 1px; background: rgba(var(--accent-rgb), 0.3); }
+.gx-commit:last-child::before { display: none; }
+.gx-dot { grid-row: 1 / span 2; width: 10px; height: 10px; margin-top: 4px; border-radius: 50%; border: 2px solid var(--accent); background: var(--code-bg); }
+.gx-subj { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--text); }
+.gx-meta { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-3); }
+.gx-sha { font-family: var(--font-mono); color: var(--accent); }
+.gx-more { margin: 2px 0 0 18px; padding: 2px 0; border: none; background: none; color: var(--text-3); font-size: 12px; }
+.gx-more:hover { color: var(--text); text-decoration: underline; }
+
+/* File rows */
+.gx-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--r-ctl);
+  background: none;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+}
+.gx-row:hover { background: var(--card-hover); color: var(--text); }
+.gx-row:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.55); outline-offset: -1px; }
+.gx-row.is-current { background: rgba(var(--accent-rgb), 0.13); color: var(--text); }
+.gx-row.is-current::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+.gx-st {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--card-hover);
+}
+.gx-st.is-modified { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+.gx-st.is-added, .gx-st.is-untracked, .gx-st.is-copied { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.gx-st.is-deleted, .gx-st.is-conflict { color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); }
+.gx-st.is-renamed { color: var(--accent); background: rgba(var(--accent-rgb), 0.15); }
+.gx-path { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
+.gx-name, .gx-dir { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gx-name { font-family: var(--font-mono); font-size: 12.5px; color: var(--text); }
+.gx-dir { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); direction: rtl; text-align: left; }
+.gx-nums { display: inline-flex; gap: 6px; flex: none; font-family: var(--font-mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.gx-nums b { font-weight: 500; }
+.gx-nums .num-add { color: var(--ok); }
+.gx-nums .num-del { color: var(--danger); }
+.gx-nums em { font-style: normal; color: var(--text-3); font-family: var(--font-ui); }
+
+/* Right pane: the file's header + its diff. */
+.gx-filehead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  min-height: 52px;
+  padding: 8px 10px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--glass-strong);
+}
+.gx-filehead .gx-st { width: 22px; height: 22px; font-size: 11.5px; }
+.gx-fh-titles { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.35; }
+.gx-fh-titles strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; color: var(--text); }
+.gx-fh-titles > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-3); }
+.gx-fh-dir { font-family: var(--font-mono); font-size: 11.5px; }
+.gx-filehead .gx-nums { font-size: 12.5px; }
+.gx-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.gx-tsep { width: 1px; height: 16px; margin: 0 4px; background: var(--line); }
+.gx-pos { min-width: 38px; text-align: center; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.gx-diff { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.gx-diff .dv.gx-dv { max-height: none; overflow: visible; font-size: 12.5px; }
+.gx-diff .dv-rows { padding: 6px 0 24px; }
+.gx-diff > .dlg-empty { height: 100%; }
+.gx-diff .dv-skel { padding: 16px; }
+.gx-pick { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; height: 100%; color: var(--text-3); font-size: 13px; }
+.gx-pick .ic { width: 28px; height: 28px; opacity: 0.6; }
+@media (max-width: 560px) {
+  .gx-filehead { padding-left: 12px; }
+  .gx-filehead .gx-nums { display: none; }
+  .gx-fh-dir { display: none; }
+}

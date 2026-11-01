@@ -6,12 +6,14 @@ import { $, escapeHtml, showToast, storageGet, storageSet, BASE } from './utils.
 import { icon } from './icons.js';
 import { api } from './api.js';
 import { store, subscribe } from './store.js';
-import { isInspectorOpen, onInspectorChange, selectTab } from './inspector.js';
+import { isInspectorOpen, onInspectorChange } from './inspector.js';
+import { openGitChanges, refreshGitChanges, initGitChanges } from './gitchanges.js';
 
 const EDITOR_KEY = 'jarvis-git-editor';
-/** The git_api.py this page was written for (GIT_API_VERSION). */
-const NEEDS_API = 2;
+/** The git_api.py this page was written for (GIT_API_VERSION; 3 = pull + changed files). */
+const NEEDS_API = 3;
 const RESTART_NOTE = 'Restart Jarvis to finish updating — it still runs older git code that can only open a PR from the branch you are on';
+const RESTART_PULL = 'Restart Jarvis to finish updating — it still runs older git code without Pull';
 const serverCurrent = () => num(st?.api) >= NEEDS_API;
 const EDITOR_ICON = { finder: 'folder', terminal: 'terminal' };
 const POLL_MS = 15000;
@@ -19,6 +21,7 @@ const POLL_MS = 15000;
 let st = null;            // last /api/git answer
 let form = null;          // null | 'commit' | 'commit-push' | 'pr' | 'stash'
 let working = '';         // the op running right now ('' = idle)
+let pullFrom = '';        // 'primary' | 'icon': which control started the pull (only it spins)
 let menu = null;          // { kind, anchor }
 let branchList = null;    // { current, local, remote }
 let lastPr = '';          // URL of the PR just created
@@ -88,6 +91,7 @@ export function handleGitEvent(data) {
     seq += 1; // newer than any request still on its way
     st = data;
     render();
+    refreshGitChanges();
   }
 }
 
@@ -115,7 +119,26 @@ function primaryAction() {
       icon: 'cloud-upload',
     };
   }
+  if (canPull() && num(st.behind) > 0) {
+    return { op: 'pull', label: `Pull ${plural(num(st.behind), 'commit')}`, icon: 'cloud-download' };
+  }
   return { op: '', label: 'Up to date', icon: 'check', disabled: true, why: 'No changes to commit and nothing to push' };
+}
+
+/** The branch tracks a remote branch, so there's something to pull from. */
+const canPull = () => !!(st?.repo && st.upstream && !st.upstream_gone && !st.detached);
+
+/** The pull button on the branch row: always there while the branch tracks a
+ * remote (it fetches too); lit with the count when commits are waiting. */
+function pullButton(busy) {
+  if (!canPull()) return '';
+  const n = num(st.behind);
+  const pulling = working === 'pull' && pullFrom !== 'primary';
+  const why = busy ? 'Jarvis is working — pull when it finishes'
+    : n ? `Pull ${plural(n, 'commit')} from ${st.upstream}` : `Pull from ${st.upstream} (checks for new commits)`;
+  return `<button type="button" class="gc-pull${n ? ' has-new' : ''}" data-act="pull" ${busy || pulling ? 'disabled' : ''} title="${escapeHtml(why)}" aria-label="${escapeHtml(why)}">
+    ${pulling ? '<span class="spinner"></span>' : icon('cloud-download')}${n ? `<span>${n}</span>` : ''}
+  </button>`;
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────
@@ -153,29 +176,34 @@ function render() {
     return;
   }
   const busy = store.busy;
+  const pullBtn = pullButton(busy);
   const sync = [
     num(st.ahead) ? `<span title="${plural(num(st.ahead), 'commit')} to push">↑${num(st.ahead)}</span>` : '',
-    num(st.behind) ? `<span title="${plural(num(st.behind), 'commit')} to pull">↓${num(st.behind)}</span>` : '',
+    // The pull button shows the ↓ count itself.
+    num(st.behind) && !pullBtn ? `<span title="${plural(num(st.behind), 'commit')} to pull">↓${num(st.behind)}</span>` : '',
   ].join('');
   parts.push(`
-    <button type="button" class="gc-row" data-menu="branch" aria-haspopup="menu" ${busy ? 'disabled title="Jarvis is working — switch branches when it finishes"' : `title="Switch or create a branch"`}>
-      ${icon('git-branch')}<span class="gc-branch">${escapeHtml(st.branch || 'no branch')}${st.detached ? ' <em>detached</em>' : ''}</span>
-      ${sync ? `<span class="gc-sync">${sync}</span>` : ''}
-      <span class="gc-chev">${icon('chevron-down')}</span>
-    </button>`);
+    <div class="gc-line">
+      <button type="button" class="gc-row" data-menu="branch" aria-haspopup="menu" ${busy ? 'disabled title="Jarvis is working — switch branches when it finishes"' : `title="Switch or create a branch"`}>
+        ${icon('git-branch')}<span class="gc-branch">${escapeHtml(st.branch || 'no branch')}${st.detached ? ' <em>detached</em>' : ''}</span>
+        ${sync ? `<span class="gc-sync">${sync}</span>` : ''}
+        <span class="gc-chev">${icon('chevron-down')}</span>
+      </button>${pullBtn}
+    </div>`);
   const main = primaryAction();
-  const mainBusy = working && ['commit', 'push', 'pr'].includes(working);
+  const mainBusy = ['commit', 'push', 'pr'].includes(working) || (working === 'pull' && pullFrom === 'primary');
+  const pullBlocked = main.op === 'pull' && busy;
   parts.push(`
     <div class="gc-split">
-      <button type="button" class="gc-main" data-act="primary" ${main.disabled || mainBusy ? 'disabled' : ''} title="${escapeHtml(main.why || main.label)}">
+      <button type="button" class="gc-main" data-act="primary" data-op="${main.op}" ${main.disabled || mainBusy || pullBlocked ? 'disabled' : ''} title="${escapeHtml(pullBlocked ? 'Jarvis is working — pull when it finishes' : main.why || main.label)}">
         ${mainBusy ? '<span class="spinner"></span>' : icon(main.icon)}<span>${escapeHtml(main.label)}</span>
       </button>
       <button type="button" class="gc-more" data-menu="commit" aria-haspopup="menu" aria-label="More git actions">${icon('chevron-down')}</button>
     </div>`);
   parts.push(`
-    <button type="button" class="gc-row gc-changes" data-act="changes" title="Show the changes">
+    <button type="button" class="gc-row gc-changes" data-act="changes" title="See what changed, file by file">
       ${icon('file-diff')}<span>Changes</span>
-      <span class="gc-nums">${num(st.files) ? `<b class="num-add">+${num(st.added)}</b><b class="num-del">−${num(st.removed)}</b>` : '<em>clean</em>'}</span>
+      <span class="gc-nums">${num(st.files) ? `<b class="num-add">+${num(st.added)}</b><b class="num-del">−${num(st.removed)}</b>` : num(st.behind) ? `<em class="gc-incoming">${num(st.behind)} incoming</em>` : '<em>clean</em>'}</span>
     </button>`);
   rows.innerHTML = parts.join('');
   paintForm();
@@ -573,6 +601,11 @@ function openMenu(kind, anchor) {
         disabled: !pushable, why: !remote ? 'This repository has no remote' : pushable ? '' : 'Nothing to push',
         hint: num(st.ahead) ? `↑${num(st.ahead)}` : '',
       }),
+      menuItem('pull', 'cloud-download', 'Pull', {
+        disabled: !canPull() || store.busy,
+        why: store.busy ? 'Jarvis is working in these files' : !canPull() ? 'This branch doesn\'t track a remote branch' : `Bring in new commits from ${st.upstream} (fast-forward only)`,
+        hint: num(st.behind) ? `↓${num(st.behind)}` : '',
+      }),
       menuItem('pr', 'git-pull-request', 'Create PR', {
         disabled: !remote || !st.gh || st.detached,
         why: !st.gh ? 'Needs the GitHub CLI: brew install gh, then gh auth login' : !remote ? 'This repository has no remote' : 'Open a pull request for this branch',
@@ -639,6 +672,7 @@ async function after(res, okText) {
     showToast(res.error || 'That did not work', true);
   }
   await refreshGit();
+  refreshGitChanges();
   return res.ok;
 }
 
@@ -659,13 +693,25 @@ async function act(name, btn) {
     }
     case 'primary': {
       const main = primaryAction();
-      if (main?.op === 'push') await act('push');
+      if (main?.op === 'push' || main?.op === 'pull') await act(main.op, btn);
       else if (main?.op) setForm(main.op);
       break;
     }
     case 'changes':
-      selectTab('changes');
+      openGitChanges();
       break;
+    case 'pull': {
+      closeMenu();
+      pullFrom = btn?.dataset?.act === 'primary' ? 'primary' : 'icon';
+      const res = await post('pull');
+      pullFrom = '';
+      if (!res.ok && /unknown git op/.test(res.error || '')) res.error = RESTART_PULL;
+      const text = !res.ok ? '' : res.commits
+        ? `Pulled ${plural(res.commits, 'commit')}${res.summary ? ` · ${res.summary}` : ''}`
+        : `Already up to date with ${res.upstream || 'the remote'}`;
+      await after(res, text);
+      break;
+    }
     case 'commit':
     case 'pr':
     case 'stash':
@@ -800,6 +846,7 @@ function schedulePoll() {
 export function initGit() {
   const el = card();
   if (!el) return;
+  initGitChanges({ pull: () => act('pull') });
   el.addEventListener('click', (e) => {
     const m = e.target.closest('[data-menu]');
     if (m && !m.disabled) {
@@ -831,7 +878,10 @@ export function initGit() {
       wasBusy = !!s.busy;
       return;
     }
-    if (wasBusy && !s.busy) refreshGit();
+    if (wasBusy && !s.busy) {
+      refreshGit();
+      refreshGitChanges();
+    }
     else if (s.busy !== wasBusy) render();
     wasBusy = !!s.busy;
   });

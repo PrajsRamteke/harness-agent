@@ -24,7 +24,8 @@ class FakeGit:
         for prefix, answer in self.answers.items():
             if tuple(args[:len(prefix)]) == prefix and (best is None or len(prefix) > len(best[0])):
                 best = (prefix, answer)
-        return best[1] if best else (0, "", "")
+        answer = best[1] if best else (0, "", "")
+        return answer(args) if callable(answer) else answer
 
     def ran(self, *args: str) -> bool:
         return list(args) in self.calls
@@ -303,3 +304,79 @@ def test_same_question_is_answered_from_the_cache(monkeypatch):
     assert git_api._ask_model("sys", "diff A") == "fix: x"
     assert git_api._ask_model("sys", "diff B") == "fix: x"
     assert calls == ["diff A", "diff B"]
+
+
+# ─── Pull + the Changes dialog ────────────────────────────────────────────
+
+BEHIND = {
+    **REPO,
+    ("git", "status"): (0, "## main...origin/main [behind 2]\n", ""),
+    ("git", "diff", "--numstat", "HEAD"): (0, "", ""),
+}
+
+
+def test_pull_fast_forwards_and_reports_what_came_in(fake):
+    heads = iter(["old\n", "new\n"])  # HEAD before and after the pull
+    f = fake({**BEHIND,
+              ("git", "rev-parse", "HEAD"): lambda args: (0, next(heads), ""),
+              ("git", "pull"): (0, "Fast-forward\n", ""),
+              ("git", "rev-list", "--count"): (0, "2\n", ""),
+              ("git", "diff", "--shortstat"): (0, " 3 files changed, 3 insertions(+)\n", "")})
+    res = git_api.pull("/repo")
+    assert res == {"ok": True, "commits": 2, "summary": "3 files changed, 3 insertions(+)", "upstream": "origin/main"}
+    assert f.ran("git", "pull", "--no-rebase", "--ff-only")  # never a merge commit or a rebase
+    assert f.ran("git", "rev-list", "--count", "old..new")
+
+
+def test_pull_explains_why_it_could_not(fake):
+    fake({**BEHIND, ("git", "pull"): (1, "", "error: Your local changes to the following files would be overwritten by merge:\n\ta.py\nPlease commit")})
+    res = git_api.pull("/repo")
+    assert not res["ok"] and "a.py" in res["error"] and "commit or stash" in res["error"]
+    fake({**BEHIND, ("git", "pull"): (128, "", "fatal: Not possible to fast-forward, aborting.")})
+    assert "merge or rebase" in git_api.pull("/repo")["error"]
+    fake({**BEHIND, ("git", "status"): (0, "## main\n", "")})
+    res = git_api.pull("/repo")
+    assert not res["ok"] and "doesn't track" in res["error"]
+
+
+def test_pull_waits_while_jarvis_works(fake):
+    f = fake(BEHIND)
+    res = git_api.post("pull", {}, busy=True)
+    assert res["code"] == "busy" and not any(c[:2] == ["git", "pull"] for c in f.calls)
+    assert "pull" in git_api.MUTATING
+
+
+def test_changed_files_lists_incoming_and_uncommitted(fake, tmp_path):
+    (tmp_path / "new.txt").write_text("a\nb\n")
+    fake({**BEHIND,
+          ("git", "rev-parse", "--show-toplevel"): (0, f"{tmp_path}\n", ""),
+          ("git", "diff", "-M", "--name-status", "-z", "HEAD"): (0, "M\0a.py\0", ""),
+          ("git", "diff", "-M", "--numstat", "-z", "HEAD"): (0, "3\t1\ta.py\0", ""),
+          ("git", "ls-files", "--others"): (0, "new.txt\0", ""),
+          ("git", "log"): (0, "abc1234\x1fAdd x\x1fSam\x1f2 hours ago\n", ""),
+          ("git", "diff", "-M", "--name-status", "-z", "HEAD...origin/main"): (0, "R090\0old.py\0new.py\0A\0b.md\0", ""),
+          ("git", "diff", "-M", "--numstat", "-z", "HEAD...origin/main"): (0, "4\t2\t\0old.py\0new.py\0-\t-\tb.md\0", "")})
+    res = git_api.changed_files(str(tmp_path))
+    assert res["ok"] and res["behind"] == 2
+    assert [(r["path"], r["status"], r["added"], r["removed"]) for r in res["local"]] == [
+        ("a.py", "modified", 3, 1), ("new.txt", "untracked", 2, 0)]
+    inc = res["incoming"]
+    assert inc["commits"] == [{"sha": "abc1234", "subject": "Add x", "author": "Sam", "when": "2 hours ago"}]
+    assert inc["files"][0] == {"path": "new.py", "old_path": "old.py", "status": "renamed",
+                               "added": 4, "removed": 2, "binary": False}
+    assert inc["files"][1]["binary"] is True
+
+
+def test_file_diff_only_for_listed_files_and_reads_both_sides(fake, tmp_path):
+    (tmp_path / "a.py").write_text("one\nTWO\n")
+    fake({**BEHIND,
+          ("git", "rev-parse", "--show-toplevel"): (0, f"{tmp_path}\n", ""),
+          ("git", "diff", "-M", "--name-status", "-z", "HEAD"): (0, "M\0a.py\0", ""),
+          ("git", "diff", "-M", "--numstat", "-z", "HEAD"): (0, "1\t1\ta.py\0", ""),
+          ("git", "cat-file", "-s"): (0, "8\n", ""),
+          ("git", "show", "HEAD:a.py"): (0, "one\ntwo\n", "")})
+    res = git_api.file_diff(str(tmp_path), "a.py", "local")
+    rows = res["hunks"][0]["rows"]
+    assert ["-", 2, None, "two"] in rows and ["+", None, 2, "TWO"] in rows
+    # Anything the listing doesn't name is refused — the page never picks a path to read.
+    assert git_api.file_diff(str(tmp_path), "../secret", "local")["code"] == "gone"
