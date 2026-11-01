@@ -171,9 +171,49 @@ def pip_install_repo(repo_root: pathlib.Path, *, timeout: int = 180) -> bool:
             text=True,
             timeout=timeout,
         )
+        if r.returncode == 0:
+            link_short_commands()
         return r.returncode == 0
     except Exception:
         return False
+
+
+def link_short_commands() -> list[pathlib.Path]:
+    """Put ``jw`` beside every ``jarvis`` link on PATH that points into this venv.
+
+    The installers link ``jw`` themselves; this covers installs made before
+    ``jw`` existed (``jarvis update`` reinstalls, the link was never made).
+    Never replaces a ``jw`` that isn't a link into a Jarvis venv. Never raises.
+    """
+    made: list[pathlib.Path] = []
+    try:
+        venv_bin = pathlib.Path(running_python()).parent
+        target = venv_bin / "jw"
+        if not target.is_file():
+            return made
+        for folder in os.environ.get("PATH", "").split(os.pathsep):
+            if not folder:
+                continue
+            link = pathlib.Path(folder) / "jarvis"
+            try:
+                if not link.is_symlink() or link.resolve().parent != venv_bin.resolve():
+                    continue
+                jw = link.parent / "jw"
+                if jw.is_symlink():
+                    if not str(os.readlink(jw)).endswith("/.venv/bin/jw"):
+                        continue
+                    if jw.resolve() == target.resolve():
+                        continue
+                    jw.unlink()
+                elif jw.exists():
+                    continue
+                jw.symlink_to(target)
+                made.append(jw)
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return made
 
 
 def harness_agent_models_available() -> bool:
