@@ -118,6 +118,13 @@ def forward(
 
     headers = {name: handler.headers[name] for name in _FORWARD_REQUEST if handler.headers.get(name)}
     headers["Authorization"] = f"Bearer {token}"
+    # The other instance sees this request come from 127.0.0.1. When the
+    # visitor didn't come direct (an Anywhere tunnel), say so with a proxy
+    # header, or its local-only features (the terminal, handing out links)
+    # would treat a tunnel visitor as this computer.
+    direct = getattr(handler, "_may_hand_out_token", None)
+    if callable(direct) and not direct():
+        headers["X-Forwarded-For"] = str((handler.client_address or ("",))[0] or "unknown")
     method = handler.command
     length = int(handler.headers.get("Content-Length") or 0) if method == "POST" else 0
 

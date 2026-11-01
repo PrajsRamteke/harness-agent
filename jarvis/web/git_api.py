@@ -729,16 +729,19 @@ _gen_cache: dict[str, tuple[float, str]] = {}
 
 
 def _ask_model(system: str, user: str, *, max_tokens: int = 1024) -> str:
-    """One side request to the current model (not part of the conversation).
+    """One side request to the git text model (not part of the conversation).
 
+    Settings → *Commit text model* decides which model answers: Auto (the
+    chat's own, the default) or a provider/model picked just for this work.
     Answers are kept for ``GEN_CACHE_TTL`` keyed by model + prompt, so asking
     again for unchanged changes is instant.
     """
     import hashlib
 
-    from .. import state
+    from .. import side_model, state
 
-    key = hashlib.sha1(f"{state.provider}|{state.MODEL}|{max_tokens}|{system}|{user}".encode("utf-8", "replace")).hexdigest()
+    source, side = side_model.preference()
+    key = hashlib.sha1(f"{source or state.provider}|{side or state.MODEL}|{max_tokens}|{system}|{user}".encode("utf-8", "replace")).hexdigest()
     hit = _gen_cache.get(key)
     if hit and time.monotonic() - hit[0] < GEN_CACHE_TTL:
         return hit[1]
@@ -751,23 +754,29 @@ def _ask_model(system: str, user: str, *, max_tokens: int = 1024) -> str:
 
 
 def _ask_model_uncached(system: str, user: str, *, max_tokens: int) -> str:
-    from .. import state
+    from .. import side_model
     from ..constants import AUTH_OAUTH, OAUTH_IDENTITY, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN
     from ..prompt_enhance import _blocks, _short_error
 
-    client = state.client
+    try:
+        client, model, provider, auth_mode = side_model.resolve()
+    except Exception as exc:  # noqa: BLE001 — a misconfigured pick must say so
+        raise GitError(
+            f"The commit text model ({side_model.label()}) isn't available — {exc}. "
+            "Set it back to Auto in Settings."
+        ) from exc
     if client is None:
         raise GitError("No model connected — run /provider")
     sys_prompt: Any = system
-    if state.auth_mode == AUTH_OAUTH:
+    if auth_mode == AUTH_OAUTH:
         sys_prompt = [{"type": "text", "text": OAUTH_IDENTITY}, {"type": "text", "text": system}]
     answer_tool = {
         "name": "write_text", "description": "Return the text you wrote. Call it once.",
         "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
     }
-    kwargs: dict[str, Any] = dict(model=state.MODEL, max_tokens=max_tokens, system=sys_prompt,
+    kwargs: dict[str, Any] = dict(model=model, max_tokens=max_tokens, system=sys_prompt,
                                   messages=[{"role": "user", "content": user}])
-    if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+    if provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
         kwargs["thinking"] = {"type": "disabled"}
     if getattr(client, "gate_tools", None):  # gateways that force tools into every request
         kwargs["tools"] = [answer_tool]

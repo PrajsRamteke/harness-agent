@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from ..constants import THINK_EFFORTS, DEFAULT_THINK_EFFORT
+from .. import side_model
 
 
 def message_text(content: Any, *, include_thinking: bool = False) -> str:
@@ -410,6 +411,7 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "session_id": state.current_session_id,
         "agent": state.active_agent_name or "",
         "provider": state.provider,
+        "side_model": side_model.public(),
         "think_mode": state.think_mode,
         "think_effort": state.think_effort,
         "think": _think_fields(),

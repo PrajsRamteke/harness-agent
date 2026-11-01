@@ -104,7 +104,8 @@ function watchChrome() {
   measure();
   if (typeof ResizeObserver === 'undefined') return;
   const ro = new ResizeObserver(measure);
-  [main, top, dock, comp].forEach((el) => ro.observe(el));
+  // The transcript itself too: a panel opening above the dock (terminal) shrinks it.
+  [main, top, dock, comp, sc].forEach((el) => ro.observe(el));
 }
 
 function hideJump() {

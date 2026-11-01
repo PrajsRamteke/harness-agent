@@ -356,6 +356,8 @@ export async function switchProject(id, { push = true } = {}) {
   }
   prefetched.delete(id);
   setBase(base);
+  // Per-project views that hold their own connections (terminal.js) re-attach.
+  document.dispatchEvent(new Event('jarvis:project-switched'));
   if (push) {
     try { history.pushState({ project: id }, '', hrefFor(id)); } catch { /* sandboxed */ }
   }

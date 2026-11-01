@@ -436,14 +436,104 @@ class WebHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
 
+    # ─── Terminal (terminal_api.py): a real shell on a PTY ───────────────
+    def _terminal_allowed(self) -> bool:
+        """A shell is outside the approval flow: direct visits only.
+
+        The token is private, but an Anywhere link is made to be handed to a
+        phone, so a page that came through the tunnel never gets one.
+        """
+        return self._may_hand_out_token()
+
+    _TERMINAL_DENIED = {
+        "ok": False,
+        "code": "local_only",
+        "error": "The terminal is only available on this computer or your own network.",
+    }
+
+    def _handle_terminal_get(self, path: str, qs: dict[str, list[str]]) -> bool:
+        from . import terminal_api
+
+        if path == "/api/terminal/list":
+            self._send_json(200, {
+                "ok": True,
+                "allowed": self._may_hand_out_token(),
+                "terminals": terminal_api.list_terminals(),
+                "cwd": os.getcwd(),
+                "shell": os.environ.get("SHELL") or "",
+            })
+            return True
+        if path == "/api/terminal/read":
+            if not self._terminal_allowed():
+                self._send_json(200, self._TERMINAL_DENIED)
+                return True
+            tid = self._query_str(qs, "id")
+            session = terminal_api.get_terminal(tid)
+            if session is None:
+                self._send_json(404, {"ok": False, "code": "gone", "error": "That terminal closed."})
+                return True
+            try:
+                cursor = max(0, int(self._query_str(qs, "cursor", "0") or 0))
+            except ValueError:
+                cursor = 0
+            wait = min(terminal_api.READ_WAIT_MAX, max(0.0, float(self._query_int(qs, "wait", 15000)) / 1000.0))
+            self._send_json(200, session.read(cursor, wait))
+            return True
+        return False
+
+    def _handle_terminal_post(self, path: str, data: dict[str, Any]) -> bool:
+        from . import terminal_api
+
+        if not path.startswith("/api/terminal/"):
+            return False
+        if not self._terminal_allowed():
+            self._send_json(403, self._TERMINAL_DENIED)
+            return True
+        if path == "/api/terminal/open":
+            cwd = terminal_api.cwd_for_shell(str(data.get("cwd") or ""))
+            result = terminal_api.open_terminal(
+                cols=int(data.get("cols") or 80),
+                rows=int(data.get("rows") or 24),
+                cwd=cwd,
+            )
+            self._send_json(200, result)
+            return True
+        tid = str(data.get("id") or "")
+        if path == "/api/terminal/close":
+            self._send_json(200, {"ok": terminal_api.close_terminal(tid)})
+            return True
+        session = terminal_api.get_terminal(tid)
+        if session is None:
+            self._send_json(404, {"ok": False, "code": "gone", "error": "That terminal closed."})
+            return True
+        if path == "/api/terminal/input":
+            ok = session.write(str(data.get("data") or ""))
+            self._send_json(200, {"ok": ok})
+            return True
+        if path == "/api/terminal/resize":
+            session.resize(int(data.get("cols") or 80), int(data.get("rows") or 24))
+            self._send_json(200, {"ok": True})
+            return True
+        if path == "/api/terminal/rename":
+            title = str(data.get("title") or "").strip()[:40]
+            if title:
+                session.title = title
+            self._send_json(200, {"ok": True, "terminal": session.public()})
+            return True
+        self._send_json(404, {"ok": False, "error": "unknown terminal action"})
+        return True
+
     def _handle_api_get(self, path: str, qs: dict[str, list[str]]) -> None:
+        if self._handle_terminal_get(path, qs):
+            return
         if path == "/api/sessions":
             limit = self._query_int(qs, "limit", 50)
             offset = self._query_int(qs, "offset", 0)
             self._send_json(200, list_sessions(limit=limit, offset=offset))
             return
         if path == "/api/models":
-            self._send_json(200, list_models(query=self._query_str(qs, "q")))
+            self._send_json(200, list_models(query=self._query_str(qs, "q"),
+                                             for_side=self._query_str(qs, "for") == "side"))
             return
         if path == "/api/agents":
             raw = self._query_str(qs, "include_global", "")
@@ -688,6 +778,8 @@ class WebHandler(BaseHTTPRequestHandler):
         self._send_json(200 if ok else 503, {"ok": ok})
 
     def _handle_api_post(self, path: str, data: dict[str, Any]) -> None:
+        if self._handle_terminal_post(path, data):
+            return
         if path.startswith("/api/providers/"):
             self._handle_providers_post(path, data)
             return

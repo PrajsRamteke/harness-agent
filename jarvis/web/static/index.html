@@ -74,6 +74,8 @@
   <link rel="stylesheet" href="/static/css/tabs.css">
   <link rel="stylesheet" href="/static/css/settings.css">
   <link rel="stylesheet" href="/static/css/git.css">
+  <link rel="stylesheet" href="/static/vendor/xterm.css">
+  <link rel="stylesheet" href="/static/css/terminal.css">
 </head>
 <body>
   <div class="backdrop" aria-hidden="true">
@@ -244,6 +246,10 @@
         <button class="cmd-btn" id="palette-btn" type="button" aria-label="Commands (Ctrl+K)">
           <span data-icon="command"></span><span class="cmd-btn-label">Commands</span><kbd id="palette-kbd">Ctrl K</kbd>
         </button>
+        <button class="icon-btn term-btn" id="term-btn" type="button" aria-controls="term-panel" aria-expanded="false" aria-label="Terminal" title="Terminal (Ctrl + `)">
+          <span data-icon="terminal"></span>
+          <span class="term-live-dot" id="term-live-dot" hidden aria-hidden="true"></span>
+        </button>
         <button class="insp-btn" id="insp-btn" type="button" aria-controls="inspector" aria-expanded="false" aria-label="Changes and activity" title="Changes and activity (Alt D)">
           <span class="insp-ic" data-icon="panel-right"></span>
           <span class="insp-stat" id="insp-stat" hidden><b class="num-add" id="insp-add">+0</b><b class="num-del" id="insp-del">−0</b></span>
@@ -339,6 +345,54 @@
           <span><kbd class="kbd-alt">Alt</kbd><kbd>E</kbd> enhance</span>
         </p>
       </div>
+
+      <section class="term-panel" id="term-panel" aria-label="Terminal" aria-hidden="true" inert hidden>
+        <div class="term-resize" id="term-resize" role="separator" aria-orientation="horizontal" aria-label="Resize terminal" tabindex="0" title="Drag to resize · double-click to reset"></div>
+        <header class="term-head">
+          <div class="term-tabs" id="term-tabs" role="tablist" aria-label="Terminals"></div>
+          <button class="term-add" id="term-add" type="button" title="New terminal" aria-label="New terminal">
+            <span data-icon="plus"></span>
+          </button>
+          <span class="term-spacer"></span>
+          <div class="term-tools" role="toolbar" aria-label="Terminal actions">
+            <button class="term-tool term-touch-only" id="term-copy" type="button" title="Copy selection" aria-label="Copy selection">
+              <span data-icon="copy"></span>
+            </button>
+            <button class="term-tool term-touch-only" id="term-paste" type="button" title="Paste" aria-label="Paste">
+              <span data-icon="clipboard-paste"></span>
+            </button>
+            <button class="term-tool" id="term-search" type="button" aria-pressed="false" title="Find (⌘F)" aria-label="Find in terminal">
+              <span data-icon="search"></span>
+            </button>
+            <button class="term-tool" id="term-clear" type="button" title="Clear" aria-label="Clear terminal">
+              <span data-icon="ban"></span>
+            </button>
+            <button class="term-tool" id="term-split" type="button" aria-pressed="false" title="Split side by side" aria-label="Split side by side">
+              <span data-icon="columns-2"></span>
+            </button>
+            <span class="term-sep" aria-hidden="true"></span>
+            <button class="term-tool" id="term-max" type="button" aria-pressed="false" title="Maximize" aria-label="Maximize terminal">
+              <span data-icon="maximize-2"></span>
+            </button>
+            <button class="term-tool" id="term-hide" type="button" title="Hide panel (Ctrl + `) — shells keep running" aria-label="Hide terminal panel">
+              <span data-icon="chevron-down"></span>
+            </button>
+          </div>
+        </header>
+        <div class="term-find" id="term-find" hidden>
+          <span data-icon="search" aria-hidden="true"></span>
+          <input id="term-find-input" type="text" placeholder="Find in terminal" autocomplete="off" spellcheck="false" aria-label="Find in terminal">
+          <button class="term-tool" id="term-find-prev" type="button" title="Previous match (Shift + Enter)" aria-label="Previous match"><span data-icon="chevron-up"></span></button>
+          <button class="term-tool" id="term-find-next" type="button" title="Next match (Enter)" aria-label="Next match"><span data-icon="chevron-down"></span></button>
+          <button class="term-tool" id="term-find-close" type="button" title="Close (Esc)" aria-label="Close find"><span data-icon="x"></span></button>
+        </div>
+        <div class="term-body" id="term-body"></div>
+        <div class="term-empty" id="term-empty" hidden>
+          <span class="term-empty-ic" data-icon="terminal"></span>
+          <p>No terminal open</p>
+          <button class="btn" id="term-empty-new" type="button">Open a terminal</button>
+        </div>
+      </section>
     </main>
 
     <aside class="inspector glass" id="inspector" aria-label="Changes and activity" aria-hidden="true" inert>
@@ -792,6 +846,9 @@
     <span data-icon="quote" aria-hidden="true"></span><span>Quote</span>
   </button>
 
+  <script src="/static/vendor/xterm.min.js"></script>
+  <script src="/static/vendor/addon-fit.min.js"></script>
+  <script src="/static/vendor/addon-search.min.js"></script>
   <script type="module" src="/static/js/app.js"></script>
   <script>
     // Boot watchdog: if any module failed to download (flaky Wi-Fi, a busy

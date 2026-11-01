@@ -22,6 +22,7 @@ import {
   pickerAction,
   fetchSessions,
   fetchModels,
+  fetchSideModels,
   fetchAgents,
 } from './api.js';
 
@@ -352,6 +353,7 @@ function freeLess(desc) {
 }
 
 const modelSpec = {
+  target: 'model',
   searchArg: true,
   title: 'Models',
   sub: 'Used for the next message',
@@ -421,7 +423,14 @@ const modelSpec = {
       sub: m.free ? freeLess(m.description) : m.description || '',
       current: m.active,
       meta: tags ? `<span class="lr-tags">${tags}</span>` : '',
-      pick: () => (m.active ? closePicker() : pickAndClose('model_select', { option_id: m.id }, `Model: ${m.model_id}`)),
+      pick: () => {
+        if (this.target === 'side') {
+          const data = { source: m.source, model_id: m.model_id };
+          return pickAndClose('side_model_select', data, `Commit text model: ${m.model_id}`)
+            .then((res) => { if (res.ok) openSettings(); return res; });
+        }
+        return m.active ? closePicker() : pickAndClose('model_select', { option_id: m.id }, `Model: ${m.model_id}`);
+      },
     });
   },
   /** "Collapse all" / "Expand all" — at the right of the list's header, like every dialog's section controls. */
@@ -575,9 +584,33 @@ const agentSpec = {
   },
 };
 
+/** The model picker again, but the choice is saved as the commit text model
+ *  (Settings → Commit text model) and the chat's own model is left alone. */
+const gitModelSpec = {
+  ...modelSpec,
+  target: 'side',
+  title: 'Commit text model',
+  sub: 'Writes commit messages, PR titles and branches',
+  icon: 'git-branch',
+  secondary: null,  // no provider/local shortcuts: this picker only picks a model
+  async load(q) {
+    this.data = await fetchSideModels(q);
+    this.query = q;
+    return this.build();
+  },
+  action: {
+    label: 'Auto',
+    ic: 'sparkles',
+    title: 'Use the chat\u2019s own model, like now',
+    run: () => pickAndClose('side_model_select', { source: '', model_id: '' }, 'Commit text model: Auto')
+      .then((res) => { if (res.ok) openSettings(); return res; }),
+  },
+};
+
 const SPECS = {
   session: sessionSpec,
   model: modelSpec,
+  git_model: gitModelSpec,
   agent: agentSpec,
 };
 

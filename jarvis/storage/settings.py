@@ -67,6 +67,9 @@ DEFAULTS: dict[str, Any] = {
     # parallel subagents (spawn_agents): on/off · agents running at once · model requests per agent · minutes per agent
     "subagents": {"enabled": True, "max_parallel": 20, "max_steps": 40, "timeout_min": 20},  # pin your prompt above a long reply
     "web":    {"qr": True, "tunnel": "auto", "keep_awake": True},  # corner QR · Anywhere provider (auto|cloudflare|ngrok) · keep the Mac awake while Anywhere runs
+    # model that writes git text (commit / PR title + description / branch):
+    # empty source+model = Auto, i.e. whatever the chat is using
+    "side":   {"source": "", "model": ""},
 }
 
 

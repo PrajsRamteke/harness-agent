@@ -335,6 +335,13 @@ export function fetchModels(q = '') {
   return api(`/api/models${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 }
 
+/** The same list, but "In use" marks the commit text model instead of the chat's. */
+export function fetchSideModels(q = '') {
+  const params = new URLSearchParams({ for: 'side' });
+  if (q) params.set('q', q);
+  return api(`/api/models?${params}`);
+}
+
 export function fetchAgents(includeGlobal) {
   const qs = includeGlobal === undefined ? '' : `?include_global=${includeGlobal ? '1' : '0'}`;
   return api(`/api/agents${qs}`);

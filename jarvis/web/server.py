@@ -186,6 +186,10 @@ def stop_web_server(server: _JarvisHTTPServer | None, bridge: WebBridge | None) 
         from ..mcp.registry import mcp_registry
 
         mcp_registry.remove_listener(mcp_listener)
+    # The web page's terminals are shells on this computer: none survives us.
+    from . import terminal_api
+
+    terminal_api.close_all()
     server.shutdown()      # waits for serve_forever's loop (≤ poll interval)
     server.server_close()
 

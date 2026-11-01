@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 from ..console import console
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from anthropic import Anthropic
 from ..constants import (
     KEY_FILE, OPENROUTER_KEY_FILE, OPENCODE_ZEN_KEY_FILE, AUTH_MODE_FILE, PROVIDER_FILE,
@@ -481,6 +483,73 @@ def _build_claude_agent_client():
     from .claude_agent_client import ClaudeAgentClient
 
     return ClaudeAgentClient()
+
+
+def build_side_client(source: str, model: str = "") -> "tuple[Any, str, str]":
+    """A one-off client for a provider other than the session's.
+
+    Returns ``(client, provider, auth_mode)`` without touching ``state.client``,
+    ``state.provider`` or the saved provider: the Settings "Commit text model"
+    override asks another provider for a small piece of text (commit message,
+    PR title/description, branch name) while the chat keeps its own model.
+    Raises ``RuntimeError`` with a readable reason when the provider isn't set
+    up (no key, signed out, unknown catalog row).
+    """
+    from ..constants import (PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
+                             PROVIDER_OPENAI_CODEX_AUTH)
+    from ..constants.providers import is_catalog_provider, is_local_provider
+
+    if source == PROVIDER_HARNESS_AGENT or source == PROVIDER_OPENCODE_ZEN:
+        keep = state.harness_agent_free
+        try:
+            client = _build_opencode_zen_client_for_model(model, source=source)
+        finally:
+            state.harness_agent_free = keep
+        return client, PROVIDER_OPENCODE_ZEN, ""
+    if source == PROVIDER_OPENCODE:
+        return _build_opencode_client(), PROVIDER_OPENCODE, ""
+    if source == PROVIDER_OPENROUTER:
+        return _build_openrouter_client(), PROVIDER_OPENROUTER, ""
+    if source == PROVIDER_ANTHROPIC_API:
+        return _build_anthropic_side(AUTH_API_KEY), PROVIDER_ANTHROPIC, AUTH_API_KEY
+    if source == PROVIDER_ANTHROPIC_AUTH:
+        return _build_anthropic_side(AUTH_OAUTH), PROVIDER_ANTHROPIC, AUTH_OAUTH
+    if source == PROVIDER_OPENAI_CODEX_AUTH:
+        client = _build_codex_client()
+        if client is None:
+            raise RuntimeError("ChatGPT is signed out — sign in again in Providers")
+        return client, PROVIDER_OPENAI_CODEX, ""
+    if source == PROVIDER_ANTIGRAVITY:
+        client = _build_antigravity_client()
+        if client is None:
+            raise RuntimeError("Google Antigravity is signed out — sign in again in Providers")
+        return client, PROVIDER_ANTIGRAVITY, ""
+    if source == PROVIDER_CLAUDE_AGENT:
+        client = _build_claude_agent_client()
+        if client is None:
+            raise RuntimeError("the Claude Code CLI isn't ready on this Mac")
+        return client, PROVIDER_CLAUDE_AGENT, ""
+    if is_catalog_provider(source):
+        return _build_catalog_client(source), source, ""
+    if is_local_provider(source):
+        return _build_local_client(source), source, ""
+    raise RuntimeError(f"unknown provider '{source}'")
+
+
+def _build_anthropic_side(mode: str) -> Anthropic:
+    """Anthropic with an explicit auth mode (the session's mode is ignored)."""
+    from anthropic import Anthropic
+
+    if mode == AUTH_OAUTH:
+        tokens = get_fresh_oauth_token()
+        if not tokens:
+            raise RuntimeError("Anthropic is signed out — sign in again in Providers")
+        return Anthropic(api_key=None, auth_token=tokens["access_token"],
+                         timeout=_http_timeout(openrouter=False),
+                         default_headers=oauth_client_headers())
+    if not _has_anthropic_api_key():
+        raise RuntimeError("no Anthropic API key — add one in Providers")
+    return Anthropic(api_key=load_key(), timeout=_http_timeout(openrouter=False))
 
 
 def _fallback_harness_agent_client(*, preferred_model: str = ""):

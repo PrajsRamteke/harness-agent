@@ -103,6 +103,19 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
         _apply_model_selection(model_id, source=source)
         return {"ok": True, "model": state.MODEL, "provider": state.provider}
 
+    if action == "side_model_select":
+        from .pickers_api import parse_model_body
+        from .. import side_model
+
+        source, model_id = parse_model_body(data)
+        if not source and not model_id:
+            side_model.set_preference("", "")
+        elif not source or not model_id:
+            return {"ok": False, "error": "source and model_id required"}
+        else:
+            side_model.set_preference(source, model_id)
+        return {"ok": True, "side_model": side_model.public()}
+
     if action == "agent_select":
         from ..storage import agents as ag
 

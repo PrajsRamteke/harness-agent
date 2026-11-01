@@ -24,7 +24,7 @@ import { fetchSettingsAll, settingsPost } from './api.js';
 import { patch } from './extui.js';
 import { toolbar, section, footer, empty } from './dialog.js';
 import { effortRows } from './effort.js';
-import { setSetting, setEffort } from './actions.js';
+import { setSetting, setEffort, runAction } from './actions.js';
 import { openAppearance } from './theme.js';
 
 let data = null; // last /api/settings/all
@@ -87,6 +87,13 @@ function clientSections() {
           control: pickHtml('effort', 'Thinking effort', effortChoices().find((o) => o.value === currentEffort())),
           keys: 'thinking effort reasoning think level',
         },
+        {
+          label: 'Commit text model',
+          desc: sideModelDesc(s),
+          icon: 'git-branch',
+          control: pickHtml('side_model', 'Commit text model', { label: sideModelLabel(s) }),
+          keys: 'commit git stash pr title description branch text side model cheap fast',
+        },
       ],
     },
     {
@@ -128,8 +135,23 @@ function effortChoices() {
   return effortRows(store.session).map((r) => ({ value: r.value, label: r.label, hint: r.hint, disabled: !r.available }));
 }
 
+const sideModelLabel = (s) => (!s?.side_model || s.side_model.auto ? 'Auto' : s?.side_model?.model_label || s?.side_model?.label || 'Auto');
+
+const sideModelDesc = (s) =>
+  !s?.side_model || s.side_model.auto
+    ? `Commit messages, PR text and branch names · now the chat\u2019s model (${shortModel(s.model)})`
+    : `Commit messages, PR text and branch names · ${s.side_model.source_label || 'own model'}`;
+
 function choicesOf(key) {
   if (key === 'effort') return { list: effortChoices(), value: currentEffort(), label: 'Thinking effort' };
+  if (key === 'side_model') {
+    const side = store.session.side_model;
+    const auto = !side || side.auto;
+    const list = [{ value: '', label: 'Auto', hint: `Same as the chat (${shortModel(store.session.model)})` }];
+    if (!auto) list.push({ value: '__current', label: side.label, hint: 'Writes commit messages, PR titles and branch names' });
+    list.push({ value: '__change', label: auto ? 'Choose a model…' : 'Choose another model…', hint: 'Any provider you have set up, just for git text' });
+    return { list, value: auto ? '' : '__current', label: 'Commit text model' };
+  }
   const it = findItem(key);
   return it ? { list: choicesFor(it), value: valueOf(it), label: it.label } : null;
 }
@@ -208,6 +230,17 @@ function pickValue(key, value) {
     if (value === 'none') setSetting({ think_mode: false }, 'think_mode');
     else if (value === 'on') setSetting({ think_mode: true }, 'think_mode');
     else setEffort(value);
+    return;
+  }
+  if (key === 'side_model') {
+    if (value === '__current') return;
+    if (value === '__change') {
+      closeModal('settings');
+      openPicker('git_model');
+      return;
+    }
+    if (store.session.side_model?.auto) return;
+    runAction('side_model_select', { source: '', model_id: '' }, 'Commit text model: Auto');
     return;
   }
   const it = findItem(key);

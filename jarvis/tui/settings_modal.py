@@ -45,6 +45,8 @@ _DESCRIPTIONS: dict[str, str] = {
     "pet.nudges":    "Let Jarvis nudge you — stretch breaks, full context, late nights",
     "pet.notify":    "Desktop notification when a long turn finishes while you're away",
     "ui.sticky_prompt": "Pin your prompt at the top while you read its reply",
+    "side.source":   "Provider for commit / PR / branch text (empty = Auto: the chat's model)",
+    "side.model":    "Model for commit / PR / branch text (empty = Auto)",
 }
 
 

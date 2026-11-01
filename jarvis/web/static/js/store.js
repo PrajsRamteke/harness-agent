@@ -19,6 +19,8 @@ export const store = {
     /** Opened from the web (no terminal): the Projects list can stop it. */
     headless: false,
     provider: '',
+    /** Settings → Commit text model (server: side_model.public()). */
+    side_model: { source: '', model: '', auto: true, label: 'Auto', source_label: '', model_label: '' },
     think_mode: true,
     think_effort: 'high',
     /** What the current model takes for thinking (server: repl/thinking.py public()); null until known. */

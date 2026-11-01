@@ -15,6 +15,7 @@ import { initTitleRename } from './rename.js';
 import { initProjects, projectGone, serverLost } from './projects.js';
 import { initFolders } from './folders.js';
 import { initInspector, toggleInspector } from './inspector.js';
+import { initTerminal } from './terminal.js';
 import { initGit } from './git.js';
 import { initChanges } from './changes.js';
 import { initActivity } from './activity.js';
@@ -146,6 +147,7 @@ function boot() {
   initProjects({ onEvent: handleEvent });
   initFolders();
   initInspector();
+  initTerminal();
   initGit();
   initChanges();
   initActivity();

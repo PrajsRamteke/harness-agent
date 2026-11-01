@@ -272,7 +272,7 @@ function paintForm() {
       <input id="gc-pr-title" class="gc-input" type="text" placeholder="Title (empty = from the commits)" autocomplete="off">
       <textarea id="gc-pr-body" class="gc-input gc-textarea" rows="5" placeholder="Description (Markdown)"></textarea>
       <div class="gc-actions">
-        <button type="button" class="btn btn-quiet gc-gen" data-act="generate-pr" title="Write the title and description with the current model">${icon('wand-sparkles')}<span>Generate</span></button>
+        <button type="button" class="btn btn-quiet gc-gen" data-act="generate-pr" title="Write the title and description with ${escapeHtml(genModelName())}">${icon('wand-sparkles')}<span>Generate</span></button>
         <span class="gc-spacer"></span>
         <button type="button" class="btn btn-quiet" data-act="cancel">Cancel</button>
         <button type="button" class="btn btn-primary" data-act="do-pr">${icon('git-pull-request')}<span>Create PR</span></button>
@@ -283,7 +283,7 @@ function paintForm() {
       <label class="gc-label" for="gc-msg">Commit ${plural(files, 'changed file')}${push ? ', then push' : ''}</label>
       <textarea id="gc-msg" class="gc-input gc-textarea" rows="3" placeholder="Commit message"></textarea>
       <div class="gc-actions">
-        <button type="button" class="btn btn-quiet gc-gen" data-act="generate" title="Write the message with the current model">${icon('wand-sparkles')}<span>Generate</span></button>
+        <button type="button" class="btn btn-quiet gc-gen" data-act="generate" title="Write the message with ${escapeHtml(genModelName())}">${icon('wand-sparkles')}<span>Generate</span></button>
         <span class="gc-spacer"></span>
         <button type="button" class="btn btn-quiet" data-act="cancel">Cancel</button>
         <button type="button" class="btn btn-primary" data-act="do-commit">${icon(push ? 'cloud-upload' : 'git-commit-horizontal')}<span>${push ? 'Commit & push' : 'Commit'}</span></button>
@@ -535,6 +535,14 @@ function paintPrPlan(box) {
   const title = box.querySelector('#gc-pr-title');
   if (title) title.placeholder = commits ? 'Title (also the commit message)' : 'Title (empty = from the commits)';
   if (submit) submit.dataset.blocked = warn ? '1' : '';
+}
+
+/** Who writes generated text: Settings → Commit text model, else the chat's model. */
+function genModelName() {
+  const side = store.session?.side_model;
+  if (side && !side.auto && side.label) return side.label;
+  const chat = store.session?.model;
+  return chat ? `the chat's model (${String(chat).split('/').pop()})` : 'the chat\u2019s model';
 }
 
 function syncFormButtons(box) {

@@ -40,6 +40,14 @@ def _model_is_active(source: str, model_id: str) -> bool:
     return state.provider == source
 
 
+def _side_model_is_active(source: str, model_id: str) -> bool:
+    """Active in the *commit text model* picker: the saved side choice, not the
+    chat's model."""
+    from .. import side_model
+
+    return side_model.preference() == (source, model_id)
+
+
 def list_sessions(*, limit: int = 50, offset: int = 0) -> dict[str, Any]:
     limit = max(1, min(int(limit), 100))
     offset = max(0, int(offset))
@@ -67,7 +75,7 @@ def list_sessions(*, limit: int = 50, offset: int = 0) -> dict[str, Any]:
     }
 
 
-def list_models(*, query: str = "") -> dict[str, Any]:
+def list_models(*, query: str = "", for_side: bool = False) -> dict[str, Any]:
     # Tags shared with the terminal /model picker (constants/providers.py).
     from ..constants.providers import (
         VISION_SEARCH_WORDS, free_model_ids, model_is_free, model_sees_images,
@@ -106,11 +114,17 @@ def list_models(*, query: str = "") -> dict[str, Any]:
             "source_label": label,
             "model_id": model_id,
             "description": desc,
-            "active": _model_is_active(src, model_id),
+            "active": _side_model_is_active(src, model_id) if for_side else _model_is_active(src, model_id),
             "images": images,
             "free": free,
             "local": is_local_provider(src),
         })
+    if for_side:
+        from .. import side_model
+
+        current = {**side_model.public(), "model_id": state.MODEL, "provider": state.provider,
+                   "auth_mode": state.auth_mode, "harness_agent_free": state.harness_agent_free}
+        return {"models": models, "current": current}
     return {
         "models": models,
         "current": {

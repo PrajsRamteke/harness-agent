@@ -1,0 +1,348 @@
+/* Terminal — the docked shell panel at the bottom of the main column.
+ *
+ * It sits in the column's flow *below* the dock (the composer stays on top of
+ * it), so opening it shrinks the transcript and never covers the composer —
+ * in frosted-glass mode too: the dock stops floating while the panel is open. Height comes from
+ * --term-h (terminal.js, remembered per browser) and is clamped so the
+ * transcript always keeps a few rows. Maximised, it takes the transcript's
+ * place; the composer stays.
+ */
+
+.term-panel {
+  --term-h: 300px;
+  --term-bg: var(--surface-1, var(--bg));
+  --term-pane: var(--term-bg);
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  height: var(--term-h);
+  min-height: 120px;
+  max-height: calc(100% - var(--dock-h, 140px) - var(--top-h, 48px) - 120px);
+  margin: 0;
+  overflow: hidden;
+  background: var(--term-bg);
+  border-top: 1px solid var(--line);
+}
+.term-panel[hidden] { display: none; }
+
+/* Maximised: the panel takes the transcript's room; the composer stays. */
+.term-panel.is-max {
+  flex: 1 1 auto;
+  height: auto;
+  max-height: none;
+}
+/* Collapsed, not display:none, so the transcript keeps its scroll position.
+   !important: the frosted-glass rules pad the transcript more specifically. */
+body.term-max .chat-scroll {
+  flex: 0 0 0;
+  padding-block: 0 !important;
+  overflow: hidden;
+  visibility: hidden;
+}
+body.term-max .jump-btn { display: none; }
+body.term-max .dock { padding-top: 10px; }
+
+/* Frosted glass floats the dock over the transcript. With the panel under
+   it the dock goes back into the column, and the transcript only clears
+   the top bar. */
+:root[data-surface="glass"] body.term-open .dock { position: relative; }
+:root[data-surface="glass"] body.term-open .chat-scroll {
+  padding-bottom: var(--pad-b, 24px);
+  scroll-padding-bottom: 0;
+  mask-image: linear-gradient(to bottom,
+    transparent,
+    #000 calc(var(--top-h, 48px) * 0.7),
+    #000 calc(100% - 18px),
+    transparent);
+}
+:root[data-surface="glass"] body.term-max .dock { margin-top: var(--top-h, 48px); }
+
+/* ─── Drag handle (the panel's top edge) ──────────────────────────────── */
+.term-resize {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 5;
+  cursor: row-resize;
+  touch-action: none;
+  outline: none;
+}
+.term-resize::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur-fast, 0.12s) var(--ease, ease);
+}
+.term-resize:hover::after { opacity: 0.5; transition-delay: 0.25s; }
+.term-resize:focus-visible::after,
+.term-resize.is-dragging::after { opacity: 1; transition-delay: 0s; }
+.term-panel.is-max .term-resize { display: none; }
+body.is-term-resizing { cursor: row-resize; user-select: none; }
+body.is-term-resizing .term-panel { pointer-events: none; }
+body.is-term-resizing .term-resize { pointer-events: auto; }
+
+/* ─── Tab bar ─────────────────────────────────────────────────────────── */
+.term-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 6px 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.term-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.term-tabs::-webkit-scrollbar { display: none; }
+
+.term-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  max-width: 180px;
+  height: 26px;
+  padding: 0 3px 0 9px;
+  border-radius: var(--r-ctl, 6px);
+  color: var(--text-3);
+  font: 500 12px/1 var(--font-ui, inherit);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  outline: none;
+  transition: background var(--dur-fast, 0.12s) var(--ease, ease), color var(--dur-fast, 0.12s) var(--ease, ease);
+}
+.term-tab:hover { background: var(--line); color: var(--text-2); }
+.term-tab:focus-visible { box-shadow: 0 0 0 2px var(--accent-line); }
+.term-tab.is-active { background: var(--surface-3, var(--line)); color: var(--text); }
+/* The other half of a split: a quiet accent underline. */
+.term-tab.is-second::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-line);
+}
+.term-tab.is-dead .term-tab-name { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--line-2); }
+.term-tab.is-pending { opacity: 0.6; cursor: progress; }
+
+.term-tab-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--ok);
+}
+.term-tab.is-dead .term-tab-dot { background: var(--text-3); opacity: 0.6; }
+.term-tab.is-pending .term-tab-dot { background: var(--text-3); animation: term-pulse 1s ease-in-out infinite; }
+.term-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.term-tab-x {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast, 0.12s) var(--ease, ease), background var(--dur-fast, 0.12s) var(--ease, ease);
+}
+.term-tab-x svg { width: 12px; height: 12px; }
+.term-tab:hover .term-tab-x,
+.term-tab.is-active .term-tab-x,
+.term-tab:focus-visible .term-tab-x { opacity: 1; }
+.term-tab-x:hover { background: var(--line-2); color: var(--text); }
+
+.term-tab-rename {
+  width: 120px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--accent-line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.term-tools {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+}
+.term-add,
+.term-tool {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-ctl, 6px);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background var(--dur-fast, 0.12s) var(--ease, ease), color var(--dur-fast, 0.12s) var(--ease, ease);
+}
+.term-add:hover,
+.term-tool:hover { background: var(--line); color: var(--text); }
+.term-add:focus-visible,
+.term-tool:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.term-tool[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.term-add svg,
+.term-tool svg { width: 15px; height: 15px; }
+.term-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--line-2);
+}
+.term-spacer { flex: 1 1 auto; min-width: 8px; }
+
+/* Copy / paste buttons only on touch screens (elsewhere: ⌘C / ⌘V, right-click). */
+.term-panel:not(.is-touch) .term-touch-only { display: none; }
+
+/* ─── Find bar ────────────────────────────────────────────────────────── */
+.term-find {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.term-find[hidden] { display: none; }
+.term-find > [data-icon] { display: grid; color: var(--text-3); margin-right: 6px; }
+.term-find > [data-icon] svg { width: 14px; height: 14px; }
+.term-find input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl, 6px);
+  background: var(--bg);
+  color: var(--text);
+  font: 12.5px/1 var(--font-mono);
+  outline: none;
+  margin-right: 4px;
+}
+.term-find input:focus { border-color: var(--accent-line); }
+
+/* ─── Panes ───────────────────────────────────────────────────────────── */
+.term-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+.term-body[hidden] { display: none; }
+.term-pane {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--term-pane);
+}
+.term-pane[hidden] { display: none; }
+.term-body.is-split .term-pane:not([hidden]) ~ .term-pane:not([hidden]) { border-left: 1px solid var(--line); }
+/* In a split, the pane you type into is the bright one. */
+.term-body.is-split .term-pane:not(.is-focused) .term-xterm { opacity: 0.72; transition: opacity var(--dur, 0.18s) var(--ease, ease); }
+
+.term-xterm {
+  position: absolute;
+  inset: 8px 4px 4px 12px;
+}
+.term-xterm .xterm { height: 100%; }
+.term-xterm .xterm-viewport {
+  background: transparent !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+.term-xterm .xterm-screen { outline: none; }
+
+/* ─── Empty state ─────────────────────────────────────────────────────── */
+.term-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.term-empty[hidden] { display: none; }
+.term-empty p { margin: 0; }
+.term-empty-ic { display: grid; opacity: 0.5; }
+.term-empty-ic svg { width: 24px; height: 24px; }
+
+/* ─── Top-bar button ──────────────────────────────────────────────────── */
+.term-btn { position: relative; }
+.term-btn[hidden] { display: none; }
+.term-btn.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.term-live-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ok);
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+}
+.term-live-dot[hidden] { display: none; }
+@keyframes term-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ─── Small screens ───────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .term-head { height: 40px; padding-left: 6px; }
+  .term-tab { max-width: 130px; height: 30px; }
+  .term-tab-x { opacity: 1; }
+  .term-add, .term-tool { width: 32px; height: 32px; }
+  #term-split, .term-sep { display: none; }
+  .term-xterm { inset: 6px 2px 2px 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-tab.is-pending .term-tab-dot { animation: none; }
+}
