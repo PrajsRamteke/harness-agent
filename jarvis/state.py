@@ -15,7 +15,12 @@ from .constants import (
     TOOL_UI_HISTORY_SIZE,
 )
 
-# auth / client
+import sys as _sys
+
+# This module (functions below read and write per-tab names through it).
+_self = _sys.modules[__name__]
+
+# auth / client — per chat tab (``tabs.CONFIG_FIELDS``); these values seed the first tab
 provider: str = PROVIDER_OPENCODE_ZEN  # set by make_client(); Harness Agent on first run
 auth_mode: str = AUTH_API_KEY       # "api_key" or "oauth" — Anthropic-only; unused for openrouter/opencode
 client = None                       # Anthropic client, set by make_client()
@@ -453,7 +458,7 @@ def save_agent_config() -> None:
     try:
         from .storage.settings import get_settings
         s = get_settings()
-        s.set("agent.active", active_agent_name)
+        s.set("agent.active", _self.active_agent_name)
         s.set("agent.global", global_agents)
     except Exception:
         pass
@@ -461,13 +466,13 @@ def save_agent_config() -> None:
 
 def _reload_saved_agent_name() -> None:
     """Read agent.active and agent.global from settings.json (name only)."""
-    global active_agent_name, global_agents
+    global global_agents
     try:
         from .storage.settings import get_settings
         s = get_settings()
         nm = s.get("agent.active")
         if isinstance(nm, str):
-            active_agent_name = nm.strip()
+            _self.active_agent_name = nm.strip()
         g = s.get("agent.global")
         if isinstance(g, bool):
             global_agents = g
@@ -482,24 +487,23 @@ def resolve_active_agent() -> Optional[dict]:
     written to ``state.active_agent``) or None if the name is empty / cannot
     be resolved. Imported lazily to avoid a circular import at module load.
     """
-    global active_agent
-    if not active_agent_name:
-        active_agent = None
+    name = _self.active_agent_name
+    if not name:
+        _self.active_agent = None
         return None
     try:
         from .storage.agents import find_agent
-        rec = find_agent(active_agent_name)
+        rec = find_agent(name)
     except Exception:
         rec = None
-    active_agent = rec
+    _self.active_agent = rec
     return rec
 
 
 def set_active_agent(record: Optional[dict]) -> None:
-    """Set the live agent record (and its persisted name)."""
-    global active_agent, active_agent_name
-    active_agent = record
-    active_agent_name = record["name"] if record else ""
+    """Set the live agent record (and its persisted name) — for this chat tab."""
+    _self.active_agent = record
+    _self.active_agent_name = record["name"] if record else ""
     save_agent_config()
 
 
@@ -550,27 +554,26 @@ def save_think_config() -> None:
     try:
         from .storage.settings import get_settings
         s = get_settings()
-        s.set("think.mode", think_mode)
-        if think_effort in THINK_EFFORTS:
-            s.set("think.effort", think_effort)
+        s.set("think.mode", _self.think_mode)
+        if _self.think_effort in THINK_EFFORTS:
+            s.set("think.effort", _self.think_effort)
     except Exception:
         pass
 
 
 def _reload_saved_think() -> None:
     """Restore think.mode + think.effort from settings.json."""
-    global think_mode, think_effort
     try:
         from .storage.settings import get_settings
         s = get_settings()
         mode = s.get("think.mode")
         if isinstance(mode, bool):
-            think_mode = mode
+            _self.think_mode = mode
         eff = s.get("think.effort")
         if eff in THINK_EFFORTS:
-            think_effort = eff
-        if think_mode and think_effort == "none":
-            think_effort = DEFAULT_THINK_EFFORT
+            _self.think_effort = eff
+        if _self.think_mode and _self.think_effort == "none":
+            _self.think_effort = DEFAULT_THINK_EFFORT
     except Exception:
         pass
 
@@ -580,8 +583,8 @@ def apply_settings_to_state() -> None:
 
     Call this after the user edits settings.json (or via ``/settings reload``)
     so the running session picks up the new values without a restart.
+    Model, thinking and agent land on the current chat tab.
     """
-    global MODEL
     _reload_saved_theme()
     prev_mcp = global_mcp
     _reload_saved_skills()
@@ -595,7 +598,7 @@ def apply_settings_to_state() -> None:
         from .storage.settings import get_settings
         m = get_settings().get("model")
         if isinstance(m, str) and m.strip():
-            MODEL = m.strip()
+            _self.MODEL = m.strip()
     except Exception:
         pass
     # Resolve the agent name → record (safe to call here; storage import is
@@ -628,7 +631,6 @@ _reload_saved_agent_name()
 # reads and writes the current thread's tab (``tabs.current()``), so a turn
 # running in a background tab keeps its own conversation. With one tab this
 # is exactly the old module-level behaviour.
-import sys as _sys
 import types as _types
 
 from . import tabs as _tabs
@@ -648,10 +650,28 @@ class _StateModule(_types.ModuleType):
     pass
 
 
+def _config_property(name: str) -> property:
+    def fget(_mod):
+        return _tabs.current().config[name]
+
+    def fset(_mod, value):
+        _tabs.current().config[name] = value
+
+    return property(fget, fset)
+
+
 for _name in _tabs.SESSION_FIELDS:
     _first = _tabs.active().session
     if _name in globals():
         _first[_name] = globals().pop(_name)  # the module default seeds the first tab
     setattr(_StateModule, _name, _session_property(_name))
+
+# Model / provider / client / thinking / agent: per tab as well (a new tab
+# copies the one that opened it — ``tabs.create``).
+for _name in _tabs.CONFIG_FIELDS:
+    _value = globals().pop(_name)
+    _tabs._config_seed[_name] = _value
+    _tabs.active().config.setdefault(_name, _value)
+    setattr(_StateModule, _name, _config_property(_name))
 
 _sys.modules[__name__].__class__ = _StateModule

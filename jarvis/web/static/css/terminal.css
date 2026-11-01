@@ -4,8 +4,8 @@
  * it), so opening it shrinks the transcript and never covers the composer —
  * in frosted-glass mode too: the dock stops floating while the panel is open. Height comes from
  * --term-h (terminal.js, remembered per browser) and is clamped so the
- * transcript always keeps a few rows. Maximised, it takes the transcript's
- * place; the composer stays.
+ * transcript always keeps a few rows. Maximised, it takes the whole main
+ * column below the top bar — transcript and composer both step aside.
  */
 
 .term-panel {
@@ -27,7 +27,7 @@
 }
 .term-panel[hidden] { display: none; }
 
-/* Maximised: the panel takes the transcript's room; the composer stays. */
+/* Maximised: the panel takes the transcript's and the composer's room. */
 .term-panel.is-max {
   flex: 1 1 auto;
   height: auto;
@@ -41,8 +41,7 @@ body.term-max .chat-scroll {
   overflow: hidden;
   visibility: hidden;
 }
-body.term-max .jump-btn { display: none; }
-body.term-max .dock { padding-top: 10px; }
+body.term-max .dock { display: none; }
 
 /* Frosted glass floats the dock over the transcript. With the panel under
    it the dock goes back into the column, and the transcript only clears
@@ -57,7 +56,7 @@ body.term-max .dock { padding-top: 10px; }
     #000 calc(100% - 18px),
     transparent);
 }
-:root[data-surface="glass"] body.term-max .dock { margin-top: var(--top-h, 48px); }
+:root[data-surface="glass"] body.term-max .term-panel { margin-top: var(--top-h, 48px); }
 
 /* ─── Drag handle (the panel's top edge) ──────────────────────────────── */
 .term-resize {

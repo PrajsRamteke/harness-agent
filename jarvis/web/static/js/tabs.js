@@ -16,6 +16,7 @@ import { $, escapeHtml, showToast, haptic } from './utils.js';
 import { icon } from './icons.js';
 import { api } from './api.js';
 import { renameInline } from './rename.js';
+import { announceActiveTab } from './tabkey.js';
 
 let tabs = [];
 let lastSig = '';
@@ -79,6 +80,8 @@ function revealActive() {
 /** From `state` / `snapshot`: the terminal's tabs, as they are now. */
 export function setTabs(list) {
   if (!Array.isArray(list)) return;
+  // The composer's draft and attachments follow the tab on screen (tabkey.js).
+  announceActiveTab(list);
   const s = sig(list);
   if (s === lastSig) return;
   lastSig = s;
@@ -115,6 +118,7 @@ export function switchTab(id) {
   if (!t || t.active) return;
   // Show the pick at once; the snapshot of that chat follows.
   tabs = tabs.map((x) => ({ ...x, active: x.id === id, unread: x.id === id ? false : x.unread }));
+  announceActiveTab(tabs);
   lastSig = '';
   render();
   run('switch', id, 'switch tabs');

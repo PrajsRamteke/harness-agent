@@ -11,8 +11,12 @@ import { $, escapeHtml, showToast, storageGet, storageSet, haptic, animateEl, SP
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
 import { openModal, closeModal, topModal } from './modal.js';
+import { onActiveTab, tabKey } from './tabkey.js';
 
+/** Finished uploads not sent yet, per chat tab: `{ "<tab key>": [records] }`
+ * (an older page saved one array for every tab). */
 const TRAY_KEY = 'jarvis-attachments';
+const TRAYS_MAX = 40;
 const MAX_PARALLEL = 3;
 /** No upload progress for this long = the connection died under us. */
 const STALL_MS = 45_000;
@@ -54,6 +58,12 @@ const LOCAL_PREVIEW = /^image\/(png|jpe?g|gif|webp|avif|bmp|svg\+xml)$/;
  *   error?:string,retry?:boolean,preview?:string,xhr?:XMLHttpRequest}>} */
 let items = [];
 let seq = 0;
+/** Which chat tab the tray belongs to (tabs.js `tabKey`); '' until the tab list arrives. */
+let trayKey = '';
+/** Other tabs' trays this page has held: key → items (uploads keep going there). */
+const parked = new Map();
+/** Saved trays of tabs this page hasn't shown yet: key → records. */
+let stored = {};
 let locked = false;
 let lastStatusKey = '';
 let lastNoteKey = '';
@@ -141,22 +151,22 @@ function publicRecord(it) {
   return { id, name, size, kind, mime, ...(width && height ? { width, height } : {}) };
 }
 
+const doneRecords = (list) => list.filter((i) => i.status === 'done' && i.id).map(publicRecord);
+
 function save() {
-  const done = items.filter((i) => i.status === 'done' && i.id).map(publicRecord);
-  storageSet(TRAY_KEY, JSON.stringify(done));
+  const all = { ...stored };
+  for (const [k, list] of parked) all[k] = doneRecords(list);
+  all[trayKey] = doneRecords(items);
+  const keep = Object.entries(all).filter(([, r]) => r.length).slice(-TRAYS_MAX);
+  storageSet(TRAY_KEY, JSON.stringify(Object.fromEntries(keep)));
 }
 
-function restore() {
-  let saved = [];
-  try {
-    saved = JSON.parse(storageGet(TRAY_KEY, '[]'));
-  } catch {
-    saved = [];
-  }
-  if (!Array.isArray(saved)) return;
+function fromRecords(saved) {
+  const out = [];
+  if (!Array.isArray(saved)) return out;
   for (const f of saved.slice(0, limits().max_files)) {
     if (!f?.id || typeof f.id !== 'string') continue;
-    items.push({
+    out.push({
       ...f,
       key: `a${++seq}`,
       status: 'done',
@@ -164,6 +174,51 @@ function restore() {
       preview: f.kind === 'image' ? mediaUrl(f.id, { variant: 'thumb' }) : '',
     });
   }
+  return out;
+}
+
+function restore() {
+  let saved = null;
+  try {
+    saved = JSON.parse(storageGet(TRAY_KEY, '{}'));
+  } catch {
+    saved = null;
+  }
+  if (Array.isArray(saved)) {
+    // Saved by an older page: one tray for every tab — it becomes the first shown tab's.
+    stored = {};
+    items = fromRecords(saved);
+  } else {
+    stored = saved && typeof saved === 'object' ? saved : {};
+    items = fromRecords(stored['']);
+    delete stored[''];
+  }
+}
+
+/** The chat tab on screen changed (tabs.js): show its own attachments. */
+export function setTrayTab(key) {
+  key = String(key || '');
+  if (key === trayKey) return;
+  if (!trayKey) {
+    // The first tab list: the tray restored at load belongs to the tab shown.
+    const own = fromRecords(stored[key]);
+    delete stored[key];
+    items = items.length ? items : own;
+  } else {
+    if (items.length) parked.set(trayKey, items);
+    else parked.delete(trayKey);
+    if (parked.has(key)) {
+      items = parked.get(key);
+      parked.delete(key);
+    } else {
+      items = fromRecords(stored[key]);
+      delete stored[key];
+    }
+    locked = false;
+  }
+  trayKey = key;
+  lastStatusKey = '';
+  changed();
 }
 
 /** Lock the tray while a message with these files is on its way. */
@@ -241,8 +296,10 @@ export function addFiles(list, { from = 'pick' } = {}) {
 }
 
 function pump() {
-  let active = items.filter((i) => i.status === 'uploading').length;
-  for (const it of items) {
+  // Every tab's tray: a tab you switched away from keeps uploading.
+  const all = [items, ...parked.values()].flat();
+  let active = all.filter((i) => i.status === 'uploading').length;
+  for (const it of all) {
     if (active >= MAX_PARALLEL) break;
     if (it.status === 'queued' && it.file) {
       upload(it);
@@ -849,6 +906,7 @@ export function openFilePicker() {
 export function initMedia({ onOpenPicker } = {}) {
   openPicker = onOpenPicker || null;
   restore();
+  onActiveTab((tab) => setTrayTab(tabKey(tab)));
   subscribe(paintVisionNote);  // the model can change from anywhere (terminal, picker)
   const input = $('att-input');
   input?.addEventListener('change', () => {

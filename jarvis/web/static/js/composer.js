@@ -1,5 +1,5 @@
 /** Message composer: send / stop / queue, slash-command menu, prompt history,
- * per-device draft, quoting, one-click enhance, attachments (media.js).
+ * a draft per chat tab, quoting, one-click enhance, attachments (media.js).
  * Every send is a new message — nothing already sent is ever edited. */
 import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, haptic, isMac, EASE, SPRING } from './utils.js';
 import { icon } from './icons.js';
@@ -10,11 +10,18 @@ import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
 import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
 import { editLastQueued } from './queue.js';
+import { onActiveTab, tabKey } from './tabkey.js';
 
 const HISTORY_KEY = 'jarvis-prompt-history';
 const HISTORY_MAX = 50;
-/** Unsent text survives a reload or a phone evicting the tab. */
+/** Unsent text survives a reload or a phone evicting the tab — one per chat
+ * tab (`{ "<tab key>": text }`, tabkey.js), so a draft stays in the tab it was
+ * typed in. DRAFT_KEY is the one draft an older page kept for every tab. */
 const DRAFT_KEY = 'jarvis-draft';
+const DRAFTS_KEY = 'jarvis-drafts';
+const DRAFTS_MAX = 40;
+/** The tab the text in the box belongs to; '' until the tab list arrives. */
+let draftTab = '';
 
 let sending = false;
 let history = [];
@@ -47,8 +54,28 @@ function loadHistory() {
   }
 }
 
+function readDrafts() {
+  try {
+    const all = JSON.parse(storageGet(DRAFTS_KEY, '{}'));
+    return all && typeof all === 'object' && !Array.isArray(all) ? all : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDraft(key, text) {
+  if (!key) {
+    storageSet(DRAFT_KEY, text);
+    return;
+  }
+  const all = readDrafts();
+  delete all[key]; // re-added last: the newest drafts are the ones kept
+  if (text) all[key] = text;
+  storageSet(DRAFTS_KEY, JSON.stringify(Object.fromEntries(Object.entries(all).slice(-DRAFTS_MAX))));
+}
+
 function saveDraft() {
-  storageSet(DRAFT_KEY, prompt()?.value || '');
+  writeDraft(draftTab, prompt()?.value || '');
 }
 const saveDraftSoon = debounce(saveDraft, 300);
 
@@ -78,6 +105,36 @@ function remember(text) {
   if (history.length > HISTORY_MAX) history = history.slice(-HISTORY_MAX);
   storageSet(HISTORY_KEY, JSON.stringify(history));
   historyIdx = -1;
+}
+
+/** Another chat tab is shown: put this tab's text away, bring that tab's back. */
+function onTabShown(tab) {
+  const el = prompt();
+  const key = tabKey(tab);
+  if (!el || !key || key === draftTab) return;
+  if (!draftTab) {
+    // The first tab list: what was restored at load belongs to the tab shown.
+    const own = readDrafts()[key] || '';
+    storageSet(DRAFT_KEY, '');
+    draftTab = key;
+    if (!el.value && own) setPromptValue(own);
+    else saveDraft();
+    return;
+  }
+  saveDraft();
+  draftTab = key;
+  stopWaitingToSend();
+  if (enhancing) {
+    enhanceGen += 1; // its answer was for the other tab's text
+    finishEnhance();
+  }
+  enhanceUndo = null;
+  historyIdx = -1;
+  closeSlash();
+  el.value = readDrafts()[key] || '';
+  autoResizePrompt();
+  syncSendButton();
+  syncEnhanceButton();
 }
 
 // ─── Send / stop ──────────────────────────────────────────────────────────
@@ -578,6 +635,7 @@ export function initComposer({ onCatalogItem, onOpenPicker } = {}) {
     saveDraftSoon();
   });
   window.addEventListener('pagehide', saveDraft);
+  onActiveTab(onTabShown);
   el?.addEventListener('keydown', onKeyDown);
   el?.addEventListener('blur', () => setTimeout(closeSlash, 120));
   $('send')?.addEventListener('click', onSendClick);

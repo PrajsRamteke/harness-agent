@@ -58,11 +58,33 @@ def _session_defaults() -> dict[str, Any]:
 # Names ``jarvis.state`` serves from the current tab.
 SESSION_FIELDS: tuple[str, ...] = tuple(_session_defaults())
 
+# What a chat talks to: model, provider + its client, thinking effort, agent.
+# Per tab too, so a second tab can try another model without changing the
+# first. A new tab starts with a copy of the tab that opened it; the module
+# values in ``jarvis.state`` seed the first tab. (Saved settings still hold the
+# last choice — that is what the next start of Jarvis uses.)
+CONFIG_FIELDS: tuple[str, ...] = (
+    "MODEL",
+    "provider",
+    "auth_mode",
+    "client",
+    "harness_agent_free",
+    "think_mode",
+    "think_effort",
+    "active_agent_name",
+    "active_agent",
+)
+
+# Config for a tab made when none is open (start-up, ``reset``): filled by
+# ``jarvis.state`` from its module defaults, then kept equal to the last tab's.
+_config_seed: dict[str, Any] = {}
+
 
 class Tab:
-    def __init__(self, tab_id: int) -> None:
+    def __init__(self, tab_id: int, config: dict[str, Any] | None = None) -> None:
         self.id = tab_id
         self.session: dict[str, Any] = _session_defaults()
+        self.config: dict[str, Any] = dict(config if config is not None else _config_seed)
         self.created = time.time()
         # Turn bookkeeping (the TUI reads and writes these through the app).
         self.busy = False
@@ -139,9 +161,12 @@ _bindings: dict[int, list[Tab]] = {}
 _listeners: list[Callable[[], None]] = []
 
 
-def _new_tab() -> Tab:
+def _new_tab(config: dict[str, Any] | None = None) -> Tab:
+    """A tab with a copy of ``config`` (default: the active tab's, else the seed)."""
     global _next_id
-    tab = Tab(_next_id)
+    if config is None and _active is not None:
+        config = _active.config
+    tab = Tab(_next_id, config)
     _next_id += 1
     return tab
 
@@ -242,12 +267,15 @@ def notify() -> None:
 
 
 def create(*, activate: bool = True, after: Tab | None = None) -> Tab:
-    """A new, empty tab — right after ``after`` (default: at the end)."""
+    """A new, empty tab — right after ``after`` (default: at the end).
+
+    It starts on the calling thread's tab's model / provider / thinking / agent
+    (the one on screen, for a click); changing them later changes only it."""
     global _active
     with _lock:
         if len(_tabs) >= MAX_TABS:
             raise ValueError(f"{MAX_TABS} tabs are open — close one first")
-        tab = _new_tab()
+        tab = _new_tab(current().config)
         pos = index_of(after) + 1 if after is not None and after in _tabs else len(_tabs)
         _tabs.insert(pos, tab)
         if activate:
@@ -302,9 +330,9 @@ def adopt() -> Tab:
     an earlier UI."""
     global _active
     with _lock:
-        session = active().session
-        tab = _new_tab()
-        tab.session = session
+        prev = active()
+        tab = _new_tab(prev.config)
+        tab.session = prev.session
         _tabs[:] = [tab]
         _bindings.clear()
         _active = tab
@@ -316,6 +344,8 @@ def reset() -> None:
     """Back to one empty tab (tests)."""
     global _active, _next_id
     with _lock:
+        if _active is not None:  # the model & co. carry over, as module globals did
+            _config_seed.update(_active.config)
         _tabs.clear()
         _bindings.clear()
         _next_id = 1

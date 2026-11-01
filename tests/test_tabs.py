@@ -14,9 +14,14 @@ from jarvis import state, tabs
 
 @pytest.fixture(autouse=True)
 def _one_tab():
+    # Model / provider / thinking / agent are per tab and carry over a reset
+    # (like the module globals they were): put them back after each test.
+    seed = dict(tabs.active().config)
     tabs.reset()
     yield
     tabs.reset()
+    tabs.active().config.update(seed)
+    tabs._config_seed.update(seed)
 
 
 # ─── core: state follows the thread's tab ───────────────────────────────
@@ -36,6 +41,65 @@ def test_each_tab_has_its_own_conversation():
     assert [m["content"] for m in state.messages] == ["one"]
     assert state.plan_mode is True and state.total_out == 42
     assert second.session["messages"][0]["content"] == "two"
+
+
+def test_each_tab_has_its_own_model_provider_thinking_and_agent():
+    first = tabs.active()
+    client_a = object()
+    state.MODEL, state.provider, state.client = "model-a", "openrouter", client_a
+    state.think_mode, state.think_effort = True, "high"
+    state.active_agent_name, state.active_agent = "coding", {"name": "coding"}
+
+    second = tabs.create()
+    # A new tab starts on the model & co. of the tab that opened it …
+    assert (state.MODEL, state.provider, state.client) == ("model-a", "openrouter", client_a)
+    assert state.think_effort == "high" and state.active_agent_name == "coding"
+    # … and changing them there leaves the first tab alone.
+    client_b = object()
+    state.MODEL, state.provider, state.client = "model-b", "opencode", client_b
+    state.think_mode, state.think_effort = False, "low"
+    state.set_active_agent(None)
+
+    tabs.activate(first)
+    assert (state.MODEL, state.provider, state.client) == ("model-a", "openrouter", client_a)
+    assert (state.think_mode, state.think_effort) == (True, "high")
+    assert state.active_agent_name == "coding" and state.active_agent == {"name": "coding"}
+    assert second.config["MODEL"] == "model-b" and second.config["client"] is client_b
+    assert second.config["active_agent"] is None
+
+    # A reply running in the first tab uses its model even while the second is shown.
+    tabs.activate(second)
+    seen = []
+
+    def worker():
+        with tabs.bound(first):
+            seen.append((state.MODEL, state.client))
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join(5)
+    assert seen == [("model-a", client_a)]
+    assert state.MODEL == "model-b"
+
+
+def test_saved_settings_reload_lands_on_the_current_tab(monkeypatch):
+    from jarvis.storage import settings as settings_mod
+
+    class FakeSettings(dict):
+        def set(self, key, value):
+            self[key] = value
+
+    fake = FakeSettings({"think.mode": True, "think.effort": "medium", "model": "saved-model"})
+    monkeypatch.setattr(settings_mod, "get_settings", lambda: fake)
+    first = tabs.active()
+    state.MODEL, state.think_effort = "model-a", "high"
+    tabs.create()
+    state.apply_settings_to_state()
+    assert state.MODEL == "saved-model" and state.think_effort == "medium"
+    assert first.config["MODEL"] == "model-a" and first.config["think_effort"] == "high"
+    state.think_effort = "low"
+    state.save_think_config()
+    assert fake["think.effort"] == "low"
 
 
 def test_a_bound_thread_keeps_its_tab_while_another_is_shown():
@@ -342,6 +406,25 @@ def test_composer_draft_is_kept_per_tab(tui):
             assert prompt.text == ""
             app.tab_action("tab", first.id)
             assert prompt.text == "half-written thought"
+
+    asyncio.run(run())
+
+
+def test_switching_tabs_shows_each_tabs_own_model(tui):
+    from jarvis.web.state_api import state_fields
+
+    async def run() -> None:
+        app = tui()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            first = tabs.active()
+            state.MODEL = "model-a"
+            app.tab_action("new")
+            assert state.MODEL == "model-a"  # starts on the tab it came from
+            state.MODEL = "model-b"
+            assert state_fields()["model"] == "model-b"
+            app.tab_action("tab", first.id)
+            assert state.MODEL == "model-a" and state_fields()["model"] == "model-a"
 
     asyncio.run(run())
 

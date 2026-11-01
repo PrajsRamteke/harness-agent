@@ -191,6 +191,9 @@ function setMax(on) {
   el.maxBtn.title = on ? 'Restore size' : 'Maximize';
   el.maxBtn.setAttribute('aria-label', on ? 'Restore terminal size' : 'Maximize terminal');
   el.maxBtn.innerHTML = icon(on ? 'minimize-2' : 'maximize-2');
+  // Maximised hides the composer: don't leave focus in a box you can't see.
+  const dock = document.querySelector('.dock');
+  if (on && state.open && dock?.contains(document.activeElement)) focusActive();
   requestAnimationFrame(() => fitAll());
 }
 
