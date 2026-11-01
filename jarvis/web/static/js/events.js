@@ -25,6 +25,7 @@ import { handleMcpEvent } from './mcp.js';
 import { handleSkillsEvent } from './skills.js';
 import { handleCommandsEvent } from './commands.js';
 import { handlePinEvent } from './pin.js';
+import { handleMemoryEvent } from './memory.js';
 import { handleSettingsEvent } from './settings.js';
 import { handleLocalEvent } from './local.js';
 import { loadChanges, applyChange } from './changes.js';
@@ -141,6 +142,11 @@ export function handleEvent(evt) {
     case 'pin':
       // Pinned context changed (this tab, another one): the dialog + sidebar chip.
       handlePinEvent(data);
+      break;
+
+    case 'memory':
+      // A fact or lesson changed (the Memory dialog here, another page).
+      handleMemoryEvent(data);
       break;
 
     case 'local':

@@ -28,6 +28,7 @@ import { initMcp } from './mcp.js';
 import { initSkills } from './skills.js';
 import { initCommands } from './commands.js';
 import { initPin } from './pin.js';
+import { initMemory } from './memory.js';
 import { initSettings } from './settings.js';
 import { initLocal } from './local.js';
 import { initQueue } from './queue.js';
@@ -158,6 +159,7 @@ function boot() {
   initSkills();
   initCommands();
   initPin();
+  initMemory();
   initSettings({ onOpenPicker: openPickerByKind });
   initLocal();
   initQueue({ onFill: keepDraftAndFill });

@@ -84,6 +84,51 @@ def add_lesson(task: str, lesson: str, tags: List[str] | None = None) -> Dict:
     return lesson_entry
 
 
+def _clean_tags(tags: List[str] | None) -> List[str]:
+    return sorted({t.strip().lower() for t in (tags or []) if t and t.strip()})
+
+
+def update_lesson(lesson_id: int, task: str, lesson: str, tags: List[str] | None = None) -> Dict | None:
+    """Rewrite one lesson. None if it is gone; ValueError if task / lesson is empty."""
+    task = (task or "").strip()
+    lesson = (lesson or "").strip()
+    if not task or not lesson:
+        raise ValueError("task and lesson are required")
+    with _file_lock:
+        data = _load()
+        target = next((s for s in data["lessons"] if s["id"] == lesson_id), None)
+        if target is None:
+            return None
+        target.update(task=task, lesson=lesson, tags=_clean_tags(tags))
+        _save(data)
+    return target
+
+
+def restore_lessons(items: List[Dict]) -> int:
+    """Put back deleted lessons (undo), keeping ids, dates and hit counts. Skips ids already there."""
+    with _file_lock:
+        data = _load()
+        have_ids = {s["id"] for s in data["lessons"]}
+        added = 0
+        for s in items:
+            task = str(s.get("task") or "").strip()
+            lesson = str(s.get("lesson") or "").strip()
+            if not task or not lesson or s.get("id") in have_ids:
+                continue
+            data["lessons"].append({
+                "id": s["id"], "task": task, "lesson": lesson, "tags": _clean_tags(s.get("tags")),
+                "ts": int(s.get("ts") or time.time()), "hits": int(s.get("hits") or 0),
+            })
+            have_ids.add(s["id"])
+            added += 1
+        if added:
+            data["lessons"].sort(key=lambda s: s["id"])
+            data["next_id"] = max(data["next_id"], data["lessons"][-1]["id"] + 1)
+            _prune(data)
+            _save(data)
+    return added
+
+
 def delete_lesson(lesson_id: int) -> bool:
     with _file_lock:
         data = _load()

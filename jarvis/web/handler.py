@@ -669,6 +669,12 @@ class WebHandler(BaseHTTPRequestHandler):
 
             self._send_json(200, pin_store.public())
             return
+        if path == "/api/memory":
+            # Memory facts + lessons for the Memory dialog (jarvis/web/memory_api.py).
+            from .memory_api import public as memory_public
+
+            self._send_json(200, memory_public())
+            return
         if path == "/api/settings/all":
             # Every setting for the Settings dialog (jarvis/web/settings_api.py).
             from .settings_api import public as settings_public
@@ -876,6 +882,17 @@ class WebHandler(BaseHTTPRequestHandler):
                 result = {"ok": False, "error": "invalid response"}
             if result.get("pin") is not None:
                 self.bridge.emit("pin", result["pin"])
+            self._send_json(200, result)
+            return
+
+        if path == "/api/memory":
+            # Memory / lessons: the stores lock their own files, so this runs
+            # here; every page refreshes.
+            from .memory_api import apply as memory_apply
+
+            result = memory_apply(data)
+            if result.get("data") is not None:
+                self.bridge.emit("memory", result["data"])
             self._send_json(200, result)
             return
 

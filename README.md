@@ -153,8 +153,8 @@ Free model line-ups change often, so Jarvis discovers them at runtime instead of
 
 ### Memory and lessons
 
-- **Memory** keeps short facts about you (name, stack, commit style, preferences) and loads them into every session. Review or edit them with `/memory`.
-- **Lessons** are written by Jarvis after it solves something: the kind of task and what actually worked. Relevant lessons are recalled for similar tasks, and the ones that keep helping are kept. Browse them with `/lesson`.
+- **Memory** keeps short facts about you (name, stack, commit style, preferences) and loads them into every session. Review, add, edit or forget them with `/memory` (a dashboard in the web app, a dialog in the terminal).
+- **Lessons** are written by Jarvis after it solves something: the kind of task and what actually worked. Relevant lessons are recalled for similar tasks, and the ones that keep helping are kept. Browse them by topic, edit or delete them with `/lesson` (the same dashboard on the web, on its Lessons tab).
 - `/scan` can build your memory from your documents and projects in one go.
 
 Both are plain JSON files on your machine (see [Files and locations](#files-and-locations)).

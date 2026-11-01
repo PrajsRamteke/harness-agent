@@ -55,6 +55,45 @@ def add_fact(text: str) -> Dict:
     return fact
 
 
+def update_fact(fact_id: int, text: str) -> Optional[Dict]:
+    """Rewrite one fact's text. None if it is gone; ValueError if empty or a copy of another fact."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("empty fact")
+    with _file_lock:
+        data = _load()
+        target = next((f for f in data["facts"] if f["id"] == fact_id), None)
+        if target is None:
+            return None
+        if any(f["id"] != fact_id and f["text"].lower() == text.lower() for f in data["facts"]):
+            raise ValueError("duplicate fact")
+        target["text"] = text
+        _save(data)
+    return target
+
+
+def restore_facts(facts: List[Dict]) -> int:
+    """Put back deleted facts (undo), keeping their ids and dates. Skips ids / texts already there."""
+    with _file_lock:
+        data = _load()
+        have_ids = {f["id"] for f in data["facts"]}
+        have_text = {f["text"].lower() for f in data["facts"]}
+        added = 0
+        for f in facts:
+            text = str(f.get("text") or "").strip()
+            if not text or f.get("id") in have_ids or text.lower() in have_text:
+                continue
+            data["facts"].append({"id": f["id"], "text": text, "ts": int(f.get("ts") or time.time())})
+            have_ids.add(f["id"])
+            have_text.add(text.lower())
+            added += 1
+        if added:
+            data["facts"].sort(key=lambda f: f["id"])
+            data["next_id"] = max(data["next_id"], data["facts"][-1]["id"] + 1)
+            _save(data)
+    return added
+
+
 def delete_fact(fact_id: int) -> bool:
     with _file_lock:
         data = _load()

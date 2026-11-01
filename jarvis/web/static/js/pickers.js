@@ -15,6 +15,7 @@ import { openMcp } from './mcp.js';
 import { openSkills } from './skills.js';
 import { openCommands } from './commands.js';
 import { openPin } from './pin.js';
+import { openMemory } from './memory.js';
 import { openSettings } from './settings.js';
 import { openLocal } from './local.js';
 import { renameInline } from './rename.js';
@@ -161,6 +162,11 @@ function open(kind, arg = '') {
   if (kind === 'pin') {
     if (isModalOpen('picker')) closePicker();
     openPin(arg);
+    return;
+  }
+  if (kind === 'memory' || kind === 'lesson') {
+    if (isModalOpen('picker')) closePicker();
+    openMemory(kind === 'lesson' ? 'lessons' : 'facts');
     return;
   }
   if (kind === 'local') {

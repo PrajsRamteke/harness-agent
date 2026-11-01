@@ -411,6 +411,9 @@ export async function providerPost(path, data = {}) {
 /** `{ text, items: [{line, text}], enabled, lines, chars, file }` (jarvis/web/pin_api.py). */
 export const fetchPin = () => api('/api/pin');
 
+/** `{ memory: { items, count, chars, file }, lessons: { items, count, hits, limit, tags, file } }` (jarvis/web/memory_api.py). */
+export const fetchMemory = () => api('/api/memory');
+
 /** Every running Jarvis (the project switcher). Asked of the server the page was loaded
  * from, not of the project being shown — hence no `BASE`. */
 export async function fetchProjects() {
@@ -476,6 +479,9 @@ export const localPost = (data) => extPost('local', data);
 
 /** `op`: add · save · update · remove · toggle · clear → `{ ok, error?, code?, pin? }` (never throws). */
 export const pinPost = (data) => extPost('pin', data);
+
+/** `kind` fact · lesson, `op` add · update · delete · clear · restore → `{ ok, id?, error?, data }` (never throws). */
+export const memoryPost = (data) => extPost('memory', data);
 
 /** A queued message: `op` edit · remove · steer (send now) · unsteer · clear →
  * `{ ok, error?, code?, items, entries }` (never throws). */

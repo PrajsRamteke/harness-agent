@@ -1,0 +1,219 @@
+/* Memory dialog (memory.js): facts + lessons as a dashboard.
+ *   tabs · stat tiles · search + filters · list · footer
+ * Shares the dialog kit (dialogs.css), the tabs (.mk-tabs, extensions.css) and
+ * the empty / undo / starter pieces of the Pin dialog (queue-pin.css). */
+
+.mem-card.dlg-card { max-width: 720px; }
+#memory-body { gap: 10px; }
+#memory-bar .mem-filters:empty { display: none; }
+
+/* ─── Stat tiles ──────────────────────────────────────────────────────── */
+.mem-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 12px 2px;
+}
+.mem-stats:empty { display: none; }
+.mem-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.ms-label { font: 500 11px var(--font-ui); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.ms-val {
+  font: 600 22px/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.ms-val small { margin-left: 5px; font: 400 12px var(--font-ui); letter-spacing: 0; color: var(--text-3); }
+.ms-sub { overflow: hidden; font-size: 11.5px; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; }
+.ms-bar { display: block; height: 3px; margin: 3px 0; overflow: hidden; border-radius: 2px; background: var(--card-hover); }
+.ms-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.3s var(--ease); }
+
+/* ─── Search row: topic chips + sort ──────────────────────────────────── */
+.mem-filters { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }
+.mem-chips { display: flex; flex: 1; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.mem-chips::-webkit-scrollbar { display: none; }
+.mem-chip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--text-2);
+  font: 500 12px var(--font-ui);
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+}
+.mem-chip em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--text-3); }
+.mem-chip:hover { border-color: var(--line-2); color: var(--text); }
+.mem-chip[aria-pressed="true"] { border-color: var(--accent-line); background: var(--accent-soft); color: var(--text); }
+.mem-chip:focus-visible, .mem-tag:focus-visible, .mem-main:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.mem-filters .seg { flex-shrink: 0; margin-left: auto; }
+
+/* ─── List ────────────────────────────────────────────────────────────── */
+.mem-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.mem-item {
+  border-radius: var(--r-card);
+  border: 1px solid var(--line);
+  background: var(--card);
+  transition: border-color var(--dur-fast), background var(--dur-fast), opacity 0.16s, transform 0.16s var(--ease);
+}
+.mem-item:hover { border-color: var(--line-2); }
+.mem-item.is-leaving { opacity: 0; transform: translateX(8px); }
+.mem-item.just-added { animation: mem-flash 0.7s var(--ease); }
+@keyframes mem-flash {
+  from { border-color: var(--accent-line); background-color: rgba(var(--accent-rgb), 0.08); }
+}
+
+/* Fact: tile · text · when · actions */
+.mem-item.is-fact {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 10px;
+  padding: 8px 6px 8px 10px;
+  border-radius: var(--r-row);
+}
+.mem-item.is-fact .pv-mark { margin-top: 1px; }
+.mem-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.mem-main { cursor: pointer; }
+.mem-item.is-fact .mem-main { display: block; padding: 1px 0; cursor: text; line-height: 1.5; }
+.mem-key {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--card-hover);
+  color: var(--text-2);
+  font: 500 11.5px/18px var(--font-mono);
+  vertical-align: 1px;
+}
+.mem-val { font-size: 13px; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.mem-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.mem-id { font-family: var(--font-mono); font-size: 11px; opacity: 0.7; }
+.mem-acts { display: flex; gap: 2px; opacity: 0.5; transition: opacity 0.15s; }
+.mem-item:hover .mem-acts, .mem-item:focus-within .mem-acts { opacity: 1; }
+.mem-acts .row-btn { border-color: transparent; background: transparent; }
+.mem-acts .row-btn:hover:not(:disabled) { background: var(--card-hover); }
+.mem-acts .mem-del:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+@media (hover: none) { .mem-acts { opacity: 1; } }
+
+/* Lesson: head (tile · task + lesson · actions) over a row of topics + meta */
+.mem-item.is-lesson { display: flex; flex-direction: column; gap: 8px; padding: 10px 6px 8px 10px; }
+.mem-head { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: start; gap: 10px; }
+.mem-head .pv-mark { margin-top: 1px; }
+.mem-task { font: 500 13.5px/1.4 var(--font-ui); color: var(--text); overflow-wrap: anywhere; }
+.mem-lesson {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mem-item.is-open .mem-lesson { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.mem-more { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-3); }
+.mem-more .ic { width: 12px; height: 12px; }
+button.mem-main:hover .mem-more { color: var(--text-2); }
+.mem-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-left: 30px; padding-right: 6px; min-width: 0; }
+.mem-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.mem-tag {
+  height: 20px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 4px;
+  background: var(--card-hover);
+  color: var(--text-2);
+  font: 500 11px var(--font-mono);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.mem-tag:hover { color: var(--text); background: var(--accent-soft); }
+.mem-tag.is-on { color: var(--text); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.mem-hits { gap: 4px; color: var(--accent); background: var(--accent-soft); font-variant-numeric: tabular-nums; }
+.mem-hits .ic { width: 11px; height: 11px; }
+
+/* ─── Editors (add / edit in place) ───────────────────────────────────── */
+.mem-item.is-editing { border-color: var(--accent-line); background: var(--card-sunk); }
+.mem-item.is-fact.is-editing { grid-template-columns: 20px minmax(0, 1fr); padding-right: 10px; }
+.mem-item.is-lesson.is-editing { padding: 12px; }
+.mem-edit { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mem-lbl { margin-top: 2px; font: 500 12px var(--font-ui); color: var(--text-2); }
+.mem-lbl small { margin-left: 6px; font-weight: 400; color: var(--text-3); }
+.mem-lbl:first-child { margin-top: 0; }
+.mem-in {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  outline: none;
+  background: var(--card-sunk);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.mem-in::placeholder { color: var(--text-3); }
+.mem-in:hover { border-color: var(--line-2); }
+.mem-in:focus { border-color: var(--accent-line); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.25); }
+.mem-edit-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mem-edit-hint { min-width: 0; overflow: hidden; font-size: 11px; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; }
+.mem-edit-hint kbd { min-width: 18px; height: 18px; padding: 0 4px; font-size: 10.5px; }
+.mem-edit-acts { display: inline-flex; flex-shrink: 0; gap: 6px; }
+
+/* ─── Footer ──────────────────────────────────────────────────────────── */
+.mem-clear:hover:not(:disabled), .mem-clear.is-asking { color: var(--danger); }
+
+/* ─── Narrow screens: tiles shrink, meta drops under the text ─────────── */
+@media (max-width: 560px) {
+  .mem-stats { gap: 6px; padding: 8px 12px 0; }
+  .mem-stat { padding: 8px 10px; }
+  .ms-val { font-size: 18px; }
+  .ms-sub { display: none; }
+  .mem-item.is-fact { grid-template-columns: 20px minmax(0, 1fr) auto; }
+  .mem-item.is-fact .mem-meta { grid-column: 2; grid-row: 2; }
+  .mem-item.is-fact .mem-acts { grid-column: 3; grid-row: 1 / span 2; }
+  .mem-foot-row { padding-left: 0; flex-wrap: wrap; }
+  .mem-edit-hint { display: none; }
+  .mem-in { font-size: 16px; } /* no iOS zoom on focus */
+  .mem-card .dlg-foot .dlg-note { display: none; }
+}
