@@ -19,6 +19,10 @@ python agent.py
 # Run legacy Rich REPL
 python agent.py --legacy
 
+# Jarvis in the browser with no terminal to keep open (= `jarvis web …`)
+jw [folder]        # finds the folder's running Jarvis or starts `jarvis --headless`, opens its link
+jw ls              # running web remotes · jw stop [folder|--all] stops browser-only ones
+
 # Run unit tests
 pip install pytest
 python -m pytest tests/ -q

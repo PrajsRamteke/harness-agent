@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "  jarvis update           pull the latest version and reinstall\n"
             "  jarvis upgrade          alias for `jarvis update`\n"
             "  jarvis update --check   show available updates without applying them\n"
+            "  jarvis web [folder]     open Jarvis in your browser, no terminal needed (short: jw)\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -189,6 +190,13 @@ def main() -> None:
     argv = sys.argv[1:]
     if argv and argv[0] in _UPDATE_ALIASES:
         raise SystemExit(run_update_cli(argv[1:]))
+    if argv and argv[0] == "web":
+        from .web import quick
+
+        quick.PROG = "jarvis web"
+        sys.argv = [sys.argv[0], *argv[1:]]
+        quick.main()
+        return
 
     args = _build_parser().parse_args(_normalize_web_args(argv))
 

@@ -161,6 +161,15 @@ if [ -e "${LINK}" ] && [ ! -L "${LINK}" ]; then
 fi
 
 ln -sfn "${ROOT}/.venv/bin/jarvis" "${LINK}"
+# `jw` = Jarvis in the browser with no terminal (jarvis/web/quick.py). Never
+# replace a `jw` that isn't ours (another tool may own the name).
+JW_LINK="$(dirname "${LINK}")/jw"
+JW_OURS=0
+if [ ! -e "${JW_LINK}" ] && [ ! -L "${JW_LINK}" ]; then JW_OURS=1; fi
+case "$(readlink "${JW_LINK}" 2>/dev/null)" in */.venv/bin/jw) JW_OURS=1 ;; esac
+if [ "${JW_OURS}" = 1 ]; then
+  ln -sfn "${ROOT}/.venv/bin/jw" "${JW_LINK}"
+fi
 
 echo "installed: ${LINK} -> ${ROOT}/.venv/bin/jarvis"
 

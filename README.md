@@ -110,7 +110,7 @@ Running the installer again also updates. Set `HARNESS_SKIP_UPDATE=1` to turn of
 
 ```bash
 # macOS / Linux
-rm -f "$(command -v jarvis)"            # the jarvis command
+rm -f "$(command -v jarvis)" "$(command -v jw)"   # the jarvis and jw commands
 rm -rf ~/.local/share/harness-agent     # the app
 rm -rf ~/.config/harness-agent          # optional: settings, sessions and keys
 ```
@@ -172,6 +172,19 @@ jarvis --web             # start with the web remote (default port 8765)
 jarvis --web --tunnel    # also open a public HTTPS link
 ```
 
+**No terminal needed: `jw`.** To use Jarvis only in the browser, run `jw` in a project folder. It opens that folder's Jarvis in your browser, or starts one with no terminal if none is running. The command finishes and returns your shell, and Jarvis keeps running after you close the terminal. `jarvis web` is the same command.
+
+```bash
+jw                 # open this folder's Jarvis in the browser (starts one if needed)
+jw ~/code/api      # the same, for another folder
+jw --new           # start a second Jarvis in this folder
+jw --no-open       # print the link instead of opening a browser
+jw ls              # list running Jarvis web remotes and their links
+jw stop            # stop the terminal-free Jarvis in this folder (--all: every one)
+```
+
+`jw stop` never touches a Jarvis running in a terminal; quit that one in its terminal. You can also stop a terminal-free Jarvis from the web page's Projects list (⏻), and open more folders with **Open a folder** there.
+
 Or from inside a session: `/web` shows a QR code and link, `/web open` opens it in this computer's browser, and `/web anywhere` opens a tunnel (Cloudflare quick tunnel or ngrok) so it works from any network. The browser and terminal stay in sync. You can approve commands, review file changes, attach photos and documents, switch models and manage providers from your phone. A tunnel visitor gets no shell on your computer — the terminal stays local — until you flip **Terminal on the link** in the QR dialog (or press `t` in `/web`). That switch only works from this computer or your own network, and starts off again when the Anywhere link closes.
 
 ### macOS control
@@ -223,6 +236,9 @@ jarvis "explain this repo"     # start the TUI and send a first prompt
 jarvis -p "run the tests and fix failures"   # headless: one task, then exit
 jarvis --web [PORT]            # start with the web remote
 jarvis --web --tunnel          # web remote with a public HTTPS link
+jw [folder]                    # Jarvis in the browser, no terminal to keep open (= jarvis web)
+jw ls                          # list running Jarvis web remotes
+jw stop [--all]                # stop terminal-free Jarvis (this folder, or every one)
 jarvis --legacy                # the older Rich REPL
 jarvis update [--check]        # update Jarvis
 ```
@@ -330,14 +346,14 @@ harness/
 ├── agent.py             Entry point (TUI by default, --legacy for the REPL)
 ├── pyproject.toml       Package metadata and dependencies
 ├── jarvis/
-│   ├── cli.py           Command-line flags, `jarvis update`
+│   ├── cli.py           Command-line flags, `jarvis update`, `jarvis web`
 │   ├── main.py          Core send-and-tool loop
 │   ├── state.py         Shared session state
 │   ├── auth/            API keys, OAuth (Claude, ChatGPT), provider clients, live model catalogs
 │   ├── tools/           File, shell, git, search, web, vision, macOS and extension tools + routing
 │   ├── repl/            Streaming, tool execution, context trimming, hallucination guard
 │   ├── tui/             Textual app: transcript, dialogs, sidebar, pets, themes
-│   ├── web/             Web remote: HTTP server, live sync, browser UI
+│   ├── web/             Web remote: HTTP server, live sync, browser UI, `jw` (quick.py)
 │   ├── mcp/             MCP config, registry, browser sign-in, secrets
 │   ├── storage/         Sessions, memory, lessons, agents, skills, commands, settings
 │   ├── commands/        Slash command handlers
@@ -373,6 +389,13 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Add that line to `~/.zshrc` (or `~/.bashrc`) to make it permanent.
+
+</details>
+
+<details>
+<summary><b><code>jw: command not found</code></b></summary>
+
+Installs made before `jw` existed get it with the next `jarvis update` (or run the installer again). Until then, `jarvis web` does the same thing. On Windows, use `jarvis web`.
 
 </details>
 
