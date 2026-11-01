@@ -75,6 +75,8 @@ def test_status_outside_a_repo(fake):
     fake({("git", "rev-parse", "--show-toplevel"): (128, "", "fatal: not a git repository")})
     st = git_api.status("/tmp")
     assert st["ok"] and st["repo"] is False and "editors" in st
+    # The page checks this before a From/Into PR (an older server ignored them).
+    assert st["api"] == git_api.GIT_API_VERSION >= 2
 
 
 def test_commit_adds_everything_commits_then_pushes(fake):
@@ -160,23 +162,87 @@ def test_checkout_and_stash_wait_while_jarvis_works(fake):
     assert f.calls == []
 
 
-def test_create_pr_pushes_first_and_returns_the_url(fake, monkeypatch):
+LOCAL_BRANCHES = {("git", "for-each-ref", "--format=%(refname:short)", "refs/heads"): (0, "main\nfeat/old\n", "")}
+
+
+def test_pr_from_main_moves_the_work_to_a_new_branch(fake, monkeypatch):
+    """On main with changes: create feat/x from them, commit, push, PR feat/x → main."""
     monkeypatch.setattr(git_api.shutil, "which", lambda n: "/bin/" + n)
-    f = fake({**REPO, ("gh", "pr", "create"): (0, "https://github.com/o/r/pull/7\n", "")})
-    res = git_api.create_pr("/repo", "Add thing", "## Summary\n- x")
-    assert res == {"ok": True, "url": "https://github.com/o/r/pull/7"}
-    assert f.ran("git", "push")  # ahead 2 → pushed before gh
-    assert f.ran("gh", "pr", "create", "--title", "Add thing", "--body", "## Summary\n- x")
+    f = fake({**REPO, **LOCAL_BRANCHES,
+              ("git", "check-ref-format"): (0, "feat/x\n", ""),
+              ("git", "diff", "--cached", "--quiet"): (1, "", ""),
+              ("git", "rev-parse", "--short", "HEAD"): (0, "9f8e7d6\n", ""),
+              ("gh", "pr", "create"): (0, "https://github.com/o/r/pull/7\n", "")})
+    res = git_api.create_pr("/repo", "Add thing", "## Summary\n- x", base="main", head="feat/x")
+    assert res["ok"] and res["url"].endswith("/pull/7")
+    assert res["created_branch"] and res["commit"] == "9f8e7d6" and res["head"] == "feat/x"
+    order = [c[:3] for c in f.calls if c[:2] in (["git", "switch"], ["git", "commit"], ["git", "push"], ["gh", "pr"])]
+    assert order == [["git", "switch", "-c"], ["git", "commit", "-m"], ["git", "push", "-u"], ["gh", "pr", "create"]]
+    assert f.ran("git", "switch", "-c", "feat/x")
+    assert f.ran("git", "push", "-u", "origin", "HEAD")
+    assert f.ran("gh", "pr", "create", "--base", "main", "--head", "feat/x", "--title", "Add thing", "--body", "## Summary\n- x")
+
+
+def test_pr_needs_two_different_branches_and_a_title_for_changes(fake, monkeypatch):
+    monkeypatch.setattr(git_api.shutil, "which", lambda n: "/bin/" + n)
+    f = fake({**REPO, **LOCAL_BRANCHES, ("git", "check-ref-format"): (0, "feat/x\n", "")})
+    res = git_api.create_pr("/repo", "t", base="main", head="main")
+    assert not res["ok"] and "another" in res["error"]
+    res = git_api.create_pr("/repo", "", base="main")  # head = the branch you're on = main
+    assert not res["ok"] and "another" in res["error"]
+    res = git_api.create_pr("/repo", "   ", base="main", head="feat/x")
+    assert not res["ok"] and "title" in res["error"]
+    assert not any(c[:2] in (["git", "commit"], ["git", "push"], ["gh", "pr"]) for c in f.calls)
+
+
+def test_pr_from_another_existing_branch_pushes_it_as_is(fake, monkeypatch):
+    monkeypatch.setattr(git_api.shutil, "which", lambda n: "/bin/" + n)
+    f = fake({**REPO, **LOCAL_BRANCHES, ("git", "check-ref-format"): (0, "feat/old\n", ""),
+              ("gh", "pr", "create"): (0, "https://github.com/o/r/pull/8\n", "")})
+    res = git_api.create_pr("/repo", "", base="main", head="feat/old")
+    assert res["ok"] and not res["created_branch"] and res["commit"] == ""
+    assert f.ran("git", "push", "-u", "origin", "feat/old")
+    assert f.ran("gh", "pr", "create", "--base", "main", "--head", "feat/old", "--fill")
+    assert not any(c[:2] in (["git", "switch"], ["git", "commit"]) for c in f.calls)
 
 
 def test_create_pr_finds_an_existing_one_and_needs_gh(fake, monkeypatch):
     monkeypatch.setattr(git_api.shutil, "which", lambda n: "/bin/" + n)
-    fake({**REPO, ("git", "status"): (0, "## main...origin/main\n", ""),
-          ("gh", "pr", "create"): (1, "", 'a pull request for branch "main" into branch "dev" already exists:\nhttps://github.com/o/r/pull/3\n')})
-    res = git_api.create_pr("/repo")
+    fake({**REPO, **LOCAL_BRANCHES, ("git", "status"): (0, "## feat/old...origin/feat/old\n", ""),
+          ("git", "check-ref-format"): (0, "feat/old\n", ""),
+          ("gh", "pr", "create"): (1, "", 'a pull request for branch "feat/old" into branch "main" already exists:\nhttps://github.com/o/r/pull/3\n')})
+    res = git_api.create_pr("/repo", base="main")
     assert res["ok"] and res["existing"] and res["url"].endswith("/pull/3")
     monkeypatch.setattr(git_api.shutil, "which", lambda n: None)
     assert "GitHub CLI" in git_api.create_pr("/repo")["error"]
+
+
+def test_pr_onto_a_new_branch_waits_while_jarvis_works(fake):
+    f = fake({**REPO})
+    res = git_api.post("pr", {"head": "feat/x", "base": "main"}, busy=True)
+    assert not res["ok"] and res["code"] == "busy"
+    assert not any(c[:2] in (["git", "switch"], ["gh", "pr"]) for c in f.calls)
+
+
+def test_branches_list_pr_targets_default_first(fake):
+    fake({("git", "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)\t%(HEAD)", "refs/heads"): (0, "feat/a\t*\nmain\t\n", ""),
+          ("git", "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/remotes"): (0, "origin/HEAD\norigin/dev\norigin/main\n", ""),
+          ("git", "symbolic-ref"): (0, "origin/main\n", "")})
+    res = git_api.branches("/repo")
+    assert res["current"] == "feat/a" and res["base"] == "main"
+    assert res["bases"] == ["main", "dev"]
+    assert res["remote"] == ["origin/dev"]
+
+
+def test_branch_names_from_titles_and_the_model(fake, monkeypatch):
+    assert git_api.slug_branch("feat(web): Add the git card") == "feat/add-the-git-card"
+    assert git_api.slug_branch("Fix crash on empty title") == "fix/crash-on-empty-title"
+    assert git_api.slug_branch("!!!") == ""
+    fake({**REPO, ("git", "diff", "HEAD"): (0, "+x\n", "")})
+    monkeypatch.setattr(git_api, "_ask_model", lambda s, u, **kw: "fix/login-redirect")
+    assert git_api.generate("/repo", "branch") == {"ok": True, "branch": "fix/login-redirect"}
+    monkeypatch.setattr(git_api, "_ask_model", lambda s, u, **kw: "Sure! Improve Login Redirect")
+    assert git_api.generate("/repo", "branch")["branch"] == "feat/sure-improve-login-redirect"
 
 
 def test_generate_asks_the_model_with_the_diff(fake, monkeypatch):
@@ -184,7 +250,7 @@ def test_generate_asks_the_model_with_the_diff(fake, monkeypatch):
           ("git", "log", "-8"): (0, "feat(web): earlier\n", "")})
     seen = {}
 
-    def ask(system, user):
+    def ask(system, user, **kw):
         seen["system"], seen["user"] = system, user
         return "feat(web): add the thing"
 
@@ -193,11 +259,12 @@ def test_generate_asks_the_model_with_the_diff(fake, monkeypatch):
     assert res == {"ok": True, "message": "feat(web): add the thing"}
     assert "+new line" in seen["user"] and "feat(web): earlier" in seen["user"]
 
-    monkeypatch.setattr(git_api, "_ask_model", lambda s, u: "Add the thing\n\n## Summary\n- x")
+    monkeypatch.setattr(git_api, "_ask_model", lambda s, u, **kw: "Add the thing\n\n## Summary\n- x")
     fake({**REPO, ("git", "symbolic-ref"): (0, "origin/main\n", ""),
           ("git", "log", "origin/main..HEAD"): (0, "- one\n", "")})
     res = git_api.generate("/repo", "pr")
     assert res["ok"] and res["title"] == "Add the thing" and res["body"].startswith("## Summary")
+    assert res["branch"] == "feat/add-the-thing"  # no Branch: line → named after the title
 
 
 def test_model_text_is_cleaned():
@@ -212,3 +279,27 @@ def test_open_in_only_knows_its_apps(fake, monkeypatch):
     assert git_api.open_in("/repo", "finder")["ok"] and f.ran("open", "/repo")
     monkeypatch.setattr(git_api, "_mac_app", lambda names: names[0] if names else None)
     assert git_api.open_in("/repo", "cursor")["ok"] and f.ran("open", "-a", "Cursor", "/repo")
+
+
+def test_pr_answer_carries_its_branch_and_a_title_names_one_without_the_model(fake, monkeypatch):
+    fake({**REPO, ("git", "diff", "HEAD"): (0, "+x\n", ""), ("git", "symbolic-ref"): (0, "origin/main\n", "")})
+    monkeypatch.setattr(git_api, "_ask_model",
+                        lambda s, u, **kw: "Add the git card\nBranch: feat/web-git-card\n\n## Summary\n- x")
+    res = git_api.generate("/repo", "pr")
+    assert res == {"ok": True, "title": "Add the git card", "branch": "feat/web-git-card", "body": "## Summary\n- x"}
+
+    def boom(*a, **kw):
+        raise AssertionError("no model call needed")
+
+    monkeypatch.setattr(git_api, "_ask_model", boom)
+    assert git_api.generate("/repo", "branch", title="Fixes the login loop") == {"ok": True, "branch": "fix/the-login-loop"}
+
+
+def test_same_question_is_answered_from_the_cache(monkeypatch):
+    calls = []
+    monkeypatch.setattr(git_api, "_gen_cache", {})
+    monkeypatch.setattr(git_api, "_ask_model_uncached", lambda s, u, max_tokens: calls.append(u) or "fix: x")
+    assert git_api._ask_model("sys", "diff A") == "fix: x"
+    assert git_api._ask_model("sys", "diff A") == "fix: x"
+    assert git_api._ask_model("sys", "diff B") == "fix: x"
+    assert calls == ["diff A", "diff B"]
