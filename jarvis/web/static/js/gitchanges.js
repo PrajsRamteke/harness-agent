@@ -175,7 +175,7 @@ function paintList() {
   if (!inc && !data.local.length) {
     html.length = 0;
     html.push(empty('Nothing changed', data.upstream
-      ? `No uncommitted changes, and nothing new on ${escapeHtml(data.upstream)} since the last fetch. The pull button on the branch row checks for new commits.`
+      ? `No uncommitted changes, and nothing new on ${escapeHtml(data.upstream)} since the last fetch. Pull from the ⋯ menu on the branch row to check again.`
       : 'No uncommitted changes in this repository.', { ic: 'circle-check' }));
   }
   el.innerHTML = html.join('');

@@ -128,14 +128,15 @@ function primaryAction() {
 /** The branch tracks a remote branch, so there's something to pull from. */
 const canPull = () => !!(st?.repo && st.upstream && !st.upstream_gone && !st.detached);
 
-/** The pull button on the branch row: always there while the branch tracks a
- * remote (it fetches too); lit with the count when commits are waiting. */
+/** The pull button on the branch row: only while commits are actually waiting
+ * (or a pull is running, so its spinner stays put). Idle branches keep the row
+ * clean — Pull is still in the ⋯ menu. */
 function pullButton(busy) {
-  if (!canPull()) return '';
   const n = num(st.behind);
   const pulling = working === 'pull' && pullFrom !== 'primary';
+  if (!canPull() || (!n && !pulling)) return '';
   const why = busy ? 'Jarvis is working — pull when it finishes'
-    : n ? `Pull ${plural(n, 'commit')} from ${st.upstream}` : `Pull from ${st.upstream} (checks for new commits)`;
+    : `Pull ${plural(n, 'commit')} from ${st.upstream}`;
   return `<button type="button" class="gc-pull${n ? ' has-new' : ''}" data-act="pull" ${busy || pulling ? 'disabled' : ''} title="${escapeHtml(why)}" aria-label="${escapeHtml(why)}">
     ${pulling ? '<span class="spinner"></span>' : icon('cloud-download')}${n ? `<span>${n}</span>` : ''}
   </button>`;

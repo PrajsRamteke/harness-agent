@@ -304,8 +304,9 @@
 .gc-path-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--text); }
 .gc-note .spinner { width: 12px; height: 12px; }
 
-/* Branch row + its pull button: quiet while nothing waits; a solid accent
-   button with the count (and a soft pulse) when there are commits to pull. */
+/* Branch row + its pull button. The button only exists when commits are
+   waiting: then it's a solid accent button with the count (and a soft pulse).
+   An idle branch shows no button — Pull lives in the ⋯ menu. */
 .gc-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .gc-line .gc-row { flex: 1; min-width: 0; }
 .gc-pull {
