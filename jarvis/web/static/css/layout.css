@@ -132,15 +132,30 @@ body.side-collapsed .side-resize { display: none; }
 .new-chat-row .new-chat-folder { width: var(--h-md); padding: 0; color: var(--text-2); }
 .new-chat-row .new-chat-folder:hover { color: var(--text); }
 
+/* The Projects and Recent-sessions headers stay put; only the session list
+   (.side-recent .recent) scrolls. A long Projects list scrolls on its own. */
 .side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.side-scroll > #projects-sec { flex: 0 1 auto; min-height: 0; max-height: 45%; }
+.side-scroll > #projects-sec .projects {
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -10px;
+  padding: 0 10px;
+}
+.side-scroll > .side-recent { flex: 1 1 0; min-height: 0; }
+.side-recent .recent {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   margin: 0 -10px;
   padding: 0 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
 }
 
 .side-sec { display: flex; flex-direction: column; gap: 1px; }
