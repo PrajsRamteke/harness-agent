@@ -12,6 +12,7 @@ terminal is the user's to quit there.
 """
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -19,6 +20,7 @@ import sys
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,11 +30,16 @@ from . import fs_api, registry
 
 LAUNCH_TIMEOUT = 45.0   # a cold start (imports, catalogs) takes a few seconds; this is the "stuck" line
 STOP_TIMEOUT = 10.0    # idle: well under a second; right after starting it may finish startup work first
+STOP_ALL_WORKERS = 8   # projects stopped at the same time by `stop_all`
 MAX_RUNNING = 16
 LOG_DIR = CONFIG_DIR / "instances" / "logs"
 KEEP_LOGS = 20
+SNAPSHOT_FILE = CONFIG_DIR / "workspace_snapshot.json"   # what "Stop all" leaves open, for "Restore"
+RESUME_ENV = "HARNESS_RESUME_SESSION"                    # the chat a launched Jarvis opens with
+# Errors that no retry fixes: the saved folder is gone.
+_PERMANENT = ("not_found", "not_a_folder")
 # Inherited settings that belong to the terminal Jarvis, not to a project opened from it.
-_DROP_ENV = ("HARNESS_WEB_TUNNEL", "HARNESS_WEB", "HARNESS_UPDATED_REEXEC", "HARNESS_UPDATE_RESULT")
+_DROP_ENV = ("HARNESS_WEB_TUNNEL", "HARNESS_WEB", "HARNESS_UPDATED_REEXEC", "HARNESS_UPDATE_RESULT", RESUME_ENV)
 
 
 def command() -> list[str]:
@@ -155,8 +162,11 @@ def _watch(launch: Launch, proc: subprocess.Popen) -> None:
         pass
 
 
-def open_project(raw_path: str, *, reuse: bool = True) -> dict[str, Any]:
-    """Start (or, with ``reuse``, find) a Jarvis in a folder. Never raises."""
+def open_project(raw_path: str, *, reuse: bool = True, resume_session: int | None = None) -> dict[str, Any]:
+    """Start (or, with ``reuse``, find) a Jarvis in a folder. Never raises.
+
+    ``resume_session``: the saved chat it opens with (a missing one starts a new chat).
+    """
     try:
         path = fs_api.resolve_dir(raw_path)
     except fs_api.FsError as exc:
@@ -175,6 +185,8 @@ def open_project(raw_path: str, *, reuse: bool = True) -> dict[str, Any]:
     env = {k: v for k, v in os.environ.items() if k not in _DROP_ENV}
     env["PWD"] = str(path)
     env["HARNESS_LAUNCHED_BY"] = str(os.getpid())
+    if resume_session:
+        env[RESUME_ENV] = str(int(resume_session))
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in path.name)[:40] or "root"
@@ -245,3 +257,149 @@ def stop_project(instance_id: str) -> dict[str, Any]:
         pass
     registry.forget(instance_id)  # killed: its own cleanup never ran
     return {"ok": True, "forced": True}
+
+
+def stop_all(self_id: str) -> dict[str, Any]:
+    """End every Jarvis opened from the web, the one serving this page last. Never raises.
+
+    Others stop in parallel (each waits for its own clean exit), then this one is
+    scheduled to go once the answer is out. A Jarvis running in a terminal is not
+    ours to quit: it is listed in ``skipped``, and — when it is the one serving
+    this page — its web terminals are closed, the only part of it the page started.
+    ``stopped`` / ``failed`` / ``skipped`` hold ``{id, project}`` rows; ``self`` is
+    true when the serving Jarvis is on its way out (the page should say goodbye).
+    """
+    rows: dict[str, dict[str, Any]] = {}
+    skipped: list[dict[str, Any]] = []
+    saved: list[dict[str, Any]] = []
+    for rec in registry.list_instances():
+        rid = str(rec.get("id") or "")
+        if not rid:
+            continue
+        row = {"id": rid, "project": str(rec.get("project") or "")}
+        if rec.get("headless"):
+            rows[rid] = row
+            saved.append(_snapshot_entry(rec))
+        else:
+            skipped.append(row)
+    _save_workspace(saved)  # before anything stops: this is what "Restore" brings back
+    others = [rid for rid in rows if rid != self_id]
+    stopped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    if others:
+        with ThreadPoolExecutor(max_workers=min(len(others), STOP_ALL_WORKERS)) as pool:
+            results = list(pool.map(stop_project, others))
+        for rid, res in zip(others, results):
+            if res.get("ok"):
+                stopped.append(rows[rid])
+            else:
+                failed.append({**rows[rid], "error": str(res.get("error") or "Couldn't stop it.")})
+    going = self_id in rows
+    if going:
+        res = stop_project(self_id)
+        if res.get("ok"):
+            stopped.append(rows[self_id])
+        else:
+            going = False
+            failed.append({**rows[self_id], "error": str(res.get("error") or "Couldn't stop it.")})
+    else:
+        from . import terminal_api
+
+        terminal_api.close_all()
+    return {"ok": not failed, "stopped": stopped, "failed": failed, "skipped": skipped, "self": going,
+            "saved": len(saved)}
+
+
+# ─── The saved workspace: "Stop all" now, "Restore" tomorrow ────────────────
+
+def _snapshot_entry(rec: dict[str, Any]) -> dict[str, Any]:
+    sid = rec.get("session_id")
+    return {
+        "project": str(rec.get("project") or ""),
+        "cwd": str(rec.get("cwd") or ""),
+        "title": str(rec.get("session_title") or rec.get("title") or ""),
+        "session_id": int(sid) if isinstance(sid, int) or str(sid).isdigit() else None,
+    }
+
+
+def _save_workspace(entries: list[dict[str, Any]]) -> None:
+    """Write what is open now (nothing open: leave the last snapshot alone). Never raises."""
+    if not entries:
+        return
+    try:
+        SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = SNAPSHOT_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"saved_at": time.time(), "projects": entries}))
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, SNAPSHOT_FILE)
+    except OSError:
+        pass
+
+
+def _public_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    return {"project": entry["project"], "display": fs_api.display(entry["cwd"]),
+            "title": entry["title"], "session_id": entry["session_id"]}
+
+
+def _read_workspace() -> tuple[float, list[dict[str, Any]]] | None:
+    try:
+        raw = json.loads(SNAPSHOT_FILE.read_text())
+        entries = [e for e in raw["projects"] if isinstance(e, dict) and e.get("cwd")]
+        return float(raw["saved_at"]), [{**_snapshot_entry(e)} for e in entries]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def saved_workspace() -> dict[str, Any] | None:
+    """The snapshot as the page shows it: ``{saved_at, projects: [{project, display, title, session_id}]}``."""
+    found = _read_workspace()
+    if found is None or not found[1]:
+        return None
+    return {"saved_at": found[0], "projects": [_public_entry(e) for e in found[1]]}
+
+
+def forget_workspace() -> None:
+    try:
+        SNAPSHOT_FILE.unlink()
+    except OSError:
+        pass
+
+
+def restore_workspace() -> dict[str, Any]:
+    """Start a Jarvis for every saved project, each opening its chat. Never raises.
+
+    Starts are asynchronous (the page watches the Projects list fill up). A chat that
+    is already running is not started twice; one that can't start for a passing reason
+    (too many open) stays saved, one whose folder is gone is dropped.
+    """
+    found = _read_workspace()
+    if found is None or not found[1]:
+        forget_workspace()
+        return {"ok": True, "restored": [], "failed": []}
+    running = {str(r.get("session_id")) for r in registry.list_instances() if r.get("session_id") is not None}
+    restored: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    keep: list[dict[str, Any]] = []
+    for entry in found[1]:
+        sid = entry["session_id"]
+        if sid is not None and str(sid) in running:
+            restored.append(_public_entry(entry))
+            continue
+        res = open_project(entry["cwd"], reuse=sid is None, resume_session=sid)
+        if res.get("ok"):
+            restored.append(_public_entry(entry))
+            continue
+        failed.append({**_public_entry(entry), "error": str(res.get("error") or "Couldn't start it.")})
+        if res.get("code") not in _PERMANENT:
+            keep.append(entry)
+    if keep:
+        try:
+            tmp = SNAPSHOT_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"saved_at": found[0], "projects": keep}))
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, SNAPSHOT_FILE)
+        except OSError:
+            pass
+    else:
+        forget_workspace()
+    return {"ok": not failed, "restored": restored, "failed": failed}

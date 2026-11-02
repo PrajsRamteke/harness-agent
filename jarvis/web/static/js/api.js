@@ -459,6 +459,13 @@ export const openProjectAt = (path, reuse = true) => hostJson('/api/projects/ope
 export const fetchLaunch = (id) => hostJson(`/api/projects/launch?id=${encodeURIComponent(id)}`);
 /** Stop a Jarvis that was opened from the web. */
 export const stopProjectById = (id) => hostJson('/api/projects/stop', 'POST', { id });
+/** Stop every web-opened Jarvis (this one last) and remember what was open → `{ stopped, failed, skipped, self, saved }`. */
+export const stopAllProjects = () => hostJson('/api/projects/stop_all', 'POST', {});
+/** What "Stop all" left open: `{ saved: { saved_at, projects: [{ project, display, title, session_id }] } | null }`. */
+export const fetchSavedWorkspace = () => hostJson('/api/projects/saved');
+/** Start every saved project, each with its chat → `{ restored, failed }`. */
+export const restoreWorkspace = () => hostJson('/api/projects/restore', 'POST', {});
+export const forgetSavedWorkspace = () => hostJson('/api/projects/forget_saved', 'POST', {});
 /** The Anywhere link (public tunnel) of the server this page came through — whichever
  * project is on screen, hence no `BASE`. */
 export const fetchTunnel = () => hostJson('/api/tunnel');

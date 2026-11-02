@@ -57,6 +57,10 @@ export const currentProjectId = () => (BASE ? BASE.slice(3) : hostId);
 const baseFor = (id) => (id && id !== hostId ? `/p/${id}` : '');
 const find = (id) => projects.find((p) => p.id === id);
 export const findProject = find;
+/** Every running Jarvis the page knows of (a copy: callers never change the list). */
+export const allProjects = () => [...projects];
+/** The server this page was loaded from — the one that has to be stopped last. */
+export const hostProjectId = () => hostId;
 const nameOf = (p) => p?.project || 'project';
 
 function hrefFor(id) {

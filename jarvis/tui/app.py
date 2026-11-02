@@ -430,11 +430,27 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
         if state.client is None:
             state.client = make_client(interactive=False)
         db_init()
-        state.current_session_id = db_create_session(state.MODEL)
+        if not self._resume_launch_session():
+            state.current_session_id = db_create_session(state.MODEL)
         self._render_footer()  # make_client may have settled provider / model
         self._render_welcome_intro()
         if state.startup_prompt:
             self.set_timer(0.05, self._submit_startup_prompt)
+
+    def _resume_launch_session(self) -> bool:
+        """Open the chat the web's "Restore" asked for (``HARNESS_RESUME_SESSION``).
+
+        False when none was asked for or it no longer exists: a new chat starts instead.
+        """
+        import os
+
+        from .session_modal import resume_session_into_state
+        from ..web.launcher import RESUME_ENV
+
+        raw = os.environ.pop(RESUME_ENV, "").strip()
+        if not state.headless or not raw.isdigit():
+            return False
+        return resume_session_into_state(int(raw), lambda *_a, **_k: None, preview=False, quiet=True)
 
     def _headless_signals(self) -> None:
         """No terminal to press Ctrl+C in: SIGTERM / SIGHUP (web "Stop", logout) exit cleanly."""

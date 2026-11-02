@@ -135,7 +135,16 @@
         <section class="side-sec" id="projects-sec" aria-label="Projects" hidden>
           <div class="sec-head">
             <h2 class="sec-title">Projects</h2>
-            <button class="link-btn proj-add" id="open-folder" type="button" title="Open another folder — it runs alongside this one"><span data-icon="plus"></span><span>Open folder</span></button>
+            <div class="proj-actions">
+              <button class="icon-btn proj-stop-all" id="stop-all" type="button" aria-label="Stop all projects" title="Stop all projects and terminals — Restore brings them back"><span data-icon="power"></span></button>
+              <button class="link-btn proj-add" id="open-folder" type="button" title="Open another folder — it runs alongside this one"><span data-icon="plus"></span><span>Open folder</span></button>
+            </div>
+          </div>
+          <div class="restore-bar" id="restore-bar" hidden>
+            <span class="rb-ic" aria-hidden="true"><span data-icon="rotate-ccw"></span></span>
+            <span class="rb-text" id="restore-text"></span>
+            <button class="btn btn-primary rb-go" id="restore-go" type="button">Restore</button>
+            <button class="icon-btn rb-x" id="restore-dismiss" type="button" aria-label="Forget the saved workspace" title="Forget it"><span data-icon="x"></span></button>
           </div>
           <div class="projects" id="projects-list" role="list"></div>
         </section>
@@ -727,6 +736,21 @@
       <div class="dlg-bar" id="local-bar"></div>
       <div class="pv-body dlg-body ex-body" id="local-body"></div>
       <div class="dlg-foot" id="local-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="stopall" hidden>
+    <div class="modal-card glass-strong sa-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="stopall-title">
+      <div class="picker-head">
+        <span class="picker-icon"><span data-icon="power"></span></span>
+        <div class="picker-titles">
+          <h2 id="stopall-title">Stop everything?</h2>
+          <p id="stopall-sub"></p>
+        </div>
+        <button class="icon-btn" data-close="stopall" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="sa-body" id="stopall-body"></div>
+      <div class="dlg-foot sa-foot" id="stopall-foot"></div>
     </div>
   </div>
 

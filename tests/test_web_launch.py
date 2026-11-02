@@ -21,6 +21,7 @@ def isolated(tmp_path, monkeypatch):
     inst = tmp_path / "instances"
     monkeypatch.setattr(registry, "INSTANCES_DIR", inst)
     monkeypatch.setattr(launcher, "LOG_DIR", inst / "logs")
+    monkeypatch.setattr(launcher, "SNAPSHOT_FILE", tmp_path / "workspace_snapshot.json")
     monkeypatch.setattr(fs_api, "RECENT_FILE", tmp_path / "recent_dirs.json")
     monkeypatch.setenv("FAKE_INSTANCES", str(inst))
     home = tmp_path / "home"
@@ -165,7 +166,8 @@ if mode == "hang":
     time.sleep(60)
 reg = registry.Registration(instance_id=str(os.getpid()), port=1, token="t",
                             info=lambda: {{"cwd": os.getcwd(), "project": os.path.basename(os.getcwd()),
-                                          "session_id": 7, "headless": True}})
+                                          "session_id": int(os.environ.get("HARNESS_RESUME_SESSION") or 7),
+                                          "headless": True}})
 signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
 reg.start()
 while True:
@@ -235,6 +237,88 @@ def test_a_terminal_jarvis_is_never_stopped_from_the_web(isolated):
         assert registry.get("term") is not None
     finally:
         reg.stop()
+
+
+def test_stop_all_ends_every_web_opened_jarvis_and_leaves_terminal_ones(isolated, fake_child):
+    _tree(isolated)
+    ids = [_wait(launcher.open_project(f"~/work/{name}")["launch"]["id"])["instance_id"] for name in ("api", "web")]
+    term = registry.Registration(instance_id="term", port=1, token="t", info=lambda: {"project": "cli", "headless": False})
+    term.start()
+    try:
+        res = launcher.stop_all("term")  # the page is served by the terminal Jarvis: it stays
+        assert res["ok"] and res["self"] is False
+        assert sorted(r["id"] for r in res["stopped"]) == sorted(ids)
+        assert [r["id"] for r in res["skipped"]] == ["term"] and not res["failed"]
+        assert all(registry.get(i) is None for i in ids)
+        assert registry.get("term") is not None
+    finally:
+        term.stop()
+
+
+def test_stop_all_with_nothing_running_is_a_quiet_success(isolated):
+    assert launcher.stop_all("") == {"ok": True, "stopped": [], "failed": [], "skipped": [], "self": False, "saved": 0}
+    assert launcher.saved_workspace() is None
+
+
+def test_stop_all_saves_the_workspace_and_restore_brings_each_chat_back(isolated, fake_child):
+    _tree(isolated)
+    for name, sid in (("api", 11), ("web", 12)):
+        assert _wait(launcher.open_project(f"~/work/{name}", resume_session=sid)["launch"]["id"])["status"] == "ready"
+    assert launcher.stop_all("")["saved"] == 2
+    assert registry.list_instances() == []
+    saved = launcher.saved_workspace()
+    assert sorted((p["project"], p["session_id"]) for p in saved["projects"]) == [("api", 11), ("web", 12)]
+    assert saved["projects"][0]["display"].startswith("~/work/")
+    res = launcher.restore_workspace()
+    assert res["ok"] and len(res["restored"]) == 2 and not res["failed"]
+    deadline = time.time() + 20
+    while time.time() < deadline and len(registry.list_instances()) < 2:
+        time.sleep(0.1)
+    assert sorted(int(r["session_id"]) for r in registry.list_instances()) == [11, 12]  # each opened its own chat
+    assert launcher.saved_workspace() is None  # used up
+
+
+def test_restore_skips_chats_already_running_and_drops_missing_folders(isolated, fake_child):
+    _tree(isolated)
+    _wait(launcher.open_project("~/work/api", resume_session=11)["launch"]["id"])
+    launcher._save_workspace([
+        {"project": "api", "cwd": str(isolated / "work" / "api"), "title": "", "session_id": 11},
+        {"project": "gone", "cwd": str(isolated / "work" / "gone"), "title": "", "session_id": 5},
+    ])
+    res = launcher.restore_workspace()
+    assert [p["project"] for p in res["restored"]] == ["api"]      # already there: not started twice
+    assert [p["project"] for p in res["failed"]] == ["gone"]
+    assert len(registry.list_instances()) == 1
+    assert launcher.saved_workspace() is None                    # a vanished folder is not kept
+
+
+def test_forgetting_the_saved_workspace(isolated):
+    launcher._save_workspace([{"project": "x", "cwd": str(isolated), "title": "t", "session_id": 3}])
+    assert launcher.saved_workspace()["projects"][0]["title"] == "t"
+    launcher.forget_workspace()
+    assert launcher.saved_workspace() is None
+
+
+def test_stop_all_reports_the_serving_jarvis_as_going_last(isolated, fake_child, monkeypatch):
+    _tree(isolated)
+    other = _wait(launcher.open_project("~/work/api")["launch"]["id"])["instance_id"]
+    me = registry.Registration(instance_id="me", port=1, token="t",
+                               info=lambda: {"project": "here", "headless": True, "pid": os.getpid()})
+    me.start()
+    order: list[str] = []
+    real = launcher.stop_project
+
+    def spy(instance_id):
+        order.append(instance_id)
+        return {"ok": True, "self": True} if instance_id == "me" else real(instance_id)
+
+    monkeypatch.setattr(launcher, "stop_project", spy)
+    try:
+        res = launcher.stop_all("me")
+        assert order == [other, "me"] and res["self"] is True and res["ok"]
+        assert sorted(r["id"] for r in res["stopped"]) == sorted([other, "me"])
+    finally:
+        me.stop()
 
 
 def test_a_jarvis_that_crashes_while_starting_reports_why(isolated, fake_child, monkeypatch):

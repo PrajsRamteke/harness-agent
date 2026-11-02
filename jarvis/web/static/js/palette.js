@@ -1,6 +1,7 @@
 /** ⌘K / Ctrl+K command palette */
 import { $, escapeHtml, isMac } from './utils.js';
 import { openFolders } from './folders.js';
+import { openStopAll } from './workspace.js';
 import { renameCurrent } from './rename.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
@@ -81,6 +82,10 @@ export async function runItem(item) {
   }
   if (item.action === 'folders') {
     openFolders();
+    return;
+  }
+  if (item.action === 'stop_all') {
+    openStopAll();
     return;
   }
   if (item.action === 'tab_new') {

@@ -1079,6 +1079,12 @@ class WebHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, "launch": found})
             return
 
+        if path == "/api/projects/saved":
+            from . import launcher
+
+            self._send_json(200, {"ok": True, "saved": launcher.saved_workspace()})
+            return
+
         if path == "/api/fs/dirs":
             from . import fs_api
 
@@ -1146,12 +1152,20 @@ class WebHandler(BaseHTTPRequestHandler):
 
         data = self._read_json()
 
-        if path in ("/api/projects/open", "/api/projects/stop"):
+        if path in ("/api/projects/open", "/api/projects/stop", "/api/projects/stop_all",
+                    "/api/projects/restore", "/api/projects/forget_saved"):
             # Start / stop another Jarvis — this server's job, whichever project is shown.
             from . import launcher
 
             if path.endswith("/open"):
                 result = launcher.open_project(str(data.get("path") or ""), reuse=bool(data.get("reuse", True)))
+            elif path.endswith("/stop_all"):
+                result = launcher.stop_all(self.instance_id or "")
+            elif path.endswith("/restore"):
+                result = launcher.restore_workspace()
+            elif path.endswith("/forget_saved"):
+                launcher.forget_workspace()
+                result = {"ok": True}
             else:
                 result = launcher.stop_project(str(data.get("id") or ""))
             self._send_json(200, result)

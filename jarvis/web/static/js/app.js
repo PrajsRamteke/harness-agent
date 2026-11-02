@@ -14,6 +14,7 @@ import { initClaudeUsageCard } from './claude_usage.js';
 import { initTitleRename } from './rename.js';
 import { initProjects, projectGone, serverLost } from './projects.js';
 import { initFolders } from './folders.js';
+import { initWorkspace } from './workspace.js';
 import { initInspector, toggleInspector } from './inspector.js';
 import { initTerminal } from './terminal.js';
 import { initGit } from './git.js';
@@ -148,6 +149,7 @@ function boot() {
   initTitleRename();
   initProjects({ onEvent: handleEvent });
   initFolders();
+  initWorkspace();
   initInspector();
   initTerminal();
   initGit();
