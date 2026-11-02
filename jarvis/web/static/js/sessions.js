@@ -159,7 +159,8 @@ async function waitForLaunch(launch) {
   throw new Error('it took too long to start');
 }
 
-/** Resume chat `s` where it belongs. `where`: auto · here (this folder) · tab (new tab here). */
+/** Open chat `s` where it belongs — by default in a new tab, never over the current chat.
+ *  `where`: auto · here (replace the current tab's chat) · tab (new tab here). */
 export async function openSession(s, { where = 'auto' } = {}) {
   if (!s) return { ok: false };
   if (s.active && where !== 'tab') {
@@ -172,7 +173,8 @@ export async function openSession(s, { where = 'auto' } = {}) {
     return resumeHere(s.id, s.cwd && !s.here ? `Opened here — it now belongs to ${store.session.cwd_display || 'this folder'}` : 'Session resumed');
   }
   const w = whereOf(s);
-  if (w.kind === 'here') return resumeHere(s.id);
+  // A chat from this folder opens in its own new tab; the current tab keeps its chat.
+  if (w.kind === 'here') return openInTab(s.id);
   if (w.kind === 'running') {
     await switchProject(w.project.id);
     return { ok: true, switched: true };
@@ -181,9 +183,8 @@ export async function openSession(s, { where = 'auto' } = {}) {
   if (w.kind === 'folder') {
     await switchProject(w.project.id);
     if (currentProjectId() !== w.project.id) return { ok: false };
-    // That Jarvis may be mid-reply: never stop it, open the chat in a tab beside it.
-    const res = w.project.busy ? await openInTab(s.id) : await runAction('session_resume', { session_id: s.id }, `Opened in ${name}`);
-    return res;
+    // Never replace what that Jarvis has on screen: open the chat in a new tab beside it.
+    return openInTab(s.id);
   }
   // No Jarvis runs in that folder: start one there, then resume the chat in it.
   showToast(`Starting Jarvis in ${name}…`);
@@ -266,6 +267,7 @@ export async function sessionMenu(anchor, s, { titleEl = null } = {}) {
     items.push({ key: 'here', label: 'Open here instead', icon: 'arrow-right-left' });
   } else if (!s.active) {
     items.push({ key: 'tab', label: s.tab ? 'Show its tab' : 'Open in new tab', icon: 'app-window' });
+    items.push({ key: 'here', label: 'Open in current tab', icon: 'arrow-right-left' });
   }
   items.push({ key: 'rename', label: 'Rename', icon: 'pencil' });
   items.push({ key: 'pin', label: s.pinned ? 'Unpin' : 'Pin to top', icon: s.pinned ? 'pin-off' : 'pin' });
