@@ -18,7 +18,6 @@ import re
 import threading
 from dataclasses import dataclass
 
-from . import state
 
 MAX_CHARS = 8000          # longer than this isn't a hand-typed prompt
 TIMEOUT_SECS = 90.0
@@ -197,15 +196,32 @@ def _clean(reply: str, masked: str) -> str:
 
 # ── the request ──────────────────────────────────────────────────────────
 
-def _answer_by_tool() -> bool:
-    return bool(getattr(state.client, "gate_tools", None))
+def _side_target() -> tuple:
+    """``(client, model, provider, auth_mode)`` for this request.
+
+    Same model as commit / PR text (Settings → Commit text model); Auto means
+    the chat's own model. A one-off client — the session is left untouched.
+    """
+    from . import side_model
+
+    try:
+        return side_model.resolve()
+    except Exception as exc:  # noqa: BLE001 — a misconfigured pick must say so
+        raise EnhanceError(
+            f"the commit text model ({side_model.label()}) isn't available — "
+            f"{_short_error(exc)}. Set it back to Auto in Settings."
+        ) from exc
 
 
-def _system_prompt():
+def _answer_by_tool(client=None) -> bool:
+    return bool(getattr(client, "gate_tools", None))
+
+
+def _system_prompt(client=None, auth_mode=None):
     from .constants import AUTH_OAUTH, OAUTH_IDENTITY
 
-    text = _SYSTEM + (_REPLY_BY_TOOL if _answer_by_tool() else _REPLY_AS_TEXT)
-    if state.auth_mode == AUTH_OAUTH:
+    text = _SYSTEM + (_REPLY_BY_TOOL if _answer_by_tool(client) else _REPLY_AS_TEXT)
+    if auth_mode == AUTH_OAUTH:
         # Anthropic OAuth requires this exact first block.
         return [
             {"type": "text", "text": OAUTH_IDENTITY},
@@ -214,15 +230,16 @@ def _system_prompt():
     return text
 
 
-def _request_kwargs(masked: str) -> dict:
+def _request_kwargs(masked: str, target: tuple) -> dict:
     from .constants import PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN
     from .constants.models import API_MAX_TOKENS
 
+    client, model, provider, auth_mode = target
     kwargs = dict(
-        model=state.MODEL,
+        model=model,
         # Room for reasoning models to think before they write the answer.
         max_tokens=min(API_MAX_TOKENS, max(4096, len(masked))),
-        system=_system_prompt(),
+        system=_system_prompt(client, auth_mode),
         messages=[{
             "role": "user",
             "content": (
@@ -233,9 +250,9 @@ def _request_kwargs(masked: str) -> dict:
             ),
         }],
     )
-    if state.provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
+    if provider in (PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN):
         kwargs["thinking"] = {"type": "disabled"}
-    if _answer_by_tool():
+    if _answer_by_tool(client):
         kwargs["tools"] = [_ANSWER_TOOL]
     return kwargs
 
@@ -256,10 +273,11 @@ _TOOL_RETRIES = 2
 
 
 def _call_model(masked: str) -> str:
-    client = state.client
+    target = _side_target()
+    client = target[0]
     if client is None:
         raise EnhanceError("no model connected — run /provider")
-    kwargs = _request_kwargs(masked)
+    kwargs = _request_kwargs(masked, target)
     for _ in range(_TOOL_RETRIES + 1):
         with client.messages.stream(**kwargs) as stream:
             blocks = _blocks(stream.get_final_message())
@@ -271,7 +289,7 @@ def _call_model(masked: str) -> str:
         if text.strip() or not calls:
             return text
         # Reached for some other tool: refuse it and ask again.
-        refusal = _ONLY_ANSWER_TOOL if _answer_by_tool() else _NO_TOOLS
+        refusal = _ONLY_ANSWER_TOOL if _answer_by_tool(client) else _NO_TOOLS
         kwargs["messages"] = kwargs["messages"] + [
             {"role": "assistant", "content": [
                 {"type": "tool_use", "id": b.get("id"), "name": b.get("name"),
