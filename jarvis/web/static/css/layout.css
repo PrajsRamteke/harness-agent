@@ -322,6 +322,31 @@ body.side-collapsed .side-resize { display: none; }
 .side-toggles .switch-row { padding: 5px 8px; }
 .side-toggles + .side-foot { border-top: 1px solid var(--line); }
 
+/* Handle above the switches + usage: hides them so the chat list gets the room. */
+.side-bottom-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 20px;
+  margin: -4px 0 -8px; /* cancels the sidebar's 10px flex gap on both sides */
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.side-bottom-toggle:hover { color: var(--text); }
+.side-bottom-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sbt-chev { display: inline-flex; width: 14px; height: 14px; transition: transform 0.2s; }
+.sbt-chev svg { width: 100%; height: 100%; }
+.sidebar.bottom-hidden .sbt-chev { transform: rotate(180deg); }
+.sidebar.bottom-hidden .side-toggles,
+.sidebar.bottom-hidden .side-foot { display: none; }
+.side-bottom-toggle + .side-toggles { border-top: 0; padding-top: 2px; }
+
 .side-foot {
   display: flex;
   flex-direction: column;

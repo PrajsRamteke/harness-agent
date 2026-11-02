@@ -462,6 +462,24 @@ function initRecent() {
   });
 }
 
+// ─── Hide / show the switches + usage block ───────────────────────────────
+
+const BOTTOM_KEY = 'jarvis-side-bottom-hidden';
+
+function setBottomHidden(hidden) {
+  $('sidebar')?.classList.toggle('bottom-hidden', hidden);
+  $('side-bottom-toggle')?.setAttribute('aria-expanded', String(!hidden));
+}
+
+function initBottomToggle() {
+  setBottomHidden(storageGet(BOTTOM_KEY, '0') === '1');
+  $('side-bottom-toggle')?.addEventListener('click', () => {
+    const hidden = !$('sidebar').classList.contains('bottom-hidden');
+    setBottomHidden(hidden);
+    storageSet(BOTTOM_KEY, hidden ? '1' : '0');
+  });
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────
 
 export function initSidebar({ onOpenPicker }) {
@@ -488,6 +506,7 @@ export function initSidebar({ onOpenPicker }) {
   $('open-skills')?.addEventListener('click', () => { closeOnNarrow(); openPicker('skill'); });
   $('open-commands')?.addEventListener('click', () => { closeOnNarrow(); openPicker('command'); });
   $('open-mcp')?.addEventListener('click', () => { closeOnNarrow(); openPicker('mcp'); });
+  initBottomToggle();
   $('theme-btn')?.addEventListener('click', toggleTheme);
   $('appearance-btn')?.addEventListener('click', () => { closeOnNarrow(); openAppearance(); });
 

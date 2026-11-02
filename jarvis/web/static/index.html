@@ -148,7 +148,11 @@
 
       </div>
 
-      <div class="side-toggles">
+      <button type="button" class="side-bottom-toggle" id="side-bottom-toggle" aria-expanded="true" aria-controls="side-toggles side-foot" aria-label="Hide or show settings and usage" title="Hide or show settings and usage">
+        <span class="sbt-chev" data-icon="chevron-down"></span>
+      </button>
+
+      <div class="side-toggles" id="side-toggles">
         <section class="side-sec">
           <h2 class="sec-title">Transcript</h2>
           <label class="switch-row" for="sw-thinking">
@@ -168,7 +172,7 @@
         </section>
       </div>
 
-      <div class="side-foot">
+      <div class="side-foot" id="side-foot">
         <section class="or-card" id="or-card" aria-label="OpenRouter usage" hidden>
           <button type="button" class="or-main" id="or-main" aria-expanded="false" aria-controls="or-more" title="OpenRouter usage — click for details">
             <span class="or-top">
