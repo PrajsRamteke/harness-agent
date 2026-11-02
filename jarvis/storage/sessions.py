@@ -1,20 +1,57 @@
 """Persistent session storage backed by SQLite."""
-import json, sqlite3, threading, time
-from typing import Dict, List, Optional
+import json, os, sqlite3, threading, time
+from typing import Dict, Iterable, List, Optional
 
 from ..constants import CONFIG_DIR, SESSIONS_DB, SESSION_TITLE_MAX_LENGTH, SESSIONS_LIST_LIMIT
 from ..utils.serialize import _msg_to_json
+
+
+# Columns added after the first release. ``_ensure_schema`` adds whichever an
+# older sessions.db lacks (once per database per process):
+#   cwd         — the project folder the chat belongs to ("" = not recorded:
+#                 chats from before this column; see session_library.backfill)
+#   cwd_guessed — 1 when ``cwd`` was worked out from the chat's file paths
+#   pinned      — kept at the top of every list
+#   archived    — hidden from the lists unless you look at Archived
+_EXTRA_COLUMNS = (
+    ("cwd", "TEXT NOT NULL DEFAULT ''"),
+    ("cwd_guessed", "INTEGER NOT NULL DEFAULT 0"),
+    ("pinned", "INTEGER NOT NULL DEFAULT 0"),
+    ("archived", "INTEGER NOT NULL DEFAULT 0"),
+)
+_schema_ready: set = set()
+_schema_lock = threading.Lock()
+
+
+def _ensure_schema(c: sqlite3.Connection) -> None:
+    key = str(SESSIONS_DB)
+    if key in _schema_ready:
+        return
+    with _schema_lock:
+        if key in _schema_ready:
+            return
+        _create_tables(c)
+        have = {r[1] for r in c.execute("PRAGMA table_info(sessions)")}
+        for name, decl in _EXTRA_COLUMNS:
+            if name not in have:
+                try:
+                    c.execute(f"ALTER TABLE sessions ADD COLUMN {name} {decl}")
+                except sqlite3.OperationalError:
+                    pass  # another Jarvis added it a moment ago
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sessions_cwd ON sessions(cwd, updated_at)")
+        c.commit()
+        _schema_ready.add(key)
 
 
 def db_conn() -> sqlite3.Connection:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(str(SESSIONS_DB))
     c.row_factory = sqlite3.Row
+    _ensure_schema(c)
     return c
 
 
-def db_init():
-    with db_conn() as c:
+def _create_tables(c: sqlite3.Connection) -> None:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,13 +73,81 @@ def db_init():
         """)
 
 
-def db_create_session(model: str) -> int:
+def db_init():
+    with db_conn():
+        pass  # db_conn creates / upgrades the tables
+
+
+def _here() -> str:
+    try:
+        return os.getcwd()
+    except OSError:  # the folder was deleted under us
+        return ""
+
+
+def db_create_session(model: str, cwd: Optional[str] = None) -> int:
+    """A new, empty session in ``cwd`` (default: the folder Jarvis runs in)."""
     now = time.time()
+    folder = _here() if cwd is None else str(cwd or "")
     with db_conn() as c:
         cur = c.execute(
-            "INSERT INTO sessions (title, model, created_at, updated_at) VALUES (?,?,?,?)",
-            (None, model, now, now))
+            "INSERT INTO sessions (title, model, created_at, updated_at, cwd) VALUES (?,?,?,?,?)",
+            (None, model, now, now, folder))
         return cur.lastrowid
+
+
+def db_set_session_cwd(session_id, cwd: str, *, guessed: bool = False) -> bool:
+    """Record the project folder a session belongs to (a chat that moved)."""
+    if not session_id:
+        return False
+    with db_conn() as c:
+        cur = c.execute("UPDATE sessions SET cwd=?, cwd_guessed=? WHERE id=?",
+                        (str(cwd or ""), 1 if guessed else 0, int(session_id)))
+        return cur.rowcount > 0
+
+
+def _ids(session_ids: Iterable) -> List[int]:
+    out = []
+    for x in session_ids or ():
+        try:
+            n = int(x)
+        except (TypeError, ValueError):
+            continue
+        if n > 0 and n not in out:
+            out.append(n)
+    return out
+
+
+def _set_flag(column: str, session_ids: Iterable, value: bool) -> int:
+    ids = _ids(session_ids)
+    if not ids:
+        return 0
+    marks = ",".join("?" * len(ids))
+    with db_conn() as c:
+        cur = c.execute(f"UPDATE sessions SET {column}=? WHERE id IN ({marks})", (1 if value else 0, *ids))
+        return cur.rowcount
+
+
+def db_set_pinned(session_ids: Iterable, pinned: bool) -> int:
+    """Pin / unpin sessions (kept at the top of every list). Returns how many changed."""
+    return _set_flag("pinned", session_ids, pinned)
+
+
+def db_set_archived(session_ids: Iterable, archived: bool) -> int:
+    """Archive / restore sessions. An archived one is also unpinned."""
+    n = _set_flag("archived", session_ids, archived)
+    if archived:
+        _set_flag("pinned", session_ids, False)
+    return n
+
+
+def db_session_info(session_id) -> Optional[Dict]:
+    """One session's row (id, title, model, times, cwd, pinned, archived, msg_count)."""
+    if not session_id:
+        return None
+    with db_conn() as c:
+        row = c.execute(f"SELECT {_ROW_COLS} FROM sessions s WHERE s.id=?", (int(session_id),)).fetchone()
+    return dict(row) if row else None
 
 
 def db_append_message(session_id: int, idx: int, msg: Dict):
@@ -139,24 +244,119 @@ def db_rename_session(session_id: int, title: str) -> bool:
     return found
 
 
-def db_list_sessions(limit: int = SESSIONS_LIST_LIMIT, offset: int = 0) -> List[sqlite3.Row]:
+_ROW_COLS = """s.id, s.title, s.model, s.created_at, s.updated_at,
+       s.cwd, s.cwd_guessed, s.pinned, s.archived,
+       (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS msg_count"""
+
+_SORTS = {
+    "recent": "s.updated_at DESC",
+    "oldest": "s.updated_at ASC",
+    "created": "s.created_at DESC",
+    "longest": "msg_count DESC, s.updated_at DESC",
+}
+
+
+def _where(cwd: Optional[str], archived: Optional[bool], pinned: Optional[bool],
+           ids: Optional[List[int]] = None) -> tuple:
+    """WHERE clause shared by list and count. ``None`` = don't filter on it."""
+    parts = ["EXISTS (SELECT 1 FROM messages m WHERE m.session_id=s.id)"]
+    args: list = []
+    if cwd is not None:
+        parts.append("s.cwd=?")
+        args.append(str(cwd))
+    if archived is not None:
+        parts.append("s.archived=?")
+        args.append(1 if archived else 0)
+    if pinned is not None:
+        parts.append("s.pinned=?")
+        args.append(1 if pinned else 0)
+    if ids is not None:
+        parts.append(f"s.id IN ({','.join('?' * len(ids)) or 'NULL'})")
+        args.extend(ids)
+    return " AND ".join(parts), args
+
+
+def db_list_sessions(limit: int = SESSIONS_LIST_LIMIT, offset: int = 0, *,
+                     cwd: Optional[str] = None, archived: Optional[bool] = False,
+                     pinned: Optional[bool] = None, sort: str = "recent",
+                     pinned_first: bool = False, ids: Optional[List[int]] = None) -> List[sqlite3.Row]:
+    """Sessions with at least one message, newest first.
+
+    ``cwd`` keeps one project folder ("" = chats whose folder isn't recorded);
+    ``archived`` False (default) hides archived ones, True lists only those,
+    None both; ``pinned_first`` puts pinned ones on top.
+    """
+    where, args = _where(cwd, archived, pinned, ids)
+    order = _SORTS.get(sort, _SORTS["recent"])
+    if pinned_first:
+        order = "s.pinned DESC, " + order
     with db_conn() as c:
-        return c.execute("""
-            SELECT s.id, s.title, s.model, s.created_at, s.updated_at,
-                   (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS msg_count
+        return c.execute(
+            f"SELECT {_ROW_COLS} FROM sessions s WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?",
+            (*args, int(limit), int(offset))).fetchall()
+
+
+def db_count_sessions(*, cwd: Optional[str] = None, archived: Optional[bool] = False,
+                      pinned: Optional[bool] = None) -> int:
+    """How many sessions with at least one message match (same filters as the list)."""
+    where, args = _where(cwd, archived, pinned)
+    with db_conn() as c:
+        row = c.execute(f"SELECT COUNT(*) AS cnt FROM sessions s WHERE {where}", args).fetchone()
+        return row["cnt"] if row else 0
+
+
+def db_session_folders() -> List[Dict]:
+    """Every project folder that has chats: cwd, count, archived, pinned, last."""
+    with db_conn() as c:
+        rows = c.execute("""
+            SELECT s.cwd AS cwd,
+                   SUM(CASE WHEN s.archived=0 THEN 1 ELSE 0 END) AS count,
+                   SUM(CASE WHEN s.archived=1 THEN 1 ELSE 0 END) AS archived,
+                   SUM(CASE WHEN s.pinned=1 AND s.archived=0 THEN 1 ELSE 0 END) AS pinned,
+                   MAX(s.updated_at) AS last
             FROM sessions s
             WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id=s.id)
-            ORDER BY s.updated_at DESC LIMIT ? OFFSET ?""", (limit, offset)).fetchall()
+            GROUP BY s.cwd ORDER BY last DESC""").fetchall()
+    return [dict(r) for r in rows]
 
 
-def db_count_sessions() -> int:
-    """Total number of sessions with at least one message."""
+def db_search_session_ids(query: str, *, cwd: Optional[str] = None,
+                          archived: Optional[bool] = False, limit: int = 200) -> List[int]:
+    """Sessions whose title or any message contains ``query`` (case-insensitive
+    for ASCII), newest first. Message text is matched in its stored JSON, so a
+    query is tried both as typed and JSON-escaped (quotes, non-ASCII)."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    escaped = json.dumps(q)[1:-1]
+
+    def like(x: str) -> str:
+        return "%" + x.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+    where, args = _where(cwd, archived, None)
+    pats = [like(q)] if escaped == q else [like(q), like(escaped)]
+    content = " OR ".join("m.content_json LIKE ? ESCAPE '\\'" for _ in pats)
     with db_conn() as c:
-        row = c.execute("""
-            SELECT COUNT(*) AS cnt FROM sessions s
-            WHERE EXISTS (SELECT 1 FROM messages m WHERE m.session_id=s.id)
-        """).fetchone()
-        return row["cnt"] if row else 0
+        rows = c.execute(
+            f"""SELECT s.id FROM sessions s WHERE {where} AND (
+                    s.title LIKE ? ESCAPE '\\' OR CAST(s.id AS TEXT)=? OR s.model LIKE ? ESCAPE '\\'
+                    OR EXISTS (SELECT 1 FROM messages m WHERE m.session_id=s.id AND ({content})))
+                ORDER BY s.pinned DESC, s.updated_at DESC LIMIT ?""",
+            (*args, like(q), q.lstrip("#"), like(q), *pats, int(limit))).fetchall()
+    return [int(r["id"]) for r in rows]
+
+
+def db_first_matches(session_id: int, query: str, limit: int = 6) -> List[sqlite3.Row]:
+    """The first few messages of a session whose JSON contains ``query`` (for a snippet)."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    escaped = json.dumps(q)[1:-1]
+    with db_conn() as c:
+        return c.execute(
+            """SELECT idx, role, content_json FROM messages WHERE session_id=?
+               AND (instr(lower(content_json), lower(?)) > 0 OR instr(lower(content_json), lower(?)) > 0)
+               ORDER BY idx ASC LIMIT ?""", (int(session_id), q, escaped, int(limit))).fetchall()
 
 
 def db_load_session(session_id: int) -> Optional[List[Dict]]:

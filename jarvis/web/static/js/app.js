@@ -29,6 +29,7 @@ import { initSkills } from './skills.js';
 import { initCommands } from './commands.js';
 import { initPin } from './pin.js';
 import { initMemory } from './memory.js';
+import { initSessions } from './sessions.js';
 import { initSettings } from './settings.js';
 import { initLocal } from './local.js';
 import { initQueue } from './queue.js';
@@ -160,6 +161,7 @@ function boot() {
   initCommands();
   initPin();
   initMemory();
+  initSessions();
   initSettings({ onOpenPicker: openPickerByKind });
   initLocal();
   initQueue({ onFill: keepDraftAndFill });

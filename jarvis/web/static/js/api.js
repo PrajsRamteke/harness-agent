@@ -324,6 +324,14 @@ export async function pickerAction(action, data = {}) {
 }
 
 export const fetchSessions = (limit = 50) => api(`/api/sessions?limit=${limit}`);
+/** Sessions with filters: `{scope: project|all|folder, cwd, view: active|pinned|archived, sort, q, limit, offset, folders}`. */
+export function fetchSessionList(opts = {}) {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(opts)) if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
+  return api(`/api/sessions?${params}`);
+}
+/** One chat as Markdown → `{ ok, name, markdown }`. */
+export const fetchSessionExport = (id) => api(`/api/sessions/export?id=${encodeURIComponent(id)}`);
 
 /** Full recorded output for one tool call → `{ id, name, args, output, chars, truncated }`. */
 export const fetchToolOutput = (id) => api(`/api/tool-output?id=${encodeURIComponent(id)}`);

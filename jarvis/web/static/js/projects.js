@@ -81,6 +81,18 @@ export function projectForSession(sid) {
   return projects.find((p) => p.id !== currentProjectId() && String(p.session_id) === String(sid)) || null;
 }
 
+/** A running Jarvis whose folder is `cwd` — the one on screen first, then the
+ *  least busy (an idle one can take a chat without stopping anything). */
+export function projectForFolder(cwd) {
+  if (!cwd) return null;
+  const strip = (p) => String(p || '').replace(/\/+$/, '');
+  const here = projects.filter((p) => strip(p.cwd) === strip(cwd));
+  if (!here.length) return null;
+  return here.find((p) => p.id === currentProjectId())
+    || here.find((p) => !p.busy && !p.needs_approval)
+    || here[0];
+}
+
 // ─── Closed projects → Recent sessions ────────────────────────────────────
 
 function readClosed() {

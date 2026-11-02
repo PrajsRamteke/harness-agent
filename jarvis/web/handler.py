@@ -567,9 +567,22 @@ class WebHandler(BaseHTTPRequestHandler):
         if self._handle_terminal_get(path, qs):
             return
         if path == "/api/sessions":
-            limit = self._query_int(qs, "limit", 50)
-            offset = self._query_int(qs, "offset", 0)
-            self._send_json(200, list_sessions(limit=limit, offset=offset))
+            self._send_json(200, list_sessions(
+                limit=self._query_int(qs, "limit", 50),
+                offset=self._query_int(qs, "offset", 0),
+                scope=self._query_str(qs, "scope", "all") or "all",
+                cwd=self._query_str(qs, "cwd", ""),
+                q=self._query_str(qs, "q", ""),
+                view=self._query_str(qs, "view", "active") or "active",
+                sort=self._query_str(qs, "sort", "recent") or "recent",
+                folders=self._query_str(qs, "folders") == "1",
+            ))
+            return
+        if path == "/api/sessions/export":
+            from .pickers_api import export_session
+
+            res = export_session(self._query_int(qs, "id", 0))
+            self._send_json(200 if res.get("ok") else 404, res)
             return
         if path == "/api/models":
             self._send_json(200, list_models(query=self._query_str(qs, "q"),

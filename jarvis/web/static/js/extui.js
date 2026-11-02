@@ -185,7 +185,7 @@ export function openMenu(anchor, items) {
     };
     const openedAt = performance.now();
     const onScroll = (e) => {
-      if (e?.target && el.contains(e.target)) return;
+      if (e?.target instanceof Node && el.contains(e.target)) return; // a resize's target is window
       // The list may still be settling from a smooth scroll that started before the click.
       if (e?.type === 'scroll' && performance.now() - openedAt < 450) return;
       finish(null);
