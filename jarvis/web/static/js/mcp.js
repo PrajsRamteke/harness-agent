@@ -34,6 +34,7 @@
  */
 import { $, escapeHtml, showToast, haptic, debounce, copyText, originBadge } from './utils.js';
 import { icon } from './icons.js';
+import { brand } from './brands.js';
 import { store, loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { fetchMcpServers, fetchMcpAuth, extPost, pickerAction } from './api.js';
@@ -167,17 +168,36 @@ function noteHtml(name) {
   return n?.text ? msg(n.text, n.error ? 'error' : 'ok') : '';
 }
 
+// Servers with no company logo that say what they do instead.
+const GENERIC_LOGO = {
+  filesystem: 'folder-open', fetch: 'globe', memory: 'brain', time: 'timer',
+  'sequential-thinking': 'list-ordered', git: 'git-branch',
+};
+
+/** A server's logo, as markup: its company mark, else a plain icon for the built-ins, else ''.
+ * Rows are marketplace items (`id`) or configured servers (`catalog_id`, then `name`). */
+function logoFor(row) {
+  const keys = [row?.id, row?.catalog_id, row?.name, row?.label].filter(Boolean);
+  for (const k of keys) {
+    const logo = brand(k);
+    if (logo) return logo;
+  }
+  for (const k of keys) if (GENERIC_LOGO[String(k).toLowerCase()]) return icon(GENERIC_LOGO[String(k).toLowerCase()]);
+  return '';
+}
+
 /** The brand tile of a marketplace server (falls back to a tinted monogram). */
 function tile(row, { on = false, sm = false } = {}) {
   const color = /^#[0-9a-f]{6}$/i.test(row?.color || '') ? row.color : '';
-  if (!color) return mark(row?.label || row?.name || '', 'slate', { on, sm });
+  const logo = logoFor(row);
+  if (!color) return mark(row?.label || row?.name || '', 'slate', { on, sm, logo });
   const text = String(row.monogram || row.label || '?').slice(0, 2);
-  return `<span class="mk-tile${on ? ' is-on' : ''}${sm ? ' is-sm' : ''}${text.length > 1 ? ' is-two' : ''}" style="--brand:${color}" aria-hidden="true">${escapeHtml(text)}</span>`;
+  return `<span class="mk-tile${on ? ' is-on' : ''}${sm ? ' is-sm' : ''}${!logo && text.length > 1 ? ' is-two' : ''}" style="--brand:${color}" aria-hidden="true">${logo || escapeHtml(text)}</span>`;
 }
 
 function headHtml(s) {
   const st = statusOf(s);
-  const mk0 = s.color ? tile(s, { on: st === 'live' }) : mark(s.name, TONE[st], { on: st === 'live' });
+  const mk0 = s.color ? tile(s, { on: st === 'live' }) : mark(s.name, TONE[st], { on: st === 'live', logo: logoFor(s) });
   return `${mk0}
     <span class="pv-text">
       <span class="pv-title"><span class="ex-name">${escapeHtml(displayName(s))}</span>${originBadge(scopeLabel(s), s.also_labels, s.scope === 'project' ? 'Project · .mcp.json' : `Global · ${s.source_label || ''} config`)}</span>
@@ -433,7 +453,7 @@ function previewCard(sv) {
   const other = (sv.exists || []).filter((x) => x !== add.scope);
   return `<div class="ex-pv">
     <div class="ex-pv-top">
-      ${mark(sv.name, sv.local ? 'slate' : 'indigo', { sm: true })}
+      ${mark(sv.name, sv.local ? 'slate' : 'indigo', { sm: true, logo: logoFor(sv) })}
       <strong class="ex-name">${escapeHtml(sv.name)}</strong>
       <span class="badge">${sv.local ? 'Runs a command' : `Hosted · ${escapeHtml(sv.transport === 'sse' ? 'SSE' : 'HTTP')}`}</span>
     </div>

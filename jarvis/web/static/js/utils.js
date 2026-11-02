@@ -1,5 +1,6 @@
 /** Shared DOM + string helpers */
 import { icon } from './icons.js';
+import { brand } from './brands.js';
 
 export const $ = (id) => document.getElementById(id);
 
@@ -17,7 +18,8 @@ export function escapeHtml(s) {
 export function originBadge(label, also = [], scope = '') {
   const others = (also || []).filter(Boolean);
   const title = [scope, others.length ? `Also in ${others.join(', ')}` : ''].filter(Boolean).join(' · ');
-  return `<span class="badge ex-origin"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(label || '')}${others.length ? ` +${others.length}` : ''}</span>`;
+  const logo = brand(label);
+  return `<span class="badge ex-origin${logo ? ' has-logo' : ''}"${title ? ` title="${escapeHtml(title)}"` : ''}>${logo}${escapeHtml(label || '')}${others.length ? ` +${others.length}` : ''}</span>`;
 }
 
 export function showToast(msg, isError = false) {

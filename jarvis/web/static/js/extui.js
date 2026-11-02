@@ -45,9 +45,10 @@ export function seg(options, value, { label = '', act = 'seg', group = '' } = {}
 }
 
 /** A tinted monogram tile (`pv-mark`); `on` adds the green "live" dot. */
-export function mark(text, tone = 'slate', { on = false, sm = false } = {}) {
+export function mark(text, tone = 'slate', { on = false, sm = false, logo = '' } = {}) {
   const ch = String(text || '•').trim().charAt(0).toUpperCase() || '•';
-  return `<span class="pv-mark${on ? ' is-on' : ''}${sm ? ' is-sm' : ''}" data-tone="${tone}" aria-hidden="true">${escapeHtml(ch)}</span>`;
+  // `logo`: ready markup (brand(…) / icon(…)) shown instead of the letter.
+  return `<span class="pv-mark${on ? ' is-on' : ''}${sm ? ' is-sm' : ''}${logo ? ' has-logo' : ''}" data-tone="${tone}" aria-hidden="true">${logo || escapeHtml(ch)}</span>`;
 }
 
 /** Swap `el`'s markup only when it changed (typing and folds aren't reset for nothing). */

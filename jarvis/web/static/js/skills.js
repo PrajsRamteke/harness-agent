@@ -8,6 +8,7 @@
  */
 import { $, escapeHtml, showToast, haptic, debounce, originBadge } from './utils.js';
 import { icon } from './icons.js';
+import { brand } from './brands.js';
 import { loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { fetchSkills, fetchSkill, extPost, pickerAction } from './api.js';
@@ -23,11 +24,11 @@ const FEATURED = [
   { text: 'anthropics/skills', label: 'Anthropic skills', desc: 'PDF, Word, Excel, PowerPoint, design and more' },
 ];
 const RECOMMENDED = [
-  { repo: 'anthropics/skills', label: 'Anthropic skills', desc: 'Official collection for documents, design, and development.', count: '20 skills' },
-  { repo: 'vercel-labs/agent-skills', label: 'Vercel agent skills', desc: 'React, web design, and frontend engineering.', count: '9 skills' },
+  { repo: 'anthropics/skills', logo: 'claude', label: 'Anthropic skills', desc: 'Official collection for documents, design, and development.', count: '20 skills' },
+  { repo: 'vercel-labs/agent-skills', logo: 'vercel', label: 'Vercel agent skills', desc: 'React, web design, and frontend engineering.', count: '9 skills' },
   { repo: 'obra/superpowers', label: 'Superpowers', desc: 'Software development workflows and coding practices.', count: '15 skills' },
-  { repo: 'openai/skills', label: 'OpenAI skills', desc: 'Official skills for coding and OpenAI tools.', count: '44 skills' },
-  { repo: 'github/awesome-copilot', label: 'GitHub Awesome Copilot', desc: 'Community collection of coding and productivity skills.', count: '445 skills' },
+  { repo: 'openai/skills', logo: 'openai', label: 'OpenAI skills', desc: 'Official skills for coding and OpenAI tools.', count: '44 skills' },
+  { repo: 'github/awesome-copilot', logo: 'githubcopilot', label: 'GitHub Awesome Copilot', desc: 'Community collection of coding and productivity skills.', count: '445 skills' },
   { repo: 'microsoft/skills', label: 'Microsoft skills', desc: 'Official collection covering Microsoft developer tools.', count: '210 skills' },
   { repo: 'wshobson/agents', label: 'Wshobson agents', desc: 'Curated development workflows and specialist skills.', count: '184 skills' },
   { repo: 'K-Dense-AI/claude-scientific-skills', label: 'Scientific skills', desc: 'Research, science, and data-focused skills.', count: '177 skills' },
@@ -43,7 +44,7 @@ function recommendedHtml() {
     <div class="ex-recommend-list">${RECOMMENDED.map((s, i) => {
       const text = `https://github.com/${s.repo}`;
       return `<button type="button" class="ex-recommend-item" data-act="chip" data-text="${escapeHtml(text)}" title="Browse ${escapeHtml(s.label)}">
-        <span class="ex-recommend-num">${String(i + 1).padStart(2, '0')}</span>
+        <span class="ex-recommend-num${s.logo ? ' has-logo' : ''}">${s.logo ? brand(s.logo) : String(i + 1).padStart(2, '0')}</span>
         <span class="ex-recommend-copy"><strong>${escapeHtml(s.label)}</strong><span>${escapeHtml(s.desc)}</span></span>
         <span class="ex-recommend-source">${escapeHtml(s.count)}</span>
       </button>`;

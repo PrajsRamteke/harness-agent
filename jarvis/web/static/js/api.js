@@ -12,8 +12,9 @@ function authHeaders() {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-export async function api(path, method = 'GET', payload) {
+export async function api(path, method = 'GET', payload, { signal } = {}) {
   const opts = { method, headers: { ...authHeaders() } };
+  if (signal) opts.signal = signal;
   if (payload !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(payload);

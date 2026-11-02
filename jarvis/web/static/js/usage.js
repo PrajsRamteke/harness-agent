@@ -228,7 +228,7 @@ export function usageCardHtml(d) {
   const sub = [d.label ? `Key ${d.label}` : '', `As of ${at}`].filter(Boolean).join(' · ');
   const head = `
     <header class="stats-head">
-      <span class="stats-glyph" aria-hidden="true">${icon('gauge')}</span>
+      <span class="stats-glyph" aria-hidden="true">${icon('brand:openrouter')}</span>
       <div class="stats-title">
         <strong>OpenRouter usage</strong>
         <span>${escapeHtml(sub)}</span>

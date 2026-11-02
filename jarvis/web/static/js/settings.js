@@ -18,6 +18,7 @@
  */
 import { $, escapeHtml, showToast } from './utils.js';
 import { icon } from './icons.js';
+import { brandSlug } from './brands.js';
 import { store, subscribe } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { fetchSettingsAll, settingsPost } from './api.js';
@@ -80,7 +81,7 @@ function clientSections() {
       title: 'Model',
       rows: [
         { label: 'Model', desc: shortModel(s.model), icon: 'cpu', control: go('model'), keys: 'model llm switch' },
-        { label: 'Provider', desc: s.provider || 'Not set', icon: 'plug', control: go('provider'), keys: 'provider login key api account' },
+        { label: 'Provider', desc: s.provider || 'Not set', icon: brandSlug(s.provider) ? `brand:${s.provider}` : 'plug', control: go('provider'), keys: 'provider login key api account' },
         { label: 'Agent', desc: s.agent || 'No agent', icon: 'sparkles', control: go('agent'), keys: 'agent persona mode' },
         {
           label: 'Thinking effort', desc: s.think?.summary || 'How hard the model thinks', icon: 'brain',

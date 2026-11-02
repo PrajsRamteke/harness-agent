@@ -64,6 +64,146 @@ def test_close_ends_the_shell_and_never_double_closes_the_fd(monkeypatch, tmp_pa
         os.close(w)
 
 
+def test_ctrl_c_interrupts_and_a_resize_reaches_the_program(monkeypatch, tmp_path):
+    """The PTY is the shell's controlling terminal: Ctrl+C sends SIGINT to the
+    running command and a resize sends SIGWINCH (Claude Code redraws for the
+    new width). Without it, `sleep` ignored Ctrl+C and every resize was lost.
+    zsh when there is one: bash claims the terminal by itself, zsh doesn't."""
+    shell = "/bin/zsh" if os.access("/bin/zsh", os.X_OK) else "/bin/sh"
+    monkeypatch.setenv("SHELL", shell)
+    monkeypatch.setenv("PS1", "$ ")
+    (tmp_path / ".zshrc").write_text("PS1='$ '\n")
+    monkeypatch.setenv("ZDOTDIR", str(tmp_path))
+    s = terminal_api.get_terminal(terminal_api.open_terminal(cwd=str(tmp_path))["terminal"]["id"])
+    _read_until(s, "$ ")
+    # A foreground program gets SIGWINCH when the page resizes.
+    s.write("sh -c 'trap \"echo got-''winch; exit\" WINCH; while :; do sleep 0.1; done'\n")
+    time.sleep(0.6)
+    s.resize(101, 33)
+    assert "got-winch" in _read_until(s, "got-winch", timeout=5.0)
+    s.write("stty size\n")
+    assert "33 101" in _read_until(s, "33 101", timeout=5.0)
+    # Ctrl+C stops a running command.
+    s.write("sleep 30\n")
+    time.sleep(0.6)
+    t0 = time.monotonic()
+    s.write("\x03")
+    s.write("echo back-''again\n")
+    assert "back-again" in _read_until(s, "back-again", timeout=5.0)
+    assert time.monotonic() - t0 < 5.0
+
+
+def _idle_shell(monkeypatch, tmp_path):
+    """A /bin/sh that has printed its prompt and waits: output appended by the
+    test is all that changes after this."""
+    monkeypatch.setenv("SHELL", "/bin/sh")
+    monkeypatch.setenv("PS1", "$ ")
+    tid = terminal_api.open_terminal(cwd=str(tmp_path))["terminal"]["id"]
+    s = terminal_api.get_terminal(tid)
+    _read_until(s, "$ ")
+    time.sleep(0.2)
+    return s
+
+
+def test_a_late_page_gets_a_full_screen_program_repainted_not_its_diffs(monkeypatch, tmp_path):
+    """Claude Code paints the alternate screen once, then only changed cells.
+    A page attaching after that first paint was trimmed must not draw the
+    diffs onto a blank screen: it gets the program's modes, a clear screen,
+    and the program is asked (Ctrl+L) to paint everything again."""
+    s = _idle_shell(monkeypatch, tmp_path)
+    monkeypatch.setattr(terminal_api, "MAX_BUFFER", 4000)
+    typed: list[str] = []
+    monkeypatch.setattr(s, "write", lambda data: typed.append(data) or True)
+    s._append("\x1b[?2004h\x1b[?1049h\x1b[2J\x1b[H\x1b[?1000h\x1b[?1006h\x1b[?25lFIRST PAINT\r\n")
+    for i in range(400):
+        s._append(f"\x1b[{i % 20 + 1};5Hdiff {i:04d}\r\n")
+    assert s.base > 0
+    res = s.read(0, 0.0)
+    assert res["reset"] is True
+    data = res["data"]
+    assert data.startswith("\x1b[?1049h")
+    for seq in ("\x1b[?1000h", "\x1b[?1006h", "\x1b[?2004h", "\x1b[?25l"):
+        assert seq in data
+    assert data.endswith("\x1b[H\x1b[2J")
+    assert "diff " not in data                    # stale cell updates skipped
+    assert res["cursor"] == s.end
+    assert typed == ["\x0c"]                     # the program repaints itself
+    # A page that kept up reads on normally — no repaint asked for.
+    s._append("\x1b[3;5Hdiff live")
+    res2 = s.read(res["cursor"], 0.0)
+    assert res2["reset"] is False and res2["data"] == "\x1b[3;5Hdiff live"
+    assert typed == ["\x0c"]
+
+
+def test_a_late_page_replays_plain_output_from_a_line_with_its_modes(monkeypatch, tmp_path):
+    s = _idle_shell(monkeypatch, tmp_path)
+    monkeypatch.setattr(terminal_api, "MAX_BUFFER", 3000)
+    typed: list[str] = []
+    monkeypatch.setattr(s, "write", lambda data: typed.append(data) or True)
+    s._append("\x1b[?2004h")                     # bracketed paste on, then trimmed away
+    for i in range(300):
+        s._append(f"line {i:04d}\r\n")
+    res = s.read(0, 0.0)
+    assert res["reset"] is True
+    assert res["data"].startswith("\x1b[?2004hline ")   # modes, then a whole line
+    assert res["data"].endswith("line 0299\r\n")
+    assert typed == []                             # nothing to repaint
+    # A program that left the alternate screen is plain output again.
+    s._append("\x1b[?1049hvim\x1b[?1049l")
+    for i in range(300):
+        s._append(f"after {i:04d}\r\n")
+    res = s.read(0, 0.0)
+    assert not res["data"].startswith("\x1b[?1049h")
+    assert typed == []
+
+
+def test_mode_tracking_survives_sequences_split_across_reads():
+    m = terminal_api._Modes()
+    m.feed("text \x1b[?10", 0)
+    m.feed("49h\x1b[?100", 10)
+    m.feed("6;1000h", 19)
+    assert m.alt and m.alt_since == 5
+    assert m.modes[1006] and m.modes[1000]
+    m.feed("\x1bc", 26)                           # full reset
+    assert not m.alt and m.preamble() == ""
+
+
+def test_big_output_comes_in_bounded_reads(monkeypatch, tmp_path):
+    s = _idle_shell(monkeypatch, tmp_path)
+    start = s.end
+    s._append("x" * 50_000)
+    first = s.read(start, 0.0, limit=20_000)
+    assert len(first["data"]) == 20_000 and first["more"] is True
+    rest = ""
+    cursor = first["cursor"]
+    while True:
+        r = s.read(cursor, 0.0, limit=20_000)
+        rest += r["data"]
+        cursor = r["cursor"]
+        if not r["more"]:
+            break
+    assert len(first["data"]) + len(rest) == 50_000 and cursor == s.end
+
+
+def test_one_request_waits_on_every_shell(monkeypatch, tmp_path):
+    a = _idle_shell(monkeypatch, tmp_path)
+    b = _idle_shell(monkeypatch, tmp_path)
+    cursors = {a.id: a.end, b.id: b.end, "nope": 0}
+    res = terminal_api.read_many(cursors, 0.0)
+    assert res["terminals"] == {"nope": {"ok": False, "code": "gone", "id": "nope"}}
+    del cursors["nope"]
+    t0 = time.monotonic()
+    assert terminal_api.read_many(cursors, 0.3)["terminals"] == {}
+    assert time.monotonic() - t0 >= 0.25
+    import threading
+    threading.Timer(0.2, lambda: b._append("hello b")).start()
+    t0 = time.monotonic()
+    res = terminal_api.read_many(cursors, 5.0)
+    assert time.monotonic() - t0 < 2.0
+    assert list(res["terminals"]) == [b.id]
+    assert res["terminals"][b.id]["data"] == "hello b"
+
+
 def test_hub_marks_tunnel_visitors_so_the_other_instance_refuses_a_shell(monkeypatch):
     """A tunnel visitor reaching another project through /p/<id>/ must not look
     like this computer to that instance (it sees 127.0.0.1)."""

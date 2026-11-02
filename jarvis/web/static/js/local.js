@@ -17,6 +17,7 @@
  */
 import { $, escapeHtml, showToast, haptic, copyText } from './utils.js';
 import { icon } from './icons.js';
+import { brand } from './brands.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
 import { patch, spin, plural, field, msg, openMenu, closeMenu } from './extui.js';
@@ -93,7 +94,8 @@ const k = (n) => (!n ? '' : n >= 1024 ? `${Math.round(n / 1024)}K` : String(n));
 
 function tile(s, { on = false } = {}) {
   const tone = TONES[s.server] || (s.custom ? 'accent' : 'slate');
-  return `<span class="pv-mark lm-mark${on ? ' is-on' : ''}" data-tone="${tone}" aria-hidden="true">${escapeHtml(s.mark || '•')}</span>`;
+  const logo = brand(s.server); // Ollama, LM Studio, vLLM, Docker
+  return `<span class="pv-mark lm-mark${on ? ' is-on' : ''}${logo ? ' has-logo' : ''}" data-tone="${tone}" aria-hidden="true">${logo || escapeHtml(s.mark || '•')}</span>`;
 }
 
 function chip(ic, label, { cls = '', title = '' } = {}) {

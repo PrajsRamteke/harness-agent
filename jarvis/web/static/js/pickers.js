@@ -6,6 +6,7 @@
  */
 import { $, escapeHtml, showToast, debounce, originBadge, storageGet, storageSet } from './utils.js';
 import { icon } from './icons.js';
+import { brand } from './brands.js';
 import { store } from './store.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
 import { footer as dlgFooter, empty as dlgEmpty, section as dlgSection } from './dialog.js';
@@ -473,7 +474,7 @@ const modelSpec = {
       html += `
         <section class="mdrawer${row.open ? ' is-open' : ''}${row.toggle ? '' : ' is-static'}${row.hasActive ? ' has-active' : ''}" data-drawer="${escapeHtml(row.group)}">
           <button type="button" class="mdrawer-head" data-group="${escapeHtml(row.group)}" aria-expanded="${row.open}" aria-controls="${id}"${row.toggle ? '' : ' disabled'}>
-            <span class="mdrawer-mono" aria-hidden="true">${escapeHtml(monogram(row.section))}</span>
+            <span class="mdrawer-mono" aria-hidden="true">${brand(row.group) || escapeHtml(monogram(row.section))}</span>
             <span class="mdrawer-name">${escapeHtml(row.section)}</span>
             <span class="mdrawer-sum">${drawerSummary(row)}</span>
             ${row.toggle ? `<span class="mdrawer-chev" aria-hidden="true">${icon('chevron-down')}</span>` : ''}

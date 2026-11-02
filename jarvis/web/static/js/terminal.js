@@ -3,7 +3,10 @@
  * The top-bar button (or Ctrl + `) opens a resizable panel under the
  * composer: the transcript shrinks and the composer sits on top of the panel. Each
  * tab is a live PTY shell on the computer (terminal_api.py): xterm.js draws
- * it, keystrokes POST to the server, output is long-polled back.
+ * it, keystrokes POST to the server (one request at a time, so they arrive in
+ * order), output is long-polled back — every shell in one held request
+ * (`pump`), never one per shell, and the next one only once xterm has drawn
+ * the last answer.
  *
  * Shells belong to the Jarvis that runs them, not to this page: hiding the
  * panel, reloading the page or switching project leaves them running, and
@@ -20,6 +23,8 @@ const MIN_H = 140;
 const DEFAULT_H = 300;
 const MIN_CHAT = 120;   // transcript rows always left above the panel
 const MAX_SESSIONS = 8;
+const RESIZE_MS = 80;              // a size change reaches the shell at most this late
+const HIDDEN_PAUSE_MS = 45_000;    // a background tab lets go of its held request (api.js does too)
 const COARSE = window.matchMedia?.('(pointer: coarse)');
 
 const state = {
@@ -37,6 +42,8 @@ const state = {
 const el = {};
 let built = false;
 let attaching = null;   // the in-flight re-attach / first spawn
+const pump = { running: false, abort: null };
+let hiddenSince = 0;
 
 // ─── Terminal look ───────────────────────────────────────────────────────
 const DARK_ANSI = {
@@ -295,7 +302,8 @@ function makeView(title = 'Terminal') {
   term.open(mount);
   const s = {
     id: null, title, term, fit, search, pane, cursor: 0,
-    exited: false, disposed: false, queue: '', flush: 0,
+    exited: false, disposed: false, queue: '', flush: 0, sending: false,
+    replay: false, sentSize: '', resizeTimer: 0, resizeAgain: false,
   };
   pane.addEventListener('mousedown', () => { if (s.id && s.id !== state.active) selectTab(s.id, { focus: false }); });
   return s;
@@ -306,9 +314,12 @@ function adopt(t) {
   if (!window.Terminal) return null;
   const s = makeView(t.title || 'Terminal');
   s.id = t.id;
+  // Its first answer replays history: xterm must not answer the terminal
+  // queries in it again (they'd reach the program as typed keys).
+  s.replay = true;
   state.sessions.push(s);
   wireSession(s);
-  poll(s);
+  kick();
   requestAnimationFrame(() => { try { s.fit?.fit(); } catch { /* not laid out */ } sendResize(s); });
   return s;
 }
@@ -341,6 +352,7 @@ async function spawn({ secondary = false } = {}) {
     }
     s.id = res.terminal.id;
     s.title = res.terminal.title || s.title;
+    s.sentSize = `${s.term.cols || 80}x${s.term.rows || 24}`;
     // A split opens the new shell on the right and puts you in it.
     if (secondary && state.active) state.secondary = state.active;
     state.active = s.id;
@@ -348,7 +360,7 @@ async function spawn({ secondary = false } = {}) {
     syncPanes();
     focusActive();
     wireSession(s);
-    poll(s);
+    kick();
   } catch (err) {
     disposeView(s);
     renderTabs();
@@ -362,11 +374,11 @@ async function spawn({ secondary = false } = {}) {
 
 function wireSession(s) {
   s.term.onData((data) => {
+    if (s.replay) return;   // xterm answering queries in replayed history, not you typing
     s.queue += data;
-    if (!s.flush) s.flush = setTimeout(() => flushInput(s), 8);
+    if (!s.flush && !s.sending) s.flush = setTimeout(() => flushInput(s), 8);
   });
-  s.sendResize = debounce(() => sendResize(s), 150);
-  s.term.onResize(() => s.sendResize());
+  s.term.onResize(() => queueResize(s));
   s.term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
     const mod = e.metaKey || e.ctrlKey;
@@ -383,20 +395,49 @@ function wireSession(s) {
   });
 }
 
+/** Send what was typed. One request at a time: two in flight can reach the
+ *  server in either order, which scrambles keys (and mouse reports — Claude
+ *  Code reports every mouse move). Whatever is typed meanwhile goes next. */
 function flushInput(s) {
+  clearTimeout(s.flush);
   s.flush = 0;
   if (!s.id || s.disposed) { s.queue = ''; return; }
+  if (s.sending || !s.queue) return;
   const data = s.queue;
   s.queue = '';
-  if (!data) return;
-  api('/api/terminal/input', 'POST', { id: s.id, data }).catch((err) => {
-    if (err?.payload?.code === 'gone') markExited(s);
-  });
+  s.sending = true;
+  api('/api/terminal/input', 'POST', { id: s.id, data })
+    .catch((err) => { if (err?.payload?.code === 'gone') markExited(s); })
+    .finally(() => {
+      s.sending = false;
+      if (s.queue) flushInput(s);
+    });
+}
+
+function typeInto(s, data) {
+  if (!s?.id || s.exited) return;
+  s.queue += data;
+  flushInput(s);
+}
+
+/** Tell the shell its new size right away, then at most every RESIZE_MS while
+ *  it keeps changing (a drag). A program drawing for the old size into the
+ *  new one is what leaves debris behind. */
+function queueResize(s) {
+  if (s.resizeTimer) { s.resizeAgain = true; return; }
+  sendResize(s);
+  s.resizeTimer = setTimeout(() => {
+    s.resizeTimer = 0;
+    if (s.resizeAgain) { s.resizeAgain = false; queueResize(s); }
+  }, RESIZE_MS);
 }
 
 function sendResize(s) {
   if (!s.id || s.disposed || !s.term.cols) return;
-  api('/api/terminal/resize', 'POST', { id: s.id, cols: s.term.cols, rows: s.term.rows }).catch(() => {});
+  const size = `${s.term.cols}x${s.term.rows}`;
+  if (size === s.sentSize) return;
+  s.sentSize = size;
+  api('/api/terminal/resize', 'POST', { id: s.id, cols: s.term.cols, rows: s.term.rows }).catch(() => { s.sentSize = ''; });
 }
 
 function markExited(s) {
@@ -406,35 +447,98 @@ function markExited(s) {
   syncDot();
 }
 
-async function poll(s) {
+// ─── Output: one held request for every shell ───────────────────────────
+/** Start the loop, or make the running one ask again now (a shell was added). */
+function kick() {
+  if (pump.running) pump.abort?.abort();
+  else runPump();
+}
+
+function pollable() {
+  return state.sessions.filter((s) => s.id && !s.disposed && !s.exited);
+}
+
+/** Shells keep producing output while the panel is hidden (a Claude Code run),
+ *  so the loop keeps reading — just less often — instead of falling behind
+ *  the server's buffer and replaying from a cut. */
+async function runPump() {
+  pump.running = true;
   let backoff = 300;
-  while (!s.disposed) {
-    if (document.hidden || !state.open) { await sleep(500); continue; }
-    try {
-      const res = await api(
-        `/api/terminal/read?id=${encodeURIComponent(s.id)}&cursor=${s.cursor}&wait=15000`,
-      );
-      if (s.disposed) return;
-      if (!res.ok) {
-        if (res.code === 'local_only') { s.term.write('\r\n\x1b[31mThe terminal is only available on this computer.\x1b[0m\r\n'); markExited(s); return; }
-        throw new Error(res.error || 'read failed');
+  try {
+    for (;;) {
+      if (document.hidden && hiddenSince && Date.now() - hiddenSince > HIDDEN_PAUSE_MS) return;
+      const list = pollable();
+      if (!list.length) return;
+      const ids = list.map((s) => `${s.id}:${s.cursor}`).join(',');
+      const ctrl = new AbortController();
+      pump.abort = ctrl;
+      let res;
+      try {
+        res = await api(`/api/terminal/poll?ids=${encodeURIComponent(ids)}&wait=15000`, 'GET', undefined, { signal: ctrl.signal });
+      } catch (err) {
+        if (ctrl.signal.aborted) continue;   // kicked: ask again with the new list
+        await sleep(backoff);
+        backoff = Math.min(4000, backoff * 1.7);
+        continue;
+      } finally {
+        if (pump.abort === ctrl) pump.abort = null;
       }
-      if (res.reset) s.term.reset();
-      if (res.data) s.term.write(res.data);
-      s.cursor = res.cursor;
       backoff = 300;
-      if (res.exited) { markExited(s); return; }
-    } catch (err) {
-      if (s.disposed) return;
-      if (err?.payload?.code === 'gone' || err?.status === 404) {
-        s.term.write('\r\n\x1b[90m[terminal closed]\x1b[0m\r\n');
-        markExited(s);
-        return;
+      if (res.ok === false) {
+        if (res.code === 'local_only') {
+          for (const s of list) {
+            s.term.write('\r\n\x1b[31mThe terminal is only available on this computer.\x1b[0m\r\n');
+            markExited(s);
+          }
+          return;
+        }
+        await sleep(1000);
+        continue;
       }
-      await sleep(backoff);
-      backoff = Math.min(4000, backoff * 1.7);
+      let more = false;
+      const drawn = [];
+      for (const [id, r] of Object.entries(res.terminals || {})) {
+        const s = sessionById(id);
+        if (!s || s.disposed) continue;
+        if (r.ok === false) {
+          if (r.code === 'gone') {
+            s.term.write('\r\n\x1b[90m[terminal closed]\x1b[0m\r\n');
+            markExited(s);
+          }
+          continue;
+        }
+        if (r.more) more = true;
+        drawn.push(draw(s, r));
+      }
+      // Flow control: a program can print faster than xterm draws; asking for
+      // more before the last batch is drawn piles it up in the page.
+      await Promise.all(drawn);
+      if (!more) {
+        const rest = document.hidden ? 1000 : (state.open ? 0 : 250);
+        if (rest) await sleep(rest);
+      }
     }
+  } finally {
+    pump.running = false;
+    pump.abort = null;
   }
+}
+
+/** Write one terminal's answer; resolves once xterm has parsed it. */
+function draw(s, r) {
+  return new Promise((resolve) => {
+    if (r.reset) s.term.reset();
+    const replay = s.replay || !!r.reset;
+    s.replay = replay;
+    s.cursor = r.cursor;
+    const done = () => {
+      s.replay = replay && !!r.more;   // a long replay comes in several answers
+      if (r.exited) markExited(s);
+      resolve();
+    };
+    if (r.data) s.term.write(r.data, done);
+    else done();
+  });
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -444,6 +548,7 @@ function disposeView(s) {
   if (s.disposed) return;
   s.disposed = true;
   clearTimeout(s.flush);
+  clearTimeout(s.resizeTimer);
   try { s.term.dispose(); } catch { /* already gone */ }
   s.pane.remove();
   state.sessions = state.sessions.filter((x) => x !== s);
@@ -472,7 +577,7 @@ function clearActive() {
   if (!s) return;
   s.term.clear();
   // Ask the shell to redraw its prompt (Ctrl+L) — only when nothing is typed after it.
-  if (s.id && !s.exited) api('/api/terminal/input', 'POST', { id: s.id, data: '\x0c' }).catch(() => {});
+  typeInto(s, '\x0c');
   focusActive();
 }
 
@@ -726,6 +831,7 @@ function bindResize() {
  *  project's — or start one if the panel is open. */
 function onProjectSwitched() {
   state.remoteLive = false;
+  pump.abort?.abort();   // the old project's shells: the loop ends with nothing to read
   for (const s of [...state.sessions]) disposeView(s);
   state.active = null;
   state.secondary = null;
@@ -772,6 +878,10 @@ export function initTerminal() {
   syncCoarse();
   COARSE?.addEventListener?.('change', syncCoarse);
   document.addEventListener('jarvis:project-switched', onProjectSwitched);
+  document.addEventListener('visibilitychange', () => {
+    hiddenSince = document.hidden ? Date.now() : 0;
+    if (!document.hidden && pollable().length && !pump.running) runPump();
+  });
   // xterm measures its cell size when a view opens; the mono web font may land later.
   document.fonts?.ready?.then(() => {
     for (const s of state.sessions) if (!s.disposed) s.term.options.fontFamily = monoFont();

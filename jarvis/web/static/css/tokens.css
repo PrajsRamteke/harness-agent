@@ -613,6 +613,35 @@ body.is-offline .mark::before { background: var(--text-3); }
   stroke-width: 1.6;
 }
 
+/* Brand logos (brands.js): filled single-colour marks that take the text colour
+   and the same slots the line icons use. */
+.br {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  fill: currentColor;
+}
+.btn .br, .gc-main .br, .gc-item .br, .lr-icon .br { width: 15px; height: 15px; }
+.gc-item .br { color: var(--text-2); }
+.slash-item .br { width: 14px; height: 14px; color: var(--text-3); transition: color var(--dur-fast); }
+.slash-item.is-cursor .br { color: var(--text-2); }
+.pv-mark .br { width: 16px; height: 16px; }
+.pv-mark.is-sm .br { width: 12px; height: 12px; }
+.mdrawer-mono .br { width: 13px; height: 13px; }
+.mk-tile .br { width: 17px; height: 17px; color: #fff; }
+.mk-tile.is-sm .br { width: 12px; height: 12px; }
+.ex-origin.has-logo { gap: 4px; }
+.ex-origin .br { width: 11px; height: 11px; }
+.ex-recommend-num.has-logo { display: grid; place-items: center; color: var(--text-2); }
+.ex-recommend-num .br { width: 18px; height: 18px; }
+.or-mark .br { width: 12px; height: 12px; }
+.tool-chip .br { width: 14px; height: 14px; }
+.set-ic .br { width: 15px; height: 15px; }
+.stats-glyph .br { width: 15px; height: 15px; }
+.lm-mark .br { width: 16px; height: 16px; }
+.pv-mark .ic { width: 15px; height: 15px; }
+
 [data-icon] {
   display: inline-flex;
   align-items: center;

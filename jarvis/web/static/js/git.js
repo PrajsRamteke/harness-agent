@@ -4,6 +4,7 @@
  * Server side: jarvis/web/git_api.py via GET/POST /api/git (the project shown). */
 import { $, escapeHtml, showToast, storageGet, storageSet, BASE } from './utils.js';
 import { icon } from './icons.js';
+import { brand } from './brands.js';
 import { api } from './api.js';
 import { store, subscribe } from './store.js';
 import { isInspectorOpen, onInspectorChange } from './inspector.js';
@@ -16,6 +17,8 @@ const RESTART_NOTE = 'Restart Jarvis to finish updating — it still runs older 
 const RESTART_PULL = 'Restart Jarvis to finish updating — it still runs older git code without Pull';
 const serverCurrent = () => num(st?.api) >= NEEDS_API;
 const EDITOR_ICON = { finder: 'folder', terminal: 'terminal' };
+/** An editor's logo (Cursor, VS Code, Antigravity, Windsurf), else a plain icon. */
+const editorIcon = (id) => brand(id) || icon(EDITOR_ICON[id] || 'code');
 const POLL_MS = 15000;
 
 let st = null;            // last /api/git answer
@@ -165,7 +168,7 @@ function render() {
     parts.push(`
       <div class="gc-split">
         <button type="button" class="gc-main" data-act="open" title="Open this folder in ${escapeHtml(ed.label)}">
-          ${icon(EDITOR_ICON[ed.id] || 'code')}<span>Open in ${escapeHtml(ed.label)}</span>
+          ${editorIcon(ed.id)}<span>Open in ${escapeHtml(ed.label)}</span>
         </button>
         <button type="button" class="gc-more" data-menu="open" aria-haspopup="menu" aria-label="Open in another app">${icon('chevron-down')}</button>
       </div>`);
@@ -578,9 +581,9 @@ function closeMenu() {
   card()?.querySelectorAll('[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
 }
 
-function menuItem(act, iconName, label, { disabled = false, why = '', hint = '', checked = false, data = '' } = {}) {
+function menuItem(act, iconName, label, { disabled = false, why = '', hint = '', checked = false, data = '', logo = '' } = {}) {
   return `<button type="button" class="gc-item${checked ? ' is-current' : ''}" role="menuitem" data-act="${act}" ${data} ${disabled ? 'disabled' : ''} title="${escapeHtml(why || label)}">
-    ${icon(iconName)}<span>${escapeHtml(label)}</span>${hint ? `<em>${escapeHtml(hint)}</em>` : ''}${checked ? icon('check', 'gc-check') : ''}
+    ${logo || icon(iconName)}<span>${escapeHtml(label)}</span>${hint ? `<em>${escapeHtml(hint)}</em>` : ''}${checked ? icon('check', 'gc-check') : ''}
   </button>`;
 }
 
@@ -598,7 +601,7 @@ function openMenu(kind, anchor) {
   if (kind === 'open') {
     const cur = editorChoice();
     el.innerHTML = (st.editors || []).map((e) => menuItem('open-with', EDITOR_ICON[e.id] || 'code', e.label, {
-      checked: cur?.id === e.id, data: `data-editor="${escapeHtml(e.id)}"`,
+      checked: cur?.id === e.id, data: `data-editor="${escapeHtml(e.id)}"`, logo: brand(e.id),
     })).join('');
   } else if (kind === 'commit') {
     const remote = (st.remotes || []).length > 0;

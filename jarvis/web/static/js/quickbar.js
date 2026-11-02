@@ -1,6 +1,7 @@
 /** Composer quick settings: model, thinking effort, agent, trace, auto-approve */
 import { $, escapeHtml } from './utils.js';
 import { icon } from './icons.js';
+import { brand } from './brands.js';
 import { store, subscribe } from './store.js';
 import { EFFORT_NAMES, effortRows, effortNow, thinkInfo } from './effort.js';
 import { setEffort, setSetting, toggleSetting } from './actions.js';
@@ -67,6 +68,9 @@ function render(s) {
   const model = $('qc-model-text');
   if (model) {
     model.textContent = shortModel(s.session.model);
+    // The provider's logo in place of the chip's generic chip icon.
+    const slot = $('qc-model').querySelector('[data-icon]');
+    if (slot) slot.innerHTML = brand(s.session.provider) || icon('cpu');
     $('qc-model').title = `Model: ${s.session.model || 'unknown'}`;
   }
   const effort = $('qc-effort-text');

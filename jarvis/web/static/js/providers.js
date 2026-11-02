@@ -17,6 +17,7 @@
  */
 import { $, escapeHtml, showToast, haptic, debounce, copyText } from './utils.js';
 import { icon } from './icons.js';
+import { brand } from './brands.js';
 import { subscribe, loadSnapshot } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
@@ -147,8 +148,10 @@ function hostOf(url) {
 
 // ─── Markup ───────────────────────────────────────────────────────────────
 
+// The provider's logo when we have one, else its letters.
 function mark(id, text, extra = '') {
-  return `<span class="pv-mark${extra}" data-tone="${TONES[id] || 'slate'}" aria-hidden="true">${escapeHtml(text || '•')}</span>`;
+  const logo = brand(id);
+  return `<span class="pv-mark${extra}${logo ? ' has-logo' : ''}" data-tone="${TONES[id] || 'slate'}" aria-hidden="true">${logo || escapeHtml(text || '•')}</span>`;
 }
 
 function field(id, { placeholder, secret = false, label, lead = '' }) {

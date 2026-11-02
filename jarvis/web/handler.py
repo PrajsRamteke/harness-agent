@@ -496,6 +496,27 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/terminal/tunnel":
             self._send_json(200, self._terminal_tunnel_state())
             return True
+        if path == "/api/terminal/poll":
+            # Every shell the page shows, in one held request: `ids=<id>:<cursor>,…`
+            if not self._terminal_allowed():
+                self._send_json(200, self._TERMINAL_DENIED)
+                return True
+            cursors: dict[str, int] = {}
+            for part in self._query_str(qs, "ids").split(","):
+                tid, _, cur = part.partition(":")
+                if tid:
+                    try:
+                        cursors[tid[:40]] = max(0, int(cur or 0))
+                    except ValueError:
+                        cursors[tid[:40]] = 0
+                if len(cursors) >= terminal_api.MAX_SESSIONS:
+                    break
+            if not cursors:
+                self._send_json(200, {"ok": True, "terminals": {}})
+                return True
+            wait = min(terminal_api.READ_WAIT_MAX, max(0.0, float(self._query_int(qs, "wait", 15000)) / 1000.0))
+            self._send_json(200, terminal_api.read_many(cursors, wait))
+            return True
         if path == "/api/terminal/read":
             if not self._terminal_allowed():
                 self._send_json(200, self._TERMINAL_DENIED)
