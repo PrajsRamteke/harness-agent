@@ -7,7 +7,7 @@ import { store, subscribe } from './store.js';
 import { allItems, matchItem, rankItems, wantCustomItems } from './catalog.js';
 import { openModal, closeModal, isModalOpen, listNav } from './modal.js';
 import { newChat, toggleSetting } from './actions.js';
-import { toggleTheme, toggleGlass, isGlass, resolvedTheme, openAppearance, THEME_LABEL } from './theme.js';
+import { toggleTheme, toggleGlass, isGlass, openAppearance, themeLabel } from './theme.js';
 import { submitPrompt, fillPrompt } from './composer.js';
 import { openShortcuts } from './shortcuts.js';
 import { openInspector } from './inspector.js';
@@ -27,7 +27,7 @@ function itemMeta(item) {
     const on = toggleOn(item);
     return `<span class="lr-state${on ? (item.warn ? ' is-warn' : ' is-on') : ''}">${on ? 'On' : 'Off'}</span>`;
   }
-  if (item.action === 'theme') return `<span class="lr-state">${THEME_LABEL[resolvedTheme()]}</span>`;
+  if (item.action === 'theme') return `<span class="lr-state">${themeLabel()}</span>`;
   if (item.action === 'glass') return `<span class="lr-state${isGlass() ? ' is-on' : ''}">${isGlass() ? 'On' : 'Off'}</span>`;
   if (item.action === 'inspector-changes') return `<span class="lr-code">${isMac ? '⌥D' : 'Alt D'}</span>`;
   if (item.laptop) return '<span class="lr-meta">on computer</span>';

@@ -1,4 +1,4 @@
-/** Appearance: light / dark / system mode, soft contrast, accent colour, device preferences */
+/** Appearance: colour themes, light / dark / system mode, soft contrast, accent colour, device preferences */
 import { $, escapeHtml, storageGet, storageSet, reducedMotion, haptic } from './utils.js';
 import { icon } from './icons.js';
 import { patchStore } from './store.js';
@@ -19,6 +19,31 @@ const SOFT_SUB = {
 
 const THEME_COLOR = { light: '#fafafa', soft: '#f4f1ea', dim: '#18181b', dark: '#0a0a0b' };
 export const THEME_LABEL = { light: 'Light', soft: 'Soft light', dim: 'Soft dark', dark: 'Dark' };
+
+/**
+ * Colour themes (Appearance → Theme). Each one is a palette in tokens.css
+ * (`data-palette`) with a fixed scheme, so it replaces mode + soft contrast;
+ * accent, glass and layout still apply on top. bg / surface / accent only
+ * draw the preview card and the browser's theme-color. Keep in step with the
+ * SCHEMES table in index.html's boot script.
+ */
+export const PALETTES = [
+  { id: 'midnight', label: 'Midnight', scheme: 'dark', bg: '#0b1020', surface: '#151d3b', accent: '#60a5fa' },
+  { id: 'nord', label: 'Nord', scheme: 'dark', bg: '#2e3440', surface: '#3b4252', accent: '#88c0d0' },
+  { id: 'dracula', label: 'Dracula', scheme: 'dark', bg: '#1e1f29', surface: '#2b2d3b', accent: '#bd93f9' },
+  { id: 'forest', label: 'Forest', scheme: 'dark', bg: '#0c130f', surface: '#16231b', accent: '#4ade80' },
+  { id: 'ember', label: 'Ember', scheme: 'dark', bg: '#15100d', surface: '#241c16', accent: '#fb923c' },
+  { id: 'rose', label: 'Rosé', scheme: 'dark', bg: '#170f16', surface: '#271b26', accent: '#f472b6' },
+  { id: 'claude', label: 'Claude Code', scheme: 'dark', bg: '#262624', surface: '#3d3b38', accent: '#d97757' },
+  { id: 'opencode', label: 'OpenCode', scheme: 'dark', bg: '#0a0a0a', surface: '#242424', accent: '#fab283' },
+  { id: 'vscode', label: 'VS Code', scheme: 'dark', bg: '#1e1e1e', surface: '#37373d', accent: '#007acc' },
+  { id: 'solar', label: 'Solar', scheme: 'light', bg: '#fdf6e3', surface: '#eee8d5', accent: '#1f6fb0' },
+  { id: 'sky', label: 'Sky', scheme: 'light', bg: '#f3f8fe', surface: '#dde9f7', accent: '#1d62c9' },
+];
+
+function paletteById(id) {
+  return PALETTES.find((p) => p.id === id) || null;
+}
 
 /** Themes that use the light palette (tokens.css keys off data-theme). */
 const LIGHT_THEMES = new Set(['light', 'soft']);
@@ -167,6 +192,7 @@ function savedLayout(name) {
 
 export const prefs = {
   mode: MODES.some((m) => m.id === savedMode) ? savedMode : 'dark',
+  palette: paletteById(storageGet('jarvis-palette', ''))?.id || '',
   soft: storageGet('jarvis-soft', '0') === '1',
   softAmt: validSoftAmt(storageGet('jarvis-soft-amt', String(SOFT_AMT_MAX))),
   glass: storageGet('jarvis-glass', '0') === '1',
@@ -176,10 +202,14 @@ export const prefs = {
   custom: validHex(storageGet('jarvis-accent-custom', '')) || CUSTOM_DEFAULT,
   alert: storageGet('jarvis-alert', '1') !== '0',
   compact: storageGet('jarvis-compact', '0') === '1',
+  /** Appearance → Theme: whether the theme cards are shown (hiding them keeps the chosen theme). */
+  themePicker: storageGet('jarvis-theme-picker', '1') !== '0',
 };
 
-/** 'light' | 'soft' | 'dim' | 'dark' — what is actually on screen. */
+/** 'light' | 'soft' | 'dim' | 'dark' — what is actually on screen (a colour theme is plain light / dark). */
 export function resolvedTheme() {
+  const pal = paletteById(prefs.palette);
+  if (pal) return pal.scheme;
   const light = prefs.mode === 'system' ? systemLight.matches : prefs.mode === 'light';
   if (light) return prefs.soft ? 'soft' : 'light';
   return prefs.soft ? 'dim' : 'dark';
@@ -187,6 +217,16 @@ export function resolvedTheme() {
 
 export function isLightTheme() {
   return LIGHT_THEMES.has(resolvedTheme());
+}
+
+/** Name of the look on screen: the colour theme, else Light / Soft light / Soft dark / Dark. */
+export function themeLabel() {
+  return paletteById(prefs.palette)?.label || THEME_LABEL[resolvedTheme()];
+}
+
+/** Changes whenever the colours on screen change (palette or resolved theme), so reveals still play. */
+function lookKey() {
+  return `${prefs.palette}|${resolvedTheme()}`;
 }
 
 function apply() {
@@ -198,6 +238,9 @@ function apply() {
   root.dataset.theme = theme === 'soft' ? 'light' : theme;
   if (theme === 'soft') root.dataset.variant = 'soft';
   else delete root.dataset.variant;
+  // A colour theme rides on its own attribute (tokens.css), over the dark / light scheme above.
+  if (prefs.palette) root.dataset.palette = prefs.palette;
+  else delete root.dataset.palette;
   // How far the soft palette is blended in (tokens.css reads --soft-amt).
   root.style.setProperty('--soft-amt', String(prefs.softAmt));
   // Frosted glass is an independent surface choice, not a theme: it rides
@@ -228,7 +271,7 @@ function apply() {
     ['--accent-rgb', '--accent-deep', '--on-accent'].forEach((p) => root.style.removeProperty(p));
   }
   document.body.classList.toggle('is-compact', prefs.compact);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[theme]);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', paletteById(prefs.palette)?.bg || THEME_COLOR[theme]);
   patchStore({ theme, themeMode: prefs.mode, accent: prefs.accent });
 }
 
@@ -275,19 +318,36 @@ function retheme(before, src) {
     apply();
     paintAppearance();
   };
-  if (resolvedTheme() !== before) withReveal(src, run);
+  if (lookKey() !== before) withReveal(src, run);
   else run();
 }
 
+/** Back to the plain Light / Dark look (picking a mode, soft contrast or the Default card). */
+function clearPalette() {
+  prefs.palette = '';
+  storageSet('jarvis-palette', '');
+}
+
+/** A colour theme, or '' for the default Light / Dark look. */
+export function setPalette(id, src) {
+  const next = paletteById(id)?.id || '';
+  if (next === prefs.palette) return;
+  const before = lookKey();
+  prefs.palette = next;
+  storageSet('jarvis-palette', next);
+  retheme(before, src);
+}
+
 export function setMode(mode, src) {
-  const before = resolvedTheme();
+  const before = lookKey();
+  clearPalette();
   prefs.mode = MODES.some((m) => m.id === mode) ? mode : 'dark';
   storageSet('jarvis-theme', prefs.mode);
   retheme(before, src);
 }
 
 export function setSoft(on, src) {
-  const before = resolvedTheme();
+  const before = lookKey();
   prefs.soft = on;
   storageSet('jarvis-soft', on ? '1' : '0');
   retheme(before, src);
@@ -463,7 +523,47 @@ document.addEventListener('visibilitychange', () => {
 
 // ─── Appearance dialog ────────────────────────────────────────────────────
 
+/** Theme cards: Default (plain Light / Dark, set by Mode) plus one per colour theme. */
+function paintThemes() {
+  const grid = $('theme-grid');
+  if (!grid) return;
+  const cards = [
+    { id: '', label: 'Default', look: `<span class="mode-look mode-${prefs.soft ? 'dim' : 'dark'}"><i></i><i></i><i></i></span><span class="mode-look mode-${prefs.soft ? 'soft' : 'light'}"><i></i><i></i><i></i></span>`, split: true },
+    ...PALETTES.map((p) => ({
+      id: p.id,
+      label: p.label,
+      look: `<span class="mode-look theme-look" style="--pb:${p.bg};--ps:${p.surface};--pa:${p.accent}"><i></i><i></i><i></i></span>`,
+    })),
+  ];
+  grid.innerHTML = cards.map((c) => `
+    <button type="button" class="mode-card theme-card" role="radio" data-palette="${c.id}" aria-checked="${prefs.palette === c.id}">
+      <span class="mode-preview${c.split ? ' is-split' : ''}" aria-hidden="true">${c.look}</span>
+      <span class="mode-label"><span>${escapeHtml(c.label)}</span></span>
+    </button>`).join('');
+  grid.querySelectorAll('[data-palette]').forEach((btn) => {
+    btn.addEventListener('click', (e) => setPalette(btn.dataset.palette, e));
+  });
+  const hint = $('theme-hint');
+  if (hint) hint.textContent = prefs.palette ? 'A colour theme sets its own light or dark look. Pick a mode to go back.' : 'Default follows Mode above.';
+  const toggle = $('sw-themes');
+  if (toggle) toggle.checked = prefs.themePicker;
+  const panel = $('theme-panel');
+  if (panel) panel.hidden = !prefs.themePicker;
+  const sub = $('themes-sub');
+  if (sub) {
+    const now = prefs.palette ? `${themeLabel()} is on` : 'Using the default look';
+    sub.textContent = prefs.themePicker ? `${now} · switch off to hide` : `${now} · switch on to choose`;
+  }
+}
+
+function setThemePicker(on) {
+  prefs.themePicker = on;
+  storageSet('jarvis-theme-picker', on ? '1' : '0');
+  paintThemes();
+}
+
 function paintAppearance() {
+  paintThemes();
   const modes = $('mode-grid');
   if (!modes) return;
   // Previews show what each mode looks like with the current soft setting.
@@ -472,7 +572,7 @@ function paintAppearance() {
   const look = (cls) => `<span class="mode-look mode-${cls}"><i></i><i></i><i></i></span>`;
   const preview = { system: look(lightLook) + look(darkLook), light: look(lightLook), dark: look(darkLook) };
   modes.innerHTML = MODES.map((m) => `
-    <button type="button" class="mode-card" role="radio" data-mode="${m.id}" aria-checked="${prefs.mode === m.id}">
+    <button type="button" class="mode-card" role="radio" data-mode="${m.id}" aria-checked="${!prefs.palette && prefs.mode === m.id}">
       <span class="mode-preview${m.id === 'system' ? ' is-split' : ''}" aria-hidden="true">${preview[m.id]}</span>
       <span class="mode-label">${icon(m.icon)}<span>${escapeHtml(m.label)}</span></span>
     </button>`).join('');
@@ -480,9 +580,13 @@ function paintAppearance() {
     btn.addEventListener('click', (e) => setMode(btn.dataset.mode, e));
   });
   const soft = $('sw-soft');
-  if (soft) soft.checked = prefs.soft;
+  if (soft) {
+    soft.checked = prefs.soft && !prefs.palette;
+    soft.disabled = !!prefs.palette;
+    soft.closest('.soft-row')?.classList.toggle('is-off', !!prefs.palette);
+  }
   const softSub = $('soft-sub');
-  if (softSub) softSub.textContent = SOFT_SUB[prefs.mode];
+  if (softSub) softSub.textContent = prefs.palette ? 'Not used by colour themes' : SOFT_SUB[prefs.mode];
   paintSoftAmount();
   const glass = $('sw-glass');
   if (glass) glass.checked = prefs.glass;
@@ -508,7 +612,7 @@ function paintAppearance() {
 /** The strength slider only shows while soft contrast is on. */
 function paintSoftAmount() {
   const wrap = $('soft-amount');
-  if (wrap) wrap.hidden = !prefs.soft;
+  if (wrap) wrap.hidden = !prefs.soft || !!prefs.palette;
   const range = $('soft-amt');
   if (range) {
     if (Number(range.value) !== prefs.softAmt) range.value = String(prefs.softAmt);
@@ -546,7 +650,12 @@ function paintAccents() {
   if (!accents) return;
   const light = isLightTheme();
   const custom = customAccentVars(prefs.custom, resolvedTheme());
-  const chips = [...ACCENTS.map((a) => ({ ...a, swatch: light ? a.light : a.dark })), { id: 'custom', label: 'Custom', swatch: custom.swatch }];
+  // Violet is the built-in accent: under a colour theme that slot becomes the theme's own.
+  const pal = paletteById(prefs.palette);
+  const chips = [
+    ...ACCENTS.map((a) => (a.id === 'violet' && pal ? { ...a, label: 'Theme', swatch: pal.accent } : { ...a, swatch: light ? a.light : a.dark })),
+    { id: 'custom', label: 'Custom', swatch: custom.swatch },
+  ];
   accents.innerHTML = chips.map((a) => `
     <button type="button" class="accent-chip${a.id === 'custom' ? ' is-custom' : ''}" role="radio" data-accent="${a.id}" aria-checked="${prefs.accent === a.id}" style="--swatch:${a.swatch}">
       <span class="accent-dot">${prefs.accent === a.id ? icon('check') : ''}</span>
@@ -614,6 +723,7 @@ export function initTheme() {
   });
   $('accent-exact')?.addEventListener('input', (e) => setCustomAccent(e.target.value, { live: true }));
   $('accent-exact')?.addEventListener('change', paintAccents);
+  $('sw-themes')?.addEventListener('change', (e) => setThemePicker(e.target.checked));
   $('sw-soft')?.addEventListener('change', (e) => setSoft(e.target.checked, e));
   $('soft-amt')?.addEventListener('input', (e) => setSoftAmount(e.target.value));
   $('sw-glass')?.addEventListener('change', (e) => setGlass(e.target.checked, e));

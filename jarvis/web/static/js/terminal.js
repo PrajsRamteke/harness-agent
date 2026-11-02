@@ -131,7 +131,7 @@ function build() {
     for (const s of state.sessions) {
       if (!s.disposed) s.term.options.theme = paint;
     }
-  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-variant', 'data-accent', 'style'] });
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-variant', 'data-palette', 'data-accent', 'style'] });
   window.addEventListener('resize', debounce(() => { applyHeight(); fitAll(); }, 120));
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => fitAll()).observe(el.panel);
   document.addEventListener('keydown', (e) => {

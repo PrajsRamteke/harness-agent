@@ -205,6 +205,91 @@
   --shadow-lg: 0 16px 48px -12px color-mix(in srgb, rgba(0, 0, 0, 0.5) var(--soft-pct), rgba(0, 0, 0, 0.6));
 }
 
+/* Colour themes (Appearance → Theme): a named palette on top of the plain
+   dark / light polarity. theme.js sets data-palette and forces data-theme to
+   the palette's scheme (dark or light), so every alpha token (--card, --line,
+   shadows …) keeps coming from that polarity; a palette only supplies the
+   surfaces, ink, code block and its own default accent. These sit before the
+   accent rules, so a chosen accent still wins over a theme's. --pal-strong is
+   the dialog surface, kept apart so the frosted-glass rules can fade it. */
+:root[data-palette="midnight"] {
+  --bg: #0b1020; --surface-1: #0f1630; --surface-2: #151d3b; --surface-3: #1d2748;
+  --pal-strong: #121a35; --glass-strong: var(--pal-strong);
+  --text: #e6ebff; --text-2: #98a3c7; --text-3: #66719a;
+  --code-bg: #0a0f1f; --code-text: #dfe5ff; --code-dim: #6f7aa3;
+  --accent-rgb: 96, 165, 250; --accent-deep: #2563eb;
+}
+:root[data-palette="nord"] {
+  --bg: #2e3440; --surface-1: #333a47; --surface-2: #3b4252; --surface-3: #434c5e;
+  --pal-strong: #363d4a; --glass-strong: var(--pal-strong);
+  --text: #eceff4; --text-2: #b4bdcd; --text-3: #8089a0;
+  --code-bg: #292e39; --code-text: #e5e9f0; --code-dim: #7f8aa0;
+  --accent-rgb: 136, 192, 208; --accent-deep: #4c7399;
+}
+:root[data-palette="dracula"] {
+  --bg: #1e1f29; --surface-1: #232430; --surface-2: #2b2d3b; --surface-3: #343746;
+  --pal-strong: #272935; --glass-strong: var(--pal-strong);
+  --text: #f8f8f2; --text-2: #b6b8cc; --text-3: #7d8099;
+  --code-bg: #1a1b24; --code-text: #f1f1ea; --code-dim: #7d8099;
+  --accent-rgb: 189, 147, 249; --accent-deep: #7e57e0;
+}
+:root[data-palette="forest"] {
+  --bg: #0c130f; --surface-1: #101a14; --surface-2: #16231b; --surface-3: #1d2e24;
+  --pal-strong: #131f18; --glass-strong: var(--pal-strong);
+  --text: #e4efe7; --text-2: #9db3a4; --text-3: #67796d;
+  --code-bg: #0a110d; --code-text: #dcebe0; --code-dim: #6c8173;
+  --accent-rgb: 74, 222, 128; --accent-deep: #15803d;
+}
+:root[data-palette="ember"] {
+  --bg: #15100d; --surface-1: #1b1511; --surface-2: #241c16; --surface-3: #2e241c;
+  --pal-strong: #1f1813; --glass-strong: var(--pal-strong);
+  --text: #f1e8df; --text-2: #b8a899; --text-3: #7f7164;
+  --code-bg: #110d0a; --code-text: #eadfd3; --code-dim: #85776a;
+  --accent-rgb: 251, 146, 60; --accent-deep: #c2410c;
+}
+:root[data-palette="rose"] {
+  --bg: #170f16; --surface-1: #1d141c; --surface-2: #271b26; --surface-3: #322332;
+  --pal-strong: #221821; --glass-strong: var(--pal-strong);
+  --text: #f3e6f0; --text-2: #bba5b6; --text-3: #82707e;
+  --code-bg: #130c12; --code-text: #ecdde8; --code-dim: #8a7686;
+  --accent-rgb: 244, 114, 182; --accent-deep: #be185d;
+}
+:root[data-palette="claude"] {
+  --bg: #262624; --surface-1: #2b2a28; --surface-2: #343330; --surface-3: #3d3b38;
+  --pal-strong: #302f2c; --glass-strong: var(--pal-strong);
+  --text: #f0eee6; --text-2: #b5b0a4; --text-3: #7f7a70;
+  --code-bg: #1f1e1d; --code-text: #ece9df; --code-dim: #8a857a;
+  --accent-rgb: 217, 119, 87; --accent-deep: #c15f3c;
+}
+:root[data-palette="opencode"] {
+  --bg: #0a0a0a; --surface-1: #111111; --surface-2: #1a1a1a; --surface-3: #242424;
+  --pal-strong: #141414; --glass-strong: var(--pal-strong);
+  --text: #eeeeee; --text-2: #a0a0a0; --text-3: #6a6a6a;
+  --code-bg: #080808; --code-text: #e8e8e8; --code-dim: #707070;
+  --accent-rgb: 250, 178, 131; --accent-deep: #b8622e;
+}
+:root[data-palette="vscode"] {
+  --bg: #1e1e1e; --surface-1: #252526; --surface-2: #2d2d30; --surface-3: #37373d;
+  --pal-strong: #252526; --glass-strong: var(--pal-strong);
+  --text: #d4d4d4; --text-2: #a0a0a0; --text-3: #6e6e6e;
+  --code-bg: #1a1a1a; --code-text: #d4d4d4; --code-dim: #808080;
+  --accent-rgb: 0, 122, 204; --accent-deep: #0e639c;
+}
+:root[data-palette="solar"] {
+  --bg: #fdf6e3; --surface-1: #fffbee; --surface-2: #f5eed8; --surface-3: #eee8d5;
+  --pal-strong: #fffdf5; --glass-strong: var(--pal-strong);
+  --text: #2f3f45; --text-2: #586e75; --text-3: #8a9899;
+  --code-bg: #f5eed8; --code-text: #2f3f45; --code-dim: #8a9899;
+  --accent-rgb: 31, 111, 176; --accent-deep: #1f6fb0;
+}
+:root[data-palette="sky"] {
+  --bg: #f3f8fe; --surface-1: #ffffff; --surface-2: #e9f1fb; --surface-3: #dde9f7;
+  --pal-strong: #ffffff; --glass-strong: var(--pal-strong);
+  --text: #0f2238; --text-2: #44586f; --text-3: #7a8da3;
+  --code-bg: #edf4fc; --code-text: #1b2f47; --code-dim: #7a8da3;
+  --accent-rgb: 29, 98, 201; --accent-deep: #1d62c9;
+}
+
 /* Accents — dark values first, then light-mode shades (darker for contrast).
    --accent-deep fills primary buttons and switches under white text. */
 :root[data-accent="green"] { --accent-rgb: 74, 222, 128; --accent-deep: #16a34a; }
@@ -531,6 +616,19 @@ kbd {
   :root[data-surface="glass"][data-theme="dim"] { --glass: color-mix(in srgb, #25272e var(--soft-pct), #0e0f13); --glass-strong: color-mix(in srgb, #272931 var(--soft-pct), #101116); --chrome: color-mix(in srgb, #25272e var(--soft-pct), #0e0f13); }
   :root[data-surface="glass"][data-theme="light"] { --glass: #fdfdfd; --glass-strong: #ffffff; --chrome: #fdfdfd; }
   :root[data-surface="glass"][data-theme="light"][data-variant="soft"] { --glass: color-mix(in srgb, #fdfaf5 var(--soft-pct), #fdfdfd); --glass-strong: color-mix(in srgb, #fefcf7 var(--soft-pct), #ffffff); --chrome: color-mix(in srgb, #fdfaf5 var(--soft-pct), #fdfdfd); }
+}
+/* Colour themes + frosted glass: the panels are the theme's own surfaces
+   faded to the glass opacity (alpha tokens come from the polarity above). */
+:root[data-surface="glass"][data-palette] {
+  --glass: color-mix(in srgb, var(--surface-1) 72%, transparent);
+  --glass-strong: color-mix(in srgb, var(--pal-strong) 86%, transparent);
+  --chrome: color-mix(in srgb, var(--surface-1) 62%, transparent);
+}
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-surface="glass"][data-palette][data-glass-op] { --gs: var(--surface-1); --gs-strong: var(--pal-strong); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-surface="glass"][data-palette] { --glass: var(--surface-1); --glass-strong: var(--pal-strong); --chrome: var(--surface-1); }
 }
 :root[data-surface="glass"] .glow,
 :root[data-surface="glass"] .grid { position: absolute; inset: 0; }

@@ -49,7 +49,7 @@ export const CATALOG = [
   { group: 'Settings', action: 'toggle-auto', label: 'Auto-approve commands', desc: 'Run shell commands without asking', icon: 'shield', toggle: 'auto_approve', warn: true },
   { group: 'Settings', action: 'theme', label: 'Light or dark', desc: 'Flip the colour mode', icon: 'sun-moon', keys: 'dark light mode theme soft dim' },
   { group: 'Settings', action: 'glass', label: 'Frosted glass', desc: 'Translucent panels; messages scroll under them', icon: 'blend', keys: 'glass frosted blur translucent transparent transparency appearance' },
-  { group: 'Settings', action: 'appearance', label: 'Appearance', desc: 'Light, dark or system, soft contrast, frosted glass, accent colour, compact view', icon: 'palette', keys: 'theme accent color colour compact notification soft dim dark light glass frosted blur' },
+  { group: 'Settings', action: 'appearance', label: 'Appearance', desc: 'Colour themes, light, dark or system, soft contrast, frosted glass, accent colour, compact view', icon: 'palette', keys: 'theme midnight nord dracula forest ember rose claude code opencode vscode vs code solar sky accent color colour compact notification soft dim dark light glass frosted blur' },
 
   { group: 'Memory', picker: 'memory', cmd: '/memory', label: 'Memory', desc: 'Facts Jarvis remembers about you: browse, add, edit or forget them', icon: 'database', keys: 'memory facts remember remembered personal about me forget dashboard' },
   { group: 'Memory', picker: 'lesson', cmd: '/lesson', label: 'Lessons', desc: 'What Jarvis learned from past tasks: browse by topic, edit or delete', icon: 'graduation-cap', keys: 'lessons learned experience tips topics tags knowledge dashboard' },

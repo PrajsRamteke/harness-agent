@@ -561,6 +561,19 @@
 .mode-soft i:nth-child(3) { background: #fdfbf7; box-shadow: inset 0 0 0 1px #e3ddcf; }
 .mode-card[aria-checked="true"] .mode-look i:nth-child(2) { background: var(--accent); }
 
+/* Appearance → Theme: each card sketches its palette from three colours
+   theme.js passes in (--pb background, --ps surface, --pa accent). */
+.theme-grid { grid-template-columns: repeat(3, 1fr); }
+.theme-look { background: var(--pb); }
+.theme-look i { background: var(--ps); }
+.theme-look i:nth-child(2) { background: var(--pa); }
+.theme-look i:nth-child(3) { background: var(--ps); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pa) 28%, transparent); }
+.theme-card[aria-checked="true"] .theme-look i:nth-child(2) { background: var(--pa); }
+.theme-panel { padding-top: 6px; }
+.setting-block .theme-toggle { margin-top: 0; }
+.theme-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-3); }
+.setting-block .soft-row.is-off { opacity: 0.5; }
+
 .setting-block .soft-row { margin: 8px -8px 0; }
 
 /* Soft contrast strength: a slider under the switch (theme.js) */
