@@ -236,6 +236,8 @@ def test_every_element_id_the_scripts_look_up_exists():
     # providers.js field('x', …) writes the input's.
     for src in js.values():
         built_by_helpers |= set(re.findall(r"toolbar\(\{\s*id:\s*'([\w-]+)'", src))
+        # … and its primary action button: toolbar({ …, action: { id: 'x' } }).
+        built_by_helpers |= set(re.findall(r"action:\s*\{[^}]*\bid:\s*'([\w-]+)'", src))
         built_by_helpers |= set(re.findall(r"\bfield\('([\w-]+)'", src))
     for name, src in js.items():
         for ident in set(re.findall(r"\$\('([\w-]+)'\)", src)) - built_by_helpers:

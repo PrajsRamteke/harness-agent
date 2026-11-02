@@ -427,9 +427,23 @@ class TabsMixin:
         except (TypeError, ValueError):
             tab_id = 0
         if op == "new":
+            try:
+                sid = int(data.get("session_id") or 0)
+            except (TypeError, ValueError):
+                sid = 0
+            if sid:  # "Open in new tab" (sidebar / Sessions dialog)
+                other = tabs.find_session(sid)
+                if other is not None:  # open already: show it, never load it twice
+                    self._switch_tab(other)
+                    return {"ok": True, "tabs": tabs.public(), "tab": other.id, "already": True}
             tab = self._new_tab(quiet=True)
             if tab is None:
                 return {"ok": False, "error": f"{tabs.MAX_TABS} tabs are open — close one first"}
+            if sid:
+                result = self._handle_web_action("session_resume", {"session_id": sid})
+                if not result.get("ok"):
+                    self._close_tab(tab)
+                    return {"ok": False, "error": result.get("error") or "session not found"}
         elif op == "switch":
             if not self._switch_tab(tabs.get(tab_id)):
                 return {"ok": False, "error": "that tab was closed"}

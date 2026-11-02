@@ -24,7 +24,7 @@ let pending = false; // a request in flight: ignore double clicks
 
 const strip = () => $('chat-tabs');
 
-export const tabsPost = (op, id = 0) => api('/api/tabs', 'POST', { op, id });
+export const tabsPost = (op, id = 0, extra = {}) => api('/api/tabs', 'POST', { op, id, ...extra });
 
 function sig(list) {
   return list.map((t) => [t.id, t.title, t.active, t.busy, t.unread, t.needs_input].join('\u0001')).join('\u0002');

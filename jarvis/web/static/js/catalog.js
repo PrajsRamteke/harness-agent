@@ -8,7 +8,10 @@
  *   fill   — only puts the command in the composer (needs an argument)
  */
 export const CATALOG = [
-  { group: 'Go to', picker: 'session', cmd: '/session', label: 'Sessions', desc: 'Resume or delete a saved session', icon: 'history', keys: 'resume history' },
+  { group: 'Go to', picker: 'session', cmd: '/session', label: 'Sessions', desc: 'Every chat by project — search messages, pin, archive', icon: 'history', keys: 'resume history chats projects search find' },
+  { group: 'Go to', picker: 'session', pickerArg: 'all', label: 'Chats in all projects', desc: 'Every saved chat, grouped by folder', icon: 'folder-open', keys: 'sessions history projects folders' },
+  { group: 'Go to', picker: 'session', pickerArg: 'pinned', label: 'Pinned chats', desc: 'The chats you pinned to the top', icon: 'pin', keys: 'sessions favourite favorite star' },
+  { group: 'Go to', picker: 'session', pickerArg: 'archived', label: 'Archived chats', desc: 'Chats you tidied away — restore or delete them', icon: 'archive', keys: 'sessions archive restore' },
   { group: 'Go to', picker: 'model', cmd: '/model', label: 'Model', desc: 'Switch the model or provider', icon: 'cpu', keys: 'provider llm' },
   { group: 'Go to', picker: 'agent', cmd: '/agent', label: 'Agent', desc: 'Activate an agent profile', icon: 'sparkles', keys: 'profile persona' },
   { group: 'Go to', picker: 'skill', cmd: '/skill', label: 'Skills', desc: 'Browse installed skill packs', icon: 'book-open' },

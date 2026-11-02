@@ -19,6 +19,9 @@ def handle_files_shell(c: str, arg: str) -> bool:
         try:
             os.chdir(arg or str(pathlib.Path.home()))
             cwd = set_cwd(pathlib.Path.cwd())
+            from ..web.actions_api import _move_current_session
+
+            _move_current_session(str(cwd))
             console.print(f"[green]cwd → {cwd}[/]")
         except Exception as e: console.print(f"[red]{e}[/]")
         return True

@@ -91,8 +91,8 @@ def test_session_picker_groups_search_and_two_step_delete(hermetic_app, monkeypa
         {"id": 1, "title": "old work", "model": "m3", "updated_at": now - 90 * 86400, "msg_count": 2},
     ]
     deleted: list[int] = []
-    monkeypatch.setattr(sm, "db_list_sessions", lambda limit=60, offset=0: data[offset:offset + limit])
-    monkeypatch.setattr(sm, "db_count_sessions", lambda: len(data))
+    monkeypatch.setattr(sm, "db_list_sessions", lambda limit=60, offset=0, **_: data[offset:offset + limit])
+    monkeypatch.setattr(sm, "db_count_sessions", lambda **_: len(data))
     monkeypatch.setattr(sm, "db_delete_session", lambda sid: deleted.append(sid) or True)
 
     async def run() -> None:
@@ -132,8 +132,8 @@ def test_session_picker_refuses_to_delete_the_active_session(hermetic_app, monke
         {"id": 2, "title": "older chat", "model": "m2", "updated_at": now - 120, "msg_count": 9},
     ]
     deleted: list[int] = []
-    monkeypatch.setattr(sm, "db_list_sessions", lambda limit=60, offset=0: data[offset:offset + limit])
-    monkeypatch.setattr(sm, "db_count_sessions", lambda: len(data))
+    monkeypatch.setattr(sm, "db_list_sessions", lambda limit=60, offset=0, **_: data[offset:offset + limit])
+    monkeypatch.setattr(sm, "db_count_sessions", lambda **_: len(data))
     monkeypatch.setattr(sm, "db_delete_session", lambda sid: deleted.append(sid) or True)
 
     async def run() -> None:

@@ -2,7 +2,7 @@
 import { $, escapeHtml, formatCount, debounce, countTo, animateEl, SPRING, isMac, storageGet, storageSet } from './utils.js';
 import { icon } from './icons.js';
 import { store, subscribe } from './store.js';
-import { fetchSessions } from './api.js';
+import { fetchSessionList } from './api.js';
 import {
   newChat,
   onSessionChange,
@@ -12,6 +12,9 @@ import {
 import { toggleTheme, isLightTheme, openAppearance } from './theme.js';
 import { closeInspector, isDocked, isInspectorOpen } from './inspector.js';
 import { closedProjectFor, projectForSession, switchProject } from './projects.js';
+import { openSession, openSessions as openSessionsDialogRaw, sessionMenu, whereOf, relTime, dayLabel } from './sessions.js';
+
+const openSessionsDialog = (q = '', folder = null) => openSessionsDialogRaw(q, folder);
 
 let openPicker = () => {};
 let recentSig = '';
@@ -194,6 +197,27 @@ function render(s) {
 }
 
 // ─── Recent sessions ──────────────────────────────────────────────────────
+//
+//   CHATS                                   View all
+//   [ harness 103 | All 260 ]
+//   [🔍 Find a chat ……………… ]
+//   PINNED · TODAY · YESTERDAY …   (This project)
+//   ▾ harness 103 · ▸ billing 12 … (All: one group per project)
+
+const SCOPE_KEY = 'jarvis-recent-scope';
+const FOLDED_KEY = 'jarvis-recent-folded';
+const PER_GROUP = 5;
+const R = { scope: storageGet(SCOPE_KEY, 'project') === 'all' ? 'all' : 'project', q: '', data: null, seq: 0 };
+
+function readFolded() {
+  try {
+    const v = JSON.parse(storageGet(FOLDED_KEY, '[]'));
+    return new Set(Array.isArray(v) ? v : []);
+  } catch {
+    return new Set();
+  }
+}
+let folded = readFolded();
 
 function markActiveRecent(sid) {
   document.querySelectorAll('#recent-list .recent-row').forEach((row) => {
@@ -201,12 +225,114 @@ function markActiveRecent(sid) {
   });
 }
 
+function rowHtml(x, i) {
+  const w = whereOf(x);
+  const live = x.openIn
+    ? `<span class="rr-tag is-live" title="On screen in ${escapeHtml(x.openIn.project)} — click to switch there">${escapeHtml(x.openIn.project)}</span>`
+    : '';
+  const away = !live && (w.kind === 'folder' || w.kind === 'launch') && (R.q || R.scope !== 'all')
+    ? `<span class="rr-tag" title="${escapeHtml(x.cwd_display)}">${escapeHtml(x.project)}</span>` : '';
+  const tab = x.tab ? `<span class="rr-tag is-tab" title="Open in another tab">${icon('app-window')}tab</span>` : '';
+  const count = x.msg_count ? `${x.msg_count} msg${x.msg_count === 1 ? '' : 's'}` : '';
+  const meta = [relTime(x.updated_at), count].filter(Boolean).join(' · ');
+  const snip = x.snippet?.text
+    ? `<span class="rr-snip">${escapeHtml(x.snippet.text.slice(0, x.snippet.at))}<mark>${escapeHtml(x.snippet.text.slice(x.snippet.at, x.snippet.at + x.snippet.len))}</mark>${escapeHtml(x.snippet.text.slice(x.snippet.at + x.snippet.len))}</span>`
+    : '';
+  const tip = w.kind === 'folder' || w.kind === 'launch' ? `${x.title}\nOpens in ${x.cwd_display}` : x.title;
+  return `
+    <div class="recent-item${x.pinned ? ' is-pinned' : ''}" role="listitem" data-sid="${x.id}" style="--i:${Math.min(i, 8)}">
+      <button type="button" class="recent-row${x.active ? ' is-active' : ''}" data-sid="${x.id}" title="${escapeHtml(tip)}">
+        <span class="rr-dot${x.tab || x.openIn ? ' is-open' : ''}" aria-hidden="true"></span>
+        <span class="rr-body">
+          <span class="rr-title">${escapeHtml(x.title)}</span>
+          ${snip}
+          <span class="rr-meta">${live}${away}${tab}${escapeHtml(meta)}</span>
+        </span>
+      </button>
+      ${x.pinned ? `<span class="rr-pin" aria-label="Pinned">${icon('pin')}</span>` : ''}
+      <button type="button" class="rr-more" data-more="${x.id}" aria-haspopup="menu" aria-label="More for “${escapeHtml(x.title)}”" title="More">${icon('ellipsis')}</button>
+    </div>`;
+}
+
+function groupHead(label, { key = '', count = null, folder = false, open = true, here = false, title = '' } = {}) {
+  if (!folder) return `<div class="recent-group" role="presentation">${escapeHtml(label)}</div>`;
+  return `<button type="button" class="recent-folder${here ? ' is-here' : ''}" data-fold="${escapeHtml(key)}" aria-expanded="${open}" title="${escapeHtml(title)}">
+      ${icon(open ? 'chevron-down' : 'chevron-right')}${icon('folder')}<span class="rf-name">${escapeHtml(label)}</span>${here ? '<span class="rf-here">here</span>' : ''}<em>${count ?? ''}</em>
+    </button>`;
+}
+
+function recentHtml(rows, data) {
+  let i = 0;
+  if (R.q) {
+    if (!rows.length) return `<p class="recent-empty">No chat matches “${escapeHtml(R.q)}”.${R.scope === 'project' ? ' <button type="button" class="link-btn" data-recent-scope="all">Search all projects</button>' : ''}</p>`;
+    return rows.map((x) => rowHtml(x, i++)).join('');
+  }
+  if (R.scope === 'project') {
+    if (!rows.length) {
+      return `<p class="recent-empty">No chats in ${escapeHtml(data?.current_name || 'this project')} yet. <button type="button" class="link-btn" data-recent-scope="all">Show all projects</button></p>`;
+    }
+    let last = '';
+    return rows.map((x) => {
+      const label = x.pinned ? 'Pinned' : dayLabel(x.updated_at);
+      const head = label !== last ? groupHead(label) : '';
+      last = label;
+      return head + rowHtml(x, i++);
+    }).join('');
+  }
+  if (!rows.length) return '<p class="recent-empty">Saved sessions show up here.</p>';
+  // All projects: one foldable group per folder (this one first), newest chats first.
+  const counts = new Map((data?.folders || []).map((f) => [f.cwd, f]));
+  const groups = new Map();
+  const here = data?.current_cwd || '';
+  if (rows.some((x) => x.cwd === here)) groups.set(here, []);
+  for (const x of rows) {
+    if (!groups.has(x.cwd)) groups.set(x.cwd, []);
+    groups.get(x.cwd).push(x);
+  }
+  return [...groups.entries()].map(([cwd, list]) => {
+    const f = counts.get(cwd);
+    const key = cwd || '~none';
+    const open = !folded.has(key);
+    const name = cwd ? (list[0]?.project || f?.name || cwd) : 'Folder not recorded';
+    const total = f?.count ?? list.length;
+    const shown = list.slice(0, PER_GROUP);
+    const rest = total - shown.length;
+    const more = rest > 0
+      ? `<button type="button" class="recent-more" data-folder="${escapeHtml(cwd)}">${icon('chevron-right')}<span>${rest} more in ${escapeHtml(name)}</span></button>`
+      : '';
+    return `<div class="recent-set${open ? '' : ' is-folded'}">
+      ${groupHead(name, { key, count: total, folder: true, open, here: cwd === here && !!cwd, title: f?.display || '' })}
+      <div class="recent-set-body">${open ? shown.map((x) => rowHtml(x, i++)).join('') + more : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderScope(data) {
+  const box = $('recent-scope');
+  if (!box) return;
+  const name = data?.current_name || 'This project';
+  const html = `<div class="seg recent-seg" role="group" aria-label="Show chats from">
+      <button type="button" data-recent-scope="project" aria-pressed="${R.scope === 'project'}" title="${escapeHtml(data?.current_display || '')}">${icon('folder-open')}<span>${escapeHtml(name)}</span>${data?.counts?.project ? `<em>${data.counts.project}</em>` : ''}</button>
+      <button type="button" data-recent-scope="all" aria-pressed="${R.scope === 'all'}">${icon('history')}<span>All</span>${data?.counts?.all ? `<em>${data.counts.all}</em>` : ''}</button>
+    </div>`;
+  if (box._html !== html) {
+    box.innerHTML = html;
+    box._html = html;
+  }
+}
+
 async function loadRecent() {
   const list = $('recent-list');
   if (!list) return;
   if (!list.childElementCount) list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+  const seq = ++R.seq;
   try {
-    const data = await fetchSessions(30);
+    const data = await fetchSessionList({
+      scope: R.scope, q: R.q.trim(), limit: R.q ? 30 : R.scope === 'all' ? 80 : 40, folders: 1,
+    });
+    if (seq !== R.seq) return;
+    R.data = data;
+    renderScope(data);
     const sessions = (data.sessions || []).map((x) => ({
       ...x,
       // Still the live chat of another running project: open it there, never twice.
@@ -214,50 +340,127 @@ async function loadRecent() {
       // Its project was closed: say where it came from.
       from: closedProjectFor(x.id),
     }));
-    const sig = JSON.stringify(sessions.map((x) => [x.id, x.title, x.msg_count, x.updated_label, x.openIn?.id, x.from]));
-    if (sig === recentSig && list.querySelector('.recent-row')) return;
+    const sig = JSON.stringify([R.scope, R.q, [...folded], data.counts,
+      sessions.map((x) => [x.id, x.title, x.msg_count, x.updated_at, x.pinned, x.tab?.id, x.openIn?.id, x.snippet?.text])]);
+    if (sig === recentSig && list.querySelector('.recent-row, .recent-empty')) return;
     recentSig = sig;
-    if (!sessions.length) {
-      list.innerHTML = '<p class="recent-empty">Saved sessions show up here.</p>';
-      return;
-    }
-    list.innerHTML = sessions.map((x, i) => {
-      const tag = x.openIn
-        ? `<span class="rr-tag is-live" title="Open in ${escapeHtml(x.openIn.project)} — click to switch there">${escapeHtml(x.openIn.project)}</span>`
-        : x.from ? `<span class="rr-tag" title="From ${escapeHtml(x.from)}, which was closed">${escapeHtml(x.from)}</span>` : '';
-      const count = x.msg_count ? `${x.msg_count} message${x.msg_count === 1 ? '' : 's'}` : '';
-      const meta = [x.updated_label || '', count].filter(Boolean).join(' · ');
-      return `
-      <button type="button" class="recent-row" role="listitem" data-sid="${x.id}" ${x.openIn ? `data-project="${escapeHtml(x.openIn.id)}"` : ''} title="${escapeHtml(x.title)}" style="--i:${Math.min(i, 8)}">
-        <span class="rr-dot" aria-hidden="true"></span>
-        <span class="rr-body">
-          <span class="rr-title">${escapeHtml(x.title)}</span>
-          <span class="rr-meta">${tag}${escapeHtml(meta)}</span>
-        </span>
-      </button>`;
-    }).join('');
-    list.querySelectorAll('.recent-row').forEach((row) => {
-      row.addEventListener('click', async () => {
-        if (row.dataset.sid === String(store.session.session_id)) {
-          closeOnNarrow();
-          return;
-        }
-        if (row.dataset.project) {
-          switchProject(row.dataset.project);
-          return;
-        }
-        row.classList.add('is-active');
-        const res = await runAction('session_resume', { session_id: Number(row.dataset.sid) }, 'Session resumed');
-        if (res.ok) closeOnNarrow();
-      });
-    });
+    list._rows = sessions;
+    list.innerHTML = recentHtml(sessions, data);
     markActiveRecent(store.session.session_id);
   } catch {
+    if (seq !== R.seq) return;
     if (!list.querySelector('.recent-row')) list.innerHTML = '<p class="recent-empty">Could not load sessions.</p>';
   }
 }
 
 export const refreshRecent = debounce(loadRecent, 250);
+
+function rowFor(el) {
+  const sid = Number(el.closest('[data-sid]')?.dataset.sid || 0);
+  return ($('recent-list')?._rows || []).find((x) => x.id === sid) || null;
+}
+
+async function onRecentClick(e) {
+  const scope = e.target.closest('[data-recent-scope]');
+  if (scope) {
+    if (scope.getAttribute('aria-pressed') === 'true') return;
+    R.scope = scope.dataset.recentScope;
+    storageSet(SCOPE_KEY, R.scope);
+    recentSig = '';
+    loadRecent();
+    return;
+  }
+  const fold = e.target.closest('[data-fold]');
+  if (fold) {
+    const key = fold.dataset.fold;
+    if (folded.has(key)) folded.delete(key);
+    else folded.add(key);
+    storageSet(FOLDED_KEY, JSON.stringify([...folded]));
+    recentSig = '';
+    loadRecent();
+    return;
+  }
+  const more = e.target.closest('.recent-more');
+  if (more) {
+    closeOnNarrow();
+    openSessionsDialog('', more.dataset.folder ?? '');
+    return;
+  }
+  const menuBtn = e.target.closest('[data-more]');
+  if (menuBtn) {
+    e.stopPropagation();
+    const x = rowFor(menuBtn);
+    if (!x) return;
+    const res = await sessionMenu(menuBtn, x, { titleEl: menuBtn.closest('.recent-item')?.querySelector('.rr-title') });
+    if (res?.ok || res?.renamed) closeOnNarrow();
+    return;
+  }
+  const row = e.target.closest('.recent-row');
+  if (!row) return;
+  const x = rowFor(row);
+  if (!x) return;
+  if (x.openIn) {
+    switchProject(x.openIn.id);
+    return;
+  }
+  if (e.metaKey || e.ctrlKey) {
+    if (whereOf(x).kind === 'here') openSession(x, { where: 'tab' });
+    return;
+  }
+  if (x.active) {
+    closeOnNarrow();
+    return;
+  }
+  row.classList.add('is-active');
+  const res = await openSession(x);
+  if (res?.ok) closeOnNarrow();
+  else markActiveRecent(store.session.session_id);
+}
+
+function onRecentAux(e) {
+  if (e.button !== 1) return; // middle click: open in a new tab, like a browser
+  const row = e.target.closest('.recent-row');
+  const x = row && rowFor(row);
+  if (!x || x.active || whereOf(x).kind !== 'here') return;
+  e.preventDefault();
+  openSession(x, { where: 'tab' });
+}
+
+function onRecentKey(e) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const search = $('recent-search');
+  const rows = [...($('recent-list')?.querySelectorAll('.recent-row') || [])];
+  if (!rows.length) return;
+  const i = rows.indexOf(document.activeElement);
+  if (e.target !== search && i === -1) return;
+  e.preventDefault();
+  const next = e.target === search ? (e.key === 'ArrowDown' ? 0 : rows.length - 1) : i + (e.key === 'ArrowDown' ? 1 : -1);
+  if (next < 0) search?.focus();
+  else rows[Math.min(next, rows.length - 1)].focus();
+}
+
+function initRecent() {
+  const sec = document.querySelector('.side-recent');
+  sec?.addEventListener('click', onRecentClick);
+  sec?.addEventListener('auxclick', onRecentAux);
+  sec?.addEventListener('keydown', onRecentKey);
+  const search = $('recent-search');
+  search?.addEventListener('input', () => {
+    R.q = search.value;
+    refreshRecent();
+  });
+  search?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && search.value) {
+      e.stopPropagation();
+      search.value = '';
+      R.q = '';
+      loadRecent();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      $('recent-list')?.querySelector('.recent-row')?.click();
+    }
+  });
+}
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 
@@ -280,7 +483,8 @@ export function initSidebar({ onOpenPicker }) {
       if (!res.beside) $('prompt')?.focus(); // beside: the "Starting a new chat" dialog is up
     }
   });
-  $('all-sessions')?.addEventListener('click', () => { closeOnNarrow(); openPicker('session'); });
+  $('all-sessions')?.addEventListener('click', () => { closeOnNarrow(); openSessionsDialog(R.q.trim() || (R.scope === 'all' ? 'all' : '')); });
+  initRecent();
   $('open-skills')?.addEventListener('click', () => { closeOnNarrow(); openPicker('skill'); });
   $('open-commands')?.addEventListener('click', () => { closeOnNarrow(); openPicker('command'); });
   $('open-mcp')?.addEventListener('click', () => { closeOnNarrow(); openPicker('mcp'); });

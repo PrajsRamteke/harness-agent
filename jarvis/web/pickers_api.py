@@ -19,7 +19,9 @@ from ..constants import (
     provider_label,
 )
 from .. import state
-from ..storage.sessions import db_count_sessions, db_list_sessions
+from ..storage.sessions import (
+    db_count_sessions, db_list_sessions, db_search_session_ids, db_session_folders, db_session_info,
+)
 from ..tui.model_modal import model_picker_rows
 from ..utils.time_fmt import _fmt_ts
 
@@ -48,31 +50,103 @@ def _side_model_is_active(source: str, model_id: str) -> bool:
     return side_model.preference() == (source, model_id)
 
 
-def list_sessions(*, limit: int = 50, offset: int = 0) -> dict[str, Any]:
-    limit = max(1, min(int(limit), 100))
+def list_sessions(*, limit: int = 50, offset: int = 0, scope: str = "all", cwd: str | None = None,
+                  q: str = "", view: str = "active", sort: str = "recent",
+                  folders: bool = False) -> dict[str, Any]:
+    """``GET /api/sessions``.
+
+    ``scope``: ``all`` (every folder) · ``project`` (the folder Jarvis runs in)
+    · ``folder`` (``cwd``; "" = chats whose folder isn't recorded).
+    ``view``: ``active`` (not archived) · ``pinned`` · ``archived``.
+    ``q`` searches titles, models, ``#id`` and every message (with a snippet).
+    ``folders=True`` adds the folder list (Sessions dialog rail).
+    """
+    from ..storage import session_library as lib
+    from .. import tabs as tabs_mod
+
+    lib.backfill_folders()
+    limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
-    rows = db_list_sessions(limit=limit, offset=offset)
+    here = lib.here()
+    folder: str | None = None
+    if scope == "project":
+        folder = here
+    elif scope == "folder":
+        folder = str(cwd or "")
+    archived: bool | None = view == "archived"
+    pinned = True if view == "pinned" else None
+    query = (q or "").strip()
+    current = state.current_session_id
+
+    if query:
+        ids = db_search_session_ids(query, cwd=folder, archived=archived, limit=offset + limit + 1)
+        if pinned:
+            ids = [i for i in ids if (db_session_info(i) or {}).get("pinned")]
+        total = len(ids)
+        page = ids[offset:offset + limit]
+        rows = db_list_sessions(limit=len(page) or 1, ids=page, archived=None) if page else []
+        order = {sid: n for n, sid in enumerate(page)}
+        rows = sorted(rows, key=lambda r: order.get(int(r["id"]), 0))
+    else:
+        rows = db_list_sessions(limit=limit, offset=offset, cwd=folder, archived=archived,
+                                pinned=pinned, sort=sort, pinned_first=view == "active")
+        total = db_count_sessions(cwd=folder, archived=archived, pinned=pinned)
+
+    open_tabs = {}
+    try:
+        for t in tabs_mod.public():
+            if t.get("session_id"):
+                open_tabs[int(t["session_id"])] = t
+    except Exception:
+        pass
     sessions = []
     for row in rows:
-        sid = int(row["id"])
-        sessions.append({
-            "id": sid,
-            "title": (row["title"] or "").strip() or f"Session #{sid}",
-            "auto_title": not (row["title"] or "").strip(),  # "Session #N" stands in for none
-            "model": row["model"] or "",
-            "msg_count": int(row["msg_count"] or 0),
-            "created_at": float(row["created_at"] or 0),
-            "updated_at": float(row["updated_at"] or 0),
-            "updated_label": _fmt_ts(float(row["updated_at"] or 0)),
-            "active": sid == state.current_session_id,
-        })
-    return {
+        item = lib.public_row(row, current_sid=current, current_cwd=here)
+        tab = open_tabs.get(item["id"])
+        if tab and not item["active"]:
+            item["tab"] = {"id": tab["id"], "busy": tab.get("busy", False)}
+        if query:
+            try:
+                item["snippet"] = lib.snippet(item["id"], query)
+            except Exception:
+                item["snippet"] = None
+        sessions.append(item)
+
+    out: dict[str, Any] = {
         "sessions": sessions,
-        "total": db_count_sessions(),
+        "total": total,
         "limit": limit,
         "offset": offset,
-        "current_session_id": state.current_session_id,
+        "more": offset + len(sessions) < total,
+        "query": query,
+        "scope": scope,
+        "view": view,
+        "current_session_id": current,
+        "current_cwd": here,
+        "current_name": lib.name_of(here),
+        "current_display": lib.display(here),
     }
+    if folders:
+        rows_f = db_session_folders()
+        out["folders"] = [lib.folder_info(f, current=here) for f in rows_f]
+        if here and not any(f["cwd"] == here for f in out["folders"]):
+            out["folders"].insert(0, lib.folder_info({"cwd": here}, current=here))
+        out["counts"] = {
+            "all": sum(int(f.get("count") or 0) for f in rows_f),
+            "pinned": sum(int(f.get("pinned") or 0) for f in rows_f),
+            "archived": sum(int(f.get("archived") or 0) for f in rows_f),
+            "project": next((int(f.get("count") or 0) for f in rows_f if f.get("cwd") == here), 0),
+        }
+    return out
+
+
+def export_session(session_id: int) -> dict[str, Any]:
+    from ..storage import session_library as lib
+
+    text = lib.markdown(int(session_id))
+    if text is None:
+        return {"ok": False, "error": "session not found"}
+    return {"ok": True, "name": lib.export_name(int(session_id)), "markdown": text}
 
 
 def list_models(*, query: str = "", for_side: bool = False) -> dict[str, Any]:

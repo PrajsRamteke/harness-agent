@@ -69,6 +69,7 @@
   <link rel="stylesheet" href="/static/css/media.css">
   <link rel="stylesheet" href="/static/css/queue-pin.css">
   <link rel="stylesheet" href="/static/css/memory.css">
+  <link rel="stylesheet" href="/static/css/sessions.css">
   <link rel="stylesheet" href="/static/css/local.css">
   <link rel="stylesheet" href="/static/css/projects.css">
   <link rel="stylesheet" href="/static/css/folders.css">
@@ -132,9 +133,16 @@
 
         <section class="side-sec side-recent">
           <div class="sec-head">
-            <h2 class="sec-title">Recent sessions</h2>
-            <button class="link-btn" id="all-sessions" type="button">View all</button>
+            <h2 class="sec-title">Chats</h2>
+            <button class="link-btn" id="all-sessions" type="button" title="Every chat, by project — search, pin, archive">View all</button>
           </div>
+          <div class="recent-scope" id="recent-scope"></div>
+          <label class="recent-search">
+            <span data-icon="search"></span>
+            <input id="recent-search" type="search" placeholder="Find a chat" aria-label="Find a chat by title or message"
+              autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+              data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
+          </label>
           <div class="recent" id="recent-list" role="list"></div>
         </section>
 
@@ -629,6 +637,26 @@
       <div class="dlg-bar" id="memory-bar"></div>
       <div class="pv-body dlg-body ex-body" id="memory-body"></div>
       <div class="dlg-foot" id="memory-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="sessions" hidden>
+    <div class="modal-card glass-strong ext-card ss-card dlg-card" id="sessions-card" role="dialog" aria-modal="true" aria-labelledby="sessions-title">
+      <div class="picker-head">
+        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
+        <span class="picker-icon"><span data-icon="history"></span></span>
+        <div class="picker-titles">
+          <h2 id="sessions-title">Sessions</h2>
+          <p id="sessions-sub-title">Every saved chat, by project</p>
+        </div>
+        <button class="icon-btn" data-close="sessions" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="dlg-bar" id="sessions-bar"></div>
+      <div class="ss-wrap">
+        <div class="ss-rail-box" id="sessions-rail"></div>
+        <div class="pv-body dlg-body ss-body" id="sessions-list"></div>
+      </div>
+      <div class="dlg-foot" id="sessions-foot"></div>
     </div>
   </div>
 

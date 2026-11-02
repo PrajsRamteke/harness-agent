@@ -7,6 +7,13 @@ from .. import state
 from ..storage.sessions import db_create_session, db_delete_session
 
 
+def _int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable) -> dict[str, Any]:
     """Execute a picker mutation. Returns {ok, error?, ...}."""
     action = (action or "").strip()
@@ -47,6 +54,7 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
 
         result = change_cwd(str(data.get("path") or ""))
         if result.get("ok") and not result.get("unchanged"):
+            _move_current_session(result.get("cwd") or "")
             console_print(f"[green]📁 moved to {result['display']}[/] [dim](from the web)[/]")
         return result
 
@@ -72,6 +80,21 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
         return {"ok": True, "session_id": state.current_session_id}
 
     if action == "session_delete":
+        many = data.get("session_ids")
+        if isinstance(many, list):  # bulk (Sessions dialog): skip what's open, delete the rest
+            from .. import tabs as tabs_mod
+
+            deleted, skipped = [], []
+            for raw in many[:500]:
+                try:
+                    sid = int(raw)
+                except (TypeError, ValueError):
+                    continue
+                if sid == state.current_session_id or tabs_mod.find_session(sid) is not None:
+                    skipped.append(sid)
+                elif db_delete_session(sid):
+                    deleted.append(sid)
+            return {"ok": True, "deleted": deleted, "skipped": skipped}
         sid = int(data.get("session_id") or 0)
         if sid <= 0:
             return {"ok": False, "error": "invalid session_id"}
@@ -80,6 +103,32 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
         if not db_delete_session(sid):
             return {"ok": False, "error": "session not found"}
         return {"ok": True, "deleted": sid}
+
+    if action in ("session_pin", "session_archive"):
+        from ..storage.sessions import db_set_archived, db_set_pinned
+
+        ids = data.get("session_ids")
+        if not isinstance(ids, list):
+            ids = [data.get("session_id")]
+        on = bool(data.get("pinned" if action == "session_pin" else "archived", True))
+        if action == "session_archive" and on and state.current_session_id in [_int(x) for x in ids]:
+            return {"ok": False, "error": "This chat is open. Start or open another one first, then archive it."}
+        fn = db_set_pinned if action == "session_pin" else db_set_archived
+        n = fn(ids, on)
+        if not n:
+            return {"ok": False, "error": "session not found"}
+        return {"ok": True, "changed": n}
+
+    if action == "session_move":
+        # "Move to this project": the chat now belongs to the folder Jarvis runs in.
+        from ..storage.sessions import db_set_session_cwd
+        from ..storage.session_library import display, here
+
+        sid = _int(data.get("session_id"))
+        folder = here()
+        if not sid or not db_set_session_cwd(sid, folder):
+            return {"ok": False, "error": "session not found"}
+        return {"ok": True, "session_id": sid, "cwd": folder, "display": display(folder)}
 
     if action == "session_rename":
         sid = int(data.get("session_id") or 0) or None  # none = the session on screen
@@ -197,3 +246,15 @@ def run_web_action(action: str, data: dict[str, Any], *, console_print: Callable
         return {"ok": True, "global_mcp": enable, **result}
 
     return {"ok": False, "error": f"unknown action: {action}"}
+
+
+def _move_current_session(cwd: str) -> None:
+    """The chat on screen moved with Jarvis to ``cwd`` (``/cd``, "Move this chat here")."""
+    if not cwd or not state.current_session_id:
+        return
+    try:
+        from ..storage.sessions import db_set_session_cwd
+
+        db_set_session_cwd(state.current_session_id, cwd)
+    except Exception:
+        pass
