@@ -313,8 +313,10 @@ async function branchReply(wrap, btn) {
     const { runAction } = await import('./actions.js');
     const res = await runAction('reply_branch', replyRef(wrap));
     if (!res.ok) return;
-    const opened = await runAction('session_resume', { session_id: res.session_id });
-    if (opened.ok) showToast('Branched into a new chat — the original is in Recent sessions');
+    // The branch opens in its own header tab; the original chat stays in its tab.
+    const { openInTab } = await import('./sessions.js');
+    const opened = await openInTab(res.session_id);
+    if (opened.ok) showToast('Branched into a new chat — opened in a new tab');
   } finally {
     btn.disabled = false;
   }

@@ -3,7 +3,7 @@
 * **Retry** (the latest reply only): cut the conversation back to the user's
   last prompt, so ``/retry`` sends it again and the model answers afresh.
 * **Branch into new chat**: a new session holding the conversation up to and
-  including one reply; the page then resumes it (``session_resume``).
+  including one reply; the page then opens it in a new header tab.
 
 The page names a reply by its text (+ which occurrence of that text, for
 replies that repeat) — the transcript it shows can hold command echoes and
