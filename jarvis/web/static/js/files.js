@@ -44,6 +44,8 @@ const CHANGES_MS = 140;          // wait this long after a keystroke before comp
 const PEEK_MAX_LINES = 30;
 const DIFF_VIEW_KEY = 'jarvis-files-diffview'; // the Diff view: 'unified' | 'split' (side by side, wide screens)
 const CONFIRM_ID = 'files-confirm';
+const BR_ID = 'files-br';        // the footer branch chip's switcher (index.html)
+const PR_ID = 'files-pr';        // the Create pull request modal (index.html)
 const PANE_KEY = 'jarvis-files-pane';  // the left pane's tab: 'files' (Explorer) | 'scm' (Source Control)
 const SCM_STATUS = {
   modified: ['M', 'Modified'], added: ['A', 'Added'], untracked: ['U', 'New file'], deleted: ['D', 'Deleted'],
@@ -105,6 +107,12 @@ let scmMsg = '';                 // the commit message being written
 let scmBusy = '';                // a git op the tab is running
 let scmSeq = 0;
 let scmMenuOpen = false;         // the commit button's ⌄ menu
+let brOpen = false;              // the branch switcher
+let brList = null;               // its {op: branches} answer
+let brSeq = 0;
+let prBranches = null;           // the PR modal's {op: branches} answer
+let prBusy = '';                 // 'generate' | 'create'
+let prUrl = '';                  // the last PR opened from here (link under the commit box)
 const scmCollapsed = new Set();  // folded groups
 let host = { openInEditor: null, editorLabel: () => 'your editor' };
 
@@ -223,6 +231,8 @@ function resetProject(key) {
   scm = null;
   scmSel = null;
   scmMsg = '';
+  prUrl = '';
+  closeBranchMenu();
   const saved = readSaved();
   saved.open.forEach((p) => expanded.add(p));
   pendingFile = saved.file;
@@ -978,9 +988,351 @@ function paintStatus() {
 function paintFoot() {
   const foot = $(`${ID}-foot`);
   if (!foot) return;
-  foot.innerHTML = footer({
+  foot.innerHTML = branchChip() + footer({
     note: pane === 'scm' ? 'Stage with +, then commit — discarded text goes to the Trash' : 'Edits save straight to your project files',
     hints: wide() || reading ? [[`${MOD} S`, 'save'], ['esc', wide() ? 'close' : 'back']] : [['↵', 'open'], ['esc', 'close']],
+  });
+}
+
+/** The current branch (and commits waiting to push), bottom left; opens the branch switcher. */
+function branchChip() {
+  if (!scm?.ok || !scm.branch) return '';
+  const ahead = num(scm.ahead);
+  const where = scm.detached ? 'detached HEAD' : scm.upstream ? `tracking ${scm.upstream}` : 'not published yet';
+  const tip = `On branch ${scm.branch} · ${where}${ahead ? ` · ${ahead} commit${ahead === 1 ? '' : 's'} to push` : ''} — switch or create a branch`;
+  return `<button type="button" class="fb-branch" id="${BR_ID}-btn" data-act="br-menu" aria-haspopup="menu" aria-controls="${BR_ID}"
+    aria-expanded="${brOpen}" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">`
+    + `${scmBusy === 'checkout' ? '<span class="spinner"></span>' : icon('git-branch')}<span>${escapeHtml(scm.branch)}</span>`
+    + `${ahead ? `<em>↑${ahead}</em>` : ''}${icon('chevron-up', 'fb-branch-chev')}</button>`;
+}
+
+// ─── Branch switcher (the footer chip's menu) ──────────────────────────────────
+// A filter field, then local branches (newest first, the current one ticked),
+// remote ones not checked out yet ("track"), and "Create branch “x”" for a
+// new name. Server: git_api branches / checkout {branch, create} via POST
+// /api/git — uncommitted changes come along, as with `git switch`.
+
+/** Why switching can't happen now ('' = it can). */
+function branchBlock() {
+  if (store.busy) return 'Jarvis is working in these files — switch branches when it finishes';
+  if (isDirty()) return `Save or revert your edits to ${file.name} first`;
+  if (scmBusy) return 'Wait for the current git action to finish';
+  return '';
+}
+
+function brItem(act, ic, label, { branch = '', hint = '', checked = false, why = '' } = {}) {
+  return `<button type="button" class="gc-item${checked ? ' is-current' : ''}" role="menuitem" data-act="${act}" data-branch="${escapeHtml(branch)}"
+    data-esc-cancels ${why || checked ? 'disabled' : ''} title="${escapeHtml(why || (checked ? 'The current branch' : label))}">${icon(ic)}<span>${escapeHtml(label)}</span>${hint ? `<em>${escapeHtml(hint)}</em>` : ''}${checked ? icon('check', 'gc-check') : ''}</button>`;
+}
+
+function paintBranchList() {
+  const box = $(BR_ID)?.querySelector('.gc-branches');
+  if (!box) return;
+  if (!brList) {
+    box.innerHTML = '<div class="gc-loading"><span class="spinner"></span><span>Loading branches…</span></div>';
+    return;
+  }
+  if (!brList.ok) {
+    box.innerHTML = `<p class="gc-empty">${escapeHtml(brList.error || 'Could not read the branches')}</p>`;
+    return;
+  }
+  const q = ($(`${BR_ID}-q`)?.value || '').trim();
+  const ql = q.toLowerCase();
+  const match = (n) => !ql || n.toLowerCase().includes(ql);
+  const why = branchBlock();
+  const html = [];
+  if (why) html.push(`<p class="gc-empty fb-br-why">${icon('triangle-alert')}<span>${escapeHtml(why)}</span></p>`);
+  const known = [...brList.local, ...brList.remote];
+  if (q && !known.includes(q)) html.push(brItem('br-new', 'plus', `Create branch “${q}”`, { branch: q, why }));
+  brList.local.filter(match).slice(0, 80).forEach((n) => html.push(brItem('br-go', 'git-branch', n, {
+    branch: n, checked: n === brList.current, why,
+  })));
+  const remote = brList.remote.filter(match).slice(0, 50);
+  if (remote.length) {
+    html.push('<div class="gc-sec">Remote</div>');
+    remote.forEach((n) => html.push(brItem('br-go', 'cloud-download', n, { branch: n, hint: 'track', why })));
+  }
+  if (!html.length) html.push(`<p class="gc-empty">${q ? 'No branches match — type a new name to create it' : 'No branches'}</p>`);
+  box.innerHTML = html.join('');
+}
+
+async function openBranchMenu() {
+  const el = $(BR_ID);
+  const foot = $(`${ID}-foot`);
+  if (!el || !foot || !scm?.ok) return;
+  closeScmMenu();
+  brOpen = true;
+  brList = null;
+  el.innerHTML = `
+    <label class="gc-search">${icon('search')}<input type="text" id="${BR_ID}-q" placeholder="Switch to or create a branch" autocomplete="off"
+      spellcheck="false" aria-label="Branch name" data-esc-cancels></label>
+    <div class="gc-branches" role="menu" aria-label="Branches"></div>`;
+  el.querySelectorAll('[data-esc-cancels]').forEach((b) => b.addEventListener('esc-cancel', () => closeBranchMenu(true)));
+  el.style.bottom = `${foot.offsetHeight + 4}px`; // just above the footer
+  el.hidden = false;
+  $(`${BR_ID}-btn`)?.setAttribute('aria-expanded', 'true');
+  paintBranchList();
+  $(`${BR_ID}-q`)?.focus({ preventScroll: true });
+  const mine = ++brSeq;
+  const res = await gitCall('branches');
+  if (mine !== brSeq || !brOpen) return;
+  brList = res.ok ? res : { ok: false, error: res.error };
+  paintBranchList();
+}
+
+function closeBranchMenu(refocus = false) {
+  if (!brOpen) return;
+  brOpen = false;
+  brSeq += 1;
+  const el = $(BR_ID);
+  if (el) {
+    el.hidden = true;
+    el.innerHTML = '';
+  }
+  const btn = $(`${BR_ID}-btn`);
+  btn?.setAttribute('aria-expanded', 'false');
+  if (refocus) btn?.focus({ preventScroll: true });
+}
+
+async function switchBranch(branch, create) {
+  const why = branchBlock();
+  if (why) {
+    showToast(why, true);
+    return;
+  }
+  const remote = !create && !!brList?.remote?.includes(branch);
+  const shown = remote ? branch.split('/').slice(1).join('/') : branch; // origin/x → x
+  closeBranchMenu(true);
+  scmBusy = 'checkout';
+  syncCommitBtn();
+  paintFoot();
+  const res = await gitCall('checkout', { branch, create });
+  scmBusy = '';
+  if (res.ok) showToast(create ? `Created and switched to ${branch}` : `Switched to ${shown}`);
+  else showToast(res.error || 'Could not switch branches', true);
+  syncCommitBtn();
+  scmSel = null;
+  await afterGitChange();
+}
+
+/** ↑ ↓ Home End and Enter in the switcher (the field + its rows). */
+function branchKey(e) {
+  const el = $(BR_ID);
+  const items = [...(el?.querySelectorAll('.gc-item:not(:disabled)') || [])];
+  if (e.key === 'Tab') {
+    closeBranchMenu();
+    return;
+  }
+  if (e.target.id === `${BR_ID}-q` && e.key === 'Enter') {
+    e.preventDefault();
+    items[0]?.click();
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  e.preventDefault();
+  const at = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowUp' && at <= 0) {
+    $(`${BR_ID}-q`)?.focus({ preventScroll: true });
+    return;
+  }
+  if (!items.length) return;
+  let next = 0;
+  if (e.key === 'End') next = items.length - 1;
+  else if (e.key === 'ArrowDown') next = at < 0 ? 0 : Math.min(items.length - 1, at + 1);
+  else if (e.key === 'ArrowUp') next = at - 1;
+  items[next].focus({ preventScroll: true });
+  items[next].scrollIntoView({ block: 'nearest' });
+}
+
+// ─── Create pull request (#files-pr, stacked on the drawer) ──────────────
+// From → Into, title, description, draft. POST /api/git {op: pr} →
+// git_api.create_pr: a From branch that doesn't exist yet is made from your
+// current work; uncommitted changes on it are committed with the title as the
+// message; it is pushed; then `gh pr create`. ✦ Generate fills it in.
+
+function prState() {
+  if (!scm?.ok) return { why: 'Not a git repository' };
+  if (scm.gh === false) return { why: 'Needs the GitHub CLI: brew install gh, then gh auth login' };
+  if (!scm.remotes) return { why: 'This repository has no remote to open a pull request on' };
+  if (scm.detached) return { why: 'You’re not on a branch — switch to one first' };
+  return { tip: `Open a pull request on GitHub from ${scm.branch} or a new branch` };
+}
+
+const prEl = (part) => $(`${PR_ID}-${part}`);
+
+function prError(msg = '') {
+  const el = prEl('err');
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+
+function syncPrButtons() {
+  const gen = prEl('gen');
+  const ok = prEl('ok');
+  if (gen) {
+    gen.disabled = !!prBusy;
+    gen.innerHTML = prBusy === 'generate' ? '<span class="spinner"></span><span>Writing…</span>' : `${icon('wand-sparkles')}<span>Generate</span>`;
+  }
+  if (ok) {
+    ok.disabled = !!prBusy;
+    ok.innerHTML = prBusy === 'create' ? '<span class="spinner"></span><span>Creating…</span>' : `${icon('brand:github')}<span>Create PR</span>`;
+  }
+}
+
+/** One line saying what Create PR will do with these two branches. */
+function paintPrPlan() {
+  const el = prEl('plan');
+  if (!el) return;
+  const head = prEl('head')?.value.trim() || '';
+  const base = prEl('base')?.value || '';
+  const n = num(scm?.total);
+  const files = n ? `commits your ${n} changed file${n === 1 ? '' : 's'} (the title is the commit message), ` : '';
+  const b = (s) => `<strong>${escapeHtml(s)}</strong>`;
+  let text;
+  if (!prBranches) text = 'Loading branches…';
+  else if (!head) text = 'Name a new branch for this work — it is made from what you have now.';
+  else if (head === base) text = `Pick a branch other than ${b(base)} to open the pull request from.`;
+  else if (!(prBranches.local || []).includes(head)) text = `Creates ${b(head)} from your current work, ${files}pushes it and opens a pull request into ${b(base)}.`;
+  else if (head === scm?.branch) text = `${files ? files[0].toUpperCase() + files.slice(1) : ''}${files ? 'pushes' : 'Pushes'} ${b(head)} and opens a pull request into ${b(base)}.`;
+  else text = `Pushes ${b(head)} as it is (your uncommitted changes stay here) and opens a pull request into ${b(base)}.`;
+  el.innerHTML = text;
+}
+
+async function openPr() {
+  const s = prState();
+  if (s.why) {
+    showToast(s.why, true);
+    return;
+  }
+  if (isDirty()) {
+    showToast(`Save or revert your edits to ${file.name} first — a pull request only takes what is on disk`, true);
+    return;
+  }
+  if (!$(PR_ID)) return;
+  prBranches = null;
+  prBusy = '';
+  prError('');
+  syncPrButtons();
+  prEl('head').value = scm.branch || '';
+  prEl('name').value = scmMsg.split('\n')[0].trim();
+  prEl('body').value = '';
+  prEl('draft').checked = false;
+  const base = prEl('base');
+  base.innerHTML = '<option value="">Loading…</option>';
+  base.disabled = true;
+  prEl('sub').textContent = `${scm.branch} · GitHub`;
+  paintPrPlan();
+  openModal(PR_ID, { focus: `${PR_ID}-name` });
+  const res = await gitCall('branches');
+  if (!isModalOpen(PR_ID)) return;
+  if (!res.ok) {
+    prError(res.error || 'Could not read the branches');
+    return;
+  }
+  prBranches = res;
+  const bases = res.bases?.length ? res.bases : res.local || [];
+  base.innerHTML = bases.map((n) => `<option value="${escapeHtml(n)}"${n === res.base ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  base.disabled = false;
+  prEl('heads').innerHTML = (res.local || []).map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
+  const head = prEl('head');
+  if (head.value.trim() === base.value) { // on the base branch: the work needs a new branch
+    head.value = '';
+    head.focus();
+  }
+  paintPrPlan();
+}
+
+async function generatePr() {
+  if (prBusy) return;
+  prError('');
+  prBusy = 'generate';
+  syncPrButtons();
+  const res = await gitCall('generate', { kind: 'pr' });
+  prBusy = '';
+  syncPrButtons();
+  if (!isModalOpen(PR_ID)) return;
+  if (!res.ok) {
+    prError(res.error || 'Could not write a description');
+    return;
+  }
+  if (res.title) prEl('name').value = res.title;
+  if (res.body) prEl('body').value = res.body;
+  const head = prEl('head');
+  if (res.branch && (!head.value.trim() || head.value.trim() === prEl('base').value)) head.value = res.branch;
+  paintPrPlan();
+}
+
+async function createPr() {
+  if (prBusy || !prBranches) return;
+  const head = prEl('head').value.trim();
+  const base = prEl('base').value;
+  const title = prEl('name').value.trim();
+  const local = prBranches.local || [];
+  const commits = num(scm?.total) && (head === scm?.branch || !local.includes(head));
+  let why = '';
+  if (!head) why = 'Name the branch this pull request comes from';
+  else if (head === base) why = `Pick a branch other than ${base} to open it from`;
+  else if (commits && !title) why = 'Add a title — it is also the commit message for your changes';
+  if (why) {
+    prError(why);
+    (head && head !== base ? prEl('name') : prEl('head')).focus();
+    return;
+  }
+  prError('');
+  prBusy = 'create';
+  syncPrButtons();
+  const res = await gitCall('pr', { head, base, title, body: prEl('body').value, draft: prEl('draft').checked });
+  prBusy = '';
+  syncPrButtons();
+  if (!res.ok) {
+    if (isModalOpen(PR_ID)) prError(res.error || 'Could not create the pull request');
+    else showToast(res.error || 'Could not create the pull request', true);
+    return;
+  }
+  closeModal(PR_ID);
+  prUrl = res.url || '';
+  paintPrDone();
+  showToast(res.existing ? 'That branch already has a pull request'
+    : res.created_branch ? `Created ${res.head}, pushed it and opened the pull request` : 'Pull request created');
+  await afterGitChange();
+}
+
+/** The link to the PR just opened, under the commit box. */
+function paintPrDone() {
+  const bar = $(`${ID}-bar`);
+  let el = $(`${ID}-prdone`);
+  if (!prUrl || pane !== 'scm' || !bar) {
+    el?.remove();
+    return;
+  }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = `${ID}-prdone`;
+    el.className = 'fb-prdone';
+    bar.appendChild(el);
+  }
+  el.innerHTML = `${icon('brand:github')}<a href="${escapeHtml(prUrl)}" target="_blank" rel="noopener" title="Open the pull request">${escapeHtml(prUrl.replace(/^https?:\/\//, ''))}</a>`
+    + `<button type="button" class="tool-icon" data-act="pr-dismiss" title="Dismiss" aria-label="Dismiss">${icon('x')}</button>`;
+}
+
+function initPr() {
+  const el = $(PR_ID);
+  if (!el) return;
+  prEl('ic').innerHTML = icon('brand:github');
+  syncPrButtons();
+  prEl('ok').addEventListener('click', createPr);
+  prEl('gen').addEventListener('click', generatePr);
+  prEl('base').addEventListener('change', paintPrPlan);
+  el.addEventListener('input', (e) => {
+    if (e.target.id === `${PR_ID}-head`) paintPrPlan();
+    prError('');
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) {
+      e.preventDefault();
+      createPr();
+    }
   });
 }
 
@@ -1471,6 +1823,7 @@ async function loadScm() {
   if (!res.ok && /unknown git op/.test(res.error || '')) res.error = RESTART_NOTE;
   scm = res;
   paintTabs();
+  paintFoot();
   if (pane === 'scm') {
     paintScm();
     syncCommitBtn();
@@ -1543,6 +1896,7 @@ function paintBar() {
     sizeMsg();
   }
   syncCommitBtn();
+  paintPrDone();
 }
 
 function sizeMsg() {
@@ -1641,6 +1995,7 @@ function paintScmMenu() {
     : menuItem('scm-m-commit-push', 'cloud-upload', `${c.label} & Push`, commitPushState(c));
   menu.innerHTML = menuItem('scm-m-commit', 'check', c.label, { why: c.why, tip: c.tip })
     + second
+    + menuItem('scm-m-pr', 'brand:github', 'Create Pull Request', prState())
     + '<div class="gc-sep" role="separator"></div>'
     + menuItem('scm-m-stash', 'archive', 'Stash', s);
   menu.querySelectorAll('[data-esc-cancels]').forEach((b) => b.addEventListener('esc-cancel', () => closeScmMenu(true)));
@@ -2392,6 +2747,22 @@ async function act(name, b) {
       closeScmMenu(true);
       stashScm();
       break;
+    case 'scm-m-pr':
+      closeScmMenu(true);
+      openPr();
+      break;
+    case 'pr-dismiss':
+      prUrl = '';
+      paintPrDone();
+      break;
+    case 'br-menu':
+      if (brOpen) closeBranchMenu(true);
+      else openBranchMenu();
+      break;
+    case 'br-go':
+    case 'br-new':
+      switchBranch(b.dataset.branch || '', name === 'br-new');
+      break;
     case 'scm-generate':
       generateMsg();
       break;
@@ -2481,6 +2852,10 @@ function onKey(e) {
     save();
     return;
   }
+  if (brOpen && t.closest?.(`#${BR_ID}`)) {
+    branchKey(e);
+    return;
+  }
   if (scmMenuOpen && (t.closest?.(`#${ID}-menu`) || t.id === `${ID}-more`)) {
     if (t.id === `${ID}-more` && e.key === 'ArrowDown') {
       e.preventDefault();
@@ -2527,6 +2902,7 @@ function onKey(e) {
 
 function onInput(e) {
   if (e.target.id === `${ID}-search`) setQuery(e.target.value);
+  else if (e.target.id === `${BR_ID}-q`) paintBranchList();
   else if (e.target.id === `${ID}-msg`) {
     scmMsg = e.target.value;
     sizeMsg();
@@ -2569,6 +2945,7 @@ export function openFiles({ path = '', pane: want = '' } = {}) {
     onClose: () => {
       saveViewState();
       closeScmMenu();
+      closeBranchMenu();
       reading = false;
       cardEl()?.classList.remove('is-reading');
       if (isDirty()) showToast(`Unsaved changes in ${file.name} are kept — reopen Files to continue`);
@@ -2604,9 +2981,11 @@ export function initFiles(hooks = {}) {
   el.addEventListener('keydown', onKey);
   el.addEventListener('input', onInput);
   $(`${CONFIRM_ID}-ok`)?.addEventListener('click', onConfirmOk);
+  initPr();
   // A click anywhere else puts the commit button's menu away.
   document.addEventListener('pointerdown', (e) => {
     if (scmMenuOpen && !e.target.closest?.(`#${ID}-menu, #${ID}-more`)) closeScmMenu();
+    if (brOpen && !e.target.closest?.(`#${BR_ID}, #${BR_ID}-btn`)) closeBranchMenu();
   });
   el.addEventListener('dblclick', (e) => {
     if (e.target.closest('.fb-row[data-dir="0"]')) focusEditor();
