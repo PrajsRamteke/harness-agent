@@ -703,6 +703,14 @@ class WebHandler(BaseHTTPRequestHandler):
 
             self._send_json(200, pin_store.public())
             return
+        if path == "/api/btw":
+            # Open /btw side windows (a reloaded page restores its own).
+            from .btw_api import public as btw_public
+
+            tab = self._query_int(qs, "tab", 0) or None
+            session = self._query_int(qs, "session", 0) or None
+            self._send_json(200, btw_public(tab, session))
+            return
         if path == "/api/memory":
             # Memory facts + lessons for the Memory dialog (jarvis/web/memory_api.py).
             from .memory_api import public as memory_public
@@ -840,6 +848,18 @@ class WebHandler(BaseHTTPRequestHandler):
         wanted = data.get("attachments") or []
         if not text and not wanted:
             self._send_json(400, {"error": "empty prompt"})
+            return
+        # "/btw …" is a side question: answered in its own window, never queued
+        # behind (or merged into) the turn that's running. The page normally
+        # handles it itself; this keeps other clients of the API honest too.
+        from .. import btw
+
+        side = btw.parse(text) if not wanted else None
+        if side is not None:
+            from .btw_api import run as btw_run
+
+            res = btw_run({"op": "ask", "text": side}, self.bridge) if side else {"ok": True}
+            self._send_json(200 if res.get("ok") else 400, {**res, "btw": True})
             return
         files: list[dict[str, Any]] = []
         if wanted:
@@ -985,6 +1005,14 @@ class WebHandler(BaseHTTPRequestHandler):
         if path == "/api/cancel":
             ok = self.bridge.cancel_turn()
             self._send_json(200, {"ok": ok})
+            return
+
+        if path == "/api/btw":
+            # /btw side question: its own worker thread and model request; the
+            # running turn, its queue and the transcript are never touched.
+            from .btw_api import run as btw_run
+
+            self._send_json(200, btw_run(data, self.bridge))
             return
 
         if path == "/api/enhance":

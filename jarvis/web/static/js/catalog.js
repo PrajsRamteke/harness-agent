@@ -32,6 +32,7 @@ export const CATALOG = [
   { group: 'Conversation', action: 'tab_next', label: 'Next chat tab', desc: 'Show the next open chat', icon: 'arrow-right', keys: 'tab tabs switch next cycle' },
   { group: 'Conversation', action: 'tab_prev', label: 'Previous chat tab', desc: 'Show the previous open chat', icon: 'arrow-left', keys: 'tab tabs switch previous back cycle' },
   { group: 'Conversation', action: 'rename', cmd: '/rename', label: 'Rename chat', desc: 'Give this conversation a new title', icon: 'pencil', keys: 'title heading name session edit' },
+  { group: 'Conversation', fill: true, cmd: '/btw ', label: 'Side question', desc: 'Ask about progress or anything else; the answer opens in a small window and Jarvis keeps working', icon: 'message-circle-question', keys: 'btw by the way side question aside progress status eta how long time remaining while working interrupt' },
   { group: 'Conversation', cmd: '/retry', label: 'Retry', desc: 'Send the last request again after an error', icon: 'refresh-cw', keys: 'again error failed resend' },
   { group: 'Conversation', cmd: '/reset', label: 'Reset', desc: 'Clear the conversation history', icon: 'rotate-ccw' },
   { group: 'Conversation', cmd: '/history', label: 'History', desc: 'Summarise the messages so far', icon: 'list' },

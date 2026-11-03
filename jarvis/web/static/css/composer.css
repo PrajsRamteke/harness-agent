@@ -157,6 +157,40 @@ body.is-busy .composer::before { opacity: 1; animation: scan 1.8s ease-in-out in
 .tool-chip[aria-pressed="true"] { color: var(--accent); border-color: transparent; background: var(--accent-soft); }
 .tool-chip.is-warn[aria-pressed="true"] { color: var(--warn); border-color: transparent; background: var(--warn-soft); }
 
+/* /btw launcher (btw.js): shown once a side question exists. A dot says an
+   answer is waiting; a pulse says one is being written. */
+.btw-chip { position: relative; color: var(--accent); border-color: transparent; background: var(--accent-soft); animation: fade var(--dur) var(--ease); }
+.btw-chip:hover { color: var(--accent); border-color: transparent; background: rgba(var(--accent-rgb), 0.2); }
+.btw-chip[hidden] { display: none; }
+.btw-chip[aria-pressed="true"] { background: rgba(var(--accent-rgb), 0.24); }
+.btw-chip-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  color: var(--primary-fg);
+  background: var(--accent);
+}
+.btw-chip-count:empty { display: none; }
+.btw-chip.is-live .ic { animation: btw-chip-pulse 1.1s ease-in-out infinite; }
+.btw-chip.has-new::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok, #4ade80);
+  box-shadow: 0 0 0 2px var(--tile);
+}
+@keyframes btw-chip-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .btw-chip.is-live .ic { animation: none; } }
+
 /* Enhance (composer.js): next to Send, accent text so it reads as an action
    on the message; shows only while there's text to fix. */
 .enhance-chip {

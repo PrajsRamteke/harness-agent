@@ -39,7 +39,7 @@ from ..repl.tool_output_backfill import backfill_tool_output_history, inspector_
 from .ask_user import AskUserController, AskQuestion, normalize_questions
 from .web_bar import WebRemoteQR
 from . import theme as ui
-from .. import state, tabs
+from .. import btw, state, tabs
 
 
 def _not_signed_in_report() -> "api_errors.ErrorReport":
@@ -977,6 +977,9 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
         elif _is_local_command(stripped):
             rest = stripped[len("/local "):] if stripped.startswith("/local ") else ""
             self._open_local_cmd_modal(initial=rest)
+        elif btw.is_btw(stripped):
+            # A side question: never queued behind the running turn.
+            self._open_btw(btw.parse(stripped) or "")
         elif stripped == "/sidebar":
             self.action_toggle_sidebar()
         elif stripped.split(" ", 1)[0].lower() in ("/tab", "/tabs"):
@@ -1186,6 +1189,15 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
         from .memory_modal import MemoryModalScreen
 
         self.push_screen(MemoryModalScreen(), after)
+
+    def _open_btw(self, question: str = "") -> None:
+        """``/btw <question>``: a small window with the answer; the turn runs on behind it."""
+        def after(_: object) -> None:
+            if not self._busy:  # the turn behind the window owns the status line
+                self._set_status("ready")
+        from .btw_modal import BtwScreen
+
+        self.push_screen(BtwScreen(question, tab_id=tabs.active().id), after)
 
     def _open_pin_modal(self):
         def after(_: object) -> None:

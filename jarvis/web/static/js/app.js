@@ -42,6 +42,7 @@ import { initShortcuts } from './shortcuts.js';
 import { initQuote } from './quote.js';
 import { initQr } from './qr.js';
 import { newChat } from './actions.js';
+import { initBtw } from './btw.js';
 
 const STARTERS = [
   { icon: 'git-branch', title: 'Review my changes', text: 'Review the uncommitted changes in this repo and point out bugs.' },
@@ -169,6 +170,7 @@ function boot() {
   initQueue({ onFill: keepDraftAndFill });
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
+  initBtw();
   initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector, toggleSidebar });
   renderStarters();
 

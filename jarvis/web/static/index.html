@@ -85,6 +85,7 @@
   <link rel="stylesheet" href="/static/css/tabs.css">
   <link rel="stylesheet" href="/static/css/settings.css">
   <link rel="stylesheet" href="/static/css/git.css">
+  <link rel="stylesheet" href="/static/css/btw.css">
   <link rel="stylesheet" href="/static/vendor/xterm.css">
   <link rel="stylesheet" href="/static/css/terminal.css">
 </head>
@@ -357,6 +358,10 @@
             </button>
             <button class="tool-chip is-icon is-warn" id="qc-auto" type="button" aria-pressed="false" title="Auto-approve shell commands">
               <span data-icon="shield"></span>
+            </button>
+            <!-- /btw launcher (btw.js): appears once a side question has been asked; opens the side-chat history. -->
+            <button class="tool-chip btw-chip" id="qc-btw" type="button" title="Side questions (/btw) — open your history" aria-label="Side questions" hidden>
+              <span data-icon="message-circle-question"></span><span class="tc-text">/btw</span><span class="btw-chip-count" id="qc-btw-count"></span>
             </button>
             <span class="tc-spacer"></span>
             <button class="tool-chip enhance-chip" id="qc-enhance" type="button" data-mode="idle" title="Fix spelling and grammar with the current model" aria-label="Enhance prompt" hidden>

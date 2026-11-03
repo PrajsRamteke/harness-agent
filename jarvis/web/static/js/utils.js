@@ -22,14 +22,14 @@ export function originBadge(label, also = [], scope = '') {
   return `<span class="badge ex-origin${logo ? ' has-logo' : ''}"${title ? ` title="${escapeHtml(title)}"` : ''}>${logo}${escapeHtml(label || '')}${others.length ? ` +${others.length}` : ''}</span>`;
 }
 
-export function showToast(msg, isError = false) {
+export function showToast(msg, isError = false, action = null) {
   const stack = $('toasts');
   if (!stack || !msg) return;
   const el = document.createElement('div');
   el.className = `toast${isError ? ' is-error' : ''}`;
   el.setAttribute('role', isError ? 'alert' : 'status');
   el.innerHTML = `${icon(isError ? 'circle-alert' : 'check')}<span>${escapeHtml(msg)}</span>`;
-  const life = isError ? 4200 : 2400;
+  const life = action ? 6000 : isError ? 4200 : 2400;
   // The hairline under the text runs down with the toast's remaining time.
   el.style.setProperty('--life', `${life}ms`);
   stack.appendChild(el);
@@ -40,6 +40,15 @@ export function showToast(msg, isError = false) {
     setTimeout(() => el.remove(), 320);
   };
   el.addEventListener('click', leave);
+  if (action?.label && typeof action.onClick === 'function') {
+    // An optional action beside the text ("Reopen"), which doesn't dismiss first.
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', (e) => { e.stopPropagation(); leave(); action.onClick(); });
+    el.appendChild(btn);
+  }
   setTimeout(leave, life);
 }
 

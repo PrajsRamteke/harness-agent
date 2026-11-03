@@ -58,6 +58,8 @@ ALIAS_FILE = CONFIG_DIR / "aliases.json"
 SESSIONS_DB = CONFIG_DIR / "sessions.db"
 MEMORY_FILE = CONFIG_DIR / "memory.json"
 LESSONS_FILE = CONFIG_DIR / "lessons.json"
+# /btw side chats — closed ones are kept here so nothing is lost.
+BTW_CHATS_FILE = CONFIG_DIR / "btw_chats.json"
 LAST_MODEL_FILE = CONFIG_DIR / "last_model.json"
 LAST_THEME_FILE = CONFIG_DIR / "last_theme.json"
 SKILLS_CONFIG_FILE = CONFIG_DIR / "skills_config.json"

@@ -11,6 +11,7 @@ import { quoteLines } from './quote.js';
 import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
 import { editLastQueued } from './queue.js';
 import { onActiveTab, tabKey } from './tabkey.js';
+import { openBtw } from './btw.js';
 
 const HISTORY_KEY = 'jarvis-prompt-history';
 const HISTORY_MAX = 50;
@@ -165,6 +166,17 @@ export async function submitPrompt(text) {
       showToast(`${tray.failed === 1 ? 'A file' : `${tray.failed} files`} didn’t upload. Retry or remove ${tray.failed === 1 ? 'it' : 'them'} first.`, true);
       return;
     }
+  }
+
+  // /btw …: a side question in its own window. Never queued behind the reply
+  // that's running — the main chat carries on as it was.
+  const side = withFiles ? null : /^\/btw(?:\s+([\s\S]*))?$/i.exec(value);
+  if (side) {
+    if (fromBox && el) setPromptValue('');
+    closeSlash();
+    if (side[1]?.trim()) remember(value);
+    openBtw(side[1] || '');
+    return;
   }
 
   // /command new|edit … opens the web editor instead of a dialog in the terminal.

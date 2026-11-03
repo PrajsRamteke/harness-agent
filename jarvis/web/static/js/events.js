@@ -35,6 +35,7 @@ import { handleProjectsEvent } from './projects.js';
 import { setTabs } from './tabs.js';
 import { handleTunnelEvent, handleTerminalTunnelEvent } from './qr.js';
 import { handleGitEvent } from './git.js';
+import { handleBtwEvent } from './btw.js';
 
 let runningTools = 0;
 
@@ -242,6 +243,11 @@ export function handleEvent(evt) {
     case 'commands':
       // A command was made, edited or removed (this tab or another): reload the slash menu.
       handleCommandsEvent();
+      break;
+
+    case 'btw':
+      // A /btw side answer streaming into its own window (jarvis/btw.py).
+      handleBtwEvent(data);
       break;
 
     default:
