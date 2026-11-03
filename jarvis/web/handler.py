@@ -1065,6 +1065,13 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(401, {"error": "unauthorized"})
             return
 
+        if path == "/api/appearance":
+            # One look for every project / address: read here, never forwarded.
+            from . import appearance_api
+
+            self._send_json(200, {"ok": True, "appearance": appearance_api.load()})
+            return
+
         if foreign:
             self._forward_to_project(foreign)
             return
@@ -1140,6 +1147,18 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if not self._authorized():
             self._send_json(401, {"error": "unauthorized"}, close=path == "/api/upload")
+            return
+
+        if path == "/api/appearance":
+            # One look for every project / address: stored here, never forwarded.
+            from . import appearance_api
+
+            saved = appearance_api.save(self._read_json().get("appearance"))
+            if saved is None:
+                self._send_json(400, {"ok": False, "error": "appearance must be an object"})
+                return
+            self.bridge.emit("appearance", saved)
+            self._send_json(200, {"ok": True, "appearance": saved})
             return
 
         if foreign:  # the body is streamed to that project, not read here

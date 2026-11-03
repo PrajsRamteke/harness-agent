@@ -3,6 +3,7 @@ import { $, escapeHtml, storageGet, storageSet, reducedMotion, haptic } from './
 import { icon } from './icons.js';
 import { patchStore } from './store.js';
 import { openModal } from './modal.js';
+import { api, hasToken } from './api.js';
 
 export const MODES = [
   { id: 'system', label: 'System', icon: 'monitor' },
@@ -335,6 +336,7 @@ export function setPalette(id, src) {
   const before = lookKey();
   prefs.palette = next;
   storageSet('jarvis-palette', next);
+  queuePush();
   retheme(before, src);
 }
 
@@ -343,6 +345,7 @@ export function setMode(mode, src) {
   clearPalette();
   prefs.mode = MODES.some((m) => m.id === mode) ? mode : 'dark';
   storageSet('jarvis-theme', prefs.mode);
+  queuePush();
   retheme(before, src);
 }
 
@@ -350,6 +353,7 @@ export function setSoft(on, src) {
   const before = lookKey();
   prefs.soft = on;
   storageSet('jarvis-soft', on ? '1' : '0');
+  queuePush();
   retheme(before, src);
 }
 
@@ -357,6 +361,7 @@ export function setSoft(on, src) {
 export function setSoftAmount(amount) {
   prefs.softAmt = validSoftAmt(amount);
   storageSet('jarvis-soft-amt', String(prefs.softAmt));
+  queuePush();
   apply();
   paintSoftAmount();
 }
@@ -369,6 +374,7 @@ export function setGlass(on, src) {
   if (prefs.glass === on) return;
   prefs.glass = on;
   storageSet('jarvis-glass', on ? '1' : '0');
+  queuePush();
   withReveal(src, () => {
     apply();
     paintAppearance();
@@ -380,6 +386,7 @@ export function setGlassOpacity(value) {
   prefs.glassOp = value === null ? null : validGlassOp(value);
   if (prefs.glassOp === null) storageSet('jarvis-glass-op', '');
   else storageSet('jarvis-glass-op', String(prefs.glassOp));
+  queuePush();
   apply();
   paintGlassOpacity();
 }
@@ -390,6 +397,7 @@ export function setLayout(name, value) {
   if (!spec || !spec.opts.some(([id]) => id === value) || prefs.layout[name] === value) return;
   prefs.layout[name] = value;
   storageSet(spec.key, value);
+  queuePush();
   apply();
   paintLayout();
 }
@@ -406,6 +414,7 @@ export function setAccent(accent, src) {
   if (accent === prefs.accent) return;
   prefs.accent = accent;
   storageSet('jarvis-accent', accent);
+  queuePush();
   withReveal(src, () => {
     apply();
     paintAppearance();
@@ -424,6 +433,7 @@ export function setCustomAccent(hex, { src, live = false } = {}) {
   prefs.accent = 'custom';
   storageSet('jarvis-accent-custom', value);
   storageSet('jarvis-accent', 'custom');
+  queuePush();
   if (live) {
     apply();
     if (wasCustom) syncCustomAccent();
@@ -439,6 +449,109 @@ export function setCustomAccent(hex, { src, live = false } = {}) {
 /** Quick flip between light and dark (sidebar button, palette, Alt+T); soft carries over. */
 export function toggleTheme(src) {
   setMode(isLightTheme() ? 'dark' : 'light', src);
+}
+
+// ─── Shared look: every project, address and tab uses the one saved on this computer ───
+//
+// localStorage is per origin, and each project's Jarvis has its own port (and
+// 127.0.0.1 / localhost / LAN / tunnel are different origins too), so the
+// browser alone can't keep one theme. The server keeps it (appearance_api.py);
+// localStorage stays as the instant copy the pre-paint script in index.html reads.
+
+const PUSH_DELAY_MS = 350;
+let pushTimer = 0;
+let pushInFlight = false;
+
+/** The saved look in a fixed key order, so two of them compare as strings. */
+function lookOf(src) {
+  return JSON.stringify({
+    palette: src.palette,
+    mode: src.mode,
+    soft: !!src.soft,
+    softAmt: src.softAmt,
+    glass: !!src.glass,
+    glassOp: src.glassOp ?? null,
+    layout: Object.fromEntries(Object.keys(LAYOUT).map((k) => [k, src.layout[k]])),
+    accent: src.accent,
+    custom: src.custom,
+  });
+}
+
+/** A look from the server, checked the way a saved one is; null when it isn't usable. */
+function validLook(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const layout = raw.layout && typeof raw.layout === 'object' ? raw.layout : {};
+  return {
+    palette: paletteById(raw.palette)?.id || '',
+    mode: MODES.some((m) => m.id === raw.mode) ? raw.mode : 'dark',
+    soft: raw.soft === true,
+    softAmt: validSoftAmt(raw.softAmt),
+    glass: raw.glass === true,
+    glassOp: validGlassOp(raw.glassOp),
+    layout: Object.fromEntries(Object.entries(LAYOUT).map(([k, spec]) => [k, spec.opts.some(([id]) => id === layout[k]) ? layout[k] : spec.def])),
+    accent: raw.accent === 'custom' || ACCENTS.some((a) => a.id === raw.accent) ? raw.accent : 'violet',
+    custom: validHex(raw.custom) || prefs.custom,
+  };
+}
+
+/** Something was chosen: tell the server shortly (a dragged slider sends once, not per tick). */
+function queuePush() {
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushLook, PUSH_DELAY_MS);
+}
+
+async function pushLook() {
+  pushTimer = 0;
+  if (!hasToken()) return;
+  pushInFlight = true;
+  try {
+    await api('/api/appearance', 'POST', { appearance: JSON.parse(lookOf(prefs)) });
+  } catch { /* offline: the next change or visit sends it */ } finally {
+    pushInFlight = false;
+  }
+}
+
+/** Mirror a look from the server into prefs + localStorage and repaint — without sending it back. */
+function adoptLook(look) {
+  const before = lookKey();
+  Object.assign(prefs, look, { layout: { ...look.layout } });
+  storageSet('jarvis-palette', prefs.palette);
+  storageSet('jarvis-theme', prefs.mode);
+  storageSet('jarvis-soft', prefs.soft ? '1' : '0');
+  storageSet('jarvis-soft-amt', String(prefs.softAmt));
+  storageSet('jarvis-glass', prefs.glass ? '1' : '0');
+  storageSet('jarvis-glass-op', prefs.glassOp === null ? '' : String(prefs.glassOp));
+  for (const [name, spec] of Object.entries(LAYOUT)) storageSet(spec.key, prefs.layout[name]);
+  storageSet('jarvis-accent', prefs.accent);
+  storageSet('jarvis-accent-custom', prefs.custom);
+  retheme(before, null);
+}
+
+/** A look arrived (page load, focus, another page's change). Ignored while our own change is still on its way. */
+export function applyRemoteLook(raw) {
+  if (pushTimer || pushInFlight) return;
+  const look = validLook(raw);
+  if (look && lookOf(look) !== lookOf(prefs)) adoptLook(look);
+}
+
+/**
+ * Make this page wear the look saved on this computer. A computer with nothing
+ * saved yet takes this browser's choice (once, if one was ever made), so the
+ * theme you already picked carries over instead of being reset.
+ */
+export async function syncAppearance() {
+  if (!hasToken() || pushTimer || pushInFlight) return;
+  let saved;
+  try {
+    saved = (await api('/api/appearance')).appearance;
+  } catch {
+    return;
+  }
+  if (saved) {
+    applyRemoteLook(saved);
+  } else if (storageGet('jarvis-palette', null) !== null || storageGet('jarvis-theme', null) !== null) {
+    queuePush();
+  }
 }
 
 function notificationsUsable() {
@@ -698,6 +811,11 @@ export function openAppearance() {
 export function initTheme() {
   apply();
   lessTransparency.addEventListener?.('change', paintAppearance);
+  // Coming back to a tab: pick up a theme chosen meanwhile in another project or tab.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncAppearance();
+  });
+  window.addEventListener('focus', syncAppearance);
   systemLight.addEventListener?.('change', () => {
     if (prefs.mode === 'system') {
       apply();

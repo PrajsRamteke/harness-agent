@@ -36,7 +36,7 @@ import { initLocal } from './local.js';
 import { initQueue } from './queue.js';
 import { initTabs } from './tabs.js';
 import { initPrompts } from './prompts.js';
-import { initTheme, toggleTheme } from './theme.js';
+import { initTheme, toggleTheme, syncAppearance } from './theme.js';
 import { initQuickbar } from './quickbar.js';
 import { initShortcuts } from './shortcuts.js';
 import { initQuote } from './quote.js';
@@ -173,6 +173,7 @@ function boot() {
   renderStarters();
 
   loadInitialState();
+  syncAppearance();
 
   connectEvents({
     onMessage: handleEvent,

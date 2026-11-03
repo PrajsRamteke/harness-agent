@@ -24,6 +24,7 @@ import { refreshProviders } from './providers.js';
 import { handleMcpEvent } from './mcp.js';
 import { handleSkillsEvent } from './skills.js';
 import { handleCommandsEvent } from './commands.js';
+import { applyRemoteLook } from './theme.js';
 import { handlePinEvent } from './pin.js';
 import { handleMemoryEvent } from './memory.js';
 import { handleSettingsEvent } from './settings.js';
@@ -137,6 +138,11 @@ export function handleEvent(evt) {
     case 'settings_all':
       // A setting changed (Settings dialog here, another page, the terminal).
       handleSettingsEvent(data);
+      break;
+
+    case 'appearance':
+      // The theme was changed (another tab, another project): wear it too.
+      applyRemoteLook(data);
       break;
 
     case 'pin':
