@@ -20,6 +20,11 @@ export function tabKey(tab) {
   return tab.id ? `t${tab.id}` : '';
 }
 
+/** Is `tab` the `prev` tab that just got its session (a new chat's first message)? */
+export function gainedSession(tab, prev) {
+  return !!(prev && tab && prev.id === tab.id && !prev.session_id && tab.session_id);
+}
+
 /** The tab on screen now (null before the first tab list arrives). */
 export function activeTab() {
   return current;

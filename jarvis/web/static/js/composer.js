@@ -10,7 +10,7 @@ import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
 import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
 import { editLastQueued } from './queue.js';
-import { onActiveTab, tabKey } from './tabkey.js';
+import { onActiveTab, tabKey, gainedSession } from './tabkey.js';
 import { openBtw } from './btw.js';
 
 const HISTORY_KEY = 'jarvis-prompt-history';
@@ -23,6 +23,10 @@ const DRAFTS_KEY = 'jarvis-drafts';
 const DRAFTS_MAX = 40;
 /** The tab the text in the box belongs to; '' until the tab list arrives. */
 let draftTab = '';
+/** Where the last message left from: a new chat gets its session just after the
+ * first message, and only then does the text in the box follow it. */
+const SESSION_LINK_MS = 30000;
+let sentFrom = { key: '', at: 0 };
 
 let sending = false;
 let history = [];
@@ -109,7 +113,7 @@ function remember(text) {
 }
 
 /** Another chat tab is shown: put this tab's text away, bring that tab's back. */
-function onTabShown(tab) {
+function onTabShown(tab, prev) {
   const el = prompt();
   const key = tabKey(tab);
   if (!el || !key || key === draftTab) return;
@@ -120,6 +124,14 @@ function onTabShown(tab) {
     draftTab = key;
     if (!el.value && own) setPromptValue(own);
     else saveDraft();
+    return;
+  }
+  if (gainedSession(tab, prev) && sentFrom.key === draftTab && Date.now() - sentFrom.at < SESSION_LINK_MS) {
+    // This page just sent the chat's first message and it got its session: the
+    // same chat, the same box. What is already typed for the next one moves with it.
+    writeDraft(draftTab, '');
+    draftTab = key;
+    saveDraft();
     return;
   }
   saveDraft();
@@ -216,6 +228,7 @@ export async function submitPrompt(text) {
   const wasBusy = store.busy;
   const files = withFiles ? tray.ready : [];
   sending = true;
+  sentFrom = { key: draftTab, at: Date.now() };
   if (files.length) lockTray(true);
   syncSendButton();
   if (fromBox && el) setPromptValue('');

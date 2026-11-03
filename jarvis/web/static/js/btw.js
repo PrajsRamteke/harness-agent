@@ -19,7 +19,7 @@ import { $, escapeHtml, showToast, storageGet, storageSet, haptic } from './util
 import { icon } from './icons.js';
 import { api } from './api.js';
 import { renderMarkdown, applyMarkdownLinks } from './markdown.js';
-import { activeTab, onActiveTab, tabKey } from './tabkey.js';
+import { activeTab, onActiveTab, tabKey, gainedSession } from './tabkey.js';
 
 const POS_KEY = 'jarvis-btw-pos';
 const SIZE_KEY = 'jarvis-btw-size';
@@ -178,12 +178,18 @@ function show({ focus = true } = {}) {
 
 /** Put the other chat's question away and bring this chat's back. Called at
  *  tab-switch time (before any network await) and on every show. */
-function swapDraft() {
+function swapDraft({ carry = false } = {}) {
   const el = input();
   const key = draftKey();
   if (!el || draftTab === key) return;
-  if (draftTab) storageSet(draftTab, el.value);   // never file it under the new chat
-  el.value = storageGet(key, '');
+  if (carry && draftTab) {
+    // The same chat, now with a session: the question typed so far goes along.
+    storageSet(key, el.value);
+    storageSet(draftTab, '');
+  } else {
+    if (draftTab) storageSet(draftTab, el.value);   // never file it under the new chat
+    el.value = storageGet(key, '');
+  }
   draftTab = key;
   requestAnimationFrame(() => { grow(); syncSend(); });
 }
@@ -607,6 +613,20 @@ function usesCurrentChat(c) {
   return true;
 }
 
+/** Drop everything that belongs to the chat we are leaving (the server keeps it). */
+function leaveChat() {
+  conv = null;
+  asking = false;
+  early = [];
+  unread = false;
+  saved = [];
+  histQuery = '';
+  armedForget = '';
+  setHistory(false);
+  if (win) win.hidden = true;
+  paintBadge();
+}
+
 /** Show the side chats of the chat on screen, and only those.
  *
  * Runs on load and whenever another session is shown (a tab switch, a resumed
@@ -614,19 +634,19 @@ function usesCurrentChat(c) {
  * left open in the chat you come back to returns as the small bar it was; one
  * that is still being answered keeps going on the server meanwhile.
  */
-async function syncScope() {
+async function syncScope(tab = activeTab(), prev = null) {
   const seq = ++scopeSeq;
+  // A new chat's first message gives its tab a session: still the same chat.
+  const sameChat = gainedSession(tab, prev);
   // The textarea swap happens first, synchronously — the old chat's pending
   // question is put away and this chat's comes back without waiting for I/O.
-  swapDraft();
-  // A window from the chat we left must not linger while the fetch is out.
-  if (conv && !usesCurrentChat(conv)) {
-    conv = null;
-    asking = false;
-    early = [];
-    unread = false;
-    setHistory(false);
-    if (win) win.hidden = true;
+  swapDraft({ carry: sameChat });
+  if (sameChat) {
+    if (conv && conv.session == null) conv.session = tab.session_id;
+  } else {
+    // Another chat is shown: nothing of the one we left may linger while the
+    // fetch is out — not its window (even an empty one), nor its saved list.
+    leaveChat();
   }
   const res = await fetchScoped();
   if (!res || seq !== scopeSeq) return;          // a newer switch is already on its way
@@ -660,7 +680,22 @@ async function syncScope() {
 function renderSoon() {
   if (renderQueued) return;
   renderQueued = true;
-  requestAnimationFrame(() => { renderQueued = false; render(); });
+  requestAnimationFrame(() => { renderQueued = false; if (!paintLive()) render(); });
+}
+
+/** A chunk of text only grows the answer being written: repaint just that
+ *  answer, so the words follow the model without re-parsing every turn. */
+function paintLive() {
+  const body = log();
+  const turns = (conv?.turns || []).filter(Boolean);
+  const last = turns[turns.length - 1];
+  const node = body?.lastElementChild?.querySelector('.btw-a.is-live .md');
+  if (!node || last?.status !== 'live' || body.children.length !== turns.length) return false;
+  const stick = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+  node.innerHTML = renderMarkdown(last.a, { streaming: true });
+  applyMarkdownLinks(node);
+  if (stick) body.scrollTop = body.scrollHeight;
+  return true;
 }
 
 function turnHtml(t) {
@@ -872,6 +907,6 @@ export function initBtw() {
   // The side chats follow the session on screen. `onActiveTab` also fires for the
   // tab shown at start; without a tab list yet the server answers for its own.
   let first = true;
-  onActiveTab(() => { first = false; syncScope(); });
+  onActiveTab((tab, prev) => { first = false; syncScope(tab, prev); });
   if (first) syncScope();
 }
