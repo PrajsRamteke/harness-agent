@@ -58,6 +58,7 @@ def project_rows(self_id: str | None) -> list[dict[str, Any]]:
             "busy_for": max(0, int(now - since)) if rec.get("busy") and isinstance(since, (int, float)) else None,
             "needs_approval": bool(rec.get("needs_approval")),
             "headless": bool(rec.get("headless")),  # opened from the web: the page may stop it
+            "terminals": int(rec.get("terminals") or 0),  # live web shells it runs
             "version": rec.get("version") or "",
         })
     return rows

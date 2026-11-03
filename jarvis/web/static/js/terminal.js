@@ -17,6 +17,7 @@ import { $, storageGet, storageSet, showToast, copyText, haptic, debounce } from
 import { api } from './api.js';
 import { icon } from './icons.js';
 import { isLightTheme } from './theme.js';
+import { allProjects, currentProjectId } from './projects.js';
 
 const HEIGHT_KEY = 'jarvis-term-h';
 const MIN_H = 140;
@@ -184,10 +185,21 @@ function hide({ focusComposer = false } = {}) {
   if (hadFocus || focusComposer) $('prompt')?.focus();
 }
 
+/** Live shells in the other running projects (this one's are in `state`). */
+function othersLive() {
+  const cur = currentProjectId();
+  return allProjects().filter((p) => p.id !== cur && p.terminals > 0);
+}
+
 function syncDot() {
   if (!el.dot) return;
-  const live = state.sessions.length ? state.sessions.some((s) => !s.exited) : state.remoteLive;
-  el.dot.hidden = state.open || !live;
+  const here = state.sessions.length ? state.sessions.some((s) => !s.exited) : state.remoteLive;
+  const elsewhere = othersLive();
+  // The open panel already shows this project's shells; other projects' still count.
+  el.dot.hidden = !((here && !state.open) || elsewhere.length);
+  el.btn.title = elsewhere.length
+    ? `Terminal (Ctrl + \`) · shells running in ${elsewhere.map((p) => p.project || 'project').join(', ')}`
+    : 'Terminal (Ctrl + `)';
 }
 
 function setMax(on) {
@@ -878,6 +890,7 @@ export function initTerminal() {
   syncCoarse();
   COARSE?.addEventListener?.('change', syncCoarse);
   document.addEventListener('jarvis:project-switched', onProjectSwitched);
+  document.addEventListener('jarvis:projects-changed', syncDot);
   document.addEventListener('visibilitychange', () => {
     hiddenSince = document.hidden ? Date.now() : 0;
     if (!document.hidden && pollable().length && !pump.running) runPump();

@@ -19,6 +19,7 @@ const SHEET = [
   { keys: [ALT, 'A'], label: 'Agents' },
   { keys: [ALT, 'B'], label: 'Show or hide the sidebar' },
   { keys: [ALT, 'D'], label: 'Show or hide the changes panel' },
+  { keys: [ALT, 'F'], label: 'Browse and edit the project\u2019s files' },
   { keys: [ALT, 'T'], label: 'Light or dark mode' },
   { keys: ['?'], label: 'This list' },
 ];
@@ -39,7 +40,7 @@ function typing(e) {
   return !!e.target.closest?.('input, textarea, [contenteditable="true"]');
 }
 
-/** `handlers`: { newChat, openPicker(kind), toggleTheme, enhance, toggleInspector } */
+/** `handlers`: { newChat, openPicker(kind), toggleTheme, enhance, toggleInspector, toggleSidebar, openFiles } */
 export function initShortcuts(handlers) {
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || topModal()) return;
@@ -59,6 +60,7 @@ export function initShortcuts(handlers) {
       KeyA: () => handlers.openPicker('agent'),
       KeyB: () => handlers.toggleSidebar?.(),
       KeyD: () => handlers.toggleInspector?.(),
+      KeyF: () => handlers.openFiles?.(),
       KeyT: () => handlers.toggleTheme(),
       KeyE: () => handlers.enhance?.(),
     };

@@ -362,7 +362,8 @@
 /* Wider than a phone: a full-height panel sliding in from the right. */
 @media (min-width: 561px) {
   .modal.gx-drawer { justify-content: flex-end; align-items: stretch; padding: 0; }
-  .modal-card.gitchanges-card {
+  .modal-card.gitchanges-card,
+  .modal-card.files-card {
     width: min(1240px, 92vw);
     max-width: none;
     height: 100dvh;
@@ -376,7 +377,7 @@
 @keyframes gx-in { from { transform: translateX(100%); } to { transform: none; } }
 @keyframes gx-out { to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
-  .modal-card.gitchanges-card, .modal.gx-drawer.is-closing .modal-card { animation: none; }
+  .modal-card.gitchanges-card, .modal-card.files-card, .modal.gx-drawer.is-closing .modal-card { animation: none; }
 }
 
 .gx-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); }
@@ -391,8 +392,8 @@
   .gx-split { grid-template-columns: minmax(0, 1fr); }
   .gx-side { border-right: none; }
   .gx-main { display: none; }
-  .gitchanges-card.is-reading .gx-side { display: none; }
-  .gitchanges-card.is-reading .gx-main { display: flex; }
+  .gitchanges-card.is-reading .gx-side, .files-card.is-reading .gx-side { display: none; }
+  .gitchanges-card.is-reading .gx-main, .files-card.is-reading .gx-main { display: flex; }
   .gx-only-wide { display: none !important; }
   /* The header already names the file: the bar keeps the numbers + tools. */
   .gx-filehead { min-height: 44px; justify-content: flex-end; }
@@ -400,7 +401,7 @@
   .gx-filehead .gx-nums { display: inline-flex !important; margin-right: auto; }
 }
 @media (max-width: 560px) {
-  .modal-card.gitchanges-card { height: 88dvh; }
+  .modal-card.gitchanges-card, .modal-card.files-card { height: 88dvh; }
 }
 
 .gx-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 48px 0; color: var(--text-3); font-size: 13px; }

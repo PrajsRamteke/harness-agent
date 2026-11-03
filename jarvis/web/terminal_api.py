@@ -529,6 +529,12 @@ def list_terminals() -> list[dict[str, Any]]:
     return [s.public() for s in sessions]
 
 
+def live_count() -> int:
+    """Shells still running (the project switcher shows other pages this count)."""
+    with _lock:
+        return sum(1 for s in _sessions.values() if not s.exited)
+
+
 def _close_locked(tid: str) -> bool:
     session = _sessions.pop(tid, None)
     try:

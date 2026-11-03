@@ -2,13 +2,14 @@
  * create a branch, Commit & push (with Commit · Push · Create PR · Stash in its
  * menu), a model-written message, and the +/− of the working tree.
  * Server side: jarvis/web/git_api.py via GET/POST /api/git (the project shown). */
-import { $, escapeHtml, showToast, storageGet, storageSet, BASE } from './utils.js';
+import { $, escapeHtml, showToast, storageGet, storageSet, BASE, isMac } from './utils.js';
 import { icon } from './icons.js';
 import { brand } from './brands.js';
 import { api } from './api.js';
 import { store, subscribe } from './store.js';
 import { isInspectorOpen, onInspectorChange } from './inspector.js';
 import { openGitChanges, refreshGitChanges, initGitChanges } from './gitchanges.js';
+import { openFiles, refreshFiles } from './files.js';
 
 const EDITOR_KEY = 'jarvis-git-editor';
 /** The git_api.py this page was written for (GIT_API_VERSION; 3 = pull + changed files). */
@@ -95,8 +96,28 @@ export function handleGitEvent(data) {
     st = data;
     render();
     refreshGitChanges();
+    refreshFiles();
   }
 }
+
+/** What the Files drawer needs from the git card: the chosen editor, to open a file in it. */
+export const filesHost = {
+  editorLabel: () => editorChoice()?.label || 'your editor',
+  async openInEditor(path) {
+    const ed = editorChoice();
+    if (!ed) {
+      showToast('No editor found on this computer', true);
+      return;
+    }
+    try {
+      const res = await api('/api/git', 'POST', { op: 'open', editor: ed.id, path });
+      if (res.ok) showToast(`Opened in ${ed.label}`);
+      else showToast(res.error || `Could not open ${ed.label}`, true);
+    } catch (err) {
+      showToast(err?.message || `Could not open ${ed.label}`, true);
+    }
+  },
+};
 
 // ─── Labels ───────────────────────────────────────────────────────────────
 
@@ -174,6 +195,7 @@ function render() {
       </div>`);
   }
   if (!st.repo) {
+    parts.push(filesRow());
     parts.push(`<p class="gc-note">${icon('git-branch')}<span>Not a git repository</span></p>`);
     rows.innerHTML = parts.join('');
     paintForm();
@@ -209,8 +231,18 @@ function render() {
       ${icon('file-diff')}<span>Changes</span>
       <span class="gc-nums">${num(st.files) ? `<b class="num-add">+${num(st.added)}</b><b class="num-del">−${num(st.removed)}</b>` : num(st.behind) ? `<em class="gc-incoming">${num(st.behind)} incoming</em>` : '<em>clean</em>'}</span>
     </button>`);
+  parts.push(filesRow());
   rows.innerHTML = parts.join('');
   paintForm();
+}
+
+/** Browse and edit the project's files (files.js). */
+function filesRow() {
+  return `
+    <button type="button" class="gc-row gc-files" data-act="files" title="Browse and edit this project's files (${isMac ? '⌥F' : 'Alt F'})">
+      ${icon('folder-open')}<span>Files</span>
+      <span class="gc-nums"><em>${isMac ? '⌥F' : 'Alt F'}</em></span>
+    </button>`;
 }
 
 /** Which project this card is for: the folder's name (full path on hover). */
@@ -685,6 +717,7 @@ async function after(res, okText) {
   }
   await refreshGit();
   refreshGitChanges();
+  refreshFiles();
   return res.ok;
 }
 
@@ -711,6 +744,9 @@ async function act(name, btn) {
     }
     case 'changes':
       openGitChanges();
+      break;
+    case 'files':
+      openFiles();
       break;
     case 'pull': {
       closeMenu();

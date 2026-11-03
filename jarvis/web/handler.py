@@ -1232,6 +1232,20 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, result)
             return
 
+        if path == "/api/files":
+            # The inspector's file browser: list, search, read, edit (files_api.py).
+            from . import files_api, git_api
+
+            op = str(data.get("op") or "")
+            result = files_api.post(op, data)
+            if result.get("ok") and op in files_api.MUTATING:
+                try:
+                    self.bridge.emit("git", git_api.status(os.getcwd()))
+                except Exception:
+                    pass
+            self._send_json(200, result)
+            return
+
         if path == "/api/tunnel":
             op = str(data.get("op") or "status")
             if op not in ("status", "start", "stop"):

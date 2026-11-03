@@ -118,23 +118,26 @@ def editors() -> list[dict[str, str]]:
     return out
 
 
-def open_in(cwd: str, editor_id: str) -> dict[str, Any]:
+def open_in(cwd: str, editor_id: str, target: str = "") -> dict[str, Any]:
+    """Open the project folder — or ``target``, one of its files (already checked
+    to be inside it) — in an editor / Finder (a file is revealed there)."""
     spec = next((e for e in EDITORS if e[0] == editor_id), None)
     if spec is None:
         return {"ok": False, "error": "Unknown app"}
     eid, label, apps, cli = spec
+    what = target or cwd
     if sys.platform == "darwin":
         if eid == "finder":
-            args = ["open", cwd]
+            args = ["open", "-R", what] if target else ["open", what]
         else:
             app = _mac_app(apps)
             if not app:
                 return {"ok": False, "error": f"{label} isn't installed on this computer"}
-            args = ["open", "-a", app, cwd]
+            args = ["open", "-a", app, what]
     elif eid == "finder":
-        args = ["xdg-open", cwd]
+        args = ["xdg-open", str(Path(what).parent) if target else what]
     elif cli and shutil.which(cli):
-        args = [cli, cwd]
+        args = [cli, what]
     else:
         return {"ok": False, "error": f"{label} isn't installed on this computer"}
     code, out, err = _run(args, cwd, timeout=15)
@@ -878,7 +881,15 @@ def post(op: str, data: dict[str, Any], *, busy: bool = False) -> dict[str, Any]
         return {"ok": False, "code": "busy",
                 "error": "Jarvis is working in these files. Wait for it to finish, or stop it first."}
     if op == "open":
-        return open_in(cwd, str(data.get("editor") or ""))
+        target = ""
+        if data.get("path"):  # one file of the project, not an arbitrary path
+            from . import files_api
+
+            try:
+                target = str(files_api.resolve_inside(cwd, str(data["path"])))
+            except files_api.FilesError as exc:
+                return {"ok": False, "error": str(exc)}
+        return open_in(cwd, str(data.get("editor") or ""), target)
     if op == "branches":
         return branches(cwd)
     if op == "checkout":

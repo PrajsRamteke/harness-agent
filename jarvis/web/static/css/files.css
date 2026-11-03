@@ -1,0 +1,374 @@
+/* Files drawer (js/files.js): a folder tree + name search on the left, the open
+ * file on the right (editor, diff, Markdown preview). The drawer chrome, the
+ * split, the search rows and the diff are shared with the Git changes drawer
+ * (git.css: .gx-*); this file adds the tree, the editor and the prompts. */
+
+/* ─── Top bar: unsaved / conflict / changed on disk ─────────────────────── */
+.fb-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--warn-line);
+  background: var(--warn-soft);
+  font-size: 12.5px;
+  color: var(--text);
+  animation: fade var(--dur) var(--ease);
+}
+.fb-banner[hidden] { display: none; }
+.fb-banner p { flex: 1; min-width: 0; margin: 0; line-height: 1.4; }
+.fb-banner-ic { display: grid; place-items: center; flex: none; color: var(--warn); }
+.fb-banner-ic .ic { width: 15px; height: 15px; }
+.fb-banner-act { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: none; }
+@media (max-width: 560px) {
+  .fb-banner { flex-wrap: wrap; }
+  .fb-banner-act { width: 100%; justify-content: flex-start; }
+}
+
+/* The git card's Files row (js/git.js) */
+.gc-files > span:nth-child(2) { flex: 1; }
+.gc-files .gc-nums em { font-family: var(--font-mono); font-size: 11.5px; opacity: 0.8; }
+
+/* ─── Left: toolbar tools, prompt, tree ─────────────────────────────────── */
+.fb-tools { gap: 0; }
+.fb-tools .tool-icon.is-spinning .ic { animation: spin 0.8s linear infinite; }
+
+.fb-prompt {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 8px 6px;
+  padding: 10px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--line-2);
+  background: var(--card);
+  animation: fade var(--dur) var(--ease);
+}
+.fb-prompt[hidden] { display: none; }
+.fb-prompt-text { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--text-2); overflow-wrap: anywhere; }
+.fb-prompt-text strong { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text); }
+.fb-prompt-err { margin: 0; font-size: 12px; color: var(--danger); }
+.fb-prompt-actions { display: flex; gap: 6px; }
+.fb-input {
+  width: 100%;
+  height: var(--h-md);
+  padding: 0 10px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--line);
+  background: var(--code-bg);
+  color: var(--text);
+  font: 12.5px var(--font-mono);
+  outline: none;
+}
+.fb-input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.25); }
+
+.fb-list { padding: 2px 6px 12px; }
+.fb-tree { display: flex; flex-direction: column; }
+.fb-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px 0 calc(4px + var(--lvl, 0) * 14px);
+  border: none;
+  border-radius: var(--r-ctl);
+  background: none;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+}
+.fb-row:hover { background: var(--card-hover); color: var(--text); }
+.fb-row:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.55); outline-offset: -1px; }
+.fb-row.is-cursor { background: var(--card-hover); color: var(--text); }
+.fb-row.is-current { background: rgba(var(--accent-rgb), 0.13); color: var(--text); }
+.fb-row.is-current::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--accent); }
+.fb-chev { display: grid; place-items: center; flex: none; width: 16px; color: var(--text-3); }
+.fb-chev .ic { width: 13px; height: 13px; transition: transform var(--dur-fast) var(--ease); }
+.fb-row[aria-expanded="true"] .fb-chev .ic { transform: rotate(90deg); }
+.fb-ic { display: grid; place-items: center; flex: none; color: var(--text-3); }
+.fb-ic .ic { width: 15px; height: 15px; }
+.fb-row.is-dir .fb-ic { color: var(--accent); }
+.fb-row.is-current .fb-ic { color: var(--text-2); }
+.fb-name { flex: 1; min-width: 0; margin-left: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.fb-row.is-ignored .fb-name, .fb-row.is-ignored .fb-ic { opacity: 0.5; }
+.fb-unsaved, .fb-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.fb-dot { display: inline-block; margin-left: 8px; vertical-align: middle; }
+.fb-git {
+  flex: none;
+  min-width: 14px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+.fb-git.is-M { color: var(--warn); }
+.fb-git.is-A, .fb-git.is-U { color: var(--ok); }
+.fb-git.is-D, .fb-git.is-conflict { color: var(--danger); }
+.fb-git.is-R { color: var(--accent); }
+.fb-git.is-dirty { width: 6px; height: 6px; min-width: 6px; border-radius: 50%; background: var(--warn); opacity: 0.7; }
+.fb-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 8px 0 calc(26px + var(--lvl, 0) * 14px);
+  font-size: 12px;
+  color: var(--text-3);
+}
+.fb-note.is-bad { color: var(--danger); }
+.fb-note .spinner { width: 11px; height: 11px; }
+.fb-hit .fb-ic { margin-right: 2px; }
+.fb-hit .gx-name mark { background: rgba(var(--accent-rgb), 0.22); color: inherit; border-radius: 2px; }
+.fb-hit .fb-git { margin-left: 4px; }
+
+/* ─── Right: file header ────────────────────────────────────────────────── */
+.fb-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  min-height: 52px;
+  padding: 8px 10px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--glass-strong);
+}
+.fb-fic { display: grid; place-items: center; flex: none; color: var(--text-3); }
+.fb-fic .ic { width: 17px; height: 17px; }
+.fb-titles { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.35; }
+.fb-titles strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; color: var(--text); }
+.fb-titles > span { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--text-3); }
+.fb-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 11.5px; }
+.fb-chip {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+  color: var(--text-3);
+}
+.fb-chip.is-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: var(--ok-soft); }
+.fb-chip.is-danger { color: var(--danger); border-color: var(--danger-line); background: var(--danger-soft); }
+.fb-chip.is-git.is-M { color: var(--warn); border-color: var(--warn-line); background: var(--warn-soft); }
+.fb-chip.is-git.is-A, .fb-chip.is-git.is-U { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: var(--ok-soft); }
+.fb-chip.is-git.is-D, .fb-chip.is-git.is-conflict { color: var(--danger); border-color: var(--danger-line); background: var(--danger-soft); }
+.fb-chip.is-git.is-R { color: var(--accent); border-color: var(--accent-line); background: rgba(var(--accent-rgb), 0.1); }
+.fb-actions { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.fb-actions .btn-sm .spinner { width: 12px; height: 12px; border-top-color: currentColor; }
+
+/* "3 changes" with previous / next */
+.fb-chg { display: inline-flex; align-items: center; margin-right: 2px; }
+.fb-chg[hidden] { display: none; }
+.fb-chg-n { padding: 0 2px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-3); }
+
+/* Edit | Diff | Preview */
+.fb-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--r-ctl); border: 1px solid var(--line); background: var(--card); }
+.fb-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+.fb-seg-btn .ic { width: 13px; height: 13px; }
+.fb-seg-btn:hover { color: var(--text); }
+.fb-seg-btn[aria-pressed="true"] { background: var(--card-hover); color: var(--text); box-shadow: 0 0 0 1px var(--line); }
+
+/* ─── Right: the editor ─────────────────────────────────────────────────── */
+.fb-view { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.fb-editor { display: flex; flex: 1; min-height: 0; background: var(--code-bg); }
+.fb-editor[hidden], .fb-alt[hidden] { display: none; }
+.fb-gutter,
+.fb-text {
+  margin: 0;
+  padding-top: 12px;
+  padding-bottom: 64px;
+  font: 12.5px/20px var(--font-mono);
+  letter-spacing: 0;
+}
+.fb-gutter {
+  flex: none;
+  box-sizing: border-box;
+  width: calc(var(--gd, 3) * 1ch + 26px);
+  padding-right: 12px;
+  padding-left: 8px;
+  overflow: hidden;
+  text-align: right;
+  color: var(--text-3);
+  opacity: 0.75;
+  user-select: none;
+  -webkit-user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+/* Git change bars (files.js "Changes against git"): a column between the line
+   numbers and the text. Bars are placed by line number, so wrapping hides them. */
+.fb-marks {
+  position: relative;
+  flex: none;
+  width: 10px;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+}
+.fb-marks-in { position: absolute; top: 0; left: 0; width: 100%; will-change: transform; }
+.fb-mark {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  min-height: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.fb-mark::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 1px;
+  bottom: 1px;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--mark, var(--text-3));
+  transition: width var(--dur-fast) var(--ease);
+}
+.fb-mark:hover::before, .fb-mark:focus-visible::before { width: 6px; }
+.fb-mark.is-added { --mark: var(--ok); }
+.fb-mark.is-modified { --mark: var(--warn); }
+.fb-mark.is-deleted { --mark: var(--danger); height: 12px; margin-top: -6px; }
+.fb-mark.is-deleted::before {
+  top: 2px;
+  bottom: auto;
+  width: 0;
+  height: 0;
+  border-radius: 0;
+  border-left: 6px solid var(--mark);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  background: none;
+}
+.fb-mark.is-deleted:hover::before { width: 0; border-left-width: 8px; }
+.fb-editor.is-wrap .fb-marks { display: none; }
+
+.fb-text {
+  flex: 1;
+  min-width: 0;
+  padding-left: 14px;
+  padding-right: 16px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--code-text, var(--text));
+  caret-color: var(--accent);
+  white-space: pre;
+  overflow: auto;
+  overscroll-behavior: contain;
+  tab-size: 4;
+}
+.fb-text::selection { background: rgba(var(--accent-rgb), 0.28); }
+.fb-text:read-only { cursor: default; }
+.fb-editor.is-wrap .fb-gutter { display: none; }
+.fb-editor.is-wrap .fb-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The popover under a change: what git has, what you have, Revert. */
+.fb-peek {
+  position: absolute;
+  z-index: 6;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  max-height: min(46%, 360px);
+  border-radius: var(--r-card);
+  border: 1px solid var(--line-2);
+  background: var(--glass-strong);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  animation: pop 0.14s var(--ease);
+}
+.fb-peek[hidden] { display: none; }
+.fb-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  min-height: 36px;
+  padding: 3px 4px 3px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.fb-peek-head strong { font-weight: 600; color: var(--text); white-space: nowrap; }
+.fb-peek-head strong span { font-weight: 400; color: var(--text-3); }
+.fb-peek-pos { font-size: 11.5px; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fb-peek-tools { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; }
+.fb-peek-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 0; background: var(--code-bg); }
+.fb-pl { display: flex; gap: 8px; min-width: max-content; padding: 0 12px; font: 12.5px/20px var(--font-mono); white-space: pre; color: var(--code-text, var(--text)); }
+.fb-pl i { flex: none; width: 10px; font-style: normal; opacity: 0.7; }
+.fb-pl.is-del { background: var(--danger-soft); }
+.fb-pl.is-del i { color: var(--danger); }
+.fb-pl.is-add { background: var(--ok-soft); }
+.fb-pl.is-add i { color: var(--ok); }
+.fb-pl.is-more { color: var(--text-3); font-style: italic; }
+@media (max-width: 560px) {
+  .fb-peek { left: 8px !important; right: 8px; }
+  .fb-peek-pos { display: none; }
+}
+
+.fb-alt { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; background: var(--code-bg); }
+.fb-alt > .dlg-empty { height: 100%; justify-content: center; }
+.fb-preview { padding: 18px 24px 40px; max-width: 860px; font-size: 14px; }
+.fb-muted { color: var(--text-3); }
+.fb-diff .dv.gx-dv { max-height: none; overflow: visible; font-size: 12.5px; }
+.fb-diff .dv-rows { padding: 6px 0 12px; }
+.fb-diff-note { margin: 0; padding: 4px 16px 24px; font-size: 12px; color: var(--text-3); }
+.fb-image { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 100%; padding: 24px; color: var(--text-3); font-size: 12px; }
+.fb-image img { max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: var(--r-ctl); border: 1px solid var(--line); background: repeating-conic-gradient(var(--card) 0% 25%, transparent 0% 50%) 50% / 16px 16px; }
+
+/* ─── Right: status bar ─────────────────────────────────────────────────── */
+.fb-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  min-height: 28px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line);
+  background: var(--glass-strong);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.fb-status:empty { display: none; }
+.fb-caret { min-width: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fb-meta { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; overflow: hidden; white-space: nowrap; }
+.fb-meta i { font-style: normal; opacity: 0.5; }
+.fb-warn { color: var(--warn); }
+.fb-main .gx-pick small { margin-top: -4px; font-size: 12px; opacity: 0.8; }
+
+/* ─── Narrow screens: the header names the file, the bar keeps the tools ── */
+@media (max-width: 899px) {
+  .fb-head { min-height: 44px; padding-left: 10px; justify-content: flex-end; }
+  .fb-fic, .fb-titles { display: none; }
+  .fb-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .fb-text { font-size: 13px; }
+}
+@media (max-width: 560px) {
+  .fb-seg-btn span { display: none; }
+  .fb-preview { padding: 14px 16px 32px; }
+  .fb-caret { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fb-banner, .fb-prompt, .fb-peek { animation: none; }
+  .fb-mark::before { transition: none; }
+  .fb-chev .ic { transition: none; }
+}

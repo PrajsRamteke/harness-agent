@@ -79,7 +79,7 @@ def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
 
     def info() -> dict[str, Any]:
         from .. import state
-        from . import state_api
+        from . import state_api, terminal_api
 
         busy = bool(getattr(app, "_busy", False))
         if busy and since[0] is None:
@@ -96,6 +96,7 @@ def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
             "busy_since": since[0],
             "needs_approval": bool(bridge.pending_events()),
             "headless": bool(state.headless),  # opened from the web: the web may stop it
+            "terminals": terminal_api.live_count(),  # the page's terminal button dot, from any project
         }
 
     return info

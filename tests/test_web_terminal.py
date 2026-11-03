@@ -64,6 +64,16 @@ def test_close_ends_the_shell_and_never_double_closes_the_fd(monkeypatch, tmp_pa
         os.close(w)
 
 
+def test_live_count_leaves_out_closed_shells(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHELL", "/bin/sh")
+    assert terminal_api.live_count() == 0
+    first = terminal_api.open_terminal(cwd=str(tmp_path))["terminal"]["id"]
+    terminal_api.open_terminal(cwd=str(tmp_path))
+    assert terminal_api.live_count() == 2
+    terminal_api.close_terminal(first)
+    assert terminal_api.live_count() == 1
+
+
 def test_ctrl_c_interrupts_and_a_resize_reaches_the_program(monkeypatch, tmp_path):
     """The PTY is the shell's controlling terminal: Ctrl+C sends SIGINT to the
     running command and a resize sends SIGWINCH (Claude Code redraws for the

@@ -230,6 +230,18 @@ def test_project_rows_say_how_long_a_reply_has_run(instances_dir):
     assert rows["old"]["busy_for"] is None
 
 
+def test_project_rows_count_each_projects_live_shells(instances_dir):
+    instances_dir.mkdir(parents=True)
+    now = time.time()
+    for name, fields in (("shells", {"terminals": 2}), ("none", {"terminals": 0}), ("old", {})):
+        rec = {"id": name, "pid": os.getpid(), "port": 1, "token": "t", "started": now, "updated": now, **fields}
+        (instances_dir / f"{name}.json").write_text(json.dumps(rec))
+    rows = {r["id"]: r for r in hub.project_rows(None)}
+    assert rows["shells"]["terminals"] == 2
+    assert rows["none"]["terminals"] == 0
+    assert rows["old"]["terminals"] == 0  # an instance from before the count existed
+
+
 def test_another_projects_api_is_reached_through_this_link(pair):
     a, b = pair
     own = json.loads(_get(a.url("/api/state"))[1])

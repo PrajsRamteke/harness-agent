@@ -17,7 +17,8 @@ import { initFolders } from './folders.js';
 import { initWorkspace } from './workspace.js';
 import { initInspector, toggleInspector } from './inspector.js';
 import { initTerminal } from './terminal.js';
-import { initGit } from './git.js';
+import { initGit, filesHost } from './git.js';
+import { initFiles, openFiles } from './files.js';
 import { initChanges } from './changes.js';
 import { initActivity } from './activity.js';
 import { initModals } from './modal.js';
@@ -154,6 +155,7 @@ function boot() {
   initInspector();
   initTerminal();
   initGit();
+  initFiles(filesHost);
   initChanges();
   initActivity();
   initPalette({ onOpenPicker: openPickerByKind });
@@ -171,7 +173,7 @@ function boot() {
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
   initBtw();
-  initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector, toggleSidebar });
+  initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector, toggleSidebar, openFiles });
   renderStarters();
 
   loadInitialState();

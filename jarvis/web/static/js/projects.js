@@ -301,6 +301,7 @@ function applyList(rows) {
   projects = rows;
   receivedAt = Date.now();
   render();
+  document.dispatchEvent(new Event('jarvis:projects-changed'));
   if (closed || sessionsMoved) sessionsChanged();
   // The project on screen is no longer running.
   if (BASE && !ids.has(cur) && rows.length && !switching) projectGone();
