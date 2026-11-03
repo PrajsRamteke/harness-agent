@@ -173,7 +173,8 @@ function syncToolbar() {
   ui.view.innerHTML = icon(split ? 'rows-2' : 'columns-2');
   ui.view.title = split ? 'Unified view' : 'Side by side';
   ui.view.setAttribute('aria-label', ui.view.title);
-  const visibleIds = S.files.filter((f) => S.filter === 'all' || f.status === S.filter).map((f) => f.id);
+  // "Expand all" is capped, so "all open" means every file it would open.
+  const visibleIds = S.files.filter((f) => S.filter === 'all' || f.status === S.filter).map((f) => f.id).slice(0, MAX_EXPAND_ALL);
   const allOpen = visibleIds.length > 0 && visibleIds.every((id) => S.open.has(id));
   ui.fold.innerHTML = icon(allOpen ? 'chevrons-down-up' : 'chevrons-up-down');
   ui.fold.title = allOpen ? 'Collapse all' : 'Expand all';
@@ -692,7 +693,7 @@ export function initChanges() {
   });
   ui.fold.addEventListener('click', () => {
     const shown = S.files.filter((f) => S.filter === 'all' || f.status === S.filter);
-    const allOpen = shown.length > 0 && shown.every((f) => S.open.has(f.id));
+    const allOpen = shown.length > 0 && shown.slice(0, MAX_EXPAND_ALL).every((f) => S.open.has(f.id));
     if (allOpen) {
       shown.forEach((f) => setOpenState(f.id, false, { user: true }));
       return;
