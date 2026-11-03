@@ -73,6 +73,11 @@
 .fb-branch[aria-expanded="true"] { background: var(--card-hover); color: var(--text); }
 .fb-branch[aria-expanded="true"] .fb-branch-chev { transform: rotate(180deg); }
 .fb-branch .spinner { width: 12px; height: 12px; flex: none; }
+/* The terminal toggle beside it (opens the panel docked above the footer). */
+.fb-term { flex: none; margin-left: 6px; font-family: var(--font-ui, inherit); }
+.fb-term .ic { color: var(--text-3); }
+.fb-term[aria-pressed="true"] { background: var(--card-hover); color: var(--text); }
+.fb-term[aria-pressed="true"] .ic { color: var(--accent); }
 
 /* The branch switcher: opens upward from the footer chip (bottom is set by files.js). */
 .gc-menu.fb-br-menu { top: auto; left: 12px; right: auto; width: min(340px, calc(100% - 24px)); }

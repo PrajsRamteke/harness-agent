@@ -58,6 +58,13 @@ body.term-max .dock { display: none; }
 }
 :root[data-surface="glass"] body.term-max .term-panel { margin-top: var(--top-h, 48px); }
 
+/* Docked in the Files drawer (js/files.js): above the footer, sharing the
+   drawer's height with the explorer + editor. Maximised, it takes their room. */
+.term-panel.is-docked { max-height: calc(100% - 160px); }
+.term-panel.is-docked.is-max { max-height: none; }
+:root[data-surface="glass"] body.term-max .term-panel.is-docked { margin-top: 0; }
+.files-card:has(> .term-panel.is-docked.is-max:not([hidden])) > .gx-split { display: none; }
+
 /* ─── Drag handle (the panel's top edge) ──────────────────────────────── */
 .term-resize {
   position: absolute;

@@ -24,6 +24,7 @@ const MIN_H = 140;
 const DEFAULT_H = 300;
 const MIN_CHAT = 120;   // transcript rows always left above the panel
 const MAX_SESSIONS = 8;
+const MIN_DOCK_REST = 160;  // rows the Files drawer keeps above a panel docked in it
 const RESIZE_MS = 80;              // a size change reaches the shell at most this late
 const HIDDEN_PAUSE_MS = 45_000;    // a background tab lets go of its held request (api.js does too)
 const COARSE = window.matchMedia?.('(pointer: coarse)');
@@ -45,6 +46,9 @@ let built = false;
 let attaching = null;   // the in-flight re-attach / first spawn
 const pump = { running: false, abort: null };
 let hiddenSince = 0;
+// Docked in another view (the Files drawer): where it lives, what it shares
+// its height with, and who takes the focus when it hides there.
+const docked = { host: null, grow: null, focusBack: null, home: null, homeNext: null };
 
 // ─── Terminal look ───────────────────────────────────────────────────────
 const DARK_ANSI = {
@@ -169,6 +173,7 @@ function open() {
   if (!state.sessions.length) attach();
   else { syncPanes(); requestAnimationFrame(() => { fitAll(); focusActive(); }); }
   syncDot();
+  announce();
 }
 
 function hide({ focusComposer = false } = {}) {
@@ -182,7 +187,57 @@ function hide({ focusComposer = false } = {}) {
   el.btn.classList.remove('is-on');
   document.body.classList.remove('term-open', 'term-max');
   syncDot();
-  if (hadFocus || focusComposer) $('prompt')?.focus();
+  announce();
+  if (!hadFocus && !focusComposer) return;
+  if (docked.host) docked.focusBack?.();
+  else $('prompt')?.focus();
+}
+
+/** Open / hidden / allowed changed: views that offer the terminal (the Files footer) follow. */
+function announce() {
+  document.dispatchEvent(new CustomEvent('jarvis:terminal-state', { detail: terminalState() }));
+}
+
+export function terminalState() {
+  return { open: state.open, allowed: state.allowed };
+}
+
+/** A button's toggle: open (and jump in) or hide — the top-bar button's behaviour. */
+export function toggleTerminal() {
+  if (state.open) hide();
+  else open();
+}
+
+// ─── Docking ─────────────────────────────────────────────────────────────
+/** Move the panel — the same shells and views — to the bottom of `host`, in
+ *  front of `before`. It shares its height with `grow` (the host's flexible
+ *  part); `focusBack` takes the focus when it hides there. `undockTerminal()`
+ *  puts it back under the composer. */
+export function dockTerminal(host, { before = null, grow = null, focusBack = null } = {}) {
+  build();
+  if (!host) return;
+  if (!docked.host) {
+    docked.home = el.panel.parentNode;
+    docked.homeNext = el.panel.nextSibling;
+  }
+  Object.assign(docked, { host, grow, focusBack });
+  host.insertBefore(el.panel, before);
+  el.panel.classList.add('is-docked');
+  relayout();
+}
+
+export function undockTerminal() {
+  if (!docked.host || !docked.home) return;
+  const next = docked.homeNext?.parentNode === docked.home ? docked.homeNext : null;
+  docked.home.insertBefore(el.panel, next);
+  el.panel.classList.remove('is-docked');
+  Object.assign(docked, { host: null, grow: null, focusBack: null });
+  relayout();
+}
+
+function relayout() {
+  applyHeight();
+  requestAnimationFrame(() => fitAll());
 }
 
 /** Live shells in the other running projects (this one's are in `state`). */
@@ -233,6 +288,11 @@ function setSplit(on) {
 
 /** Height from the saved value, never so tall the transcript disappears. */
 function maxHeight() {
+  // Docked: the panel and the host's flexible part split the room between them.
+  if (docked.host) {
+    const room = el.panel.offsetHeight + (docked.grow?.offsetHeight || 0);
+    return Math.max(MIN_H, room - MIN_DOCK_REST);
+  }
   const main = el.main?.clientHeight || window.innerHeight;
   const cs = el.main ? getComputedStyle(el.main) : null;
   const dock = parseFloat(cs?.getPropertyValue('--dock-h')) || 140;
@@ -776,6 +836,7 @@ function syncEmpty() {
 
 function syncAllowed() {
   if (el.btn) el.btn.hidden = !state.allowed;
+  announce();
 }
 
 function fitAll() {

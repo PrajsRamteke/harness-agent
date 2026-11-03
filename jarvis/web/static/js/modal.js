@@ -77,6 +77,9 @@ export function initModals() {
   document.addEventListener('keydown', (e) => {
     const top = topModal();
     if (!top) return;
+    // A terminal docked in the dialog owns its keys: Esc and Tab belong to the
+    // shell (vi, completion) — Ctrl + ` or a click leaves it.
+    if (document.activeElement?.closest?.('.term-panel') && $(top)?.contains(document.activeElement)) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();

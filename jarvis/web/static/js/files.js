@@ -29,6 +29,7 @@ import { renderDiff, gutterWidth } from './diffview.js';
 import { renderMarkdown } from './markdown.js';
 import { diffLines } from './linediff.js';
 import { popOpen, closePop, showPop, popKey, wirePop } from './branchpop.js';
+import { dockTerminal, undockTerminal, terminalState, toggleTerminal } from './terminal.js';
 
 const ID = 'files';
 const STATE_KEY = 'jarvis-files';
@@ -989,7 +990,7 @@ function paintStatus() {
 function paintFoot() {
   const foot = $(`${ID}-foot`);
   if (!foot) return;
-  foot.innerHTML = branchChip() + footer({
+  foot.innerHTML = branchChip() + termChip() + footer({
     note: pane === 'scm' ? 'Stage with +, then commit — discarded text goes to the Trash' : 'Edits save straight to your project files',
     hints: wide() || reading ? [[`${MOD} S`, 'save'], ['esc', wide() ? 'close' : 'back']] : [['↵', 'open'], ['esc', 'close']],
   });
@@ -1005,6 +1006,29 @@ function branchChip() {
     aria-expanded="${brOpen}" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">`
     + `${scmBusy === 'checkout' ? '<span class="spinner"></span>' : icon('git-branch')}<span>${escapeHtml(scm.branch)}</span>`
     + `${ahead ? `<em>↑${ahead}</em>` : ''}${icon('chevron-up', 'fb-branch-chev')}</button>`;
+}
+
+/** Bottom left, next to the branch: opens the terminal docked above the footer. */
+function termChip() {
+  const t = terminalState();
+  if (!t.allowed) return '';
+  const tip = escapeHtml(termTip(t.open));
+  return `<button type="button" class="fb-branch fb-term" id="${ID}-term" data-act="terminal" aria-controls="term-panel"
+    aria-pressed="${t.open}" title="${tip}" aria-label="${tip}">${icon('terminal')}<span>Terminal</span></button>`;
+}
+
+const termTip = (on) => `${on ? 'Hide' : 'Open'} the terminal (Ctrl + \`) — shells keep running`;
+
+/** The terminal opened, hid, or became (un)available: the chip follows in place. */
+function onTerminalState() {
+  if (!isModalOpen(ID)) return;
+  const t = terminalState();
+  const b = $(`${ID}-term`);
+  if (!b !== !t.allowed) { paintFoot(); return; }
+  if (!b) return;
+  b.setAttribute('aria-pressed', String(t.open));
+  b.title = termTip(t.open);
+  b.setAttribute('aria-label', b.title);
 }
 
 // ─── Branch switcher (the footer chip's menu) ──────────────────────────────────
@@ -2727,6 +2751,9 @@ async function act(name, b) {
       b.classList.remove('is-spinning');
       break;
     }
+    case 'terminal':
+      toggleTerminal();
+      break;
     case 'reload':
       tree.delete('');
       loadAll();
@@ -2976,6 +3003,14 @@ function treeKey(e, row) {
 
 function onKey(e) {
   const t = e.target;
+  // The docked terminal's keys go to its shell; ⌘S still saves the open file.
+  if (t.closest?.('.term-panel')) {
+    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      save();
+    }
+    return;
+  }
   if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 's') {
     e.preventDefault();
     save();
@@ -3077,8 +3112,16 @@ export function openFiles({ path = '', pane: want = '' } = {}) {
       closeBranchMenu();
       reading = false;
       cardEl()?.classList.remove('is-reading');
+      undockTerminal();
       if (isDirty()) showToast(`Unsaved changes in ${file.name} are kept — reopen Files to continue`);
     },
+  });
+  // The terminal comes along: same shells, docked above the footer while Files is open.
+  const card = cardEl();
+  dockTerminal(card, {
+    before: $(`${ID}-foot`),
+    grow: card?.querySelector('.gx-split'),
+    focusBack: () => card?.focus({ preventScroll: true }),
   });
   loadAll().then(() => {
     const restore = pendingFile;
@@ -3111,6 +3154,7 @@ export function initFiles(hooks = {}) {
   el.addEventListener('input', onInput);
   $(`${CONFIRM_ID}-ok`)?.addEventListener('click', onConfirmOk);
   initPr();
+  document.addEventListener('jarvis:terminal-state', onTerminalState);
   // A click anywhere else puts the commit button's menu away.
   document.addEventListener('pointerdown', (e) => {
     if (scmMenuOpen && !e.target.closest?.(`#${ID}-menu, #${ID}-more`)) closeScmMenu();
