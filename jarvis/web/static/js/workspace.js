@@ -18,7 +18,7 @@ import { $, escapeHtml, showToast } from './utils.js';
 import { icon } from './icons.js';
 import { openModal, closeModal } from './modal.js';
 import { fetchProjects, stopAllProjects, fetchSavedWorkspace, restoreWorkspace, forgetSavedWorkspace } from './api.js';
-import { allProjects, hostProjectId, currentProjectId, switchProject, refreshProjects } from './projects.js';
+import { allProjects, findProject, hostProjectId, currentProjectId, switchProject, refreshProjects } from './projects.js';
 import { relTime } from './sessions.js';
 
 const ID = 'stopall';
@@ -129,7 +129,8 @@ async function stopAll() {
     go.innerHTML = '<span class="spinner" aria-hidden="true"></span><span>Stopping…</span>';
   }
   // Leave a stopping project first, so the page never points at one that is gone.
-  if (currentProjectId() !== hostProjectId()) await switchProject(hostProjectId());
+  // (A host that was stopped already only serves the page: it isn't listed, so stay put.)
+  if (currentProjectId() !== hostProjectId() && findProject(hostProjectId())) await switchProject(hostProjectId());
   let res;
   try {
     res = await stopAllProjects();

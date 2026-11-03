@@ -28,6 +28,11 @@ STALE_SECS = 15.0  # a file this old belongs to a process that died without clea
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 
+# Set when this process was "stopped" from the page while other projects still
+# run through it: it stays up only to serve the page, hidden from every list.
+_retired = threading.Event()
+_current: "Registration | None" = None
+
 
 def valid_id(value: str) -> bool:
     return bool(_ID_RE.match(value or ""))
@@ -75,8 +80,22 @@ def _read(path: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def retire() -> None:
+    """Hide this process's entry (see ``launcher.stop_project``); written at once."""
+    _retired.set()
+    if _current is not None:
+        _current._flush()
+
+
+def retired() -> bool:
+    return _retired.is_set()
+
+
 def list_instances(*, prune: bool = True) -> list[dict[str, Any]]:
-    """Live instances, oldest first (a stable order for the page's list)."""
+    """Live instances, oldest first (a stable order for the page's list).
+
+    A retired one (only still up to serve a page) is left out: it is not a project.
+    """
     try:
         files = sorted(INSTANCES_DIR.glob("*.json"))
     except OSError:
@@ -95,6 +114,8 @@ def list_instances(*, prune: bool = True) -> list[dict[str, Any]]:
                     path.unlink()
                 except OSError:
                     pass
+            continue
+        if rec.get("retired"):
             continue
         out.append(rec)
     out.sort(key=lambda r: (float(r.get("started") or 0), str(r.get("id"))))
@@ -159,6 +180,8 @@ class Registration:
     def _flush(self, info: dict[str, Any] | None = None) -> None:
         info = self._read_info() if info is None else info
         rec = {**self._base, **info, "updated": time.time()}
+        if _retired.is_set():
+            rec["retired"] = True
         try:
             _write(self.id, rec)
         except OSError:
@@ -175,6 +198,8 @@ class Registration:
         return True
 
     def start(self) -> None:
+        global _current
+        _current = self
         self._flush()
         atexit.register(self.stop)  # a normal exit leaves no entry behind
         self._thread = threading.Thread(target=self._run, daemon=True, name="jarvis-web-registry")

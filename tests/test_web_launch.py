@@ -321,6 +321,36 @@ def test_stop_all_reports_the_serving_jarvis_as_going_last(isolated, fake_child,
         me.stop()
 
 
+def test_stopping_the_serving_jarvis_keeps_the_page_up_until_the_last_project(isolated, fake_child, monkeypatch):
+    import threading
+
+    monkeypatch.setattr(registry, "_retired", threading.Event())
+    monkeypatch.setattr(registry, "_current", None)
+    monkeypatch.setattr(launcher, "RETIRED_POLL", 0.05)
+    exits: list[str] = []  # this process "exiting": recorded, not done
+    monkeypatch.setattr(launcher, "_exit_soon", lambda: exits.append("soon"))
+    monkeypatch.setattr(launcher, "_terminate_self", lambda: exits.append("alone"))
+    _tree(isolated)
+    other = _wait(launcher.open_project("~/work/api")["launch"]["id"])["instance_id"]
+    me = registry.Registration(instance_id="me", port=1, token="t",
+                               info=lambda: {"project": "here", "headless": True, "pid": os.getpid()})
+    me.start()
+    try:
+        res = launcher.stop_project("me")
+        # Others still run through this page: hidden, not gone.
+        assert res == {"ok": True, "self": True, "retired": True} and exits == []
+        assert registry.get("me") is None and [r["id"] for r in registry.list_instances()] == [other]
+        # The last one stops: the serving Jarvis goes with it.
+        last = launcher.stop_project(other)
+        assert last["ok"] and last["self"] is True and "soon" in exits
+        deadline = time.time() + 5
+        while "alone" not in exits and time.time() < deadline:
+            time.sleep(0.05)
+        assert "alone" in exits
+    finally:
+        me.stop()
+
+
 def test_a_jarvis_that_crashes_while_starting_reports_why(isolated, fake_child, monkeypatch):
     _tree(isolated)
     monkeypatch.setenv("FAKE_MODE", "crash")

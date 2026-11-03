@@ -305,6 +305,18 @@ function applyList(rows) {
   if (closed || sessionsMoved) sessionsChanged();
   // The project on screen is no longer running.
   if (BASE && !ids.has(cur) && rows.length && !switching) projectGone();
+  else if (!BASE && hostId && !ids.has(hostId) && rows.length && !switching) hostRetired();
+}
+
+/**
+ * The Jarvis this page came from was stopped while others still run: it keeps
+ * serving the page (and leaves by itself after the last one) but is no longer a
+ * project — show one that is.
+ */
+function hostRetired() {
+  if (goneHandled.has(hostId)) return;
+  goneHandled.add(hostId);
+  switchProject(projects[0].id);
 }
 
 // ─── Switching ────────────────────────────────────────────────────────────
@@ -476,8 +488,10 @@ async function stopProject(btn) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
   // Leave it first if it's on screen, so the page never points at a stopped Jarvis.
-  if (id === currentProjectId() && id !== hostId) {
-    const other = find(hostId) || projects.find((x) => x.id !== id);
+  // (Stopping the one serving this page while others run only hides it — the
+  // server keeps the page up until the last project stops.)
+  if (id === currentProjectId()) {
+    const other = (id !== hostId && find(hostId)) || projects.find((x) => x.id !== id);
     goneHandled.add(id);
     if (other) await switchProject(other.id);
   }

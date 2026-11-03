@@ -31,6 +31,9 @@ from . import fs_api, registry
 LAUNCH_TIMEOUT = 45.0   # a cold start (imports, catalogs) takes a few seconds; this is the "stuck" line
 STOP_TIMEOUT = 10.0    # idle: well under a second; right after starting it may finish startup work first
 STOP_ALL_WORKERS = 8   # projects stopped at the same time by `stop_all`
+EXIT_DELAY = 0.4       # stopping the serving Jarvis: time for its answer to reach the page
+RETIRED_POLL = 1.0     # a retired Jarvis checks this often whether it still serves anyone
+RETIRED_EMPTY_POLLS = 2  # empty lists in a row before it goes (one bad read is not "alone")
 MAX_RUNNING = 16
 LOG_DIR = CONFIG_DIR / "instances" / "logs"
 KEEP_LOGS = 20
@@ -225,8 +228,48 @@ def launch_status(launch_id: str) -> dict[str, Any] | None:
         return launch.public() if launch else None
 
 
+def _terminate_self() -> None:
+    os.kill(os.getpid(), signal.SIGTERM)  # the app's handler exits cleanly
+
+
+def _exit_soon() -> None:
+    """End this process once the answer in flight is out."""
+    threading.Timer(EXIT_DELAY, lambda: _terminate_self()).start()
+
+
+def _others(self_id: str) -> list[dict[str, Any]]:
+    return [r for r in registry.list_instances() if str(r.get("id") or "") != self_id]
+
+
+def _exit_when_alone() -> None:
+    """A retired Jarvis: go once no other project is left to serve."""
+    empty = 0
+    while empty < RETIRED_EMPTY_POLLS:
+        time.sleep(RETIRED_POLL)
+        if not registry.retired():
+            return
+        empty = 0 if registry.list_instances() else empty + 1
+    _terminate_self()
+
+
+def _retire_self() -> dict[str, Any]:
+    """Stop being a project but keep serving the page the others are reached through.
+
+    The page came from this Jarvis's port; ending it would cut the browser off
+    from every other project opened through it. So it leaves the list now and
+    exits by itself when the last other project is gone.
+    """
+    registry.retire()
+    threading.Thread(target=_exit_when_alone, daemon=True, name="jarvis-retired").start()
+    return {"ok": True, "self": True, "retired": True}
+
+
 def stop_project(instance_id: str) -> dict[str, Any]:
-    """End a Jarvis that was opened from the web. Never raises."""
+    """End a Jarvis that was opened from the web. Never raises.
+
+    Stopping the one that serves this page while others still run retires it
+    instead (``_retire_self``): the page keeps working until the last one stops.
+    """
     rec = registry.get(instance_id)
     if rec is None:
         return {"ok": True, "already": True}
@@ -237,9 +280,19 @@ def stop_project(instance_id: str) -> dict[str, Any]:
     if pid <= 0:
         return {"ok": False, "code": "bad_entry", "error": "That project's entry is damaged."}
     if pid == os.getpid():
-        # Stopping the Jarvis that serves this page: answer first, then go.
-        threading.Timer(0.4, lambda: os.kill(pid, signal.SIGTERM)).start()
+        if _others(instance_id):
+            return _retire_self()
+        # The last one, serving this page: answer first, then go.
+        _exit_soon()
         return {"ok": True, "self": True}
+    result = _stop_other(instance_id, pid)
+    if result.get("ok") and registry.retired() and not registry.list_instances():
+        _exit_soon()  # that was the last project this retired Jarvis served
+        result["self"] = True
+    return result
+
+
+def _stop_other(instance_id: str, pid: int) -> dict[str, Any]:
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -295,7 +348,10 @@ def stop_all(self_id: str) -> dict[str, Any]:
             else:
                 failed.append({**rows[rid], "error": str(res.get("error") or "Couldn't stop it.")})
     going = self_id in rows
-    if going:
+    if not going and registry.retired() and not failed:
+        _exit_soon()  # serving the page for the others only, and they are gone
+        going = True
+    elif going:
         res = stop_project(self_id)
         if res.get("ok"):
             stopped.append(rows[self_id])

@@ -1215,6 +1215,9 @@ class WebHandler(BaseHTTPRequestHandler):
                 result = {"ok": True}
             else:
                 result = launcher.stop_project(str(data.get("id") or ""))
+                if result.get("retired"):
+                    # Kept up only to serve the page: its own reply stops like a real stop would.
+                    self.bridge.cancel_turn()
             self._send_json(200, result)
             return
 
