@@ -39,6 +39,7 @@ const POLL_MS = 4000;
 const TREE_EVERY = 3;            // disk checks between tree refreshes
 const SEARCH_MS = 140;
 const MAX_REMEMBERED_DIRS = 60;
+const MAX_TABS = 40;             // open-file tabs remembered per project
 const MOD = isMac ? '⌘' : 'Ctrl';
 const LINE_PX = 20;              // the editor's line height (css .fb-text): the gutter bars are placed by it
 const EDITOR_PAD_PX = 12;        // the editor's top padding (same)
@@ -85,7 +86,10 @@ let expanded = new Set();        // open folders
 let cursorPath = '';             // the tree row last clicked / focused
 let query = '';
 let results = null;              // null (tree) | { items, loading, truncated }
-let file = null;                 // the open file's document (see openPath / applyRead)
+let file = null;                 // the shown file's document (see openPath / applyRead) — one of `docs`
+let docs = [];                   // the open tabs, left to right (each keeps its own unsaved edits)
+let mounted = null;              // the document the editor <textarea> was built for
+let pendingTabs = [];            // tabs of this project, restored on open
 let prompt = null;               // side prompt: new file / folder, rename, delete
 let banner = null;               // top bar: unsaved / conflict / changed / gone / revert
 let reading = false;             // narrow screens: the file sub-view is open
@@ -99,7 +103,6 @@ let wasBusy = false;
 let caretFrame = 0;
 let noticeTimer = 0;
 let searchSeq = 0;
-let openSeq = 0;
 let diffSeq = 0;
 const dirSeq = new Map();
 let pane = storageGet(PANE_KEY, 'files') === 'scm' ? 'scm' : 'files';
@@ -124,8 +127,14 @@ const cardEl = () => $(ID)?.querySelector('.modal-card');
 const listEl = () => $(`${ID}-list`);
 const mainEl = () => $(`${ID}-main`);
 const projectKey = () => `${BASE}|${store.session?.cwd || ''}`;
-const isDirty = () => file?.kind === 'text' && file.text !== file.saved;
-export const isFilesDirty = () => isDirty();
+const docDirty = (d) => d?.kind === 'text' && d.text !== d.saved;
+const isDirty = () => docDirty(file);
+const dirtyDocs = () => docs.filter(docDirty);
+/** A tab with unsaved edits (the shown one first), or null. */
+const unsavedDoc = () => (isDirty() ? file : dirtyDocs()[0] || null);
+const docFor = (path) => docs.find((d) => !d.virtual && d.path === path) || null;
+const under = (path, root) => path === root || path.startsWith(`${root}/`);
+export const isFilesDirty = () => dirtyDocs().length > 0;
 
 function splitPath(p) {
   const i = p.lastIndexOf('/');
@@ -208,15 +217,20 @@ function detectIndent(text, name) {
 function readSaved() {
   try {
     const v = JSON.parse(storageGet(`${STATE_KEY}:${projectKey()}`, '') || '{}');
-    return { open: Array.isArray(v.open) ? v.open.filter((p) => typeof p === 'string') : [], file: typeof v.file === 'string' ? v.file : '' };
+    const strings = (a) => (Array.isArray(a) ? a.filter((p) => typeof p === 'string') : []);
+    return { open: strings(v.open), file: typeof v.file === 'string' ? v.file : '', tabs: strings(v.tabs) };
   } catch {
-    return { open: [], file: '' };
+    return { open: [], file: '', tabs: [] };
   }
 }
 
 function persist() {
   if (shownFor !== projectKey()) return;
-  storageSet(`${STATE_KEY}:${shownFor}`, JSON.stringify({ open: [...expanded].slice(0, MAX_REMEMBERED_DIRS), file: file && !file.virtual ? file.path : '' }));
+  storageSet(`${STATE_KEY}:${shownFor}`, JSON.stringify({
+    open: [...expanded].slice(0, MAX_REMEMBERED_DIRS),
+    file: file && !file.virtual ? file.path : '',
+    tabs: docs.filter((d) => !d.virtual).map((d) => d.path).slice(0, MAX_TABS),
+  }));
 }
 
 function resetProject(key) {
@@ -224,6 +238,8 @@ function resetProject(key) {
   tree = new Map();
   expanded = new Set();
   file = null;
+  docs = [];
+  mounted = null;
   banner = null;
   prompt = null;
   query = '';
@@ -238,6 +254,7 @@ function resetProject(key) {
   const saved = readSaved();
   saved.open.forEach((p) => expanded.add(p));
   pendingFile = saved.file;
+  pendingTabs = saved.tabs;
 }
 
 // ─── Server ───────────────────────────────────────────────────────────────
@@ -363,7 +380,7 @@ function rowHtml({ e, note, level, spin, bad }) {
   const on = !!file && file.path === e.path;
   const cls = ['fb-row', e.dir ? 'is-dir' : '', on ? 'is-current' : '', e.ignored ? 'is-ignored' : '', cursorPath === e.path ? 'is-cursor' : '']
     .filter(Boolean).join(' ');
-  const dot = on && isDirty() ? '<span class="fb-unsaved" title="Unsaved changes"></span>' : '';
+  const dot = !e.dir && docDirty(docFor(e.path)) ? '<span class="fb-unsaved" title="Unsaved changes"></span>' : '';
   return `<button type="button" class="${cls}" role="treeitem" aria-level="${level + 1}"${e.dir ? ` aria-expanded="${open}"` : ''} aria-selected="${on}"
     data-path="${escapeHtml(e.path)}" data-dir="${e.dir ? 1 : 0}" tabindex="-1" style="--lvl:${level}" title="${escapeHtml(e.path)}${e.link ? ' (link)' : ''}">
     <span class="fb-chev">${e.dir ? icon('chevron-right') : ''}</span>
@@ -500,48 +517,129 @@ function applyRead(doc, res) {
   }
 }
 
-/** `view: 'diff'` + `diffSide` ('staged' | 'unstaged'): opened from the Source Control tab. */
-async function openPath(path, { focus = false, restoring = false, view = 'edit', diffSide = '' } = {}) {
-  if (file && file.path === path && !file.error && !file.virtual) {
-    syncReading();
-    if (focus) focusEditor();
-    return;
+/** A tab that isn't read yet (`pending`: restored from the last visit, read when shown). */
+const newDoc = (path, extra = {}) => ({ path, name: baseOf(path), view: 'edit', diffSide: '', hunks: [], peek: null, pending: true, ...extra });
+
+/** A new tab goes right after the shown one. */
+function addTab(doc) {
+  const i = docs.indexOf(file);
+  docs.splice(i < 0 ? docs.length : i + 1, 0, doc);
+}
+
+/** Show this tab's document (its edits, caret and scroll come back with it). */
+function showDoc(doc, { focus = false } = {}) {
+  if (file && file !== doc) {
+    saveViewState();
+    closePeek();
   }
-  if (isDirty()) {
-    banner = { kind: 'unsaved', then: () => openPath(path, { focus, view, diffSide }) };
-    paintBanner();
-    return;
-  }
-  const mine = { path, name: baseOf(path), loading: true, view, diffSide, hunks: [], peek: null };
-  file = mine;
+  file = doc;
   banner = null;
   paintBanner();
   paintMain();
   persist();
   paintTree();
-  reveal(path);
-  const seq = ++openSeq;
-  const res = await call('read', { path });
-  if (file !== mine || seq !== openSeq) return;
+  if (!doc.virtual) reveal(doc.path);
+  if (focus) focusEditor();
+}
+
+/** Switch to a tab: read it if it never was, else catch up with the disk. */
+function activate(doc, { focus = false } = {}) {
+  if (!doc) return;
+  if (doc === file) {
+    syncReading();
+    if (focus) focusEditor();
+    return;
+  }
+  if (doc.pending) doc.loading = true;
+  showDoc(doc, { focus });
+  if (doc.pending) loadDoc(doc, { focus });
+  else if (!doc.loading && !doc.error) checkDisk();
+}
+
+async function loadDoc(mine, { focus = false, restoring = false } = {}) {
+  const restored = mine.restored || restoring;
+  mine.pending = false;
+  mine.loading = true;
+  const seq = (mine.seq || 0) + 1;
+  mine.seq = seq;
+  const res = await call('read', { path: mine.path });
+  if (mine.seq !== seq || !docs.includes(mine)) return;
   mine.loading = false;
+  mine.restored = false;
   if (!res.ok) {
-    if (restoring) {
-      file = null;
-      persist();
-      paintMain();
-      paintTree();
+    if (restored) { // remembered from the last visit, gone since: drop it quietly
+      dropTab(mine);
       return;
     }
     mine.error = res.error || 'Could not open this file';
     mine.code = res.code || '';
-    paintMain();
+    if (file === mine) paintMain();
+    else paintFileTabs();
     return;
   }
   applyRead(mine, res);
+  loadBase(mine);
+  if (file !== mine) {
+    paintFileTabs();
+    return;
+  }
   paintMain();
   paintTree();
-  loadBase(mine);
   if (focus) focusEditor();
+}
+
+/** Open a file in its tab (a new one if it has none) and show it.
+ * `view: 'diff'` + `diffSide` ('staged' | 'unstaged'): opened from the Source Control tab. */
+async function openPath(path, { focus = false, restoring = false, view = 'edit', diffSide = '' } = {}) {
+  const have = docFor(path);
+  if (have && !have.error && !have.pending) {
+    activate(have, { focus });
+    return;
+  }
+  const mine = have || newDoc(path);
+  Object.assign(mine, { view, diffSide, loading: true, error: '', code: '' });
+  if (!have) addTab(mine);
+  showDoc(mine);
+  await loadDoc(mine, { focus, restoring });
+}
+
+/** Take a tab away (no questions); the neighbour on the right, else the left, is shown. */
+function dropTab(doc) {
+  const i = docs.indexOf(doc);
+  if (i < 0) return;
+  docs.splice(i, 1);
+  doc.seq = (doc.seq || 0) + 1; // a read still on its way is dropped
+  if (mounted === doc) mounted = null;
+  if (doc !== file) {
+    paintFileTabs();
+    paintTree();
+    persist();
+    return;
+  }
+  file = null;
+  const next = docs[i] || docs[i - 1] || null;
+  if (next) {
+    activate(next);
+    return;
+  }
+  banner = null;
+  paintBanner();
+  persist();
+  paintMain();
+  paintTree();
+  if (reading) leaveFile();
+}
+
+/** The tab's × (or middle click, ⌥W): unsaved edits ask first. */
+function closeTab(doc) {
+  if (!doc) return;
+  if (docDirty(doc)) {
+    activate(doc);
+    banner = { kind: 'unsaved', closing: true, then: () => dropTab(doc) };
+    paintBanner();
+    return;
+  }
+  dropTab(doc);
 }
 
 function focusEditor() {
@@ -701,17 +799,42 @@ function paintMain() {
   const el = mainEl();
   if (!el) return;
   saveViewState();
+  const strip = `<div class="fb-ftabs" id="${ID}-ftabs" role="tablist" aria-label="Open files"></div>`;
   if (!file) {
-    el.innerHTML = `<div class="gx-pick">${icon('folder-open')}<span>Pick a file to view or edit it</span><small>${MOD} S saves · esc closes</small></div>`;
+    el.innerHTML = `${strip}<div class="gx-pick">${icon('folder-open')}<span>Pick a file to view or edit it</span><small>Each file opens in its own tab · ${MOD} S saves · esc closes</small></div>`;
+    paintFileTabs();
     paintFoot();
     return;
   }
-  el.innerHTML = '<header class="fb-head" id="files-head"></header><div class="fb-view" id="files-view"></div><footer class="fb-status" id="files-status"></footer>';
+  el.innerHTML = `${strip}<header class="fb-head" id="files-head"></header><div class="fb-view" id="files-view"></div><footer class="fb-status" id="files-status"></footer>`;
   paintHead();
   paintView();
   paintStatus();
   syncReading();
   paintFoot();
+}
+
+/** The open-file tabs above the header: click to switch, × / middle click / ⌥W to close. */
+function paintFileTabs() {
+  const el = $(`${ID}-ftabs`);
+  if (!el) return;
+  const seen = new Map();
+  docs.forEach((d) => seen.set(d.name, (seen.get(d.name) || 0) + 1));
+  el.innerHTML = docs.map((d, i) => {
+    const on = d === file;
+    const dirty = docDirty(d);
+    const dir = dirOf(d.path);
+    // Two tabs with the same name: say which folder each is in.
+    const hint = seen.get(d.name) > 1 ? `<span class="fb-ftab-dir">${escapeHtml(dir ? baseOf(dir) : '/')}</span>` : '';
+    const cls = ['fb-ftab', on ? 'is-on' : '', dirty ? 'is-dirty' : '', d.error ? 'is-bad' : '', d.virtual ? 'is-virtual' : ''].filter(Boolean).join(' ');
+    const tip = `${d.path}${d.virtual ? ' (diff)' : ''}${dirty ? ' — unsaved changes' : ''}`;
+    return `<div class="${cls}" role="tab" aria-selected="${on}" tabindex="${on ? 0 : -1}" data-act="tab" data-i="${i}" title="${escapeHtml(tip)}">
+      <span class="fb-ftab-ic">${icon(d.virtual ? 'file-diff' : fileIcon(d.name))}</span>
+      <span class="fb-ftab-name">${escapeHtml(d.name)}</span>${hint}
+      <button type="button" class="fb-ftab-x" data-act="tab-close" data-i="${i}" tabindex="-1" title="Close (⌥ W)" aria-label="Close ${escapeHtml(d.name)}">${dirty ? '<i class="fb-ftab-dot" aria-hidden="true"></i>' : ''}${icon('x')}</button>
+    </div>`;
+  }).join('');
+  el.querySelector('.fb-ftab.is-on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function chipsHtml() {
@@ -770,6 +893,7 @@ function paintHead() {
       ${tool('delete', 'trash-2', 'Move to the Trash', { disabled: busy || file.gone })}
     </span>`;
   paintChgChip();
+  paintFileTabs();
   syncReading();
 }
 
@@ -824,6 +948,7 @@ function mountEditor(el) {
     <div class="fb-alt" hidden></div>
     <div class="fb-peek" role="dialog" aria-label="Change compared with git" hidden></div>`;
   const ta = el.querySelector('.fb-text');
+  mounted = file;
   ta.value = file.text;
   ta.readOnly = file.writable === false;
   ta.style.tabSize = file.indent === '\t' ? '4' : String(file.indent.length);
@@ -928,12 +1053,14 @@ async function paintDiff(alt) {
   }
 }
 
+/** Remember where the editor was — for the document it shows (the tab may have just changed). */
 function saveViewState() {
   const ta = mainEl()?.querySelector('.fb-text');
-  if (!ta || !file || file.kind !== 'text') return;
-  file.scroll = ta.scrollTop;
-  file.scrollX = ta.scrollLeft;
-  file.sel = [ta.selectionStart, ta.selectionEnd];
+  const doc = mounted;
+  if (!ta || !doc || doc.kind !== 'text') return;
+  doc.scroll = ta.scrollTop;
+  doc.scrollX = ta.scrollLeft;
+  doc.sel = [ta.selectionStart, ta.selectionEnd];
 }
 
 function paintGutter(force = false) {
@@ -1040,7 +1167,7 @@ function onTerminalState() {
 /** Why switching can't happen now ('' = it can). */
 function branchBlock() {
   if (store.busy) return 'Jarvis is working in these files — switch branches when it finishes';
-  if (isDirty()) return `Save or revert your edits to ${file.name} first`;
+  if (unsavedDoc()) return `Save or revert your edits to ${unsavedDoc().name} first`;
   if (scmBusy) return 'Wait for the current git action to finish';
   return '';
 }
@@ -1307,8 +1434,8 @@ async function openPr() {
     showToast(s.why, true);
     return;
   }
-  if (isDirty()) {
-    showToast(`Save or revert your edits to ${file.name} first — a pull request only takes what is on disk`, true);
+  if (unsavedDoc()) {
+    showToast(`Save or revert your edits to ${unsavedDoc().name} first — a pull request only takes what is on disk`, true);
     return;
   }
   if (!$(PR_ID)) return;
@@ -1508,8 +1635,9 @@ function paintBanner() {
   let actions = '';
   switch (banner.kind) {
     case 'unsaved':
-      text = `You have unsaved changes in ${name}.`;
-      actions = bannerBtn('b-save', 'Save and continue', 'btn-primary') + bannerBtn('b-discard', 'Discard', 'btn-danger') + bannerBtn('b-keep', 'Keep editing');
+      text = banner.closing ? `Close ${name}? It has unsaved changes.` : `You have unsaved changes in ${name}.`;
+      actions = bannerBtn('b-save', banner.closing ? 'Save and close' : 'Save and continue', 'btn-primary')
+        + bannerBtn('b-discard', banner.closing ? 'Close without saving' : 'Discard', 'btn-danger') + bannerBtn('b-keep', 'Keep editing');
       break;
     case 'revert':
       text = `Throw away your edits to ${name}?`;
@@ -1578,7 +1706,7 @@ function paintPrompt() {
     return;
   }
   if (p.kind === 'delete') {
-    const lose = file && (file.path === p.path || file.path.startsWith(`${p.path}/`)) && isDirty() ? ' Your unsaved edits will be lost.' : '';
+    const lose = docs.some((d) => !d.virtual && under(d.path, p.path) && docDirty(d)) ? ' Your unsaved edits will be lost.' : '';
     el.innerHTML = `<p class="fb-prompt-text">Move <strong>${escapeHtml(p.path)}</strong> to the Trash${p.isDir ? ' with everything inside it' : ''}?${lose}</p>${err}
       <div class="fb-prompt-actions">
         <button type="button" class="btn btn-sm btn-danger" data-act="p-confirm" data-esc-cancels ${p.busy ? 'disabled' : ''}>${icon('trash-2')}<span>Move to Trash</span></button>
@@ -1666,23 +1794,23 @@ async function submitPrompt() {
 
 async function finishPrompt(p, res) {
   if (p.kind === 'delete') {
-    if (file && (file.path === p.path || file.path.startsWith(`${p.path}/`))) {
-      file = null;
-      banner = null;
-      paintBanner();
-      persist();
-      paintMain();
-      if (reading) leaveFile();
-    }
+    // Its tabs close (the shown one last, so the next tab shown is one that stays).
+    const gone = docs.filter((d) => !d.virtual && under(d.path, p.path));
+    gone.filter((d) => d !== file).forEach(dropTab);
+    if (gone.includes(file)) dropTab(file);
     expanded.delete(p.path);
     showToast(`Moved ${baseOf(p.path)} to the Trash`);
   } else if (p.kind === 'rename') {
-    if (file && (file.path === p.path || file.path.startsWith(`${p.path}/`))) {
-      file.path = res.path + file.path.slice(p.path.length);
-      file.name = baseOf(file.path);
-      file.diff = null;
+    const moved = docs.filter((d) => !d.virtual && under(d.path, p.path));
+    moved.forEach((d) => {
+      d.path = res.path + d.path.slice(p.path.length);
+      d.name = baseOf(d.path);
+      d.diff = null;
+    });
+    if (moved.length) {
       persist();
-      paintHead();
+      if (file) paintHead();
+      else paintFileTabs();
     }
     for (const d of [...expanded]) {
       if (d === p.path || d.startsWith(`${p.path}/`)) {
@@ -1729,13 +1857,13 @@ async function loadBase(doc) {
   if (!doc || doc.kind !== 'text') return;
   if (!doc.repo) {
     doc.baseLines = null;
-    recomputeChanges();
+    if (file === doc) recomputeChanges();
     return;
   }
   const res = await call('base', { path: doc.path });
-  if (file !== doc) return;
+  if (!docs.includes(doc)) return;
   doc.baseLines = res.ok && typeof res.base === 'string' ? res.base.split('\n') : null;
-  recomputeChanges();
+  if (file === doc) recomputeChanges(); // a background tab compares when it is shown (mountEditor)
 }
 
 /** Git moved on (a commit, a pull, a turn ended): compare with the new HEAD. */
@@ -2212,8 +2340,8 @@ async function pushScm() {
 
 function stashScm() {
   if (scmBusy || stashState().why) return;
-  if (isDirty()) {
-    showToast(`Save or revert your edits to ${file.name} first — a stash only takes what is on disk`, true);
+  if (unsavedDoc()) {
+    showToast(`Save or revert your edits to ${unsavedDoc().name} first — a stash only takes what is on disk`, true);
     return;
   }
   const n = num(scm.total);
@@ -2339,21 +2467,28 @@ function openChange(group, path, { focus = false } = {}) {
   if (!r) return;
   const diffSide = group === 'staged' ? 'staged' : 'unstaged';
   const rel = relOf(path);
-  if (isDirty() && (!file || file.path !== rel)) {
-    banner = { kind: 'unsaved', then: () => openChange(group, path, { focus }) };
-    paintBanner();
-    return;
-  }
   scmSel = { group, path };
   paintScm();
-  if (rel === null || r.status === 'deleted') {
-    file = {
-      path: rel ?? path, repoPath: path, name: baseOf(path), kind: 'change', view: 'diff', diffSide, virtual: true,
-      git: r.status === 'deleted' ? 'D' : '', outside: rel === null, hunks: [], peek: null, repo: true, prefix: '',
-    };
-    banner = null;
-    paintBanner();
-    paintMain();
+  if (rel === null || r.status === 'deleted') { // a read-only diff, in its own tab
+    let doc = docs.find((d) => d.virtual && d.repoPath === path);
+    if (doc) {
+      if (doc.diffSide !== diffSide) Object.assign(doc, { diffSide, diff: null });
+    } else {
+      doc = {
+        path: rel ?? path, repoPath: path, name: baseOf(path), kind: 'change', view: 'diff', diffSide, virtual: true,
+        git: r.status === 'deleted' ? 'D' : '', outside: rel === null, hunks: [], peek: null, repo: true, prefix: '',
+      };
+      addTab(doc);
+    }
+    if (doc === file) paintMain();
+    else showDoc(doc);
+    return;
+  }
+  const have = docFor(rel);
+  if (have && have !== file && !have.error && !have.loading && !have.pending) { // its tab, in the Diff view
+    if (have.diffSide !== diffSide) Object.assign(have, { diffSide, diff: null });
+    if (have.kind === 'text') have.view = 'diff';
+    activate(have, { focus });
     return;
   }
   if (file && file.path === rel && !file.error && !file.loading && !file.virtual) {
@@ -2482,8 +2617,8 @@ async function commitScm({ push = false } = {}) {
     ta?.focus();
     return;
   }
-  if (isDirty()) {
-    showToast(`Save ${file.name} first — unsaved edits aren’t part of a commit`, true);
+  if (unsavedDoc()) {
+    showToast(`Save ${unsavedDoc().name} first — unsaved edits aren’t part of a commit`, true);
     return;
   }
   const staged = scmRows('staged').length > 0;
@@ -2724,13 +2859,7 @@ function actBanner(name) {
       });
       break;
     case 'b-close':
-      file = null;
-      banner = null;
-      persist();
-      paintBanner();
-      paintMain();
-      paintTree();
-      if (reading) leaveFile();
+      if (file) dropTab(file);
       break;
     default:
   }
@@ -2762,11 +2891,17 @@ async function act(name, b) {
       openHit(Number(b.dataset.i));
       break;
     case 'retry':
-      if (file) {
-        const path = file.path;
-        file = null;
-        openPath(path);
+      if (file && !file.virtual) {
+        Object.assign(file, { loading: true, error: '', code: '' });
+        paintMain();
+        loadDoc(file, { focus: true });
       }
+      break;
+    case 'tab':
+      activate(docs[Number(b.dataset.i)]);
+      break;
+    case 'tab-close':
+      closeTab(docs[Number(b.dataset.i)]);
       break;
     case 'mode':
       setMode(b.dataset.mode);
@@ -3016,6 +3151,17 @@ function onKey(e) {
     save();
     return;
   }
+  // ⌥W closes the shown tab (⌘W / Ctrl+W belong to the browser). e.code: ⌥ changes e.key on a Mac.
+  const typing = t.matches?.('input, textarea') && !t.matches('.fb-text');
+  if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyW' && file && !typing) {
+    e.preventDefault();
+    closeTab(file);
+    return;
+  }
+  if (t.closest?.('.fb-ftab') && !t.closest('.fb-ftab-x')) {
+    tabKey(e, t.closest('.fb-ftab'));
+    return;
+  }
   if (brOpen && t.closest?.(`#${BR_ID}`)) {
     branchKey(e);
     return;
@@ -3062,6 +3208,31 @@ function onKey(e) {
   } else if (t.closest?.('.fb-hit')) {
     arrowRows(e, search, rows);
   }
+}
+
+/** The tab strip: ← / → / Home / End move between tabs, Delete closes, Enter goes to the editor. */
+function tabKey(e, tab) {
+  const i = Number(tab.dataset.i);
+  let to = -1;
+  if (e.key === 'ArrowRight') to = Math.min(docs.length - 1, i + 1);
+  else if (e.key === 'ArrowLeft') to = Math.max(0, i - 1);
+  else if (e.key === 'Home') to = 0;
+  else if (e.key === 'End') to = docs.length - 1;
+  else if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    closeTab(docs[i]);
+    requestAnimationFrame(() => $(`${ID}-ftabs`)?.querySelector('.fb-ftab.is-on')?.focus({ preventScroll: true }));
+    return;
+  } else if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    activate(docs[i], { focus: true });
+    focusEditor();
+    return;
+  }
+  if (to < 0 || !docs[to]) return;
+  e.preventDefault();
+  activate(docs[to]);
+  $(`${ID}-ftabs`)?.querySelector('.fb-ftab.is-on')?.focus({ preventScroll: true });
 }
 
 function onInput(e) {
@@ -3113,7 +3284,10 @@ export function openFiles({ path = '', pane: want = '' } = {}) {
       reading = false;
       cardEl()?.classList.remove('is-reading');
       undockTerminal();
-      if (isDirty()) showToast(`Unsaved changes in ${file.name} are kept — reopen Files to continue`);
+      const dirty = dirtyDocs();
+      if (dirty.length) {
+        showToast(`Unsaved changes in ${dirty.length === 1 ? dirty[0].name : `${dirty.length} files`} are kept — reopen Files to continue`);
+      }
     },
   });
   // The terminal comes along: same shells, docked above the footer while Files is open.
@@ -3126,6 +3300,12 @@ export function openFiles({ path = '', pane: want = '' } = {}) {
   loadAll().then(() => {
     const restore = pendingFile;
     pendingFile = '';
+    // Last visit's tabs come back unread; each is read when it is shown.
+    if (pendingTabs.length) {
+      pendingTabs.forEach((p) => { if (!docFor(p)) docs.push(newDoc(p, { restored: true })); });
+      pendingTabs = [];
+      paintFileTabs();
+    }
     if (path) openPath(path, { focus: true });
     else if (!file && restore && wide()) openPath(restore, { restoring: true });
     else if (file) checkDisk();
@@ -3160,6 +3340,16 @@ export function initFiles(hooks = {}) {
     if (scmMenuOpen && !e.target.closest?.(`#${ID}-menu, #${ID}-more`)) closeScmMenu();
     if (brOpen && !e.target.closest?.(`#${BR_ID}, #${BR_ID}-btn`)) closeBranchMenu();
   });
+  // A middle click closes a tab (and doesn't start the browser's autoscroll).
+  el.addEventListener('mousedown', (e) => {
+    if (e.button === 1 && e.target.closest('.fb-ftab')) e.preventDefault();
+  });
+  el.addEventListener('auxclick', (e) => {
+    const tab = e.button === 1 && e.target.closest('.fb-ftab');
+    if (!tab) return;
+    e.preventDefault();
+    closeTab(docs[Number(tab.dataset.i)]);
+  });
   el.addEventListener('dblclick', (e) => {
     if (e.target.closest('.fb-row[data-dir="0"]')) focusEditor();
   });
@@ -3180,7 +3370,7 @@ export function initFiles(hooks = {}) {
   });
   // Leaving the page with unsaved edits asks first.
   window.addEventListener('beforeunload', (e) => {
-    if (!isDirty()) return;
+    if (!isFilesDirty()) return;
     e.preventDefault();
     e.returnValue = '';
   });
