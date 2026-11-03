@@ -47,6 +47,83 @@
 .gc-scm:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.55); outline-offset: -1px; }
 .gc-scm .ic { width: 14px; height: 14px; }
 
+/* The footer's branch chip (bottom left; opens Source Control). */
+.fb-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 280px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--text-2);
+  font: 12px var(--font-mono);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.fb-branch:hover { background: var(--card-hover); color: var(--text); }
+.fb-branch:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.55); outline-offset: -1px; }
+.fb-branch .ic { width: 13px; height: 13px; flex: none; color: var(--accent); }
+.fb-branch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-branch em { flex: none; font-style: normal; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.fb-branch .fb-branch-chev { width: 12px; height: 12px; color: var(--text-3); transition: transform var(--dur-fast) var(--ease); }
+.fb-branch[aria-expanded="true"] { background: var(--card-hover); color: var(--text); }
+.fb-branch[aria-expanded="true"] .fb-branch-chev { transform: rotate(180deg); }
+.fb-branch .spinner { width: 12px; height: 12px; flex: none; }
+
+/* The branch switcher: opens upward from the footer chip (bottom is set by files.js). */
+.gc-menu.fb-br-menu { top: auto; left: 12px; right: auto; width: min(340px, calc(100% - 24px)); }
+.fb-br-menu[hidden] { display: none; }
+.fb-br-menu .gc-branches { max-height: min(320px, 50vh); }
+.fb-br-why { align-items: flex-start; color: var(--warn); }
+.fb-br-why .ic { width: 13px; height: 13px; flex: none; margin-top: 2px; }
+
+/* Create pull request (#files-pr) */
+.modal-card.fb-pr-card { max-width: 560px; }
+.fb-pr-card .prompt-icon .br { width: 16px; height: 16px; color: var(--text); }
+.fb-pr-form { display: flex; flex-direction: column; gap: 8px; }
+.fb-pr-route { display: flex; align-items: flex-end; gap: 8px; }
+.fb-pr-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.fb-pr-field > span { font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.fb-pr-arrow { flex: none; height: var(--h-md); display: grid; place-items: center; color: var(--text-3); }
+.fb-pr-card select.fb-input { cursor: pointer; }
+.fb-pr-plan { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text-3); }
+.fb-pr-plan strong { font-family: var(--font-mono); font-weight: 600; color: var(--text-2); }
+.fb-pr-card .fb-pr-title { font-family: var(--font-ui); font-size: 13px; }
+.fb-pr-card .fb-pr-body {
+  height: auto;
+  min-height: 120px;
+  padding: 8px 10px;
+  font: 12.5px/1.5 var(--font-ui);
+  resize: vertical;
+}
+.fb-pr-draft { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.fb-pr-actions .btn { flex: none; }
+.fb-pr-spacer { flex: 1; }
+.fb-pr-actions .spinner { width: 13px; height: 13px; }
+@media (max-width: 560px) {
+  .fb-pr-route { flex-direction: column; align-items: stretch; }
+  .fb-pr-arrow { display: none; }
+}
+
+/* The pull request just opened, under the commit box. */
+.fb-prdone {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 2px 2px 2px 10px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-size: 12px;
+}
+.fb-prdone .br { width: 14px; height: 14px; flex: none; color: var(--text-2); }
+.fb-prdone a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
+
 /* ─── Left: Explorer | Source Control ──────────────────────────────── */
 .fb-tabs {
   display: flex;
@@ -503,6 +580,11 @@
 .fb-alt > .dlg-empty { height: 100%; justify-content: center; }
 .fb-preview { padding: 18px 24px 40px; max-width: 860px; font-size: 14px; }
 .fb-muted { color: var(--text-3); }
+/* .fb-alt is the one scroller here. .gx-diff (from git.css) is a scroller too
+   (overflow: auto + overscroll-behavior: contain); nested inside .fb-alt it only
+   overflows sideways (.dv-rows is max-content wide), so it caught the wheel and
+   — being "contain" — never handed vertical scroll up to .fb-alt. */
+.gx-diff.fb-diff { flex: none; overflow: visible; overscroll-behavior: auto; }
 .fb-diff .dv.gx-dv { max-height: none; overflow: visible; font-size: 12.5px; }
 .fb-diff .dv-rows { padding: 6px 0 12px; }
 .fb-diff-note { margin: 0; padding: 4px 16px 24px; font-size: 12px; color: var(--text-3); }

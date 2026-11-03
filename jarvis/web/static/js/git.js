@@ -319,7 +319,7 @@ function paintForm() {
         <button type="button" class="btn btn-quiet gc-gen" data-act="generate-pr" title="Write the title and description with ${escapeHtml(genModelName())}">${icon('wand-sparkles')}<span>Generate</span></button>
         <span class="gc-spacer"></span>
         <button type="button" class="btn btn-quiet" data-act="cancel">Cancel</button>
-        <button type="button" class="btn btn-primary" data-act="do-pr">${icon('git-pull-request')}<span>Create PR</span></button>
+        <button type="button" class="btn btn-primary" data-act="do-pr">${icon('brand:github')}<span>Create PR</span></button>
       </div>`;
   } else {
     const push = want === 'commit-push';
@@ -611,7 +611,7 @@ function paintResult() {
     res.className = 'gc-result';
     el.appendChild(res);
   }
-  res.innerHTML = `${icon('git-pull-request')}<a href="${escapeHtml(lastPr)}" target="_blank" rel="noopener">${escapeHtml(lastPr.replace(/^https?:\/\//, ''))}</a><button type="button" class="gc-x" data-act="dismiss-pr" aria-label="Dismiss">${icon('x')}</button>`;
+  res.innerHTML = `${icon('brand:github')}<a href="${escapeHtml(lastPr)}" target="_blank" rel="noopener">${escapeHtml(lastPr.replace(/^https?:\/\//, ''))}</a><button type="button" class="gc-x" data-act="dismiss-pr" aria-label="Dismiss">${icon('x')}</button>`;
 }
 
 // ─── Menus ────────────────────────────────────────────────────────────────
@@ -660,6 +660,7 @@ function openMenu(kind, anchor) {
         hint: num(st.behind) ? `↓${num(st.behind)}` : '',
       }),
       menuItem('pr', 'git-pull-request', 'Create PR', {
+        logo: icon('brand:github'),
         disabled: !remote || !st.gh || st.detached,
         why: !st.gh ? 'Needs the GitHub CLI: brew install gh, then gh auth login' : !remote ? 'This repository has no remote' : 'Open a pull request for this branch',
       }),

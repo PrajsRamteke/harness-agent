@@ -187,7 +187,7 @@
   font-size: 12.5px;
   color: var(--text-2);
 }
-.gc-result .ic { width: 14px; height: 14px; flex: none; color: var(--ok); }
+.gc-result .ic, .gc-result .br { width: 14px; height: 14px; flex: none; color: var(--ok); }
 .gc-result a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
 .gc-x { display: grid; place-items: center; width: 24px; height: 24px; flex: none; border: none; border-radius: 4px; background: none; color: var(--text-3); }
 .gc-x:hover { background: var(--card-hover); color: var(--text); }

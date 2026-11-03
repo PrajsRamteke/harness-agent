@@ -5,7 +5,7 @@ import { $, escapeHtml, showToast, storageGet, storageSet, debounce, animateEl, 
 import { icon } from './icons.js';
 import { store, subscribe, patchStore } from './store.js';
 import { sendPrompt, cancelTurn, enhancePrompt } from './api.js';
-import { CATALOG, LOCAL_PICKERS, LOCAL_PICKER_ARGS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchItem, rankItems, getCustomItems, wantCustomItems, commandPickerArg } from './catalog.js';
+import { CATALOG, LOCAL_MODALS, LOCAL_PICKERS, LOCAL_PICKER_ARGS, LOCAL_PICKERS_WITH_ARG, LAPTOP_COMMANDS, matchItem, rankItems, getCustomItems, wantCustomItems, commandPickerArg } from './catalog.js';
 import { scrollToBottom } from './chat.js';
 import { quoteLines } from './quote.js';
 import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
@@ -204,6 +204,15 @@ export async function submitPrompt(text) {
     if (text === undefined && el) setPromptValue('');
     const { renameCurrent } = await import('./rename.js');
     renameCurrent();
+    return;
+  }
+
+  // Bare /theme: the Appearance modal here, not the terminal's theme dialog.
+  if (!withFiles && LOCAL_MODALS[value.toLowerCase()] === 'appearance') {
+    if (text === undefined && el) setPromptValue('');
+    closeSlash();
+    const { openAppearance } = await import('./theme.js');
+    openAppearance();
     return;
   }
 
@@ -513,7 +522,7 @@ function updateSlash() {
       : '';
     const tag = it.custom
       ? `<span class="slash-tag is-mine">${it.scope === 'project' ? 'project' : 'global'}</span>`
-      : it.picker ? '<span class="slash-tag">opens here</span>' : it.laptop ? '<span class="slash-tag">on computer</span>' : '';
+      : it.picker || it.action ? '<span class="slash-tag">opens here</span>' : it.laptop ? '<span class="slash-tag">on computer</span>' : '';
     return `${head}
     <button type="button" class="slash-item${it.custom ? ' is-custom' : ''}${i === slashCursor ? ' is-cursor' : ''}" role="option" data-i="${i}" aria-selected="${i === slashCursor}" style="--i:${i}">
       ${icon(it.icon)}

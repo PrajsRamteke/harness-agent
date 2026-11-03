@@ -53,6 +53,7 @@ def test_lists_unstaged_changes_with_counts(repo):
     res = git_api.source_control(str(repo))
     assert res["ok"] and res["branch"] == "main" and res["prefix"] == "" and res["total"] == 4
     assert (res["upstream"], res["ahead"], res["remotes"]) == ("", 0, False)
+    assert res["detached"] is False and isinstance(res["gh"], bool)
     assert res["staged"] == [] and res["conflicts"] == []
     by = {r["path"]: r for r in res["unstaged"]}
     assert {p: r["status"] for p, r in by.items()} == {

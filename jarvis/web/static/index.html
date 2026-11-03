@@ -710,6 +710,42 @@
         <section class="gx-main fb-main" id="files-main" aria-label="File"></section>
       </div>
       <div class="dlg-foot" id="files-foot"></div>
+      <div class="gc-menu is-branches fb-br-menu" id="files-br" role="dialog" aria-label="Switch branch" hidden></div>
+    </div>
+  </div>
+
+  <div class="modal modal-prompt" id="files-pr" hidden>
+    <div class="modal-card glass-strong prompt-card fb-pr-card" role="dialog" aria-modal="true" aria-labelledby="files-pr-title">
+      <div class="prompt-head">
+        <span class="prompt-icon" id="files-pr-ic"></span>
+        <div class="prompt-titles">
+          <h2 id="files-pr-title">Create pull request</h2>
+          <p id="files-pr-sub"></p>
+        </div>
+      </div>
+      <div class="fb-pr-form">
+        <div class="fb-pr-route">
+          <label class="fb-pr-field"><span>From</span>
+            <input id="files-pr-head" class="fb-input" type="text" list="files-pr-heads" placeholder="new branch, e.g. feat/…" autocomplete="off" spellcheck="false" aria-label="Branch to open the pull request from">
+          </label>
+          <span class="fb-pr-arrow" aria-hidden="true">→</span>
+          <label class="fb-pr-field"><span>Into</span>
+            <select id="files-pr-base" class="fb-input" aria-label="Branch to merge into"></select>
+          </label>
+        </div>
+        <datalist id="files-pr-heads"></datalist>
+        <p class="fb-pr-plan" id="files-pr-plan"></p>
+        <input id="files-pr-name" class="fb-input fb-pr-title" type="text" placeholder="Title (empty = from the commits)" autocomplete="off" aria-label="Title">
+        <textarea id="files-pr-body" class="fb-input fb-pr-body" rows="6" placeholder="Description (Markdown)" aria-label="Description"></textarea>
+        <label class="fb-pr-draft"><input type="checkbox" id="files-pr-draft"><span>Open as a draft</span></label>
+        <p class="fb-prompt-err" id="files-pr-err" role="alert" hidden></p>
+      </div>
+      <div class="prompt-actions fb-pr-actions">
+        <button class="btn btn-quiet" type="button" id="files-pr-gen" title="Write the title, description and branch name from your changes"></button>
+        <span class="fb-pr-spacer"></span>
+        <button class="btn btn-quiet" type="button" data-close="files-pr">Cancel</button>
+        <button class="btn btn-primary" type="button" id="files-pr-ok"></button>
+      </div>
     </div>
   </div>
 

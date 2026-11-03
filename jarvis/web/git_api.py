@@ -657,7 +657,8 @@ def source_control(cwd: str) -> dict[str, Any]:
         staged, unstaged, conflicts = _scm_rows(root)
     except GitError as exc:
         return {"ok": False, "error": str(exc)}
-    branch = _git(root, "symbolic-ref", "--short", "-q", "HEAD")[1].strip() or _git(root, "rev-parse", "--short", "HEAD")[1].strip()
+    on_branch = _git(root, "symbolic-ref", "--short", "-q", "HEAD")[1].strip()
+    branch = on_branch or _git(root, "rev-parse", "--short", "HEAD")[1].strip()
     prefix = _git(cwd, "rev-parse", "--show-prefix")[1].strip()
     total = len(staged) + len(unstaged) + len(conflicts)
     # For the commit box's ⌄ menu: Push N commits / Publish branch / nothing to push.
@@ -666,6 +667,7 @@ def source_control(cwd: str) -> dict[str, Any]:
     ahead = _int(_git(root, "rev-list", "--count", "@{u}..HEAD")[1].strip()) if upstream else 0
     return {"ok": True, "branch": branch, "prefix": prefix, "upstream": upstream, "ahead": ahead,
             "remotes": bool(_git(root, "remote")[1].split()),
+            "detached": not on_branch, "gh": bool(shutil.which("gh")),  # Create PR (GitHub CLI)
             "has_head": _git(root, "rev-parse", "--verify", "-q", "HEAD")[0] == 0,
             "staged": staged[:FILES_MAX], "unstaged": unstaged[:FILES_MAX], "conflicts": conflicts[:FILES_MAX],
             "truncated": max(0, len(staged) - FILES_MAX) + max(0, len(unstaged) - FILES_MAX), "total": total}
