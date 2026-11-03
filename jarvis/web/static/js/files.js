@@ -28,6 +28,7 @@ import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from 
 import { renderDiff, gutterWidth } from './diffview.js';
 import { renderMarkdown } from './markdown.js';
 import { diffLines } from './linediff.js';
+import { popOpen, closePop, showPop, popKey, wirePop } from './branchpop.js';
 
 const ID = 'files';
 const STATE_KEY = 'jarvis-files';
@@ -1159,6 +1160,83 @@ function prState() {
 }
 
 const prEl = (part) => $(`${PR_ID}-${part}`);
+const PR_HEAD_SUGGESTIONS = 30; // branches listed under From while you type
+const PR_BASE_FILTER_AT = 8;    // Into gets a filter box past this many branches
+
+/** The Into branch (a custom dropdown button, not a <select>). */
+const prBase = () => prEl('base')?.dataset.value || '';
+
+function setPrBase(value, label = '') {
+  const btn = prEl('base');
+  if (!btn) return;
+  btn.dataset.value = value || '';
+  btn.innerHTML = `<span class="gc-select-v">${escapeHtml(label || value || 'Pick a branch')}</span>${icon('chevron-down')}`;
+  paintPrPlan();
+}
+
+const prBases = () => (prBranches?.bases?.length ? prBranches.bases : prBranches?.local || []);
+
+function showPrHeads() {
+  const head = prEl('head');
+  const pop = prEl('pop-head');
+  if (!prBranches || !head || !pop) return;
+  const q = head.value.trim().toLowerCase();
+  const items = (prBranches.local || [])
+    .filter((b) => b !== prBase() && (!q || b.toLowerCase().includes(q)))
+    .slice(0, PR_HEAD_SUGGESTIONS);
+  if (!items.length) {
+    closePop(pop); // a new name: nothing to suggest, the plan line says what happens
+    return;
+  }
+  showPop(pop, items, {
+    current: head.value.trim(),
+    preselect: false,
+    onPick: (v) => {
+      head.value = v;
+      closePop(pop);
+      paintPrPlan();
+    },
+  });
+}
+
+function showPrBases(q = '') {
+  const pop = prEl('pop-base');
+  if (!pop) return;
+  const all = prBases();
+  showPop(pop, all.filter((b) => !q || b.toLowerCase().includes(q.toLowerCase())), {
+    current: prBase(),
+    filter: all.length > PR_BASE_FILTER_AT,
+    onPick: (v) => {
+      setPrBase(v);
+      closePop(pop);
+      prEl('base').focus({ preventScroll: true });
+    },
+  });
+  escClosesPop(pop.querySelector('.gc-pop-search input'), pop, prEl('base'));
+}
+
+/**
+ * The modal stack handles Esc first (capture phase) and would close the whole
+ * dialog; fields marked data-esc-cancels get an 'esc-cancel' event instead, so
+ * Esc closes an open list and only closes the dialog when none is open.
+ */
+function escClosesPop(field, pop, refocus = null) {
+  if (!field || field.hasAttribute('data-esc-cancels')) return;
+  field.setAttribute('data-esc-cancels', '');
+  field.addEventListener('esc-cancel', () => {
+    if (!popOpen(pop)) {
+      closeModal(PR_ID, 'esc');
+      return;
+    }
+    closePop(pop);
+    refocus?.focus({ preventScroll: true });
+  });
+}
+
+function closePrPops() {
+  closePop(prEl('pop-head'));
+  closePop(prEl('pop-base'));
+}
 
 function prError(msg = '') {
   const el = prEl('err');
@@ -1185,7 +1263,7 @@ function paintPrPlan() {
   const el = prEl('plan');
   if (!el) return;
   const head = prEl('head')?.value.trim() || '';
-  const base = prEl('base')?.value || '';
+  const base = prBase();
   const n = num(scm?.total);
   const files = n ? `commits your ${n} changed file${n === 1 ? '' : 's'} (the title is the commit message), ` : '';
   const b = (s) => `<strong>${escapeHtml(s)}</strong>`;
@@ -1218,8 +1296,9 @@ async function openPr() {
   prEl('name').value = scmMsg.split('\n')[0].trim();
   prEl('body').value = '';
   prEl('draft').checked = false;
+  closePrPops();
   const base = prEl('base');
-  base.innerHTML = '<option value="">Loading…</option>';
+  setPrBase('', 'Loading…');
   base.disabled = true;
   prEl('sub').textContent = `${scm.branch} · GitHub`;
   paintPrPlan();
@@ -1231,12 +1310,11 @@ async function openPr() {
     return;
   }
   prBranches = res;
-  const bases = res.bases?.length ? res.bases : res.local || [];
-  base.innerHTML = bases.map((n) => `<option value="${escapeHtml(n)}"${n === res.base ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  const bases = prBases();
   base.disabled = false;
-  prEl('heads').innerHTML = (res.local || []).map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
+  setPrBase(bases.includes(res.base) ? res.base : bases[0] || '');
   const head = prEl('head');
-  if (head.value.trim() === base.value) { // on the base branch: the work needs a new branch
+  if (head.value.trim() === prBase()) { // on the base branch: the work needs a new branch
     head.value = '';
     head.focus();
   }
@@ -1259,14 +1337,14 @@ async function generatePr() {
   if (res.title) prEl('name').value = res.title;
   if (res.body) prEl('body').value = res.body;
   const head = prEl('head');
-  if (res.branch && (!head.value.trim() || head.value.trim() === prEl('base').value)) head.value = res.branch;
+  if (res.branch && (!head.value.trim() || head.value.trim() === prBase())) head.value = res.branch;
   paintPrPlan();
 }
 
 async function createPr() {
   if (prBusy || !prBranches) return;
   const head = prEl('head').value.trim();
-  const base = prEl('base').value;
+  const base = prBase();
   const title = prEl('name').value.trim();
   const local = prBranches.local || [];
   const commits = num(scm?.total) && (head === scm?.branch || !local.includes(head));
@@ -1316,6 +1394,57 @@ function paintPrDone() {
     + `<button type="button" class="tool-icon" data-act="pr-dismiss" title="Dismiss" aria-label="Dismiss">${icon('x')}</button>`;
 }
 
+/** From (typed, with branch suggestions) → Into (custom dropdown). */
+function initPrRoute(el) {
+  const head = prEl('head');
+  const base = prEl('base');
+  const headPop = prEl('pop-head');
+  const basePop = prEl('pop-base');
+  wirePop(headPop);
+  wirePop(basePop);
+  escClosesPop(head, headPop);
+  escClosesPop(base, basePop);
+
+  head.addEventListener('focus', showPrHeads);
+  head.addEventListener('input', showPrHeads);
+  head.addEventListener('keydown', (e) => {
+    if (popKey(headPop, e)) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      showPrHeads();
+    }
+  });
+  head.addEventListener('blur', () => setTimeout(() => closePop(headPop), 120));
+
+  base.addEventListener('click', () => {
+    if (popOpen(basePop)) {
+      closePop(basePop);
+      return;
+    }
+    closePop(headPop);
+    showPrBases();
+    basePop.querySelector('.gc-pop-search input')?.focus({ preventScroll: true });
+  });
+  base.addEventListener('keydown', (e) => {
+    if (popKey(basePop, e)) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      showPrBases();
+    }
+  });
+  basePop.addEventListener('input', (e) => {
+    if (e.target.matches('.gc-pop-search input')) showPrBases(e.target.value);
+  });
+  basePop.addEventListener('keydown', (e) => {
+    if (e.target.matches('.gc-pop-search input')) popKey(basePop, e);
+  });
+  // Clicks elsewhere in the dialog close both lists.
+  el.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest(`#${PR_ID}-pop-head, #${PR_ID}-head`)) closePop(headPop);
+    if (!e.target.closest(`#${PR_ID}-pop-base, #${PR_ID}-base`)) closePop(basePop);
+  });
+}
+
 function initPr() {
   const el = $(PR_ID);
   if (!el) return;
@@ -1323,7 +1452,7 @@ function initPr() {
   syncPrButtons();
   prEl('ok').addEventListener('click', createPr);
   prEl('gen').addEventListener('click', generatePr);
-  prEl('base').addEventListener('change', paintPrPlan);
+  initPrRoute(el);
   el.addEventListener('input', (e) => {
     if (e.target.id === `${PR_ID}-head`) paintPrPlan();
     prError('');

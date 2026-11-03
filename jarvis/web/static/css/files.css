@@ -86,10 +86,12 @@
 .fb-pr-card .prompt-icon .br { width: 16px; height: 16px; color: var(--text); }
 .fb-pr-form { display: flex; flex-direction: column; gap: 8px; }
 .fb-pr-route { display: flex; align-items: flex-end; gap: 8px; }
-.fb-pr-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.fb-pr-field { position: relative; display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
 .fb-pr-field > span { font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
 .fb-pr-arrow { flex: none; height: var(--h-md); display: grid; place-items: center; color: var(--text-3); }
-.fb-pr-card select.fb-input { cursor: pointer; }
+/* From / Into dropdowns: the git card's .gc-pop, lined up under the field. */
+.fb-pr-card .gc-pop { left: 0; right: 0; }
+.fb-pr-card .gc-select:disabled { cursor: default; color: var(--text-3); }
 .fb-pr-plan { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text-3); }
 .fb-pr-plan strong { font-family: var(--font-mono); font-weight: 600; color: var(--text-2); }
 .fb-pr-card .fb-pr-title { font-family: var(--font-ui); font-size: 13px; }
