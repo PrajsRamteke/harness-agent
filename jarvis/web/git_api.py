@@ -660,7 +660,12 @@ def source_control(cwd: str) -> dict[str, Any]:
     branch = _git(root, "symbolic-ref", "--short", "-q", "HEAD")[1].strip() or _git(root, "rev-parse", "--short", "HEAD")[1].strip()
     prefix = _git(cwd, "rev-parse", "--show-prefix")[1].strip()
     total = len(staged) + len(unstaged) + len(conflicts)
-    return {"ok": True, "branch": branch, "prefix": prefix,
+    # For the commit box's ⌄ menu: Push N commits / Publish branch / nothing to push.
+    code, up, _ = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    upstream = up.strip() if code == 0 else ""
+    ahead = _int(_git(root, "rev-list", "--count", "@{u}..HEAD")[1].strip()) if upstream else 0
+    return {"ok": True, "branch": branch, "prefix": prefix, "upstream": upstream, "ahead": ahead,
+            "remotes": bool(_git(root, "remote")[1].split()),
             "has_head": _git(root, "rev-parse", "--verify", "-q", "HEAD")[0] == 0,
             "staged": staged[:FILES_MAX], "unstaged": unstaged[:FILES_MAX], "conflicts": conflicts[:FILES_MAX],
             "truncated": max(0, len(staged) - FILES_MAX) + max(0, len(unstaged) - FILES_MAX), "total": total}

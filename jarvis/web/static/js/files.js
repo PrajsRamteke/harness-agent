@@ -23,7 +23,7 @@ import { $, escapeHtml, showToast, storageGet, storageSet, copyText, debounce, i
 import { icon } from './icons.js';
 import { api } from './api.js';
 import { store, subscribe } from './store.js';
-import { openModal, isModalOpen } from './modal.js';
+import { openModal, closeModal, isModalOpen } from './modal.js';
 import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from './dialog.js';
 import { renderDiff, gutterWidth } from './diffview.js';
 import { renderMarkdown } from './markdown.js';
@@ -42,6 +42,8 @@ const LINE_PX = 20;              // the editor's line height (css .fb-text): the
 const EDITOR_PAD_PX = 12;        // the editor's top padding (same)
 const CHANGES_MS = 140;          // wait this long after a keystroke before comparing with git
 const PEEK_MAX_LINES = 30;
+const DIFF_VIEW_KEY = 'jarvis-files-diffview'; // the Diff view: 'unified' | 'split' (side by side, wide screens)
+const CONFIRM_ID = 'files-confirm';
 const PANE_KEY = 'jarvis-files-pane';  // the left pane's tab: 'files' (Explorer) | 'scm' (Source Control)
 const SCM_STATUS = {
   modified: ['M', 'Modified'], added: ['A', 'Added'], untracked: ['U', 'New file'], deleted: ['D', 'Deleted'],
@@ -102,6 +104,7 @@ let scmSel = null;               // { group, path } — the change whose diff is
 let scmMsg = '';                 // the commit message being written
 let scmBusy = '';                // a git op the tab is running
 let scmSeq = 0;
+let scmMenuOpen = false;         // the commit button's ⌄ menu
 const scmCollapsed = new Set();  // folded groups
 let host = { openInEditor: null, editorLabel: () => 'your editor' };
 
@@ -747,6 +750,7 @@ function paintHead() {
       <span class="fb-chg" id="${ID}-chg" role="group" aria-label="Changes in this file" hidden></span>
       ${seg}
       ${text && file.view === 'edit' ? tool('wrap', 'wrap-text', 'Wrap long lines', { pressed: storageGet(WRAP_KEY, '') === '1' }) : ''}
+      ${file.view === 'diff' ? splitToggle() : ''}
       <span class="gx-tsep" aria-hidden="true"></span>
       ${tool('copy', 'copy', 'Copy path', { disabled: file.loading || !!file.error })}
       ${host.openInEditor ? tool('editor', 'external-link', `Open in ${editorName}`, { disabled: busy || file.gone }) : ''}
@@ -865,6 +869,21 @@ function setMode(mode) {
   }
 }
 
+const splitOn = () => wide() && storageGet(DIFF_VIEW_KEY, 'unified') === 'split';
+
+/** Redraw the open diff in the current layout (from the cached answer: no request). */
+function applyDiffLayout() {
+  const alt = $(`${ID}-view`)?.querySelector('.fb-alt');
+  if (alt && file?.view === 'diff') paintDiff(alt);
+}
+
+/** One icon that flips the Diff view between unified and side by side (side by side needs a wide screen). */
+function splitToggle() {
+  const on = storageGet(DIFF_VIEW_KEY, 'unified') === 'split';
+  const label = on ? 'Unified view' : 'Side by side';
+  return `<button type="button" class="tool-icon gx-only-wide" data-act="diff-view" data-view="${on ? 'unified' : 'split'}" aria-pressed="${on}" title="${label}" aria-label="${label}">${icon(on ? 'rows-2' : 'columns-2')}</button>`;
+}
+
 async function paintDiff(alt) {
   const d = file.diff;
   if (!d) {
@@ -889,8 +908,9 @@ async function paintDiff(alt) {
   } else if (!d.hunks?.length) {
     alt.innerHTML = empty('No line changes', 'Only the file mode or whitespace at the end changed.', { ic: 'file-diff' });
   } else {
-    const { html } = renderDiff(d.hunks, { view: 'unified' });
-    alt.innerHTML = `<div class="gx-diff fb-diff"><div class="dv gx-dv" data-view="unified" style="--gw:${gutterWidth(d.hunks)}px">${html}</div>`
+    const view = splitOn() ? 'split' : 'unified';
+    const { html } = renderDiff(d.hunks, { view });
+    alt.innerHTML = `<div class="gx-diff fb-diff"><div class="dv gx-dv${view === 'split' ? ' is-wrap' : ''}" data-view="${view}" style="--gw:${gutterWidth(d.hunks)}px">${html}</div>`
       + (d.hidden ? `<div class="dv-cut">${d.hidden} more changed lines not shown — very large diffs are capped.</div>` : '')
       + `<p class="fb-diff-note">${DIFF_NOTE[file.diffSide] || DIFF_NOTE.local}</p></div>`;
   }
@@ -1509,10 +1529,17 @@ function paintBar() {
           <button type="button" class="tool-icon fb-msg-gen" data-act="scm-generate" title="Write the message from the changes" aria-label="Write the message from the changes">${icon('wand-sparkles')}</button>
         </div>
         <div class="fb-commit-row">
-          <button type="button" class="btn btn-primary fb-commit-btn" data-act="scm-commit"></button>
+          <div class="fb-split">
+            <button type="button" class="btn btn-primary fb-commit-btn" data-act="scm-commit"></button>
+            <button type="button" class="btn btn-primary fb-commit-more" id="${ID}-more" data-act="scm-menu" aria-haspopup="menu"
+              aria-expanded="false" aria-controls="${ID}-menu" title="Commit, push or stash" aria-label="More git actions">${icon('chevron-down')}</button>
+          </div>
           <button type="button" class="tool-icon" data-act="scm-refresh" title="Refresh" aria-label="Refresh">${icon('refresh-cw')}</button>
         </div>
+        <div class="gc-menu fb-menu" id="${ID}-menu" role="menu" aria-label="Git actions" hidden></div>
       </div>`;
+    scmMenuOpen = false;
+    $(`${ID}-more`)?.addEventListener('esc-cancel', () => closeScmMenu(true)); // Esc closes the menu, not the drawer
     sizeMsg();
   }
   syncCommitBtn();
@@ -1532,7 +1559,6 @@ function syncCommitBtn() {
   if (!btn || !ta) return;
   const staged = scmRows('staged').length;
   const changes = scmRows('unstaged').length;
-  const conflicts = scmRows('conflict').length;
   const branch = scm?.ok ? scm.branch : '';
   ta.placeholder = `Message (${MOD}↵ to commit${branch ? ` on “${branch}”` : ''})`;
   const gen = cardEl()?.querySelector('.fb-msg-gen');
@@ -1540,14 +1566,166 @@ function syncCommitBtn() {
     gen.disabled = !!scmBusy || (!staged && !changes);
     gen.innerHTML = scmBusy === 'generate' ? '<span class="spinner"></span>' : icon('wand-sparkles');
   }
+  const c = commitState();
+  btn.disabled = !!c.why || !!scmBusy;
+  btn.title = c.why || `${c.tip} (${MOD}↵)`;
+  const busyText = { commit: 'Committing…', 'commit-push': 'Committing & pushing…' }[scmBusy];
+  btn.innerHTML = busyText ? `<span class="spinner"></span><span>${busyText}</span>` : `${icon('check')}<span>${c.label}</span>`;
+  const more = $(`${ID}-more`);
+  if (more) {
+    more.disabled = !scm?.ok || (!!scmBusy && !scmMenuOpen);
+    more.innerHTML = scmBusy === 'push' || scmBusy === 'stash' ? '<span class="spinner"></span>' : icon('chevron-down');
+  }
+  if (scmMenuOpen) paintScmMenu();
+}
+
+/** What Commit would do now: its label, why it can't, a tooltip. */
+function commitState() {
+  const staged = scmRows('staged').length;
+  const changes = scmRows('unstaged').length;
   let why = '';
   if (!scm?.ok) why = 'Not a git repository';
-  else if (conflicts) why = 'Resolve the merge conflicts first (stage each file once it is fixed)';
+  else if (scmRows('conflict').length) why = 'Resolve the merge conflicts first (stage each file once it is fixed)';
   else if (!staged && !changes) why = 'Nothing to commit';
-  const label = staged ? 'Commit' : 'Commit all';
-  btn.disabled = !!why || !!scmBusy;
-  btn.title = why || (staged ? `Commit the ${staged} staged file${staged === 1 ? '' : 's'} (${MOD}↵)` : `Nothing is staged: stage and commit all ${changes} changed file${changes === 1 ? '' : 's'} (${MOD}↵)`);
-  btn.innerHTML = scmBusy === 'commit' ? '<span class="spinner"></span><span>Committing…</span>' : `${icon('check')}<span>${label}</span>`;
+  return {
+    why,
+    label: staged ? 'Commit' : 'Commit all',
+    tip: staged ? `Commit the ${staged} staged file${staged === 1 ? '' : 's'}` : `Nothing is staged: stage and commit all ${changes} changed file${changes === 1 ? '' : 's'}`,
+  };
+}
+
+// ─── The commit button's ⌄ menu: Commit · Push · Stash ──────────────────────
+
+/** Push: "Push N commits" / "Publish branch" (no upstream yet) / nothing to push. */
+function pushState() {
+  if (!scm?.ok) return { label: 'Push', why: 'Not a git repository' };
+  if (!scm.upstream) {
+    return scm.remotes
+      ? { label: 'Publish branch', note: '', tip: `Push ${scm.branch || 'this branch'} and track it on the remote` }
+      : { label: 'Push', why: 'This repository has no remote to push to' };
+  }
+  const n = num(scm.ahead);
+  if (!n) return { label: 'Push', why: `Nothing to push — ${scm.upstream} is up to date` };
+  return { label: 'Push', note: `↑${n}`, tip: `Push ${n} commit${n === 1 ? '' : 's'} to ${scm.upstream}` };
+}
+
+/** Commit & Push: whatever stops the commit, or a missing remote. */
+function commitPushState(c) {
+  if (c.why) return { why: c.why };
+  if (!scm.remotes) return { why: 'This repository has no remote to push to' };
+  return { tip: `${c.tip}, then push ${scm.upstream ? `to ${scm.upstream}` : 'and publish the branch'}` };
+}
+
+function stashState() {
+  if (!scm?.ok) return { why: 'Not a git repository' };
+  if (!num(scm.total)) return { why: 'Nothing to stash' };
+  if (store.busy) return { why: 'Jarvis is working in these files — stash when it finishes' };
+  return { tip: 'Put all uncommitted changes aside (git stash, new files included)' };
+}
+
+function menuItem(act, ic, label, { why = '', tip = '', note = '' } = {}) {
+  return `<button type="button" class="gc-item" role="menuitem" data-act="${act}" data-esc-cancels
+    ${why || scmBusy ? 'disabled' : ''} title="${escapeHtml(why || tip)}">${icon(ic)}<span>${escapeHtml(label)}</span>${note ? `<em>${escapeHtml(note)}</em>` : ''}</button>`;
+}
+
+function paintScmMenu() {
+  const menu = $(`${ID}-menu`);
+  if (!menu) return;
+  const c = commitState();
+  const p = pushState();
+  const s = stashState();
+  const focused = document.activeElement?.closest?.(`#${ID}-menu`) ? document.activeElement.dataset.act : '';
+  // Nothing left to commit: the second item is just Push (the commits already made).
+  const second = scm?.ok && !num(scm.total)
+    ? menuItem('scm-m-push', 'cloud-upload', p.label, p)
+    : menuItem('scm-m-commit-push', 'cloud-upload', `${c.label} & Push`, commitPushState(c));
+  menu.innerHTML = menuItem('scm-m-commit', 'check', c.label, { why: c.why, tip: c.tip })
+    + second
+    + '<div class="gc-sep" role="separator"></div>'
+    + menuItem('scm-m-stash', 'archive', 'Stash', s);
+  menu.querySelectorAll('[data-esc-cancels]').forEach((b) => b.addEventListener('esc-cancel', () => closeScmMenu(true)));
+  if (focused) menu.querySelector(`[data-act="${focused}"]`)?.focus({ preventScroll: true });
+}
+
+function openScmMenu() {
+  const menu = $(`${ID}-menu`);
+  const more = $(`${ID}-more`);
+  if (!menu || !more) return;
+  scmMenuOpen = true;
+  paintScmMenu();
+  menu.hidden = false;
+  more.setAttribute('aria-expanded', 'true');
+  more.setAttribute('data-esc-cancels', '');
+  (menu.querySelector('.gc-item:not(:disabled)') || more).focus({ preventScroll: true });
+}
+
+function closeScmMenu(refocus = false) {
+  if (!scmMenuOpen) return;
+  scmMenuOpen = false;
+  const menu = $(`${ID}-menu`);
+  const more = $(`${ID}-more`);
+  if (menu) {
+    menu.hidden = true;
+    menu.innerHTML = '';
+  }
+  more?.setAttribute('aria-expanded', 'false');
+  more?.removeAttribute('data-esc-cancels');
+  if (refocus) more?.focus({ preventScroll: true });
+}
+
+/** ↑ ↓ Home End inside the menu; Tab leaves it (and closes it). */
+function menuKey(e) {
+  const items = [...($(`${ID}-menu`)?.querySelectorAll('.gc-item:not(:disabled)') || [])];
+  if (e.key === 'Tab') {
+    closeScmMenu();
+    return;
+  }
+  if (!items.length || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  e.preventDefault();
+  const at = items.indexOf(document.activeElement);
+  let next = 0;
+  if (e.key === 'End') next = items.length - 1;
+  else if (e.key === 'ArrowDown') next = at < 0 ? 0 : (at + 1) % items.length;
+  else if (e.key === 'ArrowUp') next = at <= 0 ? items.length - 1 : at - 1;
+  items[next].focus({ preventScroll: true });
+}
+
+async function pushScm() {
+  if (scmBusy || pushState().why) return;
+  scmBusy = 'push';
+  syncCommitBtn();
+  const res = await gitCall('push');
+  scmBusy = '';
+  if (res.ok) showToast(res.published ? `Published ${scm?.branch || 'the branch'} to ${res.remote || 'the remote'}` : 'Pushed');
+  else showToast(res.error || 'Could not push', true);
+  syncCommitBtn();
+  await afterGitChange();
+}
+
+function stashScm() {
+  if (scmBusy || stashState().why) return;
+  if (isDirty()) {
+    showToast(`Save or revert your edits to ${file.name} first — a stash only takes what is on disk`, true);
+    return;
+  }
+  const n = num(scm.total);
+  askConfirm({
+    title: n === 1 ? 'Stash 1 change?' : `Stash ${n} changes?`,
+    text: 'All uncommitted work — staged, not staged and new files — is put aside with <strong>git stash</strong>, and your files go back to the last commit. Bring it back with <strong>git stash pop</strong>.',
+    label: 'Stash',
+    ic: 'archive',
+    run: async () => {
+      scmBusy = 'stash';
+      syncCommitBtn();
+      const res = await gitCall('stash', { message: ($(`${ID}-msg`)?.value || '').trim().split('\n')[0] });
+      scmBusy = '';
+      if (res.ok) showToast(`Stashed “${res.message}” — git stash pop brings it back`);
+      else showToast(res.error || 'Could not stash', true);
+      syncCommitBtn();
+      scmSel = null;
+      await afterGitChange();
+    },
+  });
 }
 
 function scmBtn(act, ic, label, data = '') {
@@ -1632,6 +1810,7 @@ function paintScm() {
 
 function setPane(next) {
   if (next === pane) return;
+  closeScmMenu();
   pane = next;
   storageSet(PANE_KEY, pane);
   prompt = null;
@@ -1730,7 +1909,51 @@ function stageRow(group, path) {
 
 function unstageRow(path) {
   const r = scmRow('staged', path);
-  if (r) scmOp('unstage', { paths: [r.path, r.old_path].filter(Boolean) });
+  if (!r) return;
+  askConfirm({
+    title: `Unstage ${baseOf(r.path)}?`,
+    text: `<strong>${escapeHtml(r.path)}</strong> leaves the next commit and moves back to Changes. Nothing in the file changes.`,
+    label: 'Unstage',
+    run: () => scmOp('unstage', { paths: [r.path, r.old_path].filter(Boolean) }),
+  });
+}
+
+function unstageAll() {
+  const n = scmRows('staged').length;
+  if (!n) return;
+  askConfirm({
+    title: n === 1 ? 'Unstage 1 file?' : `Unstage all ${n} files?`,
+    text: `${n === 1 ? 'It leaves' : 'They leave'} the next commit and ${n === 1 ? 'moves' : 'move'} back to Changes. Nothing in your files changes.`,
+    label: n === 1 ? 'Unstage' : 'Unstage all',
+    run: () => scmOp('unstage', { all: true }),
+  });
+}
+
+// ─── Confirmation modal (#files-confirm, on top of the drawer) ─────────────
+
+let confirmRun = null;
+
+function askConfirm({ title, text, label, run, ic = 'minus' }) {
+  const title$ = $(`${CONFIRM_ID}-title`);
+  const ok = $(`${CONFIRM_ID}-ok`);
+  if (!title$ || !ok) { // markup from an older page: just do it
+    run();
+    return;
+  }
+  title$.textContent = title;
+  $(`${CONFIRM_ID}-text`).innerHTML = text;
+  ok.innerHTML = `${icon(ic)}<span>${escapeHtml(label)}</span>`;
+  const head = $(CONFIRM_ID)?.querySelector('.prompt-icon');
+  if (head) head.innerHTML = icon(ic === 'minus' ? 'git-branch' : ic);
+  confirmRun = run;
+  openModal(CONFIRM_ID, { focus: `${CONFIRM_ID}-ok`, onClose: () => { confirmRun = null; } });
+}
+
+function onConfirmOk() {
+  const run = confirmRun;
+  confirmRun = null;
+  closeModal(CONFIRM_ID);
+  run?.();
 }
 
 function startDiscard(path) {
@@ -1741,7 +1964,8 @@ function startDiscard(path) {
   startPrompt('discard', path ? { paths: [path], rows: [r] } : { all: true, rows });
 }
 
-async function commitScm() {
+/** Commit (what's staged, else everything); `push`: then push it too (publishing a new branch). */
+async function commitScm({ push = false } = {}) {
   const ta = $(`${ID}-msg`);
   const message = (ta?.value || '').trim();
   if (scmBusy || !scm?.ok) return;
@@ -1755,9 +1979,9 @@ async function commitScm() {
     return;
   }
   const staged = scmRows('staged').length > 0;
-  scmBusy = 'commit';
+  scmBusy = push ? 'commit-push' : 'commit';
   syncCommitBtn();
-  const res = await gitCall('commit', { message, staged });
+  const res = await gitCall('commit', { message, staged, push });
   scmBusy = '';
   if (res.ok) {
     scmMsg = '';
@@ -1765,7 +1989,10 @@ async function commitScm() {
       ta.value = '';
       sizeMsg();
     }
-    showToast(`Committed ${res.sha || ''}`.trim());
+    const sha = res.sha || '';
+    if (!push) showToast(`Committed ${sha}`.trim());
+    else if (res.pushed) showToast(res.published ? `Committed ${sha} and published the branch` : `Committed ${sha} and pushed`);
+    else showToast(`Committed ${sha} — the push failed: ${res.push_error || 'unknown error'}`, true); // the commit stays
     scmSel = null;
   } else showToast(res.error || 'Could not commit', true);
   syncCommitBtn();
@@ -2117,8 +2344,16 @@ async function act(name, b) {
       scmOp('stage', { all: true });
       break;
     case 'scm-unstage-all':
-      scmOp('unstage', { all: true });
+      unstageAll();
       break;
+    case 'diff-view': {
+      const view = b.dataset.view === 'split' ? 'split' : 'unified';
+      if (storageGet(DIFF_VIEW_KEY, 'unified') === view) break;
+      storageSet(DIFF_VIEW_KEY, view);
+      paintHead();
+      applyDiffLayout();
+      break;
+    }
     case 'scm-discard-all':
       startDiscard('');
       break;
@@ -2136,6 +2371,26 @@ async function act(name, b) {
       break;
     case 'scm-commit':
       commitScm();
+      break;
+    case 'scm-menu':
+      if (scmMenuOpen) closeScmMenu(true);
+      else openScmMenu();
+      break;
+    case 'scm-m-commit':
+      closeScmMenu(true);
+      commitScm();
+      break;
+    case 'scm-m-push':
+      closeScmMenu(true);
+      pushScm();
+      break;
+    case 'scm-m-commit-push':
+      closeScmMenu(true);
+      commitScm({ push: true });
+      break;
+    case 'scm-m-stash':
+      closeScmMenu(true);
+      stashScm();
       break;
     case 'scm-generate':
       generateMsg();
@@ -2226,6 +2481,13 @@ function onKey(e) {
     save();
     return;
   }
+  if (scmMenuOpen && (t.closest?.(`#${ID}-menu`) || t.id === `${ID}-more`)) {
+    if (t.id === `${ID}-more` && e.key === 'ArrowDown') {
+      e.preventDefault();
+      $(`${ID}-menu`)?.querySelector('.gc-item:not(:disabled)')?.focus({ preventScroll: true });
+    } else menuKey(e);
+    return;
+  }
   if (t.id === `${ID}-msg`) {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) {
       e.preventDefault();
@@ -2306,6 +2568,7 @@ export function openFiles({ path = '', pane: want = '' } = {}) {
     focus: pane === 'scm' ? `${ID}-msg` : `${ID}-search`,
     onClose: () => {
       saveViewState();
+      closeScmMenu();
       reading = false;
       cardEl()?.classList.remove('is-reading');
       if (isDirty()) showToast(`Unsaved changes in ${file.name} are kept — reopen Files to continue`);
@@ -2340,6 +2603,11 @@ export function initFiles(hooks = {}) {
   el.addEventListener('click', onClick);
   el.addEventListener('keydown', onKey);
   el.addEventListener('input', onInput);
+  $(`${CONFIRM_ID}-ok`)?.addEventListener('click', onConfirmOk);
+  // A click anywhere else puts the commit button's menu away.
+  document.addEventListener('pointerdown', (e) => {
+    if (scmMenuOpen && !e.target.closest?.(`#${ID}-menu, #${ID}-more`)) closeScmMenu();
+  });
   el.addEventListener('dblclick', (e) => {
     if (e.target.closest('.fb-row[data-dir="0"]')) focusEditor();
   });
@@ -2351,6 +2619,7 @@ export function initFiles(hooks = {}) {
       setView(ID, null);
     }
     paintFoot();
+    applyDiffLayout(); // side by side only fits a wide screen
   });
   window.addEventListener('focus', () => {
     if (!isModalOpen(ID)) return;

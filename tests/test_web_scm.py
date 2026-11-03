@@ -52,6 +52,7 @@ def groups(root: Path) -> dict[str, dict[str, str]]:
 def test_lists_unstaged_changes_with_counts(repo):
     res = git_api.source_control(str(repo))
     assert res["ok"] and res["branch"] == "main" and res["prefix"] == "" and res["total"] == 4
+    assert (res["upstream"], res["ahead"], res["remotes"]) == ("", 0, False)
     assert res["staged"] == [] and res["conflicts"] == []
     by = {r["path"]: r for r in res["unstaged"]}
     assert {p: r["status"] for p, r in by.items()} == {
@@ -158,6 +159,17 @@ def test_subfolder_prefix_and_post_routing(repo, monkeypatch):
     diff = git_api.post("diff", {"side": "staged", "path": "src/a.py"})
     assert diff["ok"] and diff["side"] == "staged" and diff["status"] == "modified"
     assert git_api.post("diff", {"side": "unstaged", "path": "src/a.py"})["code"] == "gone"
+
+
+def test_ahead_of_the_upstream(repo, tmp_path):
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, capture_output=True)
+    git(repo, "remote", "add", "origin", str(remote))
+    git(repo, "push", "-q", "-u", "origin", "main")
+    git_api.stage(str(repo), ["src/a.py"])
+    assert git_api.commit(str(repo), "one", staged_only=True)["ok"]
+    res = git_api.source_control(str(repo))
+    assert (res["upstream"], res["ahead"], res["remotes"]) == ("origin/main", 1, True)
 
 
 def test_not_a_repository(tmp_path):

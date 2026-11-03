@@ -100,7 +100,7 @@
 }
 
 /* ─── Source Control: commit box, groups, change rows ────────────────── */
-.fb-commit { display: flex; flex-direction: column; gap: 6px; }
+.fb-commit { position: relative; display: flex; flex-direction: column; gap: 6px; }
 .fb-msg-wrap { position: relative; }
 .fb-msg {
   display: block;
@@ -121,8 +121,22 @@
 .fb-msg-gen { position: absolute; top: 3px; right: 3px; }
 .fb-msg-gen .spinner { width: 13px; height: 13px; }
 .fb-commit-row { display: flex; align-items: center; gap: 4px; }
-.fb-commit-btn { flex: 1; justify-content: center; }
-.fb-commit-btn .spinner { width: 13px; height: 13px; }
+/* Commit | ⌄ — one button in two parts (the ⌄ opens Commit · Push · Stash). */
+.fb-split { display: flex; flex: 1; min-width: 0; gap: 1px; }
+.fb-commit-btn { flex: 1; justify-content: center; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.fb-commit-more {
+  flex: none;
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.fb-commit-more .ic { width: 15px; height: 15px; transition: transform var(--dur-fast) var(--ease); }
+.fb-commit-more[aria-expanded="true"] .ic { transform: rotate(180deg); }
+.fb-commit-btn .spinner, .fb-commit-more .spinner { width: 13px; height: 13px; }
+.fb-menu { top: calc(100% + 4px); left: 0; right: 38px; }
+.fb-menu[hidden] { display: none; }
 .fb-commit-row .tool-icon.is-spinning .ic { animation: spin 0.8s linear infinite; }
 
 .fb-scm { display: flex; flex-direction: column; gap: 4px; }

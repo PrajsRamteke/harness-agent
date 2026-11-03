@@ -713,6 +713,22 @@
     </div>
   </div>
 
+  <div class="modal modal-prompt" id="files-confirm" hidden>
+    <div class="modal-card glass-strong prompt-card" role="alertdialog" aria-modal="true" aria-labelledby="files-confirm-title" aria-describedby="files-confirm-text">
+      <div class="prompt-head">
+        <span class="prompt-icon"><span data-icon="git-branch"></span></span>
+        <div class="prompt-titles">
+          <h2 id="files-confirm-title">Unstage?</h2>
+          <p id="files-confirm-text"></p>
+        </div>
+      </div>
+      <div class="prompt-actions">
+        <button class="btn btn-quiet" type="button" data-close="files-confirm">Cancel</button>
+        <button class="btn btn-primary" type="button" id="files-confirm-ok">Unstage</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="settings" hidden>
     <div class="modal-card glass-strong ext-card settings-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="picker-head">
