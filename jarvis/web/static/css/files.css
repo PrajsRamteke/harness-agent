@@ -1,7 +1,8 @@
 /* Files drawer (js/files.js): a folder tree + name search on the left, the open
  * file on the right (editor, diff, Markdown preview). The drawer chrome, the
- * split, the search rows and the diff are shared with the Git changes drawer
- * (git.css: .gx-*); this file adds the tree, the editor and the prompts. */
+ * split, the rows and the diff come from git.css (.gx-*); this file adds the
+ * Explorer / Source Control tabs, the tree, the commit box, the editor and the
+ * prompts. */
 
 /* ─── Top bar: unsaved / conflict / changed on disk ─────────────────────── */
 .fb-banner {
@@ -26,9 +27,168 @@
   .fb-banner-act { width: 100%; justify-content: flex-start; }
 }
 
-/* The git card's Files row (js/git.js) */
+/* The git card's Files row (js/git.js) and, with changes, its +/− (opens Source Control) */
 .gc-files > span:nth-child(2) { flex: 1; }
 .gc-files .gc-nums em { font-family: var(--font-mono); font-size: 11.5px; opacity: 0.8; }
+.gc-scm {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  height: var(--h-md);
+  padding: 0 9px;
+  border: none;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--text-3);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.gc-scm:hover { background: var(--card-hover); color: var(--text); }
+.gc-scm:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.55); outline-offset: -1px; }
+.gc-scm .ic { width: 14px; height: 14px; }
+
+/* ─── Left: Explorer | Source Control ──────────────────────────────── */
+.fb-tabs {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  padding: 8px 10px 0;
+}
+.fb-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: var(--h-md);
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12.5px;
+  white-space: nowrap;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.fb-tab span { overflow: hidden; text-overflow: ellipsis; }
+.fb-tab .ic { width: 15px; height: 15px; flex: none; }
+.fb-tab:hover { background: var(--card-hover); color: var(--text); }
+.fb-tab:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.55); outline-offset: -1px; }
+.fb-tab[aria-selected="true"] { background: var(--card-hover); color: var(--text); }
+.fb-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.fb-tab-n {
+  flex: none;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(var(--accent-rgb), 0.18);
+  color: var(--accent);
+  font: 600 11px/18px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* ─── Source Control: commit box, groups, change rows ────────────────── */
+.fb-commit { display: flex; flex-direction: column; gap: 6px; }
+.fb-msg-wrap { position: relative; }
+.fb-msg {
+  display: block;
+  width: 100%;
+  min-height: var(--h-md);
+  max-height: 160px;
+  padding: 7px 34px 7px 10px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--line);
+  background: var(--code-bg);
+  color: var(--text);
+  font: 12.5px/1.45 var(--font-ui);
+  resize: none;
+  outline: none;
+}
+.fb-msg:focus { border-color: var(--accent-line); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.25); }
+.fb-msg::placeholder { color: var(--text-3); }
+.fb-msg-gen { position: absolute; top: 3px; right: 3px; }
+.fb-msg-gen .spinner { width: 13px; height: 13px; }
+.fb-commit-row { display: flex; align-items: center; gap: 4px; }
+.fb-commit-btn { flex: 1; justify-content: center; }
+.fb-commit-btn .spinner { width: 13px; height: 13px; }
+.fb-commit-row .tool-icon.is-spinning .ic { animation: spin 0.8s linear infinite; }
+
+.fb-scm { display: flex; flex-direction: column; gap: 4px; }
+.fb-scm-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding-right: 6px;
+}
+.fb-scm-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 4px 0 0;
+  border: none;
+  border-radius: var(--r-ctl);
+  background: none;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.fb-scm-toggle:hover { color: var(--text); }
+.fb-scm-toggle:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.55); outline-offset: -1px; }
+.fb-scm-toggle[aria-expanded="true"] .fb-chev .ic { transform: rotate(90deg); }
+.fb-scm-count {
+  flex: none;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--card-hover);
+  color: var(--text-2);
+  font: 600 11px/18px var(--font-mono);
+  text-align: center;
+}
+.fb-scm-rows { display: flex; flex-direction: column; }
+.fb-scm-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border-radius: var(--r-ctl);
+}
+.fb-scm-row:hover, .fb-scm-row:focus-within { background: var(--card-hover); }
+.fb-scm-row.is-current { background: rgba(var(--accent-rgb), 0.13); }
+.fb-scm-row.is-current::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+.fb-scm-row .gx-row { flex: 1; min-width: 0; background: none; }
+.fb-scm-row .gx-row.is-current::before { display: none; }
+.fb-scm-row .gx-st { flex: none; }
+.gx-name.is-gone { text-decoration: line-through; color: var(--text-3); }
+/* Row / group buttons show on hover or keyboard focus (always on touch screens). */
+.fb-scm-acts { display: none; align-items: center; flex: none; }
+.fb-scm-row:hover .fb-scm-acts, .fb-scm-row:focus-within .fb-scm-acts,
+.fb-scm-head:hover .fb-scm-acts, .fb-scm-head:focus-within .fb-scm-acts { display: inline-flex; }
+.fb-scm-acts .tool-icon { width: 26px; height: 26px; }
+.fb-scm-acts .tool-icon .ic { width: 14px; height: 14px; }
+@media (hover: none) {
+  .fb-scm-acts { display: inline-flex; }
+}
 
 /* ─── Left: toolbar tools, prompt, tree ─────────────────────────────────── */
 .fb-tools { gap: 0; }

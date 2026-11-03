@@ -42,6 +42,16 @@ const LINE_PX = 20;              // the editor's line height (css .fb-text): the
 const EDITOR_PAD_PX = 12;        // the editor's top padding (same)
 const CHANGES_MS = 140;          // wait this long after a keystroke before comparing with git
 const PEEK_MAX_LINES = 30;
+const PANE_KEY = 'jarvis-files-pane';  // the left pane's tab: 'files' (Explorer) | 'scm' (Source Control)
+const SCM_STATUS = {
+  modified: ['M', 'Modified'], added: ['A', 'Added'], untracked: ['U', 'New file'], deleted: ['D', 'Deleted'],
+  renamed: ['R', 'Renamed'], copied: ['C', 'Copied'], conflict: ['!', 'Conflict'],
+};
+const DIFF_NOTE = {
+  local: 'Compared with what git has — your unsaved edits aren’t included.',
+  staged: 'Staged — what the next commit gets, compared with the last commit.',
+  unstaged: 'Not staged yet — the file on disk compared with what is staged. Unsaved edits aren’t included.',
+};
 const RESTART_NOTE = 'Restart Jarvis to finish updating — it still runs older code without the file browser';
 
 const GIT_LABEL = { M: 'Modified', A: 'Added', U: 'New file', D: 'Deleted', R: 'Renamed', '!': 'Conflict' };
@@ -86,6 +96,13 @@ let searchSeq = 0;
 let openSeq = 0;
 let diffSeq = 0;
 const dirSeq = new Map();
+let pane = storageGet(PANE_KEY, 'files') === 'scm' ? 'scm' : 'files';
+let scm = null;                  // last {op: scm} answer (Source Control tab)
+let scmSel = null;               // { group, path } — the change whose diff is open
+let scmMsg = '';                 // the commit message being written
+let scmBusy = '';                // a git op the tab is running
+let scmSeq = 0;
+const scmCollapsed = new Set();  // folded groups
 let host = { openInEditor: null, editorLabel: () => 'your editor' };
 
 const num = (n) => Number(n) || 0;
@@ -186,7 +203,7 @@ function readSaved() {
 
 function persist() {
   if (shownFor !== projectKey()) return;
-  storageSet(`${STATE_KEY}:${shownFor}`, JSON.stringify({ open: [...expanded].slice(0, MAX_REMEMBERED_DIRS), file: file?.path || '' }));
+  storageSet(`${STATE_KEY}:${shownFor}`, JSON.stringify({ open: [...expanded].slice(0, MAX_REMEMBERED_DIRS), file: file && !file.virtual ? file.path : '' }));
 }
 
 function resetProject(key) {
@@ -200,6 +217,9 @@ function resetProject(key) {
   results = null;
   cursorPath = '';
   reading = false;
+  scm = null;
+  scmSel = null;
+  scmMsg = '';
   const saved = readSaved();
   saved.open.forEach((p) => expanded.add(p));
   pendingFile = saved.file;
@@ -243,7 +263,7 @@ async function loadDir(path, { quiet = false } = {}) {
 
 /** Root + every open folder, in parallel (open, after a change, on a timer). */
 async function refreshTree({ quiet = true } = {}) {
-  await Promise.all(['', ...expanded].map((p) => loadDir(p, { quiet })));
+  await Promise.all([loadScm(), ...['', ...expanded].map((p) => loadDir(p, { quiet }))]);
   persist();
 }
 
@@ -340,6 +360,10 @@ function rowHtml({ e, note, level, spin, bad }) {
 function paintTree() {
   const el = listEl();
   if (!el) return;
+  if (pane === 'scm') {
+    paintScm();
+    return;
+  }
   if (results) {
     paintResults();
     return;
@@ -370,13 +394,13 @@ function paintTree() {
 
 /** A changed file's marker follows the tree (a save, a commit, Jarvis's edits). */
 function syncFileMark() {
-  if (!file || file.loading || file.error) return;
+  if (!file || file.loading || file.error || file.virtual) return;
   const e = entryAt(file.path);
   if (!e) return;
   const git = e.dir ? '' : e.git || '';
   if (git === file.git) return;
   file.git = git;
-  if (file.view === 'diff' && !git) file.view = 'edit';
+  if (file.view === 'diff' && !git && !file.diffSide) file.view = 'edit';
   paintHead();
   if (file.kind === 'text') applyMode();
 }
@@ -461,18 +485,19 @@ function applyRead(doc, res) {
   }
 }
 
-async function openPath(path, { focus = false, restoring = false } = {}) {
-  if (file && file.path === path && !file.error) {
+/** `view: 'diff'` + `diffSide` ('staged' | 'unstaged'): opened from the Source Control tab. */
+async function openPath(path, { focus = false, restoring = false, view = 'edit', diffSide = '' } = {}) {
+  if (file && file.path === path && !file.error && !file.virtual) {
     syncReading();
     if (focus) focusEditor();
     return;
   }
   if (isDirty()) {
-    banner = { kind: 'unsaved', then: () => openPath(path, { focus }) };
+    banner = { kind: 'unsaved', then: () => openPath(path, { focus, view, diffSide }) };
     paintBanner();
     return;
   }
-  const mine = { path, name: baseOf(path), loading: true, view: 'edit', hunks: [], peek: null };
+  const mine = { path, name: baseOf(path), loading: true, view, diffSide, hunks: [], peek: null };
   file = mine;
   banner = null;
   paintBanner();
@@ -558,7 +583,7 @@ async function reloadFile({ notice = '' } = {}) {
 /** Has the open file changed on disk? Clean ones follow along; edited ones ask. */
 async function checkDisk() {
   const mine = file;
-  if (!isModalOpen(ID) || !mine || mine.loading || mine.error || saving) return;
+  if (!isModalOpen(ID) || !mine || mine.virtual || mine.loading || mine.error || saving) return;
   const res = await call('stat', { path: mine.path });
   if (file !== mine || saving || !res.ok) return;
   if (!res.exists) {
@@ -653,7 +678,8 @@ function leaveFile() {
   cardEl()?.classList.remove('is-reading');
   setView(ID, null);
   paintFoot();
-  requestAnimationFrame(() => (listEl()?.querySelector('.fb-row.is-current, .fb-hit.is-current') || $(`${ID}-search`))?.focus({ preventScroll: true }));
+  requestAnimationFrame(() => (listEl()?.querySelector('.fb-row.is-current, .fb-hit.is-current, .fb-scm-row.is-current .fb-scm-main')
+    || $(`${ID}-search`) || $(`${ID}-msg`))?.focus({ preventScroll: true }));
 }
 
 function paintMain() {
@@ -679,6 +705,10 @@ function chipsHtml() {
   if (file.notice) chips.push(`<span class="fb-chip is-ok">${escapeHtml(file.notice)}</span>`);
   if (file.kind === 'text' && file.writable === false) chips.push('<span class="fb-chip">Read-only</span>');
   if (file.git && file.git !== 'dirty') chips.push(`<span class="fb-chip is-git is-${escapeHtml(file.git === '!' ? 'conflict' : file.git)}">${escapeHtml(GIT_LABEL[file.git] || '')}</span>`);
+  if (file.outside) chips.push('<span class="fb-chip">Outside this folder</span>');
+  if (file.diffSide && file.view === 'diff') {
+    chips.push(file.diffSide === 'staged' ? '<span class="fb-chip is-ok">Staged</span>' : '<span class="fb-chip">Not staged</span>');
+  }
   return chips.join('');
 }
 
@@ -694,7 +724,7 @@ function paintHead() {
   const dirty = isDirty();
   file.shownDirty = dirty;
   const isMd = text && ['md', 'mdx'].includes(extOf(name));
-  const changed = text && !!file.git && file.repo;
+  const changed = text && ((!!file.git && file.repo) || !!file.diffSide);
   const modes = [['edit', 'pencil', 'Edit']];
   if (changed) modes.push(['diff', 'file-diff', 'Diff']);
   if (isMd) modes.push(['preview', 'eye', 'Preview']);
@@ -702,7 +732,7 @@ function paintHead() {
     ? `<span class="fb-seg" role="group" aria-label="View">${modes.map(([m, ic, label]) => `<button type="button" class="fb-seg-btn" data-act="mode" data-mode="${m}" aria-pressed="${file.view === m}" title="${label}">${icon(ic)}<span>${label}</span></button>`).join('')}</span>`
     : '';
   const editorName = host.editorLabel();
-  const busy = file.loading || !!file.error;
+  const busy = file.loading || !!file.error || !!file.virtual;
   el.innerHTML = `
     <span class="fb-fic">${icon(fileIcon(name))}</span>
     <div class="fb-titles">
@@ -713,11 +743,12 @@ function paintHead() {
       ${dirty ? `
         <button type="button" class="btn btn-sm btn-quiet" data-act="revert" ${saving ? 'disabled' : ''} title="Throw away your edits">${icon('undo-2')}<span>Revert</span></button>
         <button type="button" class="btn btn-sm btn-primary" data-act="save" ${saving ? 'disabled' : ''} title="Save (${MOD} S)">${saving ? '<span class="spinner"></span>' : ''}<span>${saving ? 'Saving…' : 'Save'}</span></button>` : ''}
+      ${scmHeadBtn()}
       <span class="fb-chg" id="${ID}-chg" role="group" aria-label="Changes in this file" hidden></span>
       ${seg}
       ${text && file.view === 'edit' ? tool('wrap', 'wrap-text', 'Wrap long lines', { pressed: storageGet(WRAP_KEY, '') === '1' }) : ''}
       <span class="gx-tsep" aria-hidden="true"></span>
-      ${tool('copy', 'copy', 'Copy path', { disabled: busy })}
+      ${tool('copy', 'copy', 'Copy path', { disabled: file.loading || !!file.error })}
       ${host.openInEditor ? tool('editor', 'external-link', `Open in ${editorName}`, { disabled: busy || file.gone }) : ''}
       ${tool('rename', 'pencil', 'Rename or move', { disabled: busy || file.gone })}
       ${tool('delete', 'trash-2', 'Move to the Trash', { disabled: busy || file.gone })}
@@ -750,6 +781,11 @@ function paintView() {
     el.innerHTML = empty(file.code === 'not_found' ? 'This file is gone' : 'Couldn’t open this file', escapeHtml(file.error), {
       ic: 'file-x', action: file.code === 'old_server' ? '' : '<button type="button" class="btn" data-act="retry">Try again</button>',
     });
+    return;
+  }
+  if (file.kind === 'change') { // a deleted file, or one outside this folder: its diff only
+    el.innerHTML = '<div class="fb-alt"></div>';
+    paintDiff(el.querySelector('.fb-alt'));
     return;
   }
   if (file.kind !== 'text') {
@@ -837,7 +873,7 @@ async function paintDiff(alt) {
     const seq = ++diffSeq;
     let res;
     try {
-      res = await api('/api/git', 'POST', { op: 'diff', side: 'local', path: `${file.prefix}${file.path}` });
+      res = await api('/api/git', 'POST', { op: 'diff', side: file.diffSide || 'local', path: file.repoPath || `${file.prefix}${file.path}` });
     } catch (err) {
       res = { ok: false, error: err?.message || 'Could not read the diff' };
     }
@@ -856,7 +892,7 @@ async function paintDiff(alt) {
     const { html } = renderDiff(d.hunks, { view: 'unified' });
     alt.innerHTML = `<div class="gx-diff fb-diff"><div class="dv gx-dv" data-view="unified" style="--gw:${gutterWidth(d.hunks)}px">${html}</div>`
       + (d.hidden ? `<div class="dv-cut">${d.hidden} more changed lines not shown — very large diffs are capped.</div>` : '')
-      + '<p class="fb-diff-note">Compared with what git has — your unsaved edits aren’t included.</p></div>';
+      + `<p class="fb-diff-note">${DIFF_NOTE[file.diffSide] || DIFF_NOTE.local}</p></div>`;
   }
 }
 
@@ -903,7 +939,7 @@ function scheduleCaret() {
 function paintStatus() {
   const el = $(`${ID}-status`);
   if (!el || !file) return;
-  if (file.loading || file.error) {
+  if (file.loading || file.error || file.virtual) {
     el.innerHTML = '';
     return;
   }
@@ -923,7 +959,7 @@ function paintFoot() {
   const foot = $(`${ID}-foot`);
   if (!foot) return;
   foot.innerHTML = footer({
-    note: 'Edits save straight to your project files',
+    note: pane === 'scm' ? 'Stage with +, then commit — discarded text goes to the Trash' : 'Edits save straight to your project files',
     hints: wide() || reading ? [[`${MOD} S`, 'save'], ['esc', wide() ? 'close' : 'back']] : [['↵', 'open'], ['esc', 'close']],
   });
 }
@@ -1000,6 +1036,22 @@ function paintPrompt() {
   const p = prompt;
   el.hidden = false;
   const err = p.error ? `<p class="fb-prompt-err" role="alert">${escapeHtml(p.error)}</p>` : '';
+  if (p.kind === 'discard') {
+    const fresh = p.rows.filter((r) => r.status === 'untracked').length;
+    const one = p.rows.length === 1 ? p.rows[0] : null;
+    const text = one
+      ? (one.status === 'untracked'
+        ? `Move <strong>${escapeHtml(baseOf(one.path))}</strong>, a new file, to the Trash?`
+        : `Discard your changes to <strong>${escapeHtml(baseOf(one.path))}</strong>? It goes back to its ${scmRow('staged', one.path) ? 'staged' : 'last committed'} version — a copy of the current one is put in the Trash.`)
+      : `Discard all ${p.rows.length} changes? Changed files go back to their staged or committed version (a copy of each goes to the Trash)${fresh ? `; ${fresh} new file${fresh === 1 ? '' : 's'} move to the Trash` : ''}.`;
+    el.innerHTML = `<p class="fb-prompt-text">${text}</p>${err}
+      <div class="fb-prompt-actions">
+        <button type="button" class="btn btn-sm btn-danger" data-act="p-confirm" data-esc-cancels ${p.busy ? 'disabled' : ''}>${p.busy ? '<span class="spinner"></span>' : icon('undo-2')}<span>${one?.status === 'untracked' ? 'Move to Trash' : 'Discard'}</span></button>
+        <button type="button" class="btn btn-sm btn-quiet" data-act="p-cancel" data-esc-cancels>Cancel</button>
+      </div>`;
+    el.querySelectorAll('[data-esc-cancels]').forEach((b) => b.addEventListener('esc-cancel', cancelPrompt));
+    return;
+  }
   if (p.kind === 'delete') {
     const lose = file && (file.path === p.path || file.path.startsWith(`${p.path}/`)) && isDirty() ? ' Your unsaved edits will be lost.' : '';
     el.innerHTML = `<p class="fb-prompt-text">Move <strong>${escapeHtml(p.path)}</strong> to the Trash${p.isDir ? ' with everything inside it' : ''}?${lose}</p>${err}
@@ -1032,9 +1084,33 @@ async function afterMutation() {
   if (query) runSearch();
 }
 
+async function submitDiscard(p) {
+  p.busy = true;
+  p.error = '';
+  paintPrompt();
+  const res = await gitCall('discard', p.all ? { all: true } : { paths: p.paths });
+  if (prompt !== p) return;
+  p.busy = false;
+  if (!res.ok) {
+    p.error = res.error || 'That did not work';
+    paintPrompt();
+    return;
+  }
+  prompt = null;
+  paintPrompt();
+  const n = num(res.discarded);
+  showToast(n === 1 ? 'Discarded — the old text is in the Trash' : `Discarded ${n} changes — copies are in the Trash`);
+  await afterGitChange();
+  listEl()?.querySelector('.fb-scm-main')?.focus({ preventScroll: true });
+}
+
 async function submitPrompt() {
   const p = prompt;
   if (!p || p.busy) return;
+  if (p.kind === 'discard') {
+    submitDiscard(p);
+    return;
+  }
   const raw = p.kind === 'delete' ? '' : ($(`${ID}-prompt-input`)?.value || '').trim().replace(/^\/+|\/+$/g, '');
   if (p.kind !== 'delete' && !raw) {
     p.error = 'Give it a name.';
@@ -1345,6 +1421,391 @@ function revertChange(i) {
   ta.setSelectionRange(caret, caret);
 }
 
+// ─── Source Control tab (VS Code style) ───────────────────────────────────
+// The left pane's second tab: the commit box, then Merge Changes / Staged
+// Changes / Changes. A row opens its diff on the right (staged = HEAD → index,
+// changes = index → disk); its hover buttons open the file, discard, stage (+)
+// or unstage (−). Server: git_api source_control / stage / unstage / discard /
+// scm_diff / commit {staged} via POST /api/git. Paths there are named from the
+// repository root; `relOf` turns them into this folder's paths.
+
+const SCM_GROUPS = [
+  ['conflict', 'Merge Changes'],
+  ['staged', 'Staged Changes'],
+  ['unstaged', 'Changes'],
+];
+
+async function gitCall(op, data = {}) {
+  try {
+    return await api('/api/git', 'POST', { op, ...data });
+  } catch (err) {
+    return { ok: false, error: err?.message || 'That did not work' };
+  }
+}
+
+async function loadScm() {
+  const mine = ++scmSeq;
+  const key = shownFor;
+  const res = await gitCall('scm');
+  if (mine !== scmSeq || key !== shownFor) return;
+  if (!res.ok && /unknown git op/.test(res.error || '')) res.error = RESTART_NOTE;
+  scm = res;
+  paintTabs();
+  if (pane === 'scm') {
+    paintScm();
+    syncCommitBtn();
+    if (file?.diffSide) paintHead();
+  }
+}
+
+/** A repository path → this folder's path ('' prefix = the repo root is open); null when outside it. */
+function relOf(repoPath) {
+  const prefix = scm?.prefix || '';
+  if (!prefix) return repoPath;
+  return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : null;
+}
+
+function scmRows(group) {
+  if (!scm?.ok) return [];
+  return group === 'conflict' ? scm.conflicts || [] : scm[group] || [];
+}
+
+function scmRow(group, path) {
+  return scmRows(group).find((r) => r.path === path) || null;
+}
+
+function scmNums(r) {
+  if (r.binary) return '<em>binary</em>';
+  return `${num(r.added) ? `<b class="num-add">+${num(r.added)}</b>` : ''}${num(r.removed) ? `<b class="num-del">−${num(r.removed)}</b>` : ''}`;
+}
+
+function paintTabs() {
+  const el = $(`${ID}-tabs`);
+  if (!el) return;
+  const n = scm?.ok ? num(scm.total) : 0;
+  const tab = (id, ic, label, extra = '') => `<button type="button" class="fb-tab" role="tab" data-act="pane" data-pane="${id}" aria-selected="${pane === id}" title="${label}">${icon(ic)}<span>${label}</span>${extra}</button>`;
+  el.innerHTML = tab('files', 'folder-open', 'Explorer')
+    + tab('scm', 'git-branch', 'Source Control', n ? `<b class="fb-tab-n" title="${n} changed file${n === 1 ? '' : 's'}">${n > 999 ? '999+' : n}</b>` : '');
+}
+
+/** The left pane's top: the name search (Explorer) or the commit box (Source Control). */
+function paintBar() {
+  const bar = $(`${ID}-bar`);
+  if (!bar) return;
+  if (pane === 'files') {
+    if (!$(`${ID}-search`)) {
+      bar.innerHTML = toolbar({
+        id: `${ID}-search`, placeholder: 'Search files by name', label: 'Search project files', kbd: false, extra: toolsHtml(), value: query,
+      });
+    }
+    return;
+  }
+  if (!$(`${ID}-msg`)) {
+    bar.innerHTML = `
+      <div class="fb-commit">
+        <div class="fb-msg-wrap">
+          <textarea id="${ID}-msg" class="fb-msg" rows="1" spellcheck="true" aria-label="Commit message"
+            data-1p-ignore data-lpignore="true">${escapeHtml(scmMsg)}</textarea>
+          <button type="button" class="tool-icon fb-msg-gen" data-act="scm-generate" title="Write the message from the changes" aria-label="Write the message from the changes">${icon('wand-sparkles')}</button>
+        </div>
+        <div class="fb-commit-row">
+          <button type="button" class="btn btn-primary fb-commit-btn" data-act="scm-commit"></button>
+          <button type="button" class="tool-icon" data-act="scm-refresh" title="Refresh" aria-label="Refresh">${icon('refresh-cw')}</button>
+        </div>
+      </div>`;
+    sizeMsg();
+  }
+  syncCommitBtn();
+}
+
+function sizeMsg() {
+  const ta = $(`${ID}-msg`);
+  if (!ta) return;
+  ta.style.height = 'auto';
+  ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+}
+
+/** Commit / Commit all, its placeholder and whether it can run. */
+function syncCommitBtn() {
+  const btn = cardEl()?.querySelector('.fb-commit-btn');
+  const ta = $(`${ID}-msg`);
+  if (!btn || !ta) return;
+  const staged = scmRows('staged').length;
+  const changes = scmRows('unstaged').length;
+  const conflicts = scmRows('conflict').length;
+  const branch = scm?.ok ? scm.branch : '';
+  ta.placeholder = `Message (${MOD}↵ to commit${branch ? ` on “${branch}”` : ''})`;
+  const gen = cardEl()?.querySelector('.fb-msg-gen');
+  if (gen) {
+    gen.disabled = !!scmBusy || (!staged && !changes);
+    gen.innerHTML = scmBusy === 'generate' ? '<span class="spinner"></span>' : icon('wand-sparkles');
+  }
+  let why = '';
+  if (!scm?.ok) why = 'Not a git repository';
+  else if (conflicts) why = 'Resolve the merge conflicts first (stage each file once it is fixed)';
+  else if (!staged && !changes) why = 'Nothing to commit';
+  const label = staged ? 'Commit' : 'Commit all';
+  btn.disabled = !!why || !!scmBusy;
+  btn.title = why || (staged ? `Commit the ${staged} staged file${staged === 1 ? '' : 's'} (${MOD}↵)` : `Nothing is staged: stage and commit all ${changes} changed file${changes === 1 ? '' : 's'} (${MOD}↵)`);
+  btn.innerHTML = scmBusy === 'commit' ? '<span class="spinner"></span><span>Committing…</span>' : `${icon('check')}<span>${label}</span>`;
+}
+
+function scmBtn(act, ic, label, data = '') {
+  return `<button type="button" class="tool-icon" data-act="${act}"${data} title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"${scmBusy ? ' disabled' : ''}>${icon(ic)}</button>`;
+}
+
+function scmRowHtml(group, r) {
+  const [letter, label] = SCM_STATUS[r.status] || SCM_STATUS.modified;
+  const [dir, name] = splitPath(r.path);
+  const on = !!scmSel && scmSel.group === group && scmSel.path === r.path;
+  const data = ` data-group="${group}" data-path="${escapeHtml(r.path)}"`;
+  const rel = relOf(r.path);
+  const acts = [];
+  if (rel !== null && r.status !== 'deleted') acts.push(scmBtn('scm-file', 'file-pen', 'Open the file', data));
+  if (group === 'unstaged') acts.push(scmBtn('scm-discard', 'undo-2', r.status === 'untracked' ? 'Move this new file to the Trash' : 'Discard changes', data));
+  if (group === 'staged') acts.push(scmBtn('scm-unstage', 'minus', 'Unstage', data));
+  else acts.push(scmBtn('scm-stage', 'plus', group === 'conflict' ? 'Stage (mark as resolved)' : 'Stage', data));
+  const where = rel === null ? ' (outside this folder)' : '';
+  return `
+    <div class="fb-scm-row${on ? ' is-current' : ''}">
+      <button type="button" class="gx-row fb-scm-main" data-act="scm-open"${data} aria-current="${on}"
+        title="${escapeHtml(`${label}: ${r.path}${r.old_path ? ` (was ${r.old_path})` : ''}${where}`)}">
+        <span class="fb-ic">${icon(fileIcon(name))}</span>
+        <span class="gx-path"><span class="gx-name${r.status === 'deleted' ? ' is-gone' : ''}">${escapeHtml(name)}</span>${dir ? `<span class="gx-dir">${escapeHtml(dir.replace(/\/$/, ''))}</span>` : ''}</span>
+        <span class="gx-nums">${scmNums(r)}</span>
+      </button>
+      <span class="fb-scm-acts">${acts.join('')}</span>
+      <span class="gx-st is-${escapeHtml(r.status)}" aria-label="${escapeHtml(label)}">${letter}</span>
+    </div>`;
+}
+
+function scmGroupHtml(group, title) {
+  const rows = scmRows(group);
+  if (!rows.length && group !== 'unstaged') return '';
+  const open = !scmCollapsed.has(group);
+  let acts = '';
+  if (group === 'staged') acts = scmBtn('scm-unstage-all', 'minus', 'Unstage all');
+  if (group === 'unstaged' && rows.length) acts = scmBtn('scm-discard-all', 'undo-2', 'Discard all changes') + scmBtn('scm-stage-all', 'plus', 'Stage all changes');
+  const body = rows.length
+    ? rows.map((r) => scmRowHtml(group, r)).join('')
+    : `<p class="gx-none">${scmRows('staged').length ? 'Everything is staged' : 'No changes'}</p>`;
+  return `
+    <div class="fb-scm-group">
+      <div class="fb-scm-head">
+        <button type="button" class="fb-scm-toggle" data-act="scm-toggle" data-group="${group}" aria-expanded="${open}">
+          <span class="fb-chev">${icon('chevron-right')}</span><span>${escapeHtml(title)}</span>
+        </button>
+        <span class="fb-scm-acts">${acts}</span>
+        <span class="fb-scm-count">${rows.length}</span>
+      </div>
+      ${open ? `<div class="fb-scm-rows">${body}</div>` : ''}
+    </div>`;
+}
+
+function paintScm() {
+  const el = listEl();
+  if (!el) return;
+  if (!scm) {
+    el.innerHTML = '<div class="gx-loading"><span class="spinner"></span><span>Reading git…</span></div>';
+    return;
+  }
+  if (!scm.ok) {
+    el.innerHTML = /not a git repository/i.test(scm.error || '')
+      ? empty('Not a git repository', 'This folder isn’t tracked by git, so there is nothing to stage or commit.', { ic: 'git-branch' })
+      : empty('Couldn’t read git', escapeHtml(scm.error || ''), { ic: 'triangle-alert', action: '<button type="button" class="btn" data-act="scm-refresh">Try again</button>' });
+    return;
+  }
+  if (!num(scm.total)) {
+    el.innerHTML = empty('No changes', `Nothing to commit${scm.branch ? ` on ${escapeHtml(scm.branch)}` : ''} — the files match the last commit.`, { ic: 'circle-check' });
+    return;
+  }
+  const active = document.activeElement;
+  const refocus = active && el.contains(active) ? `${active.dataset?.act}|${active.dataset?.group}|${active.dataset?.path}` : '';
+  const scroll = el.scrollTop;
+  el.innerHTML = `<div class="fb-scm">${SCM_GROUPS.map(([g, t]) => scmGroupHtml(g, t)).join('')}</div>`
+    + (num(scm.truncated) ? `<p class="gx-none">${num(scm.truncated)} more files not listed.</p>` : '');
+  el.scrollTop = scroll;
+  if (refocus) {
+    [...el.querySelectorAll('[data-act]')].find((b) => `${b.dataset.act}|${b.dataset.group}|${b.dataset.path}` === refocus)?.focus({ preventScroll: true });
+  }
+}
+
+function setPane(next) {
+  if (next === pane) return;
+  pane = next;
+  storageSet(PANE_KEY, pane);
+  prompt = null;
+  $(`${ID}-bar`).innerHTML = '';
+  paintTabs();
+  paintBar();
+  paintPrompt();
+  paintTree();
+  paintFoot();
+  if (pane === 'scm' && !scm) loadScm();
+  requestAnimationFrame(() => (pane === 'scm' ? $(`${ID}-msg`) : $(`${ID}-search`))?.focus({ preventScroll: true }));
+}
+
+/** A change row: its diff on the right — in the editor's Diff view when the file
+ * is here to edit, else (deleted, outside this folder) a read-only diff. */
+function openChange(group, path, { focus = false } = {}) {
+  const r = scmRow(group, path);
+  if (!r) return;
+  const diffSide = group === 'staged' ? 'staged' : 'unstaged';
+  const rel = relOf(path);
+  if (isDirty() && (!file || file.path !== rel)) {
+    banner = { kind: 'unsaved', then: () => openChange(group, path, { focus }) };
+    paintBanner();
+    return;
+  }
+  scmSel = { group, path };
+  paintScm();
+  if (rel === null || r.status === 'deleted') {
+    file = {
+      path: rel ?? path, repoPath: path, name: baseOf(path), kind: 'change', view: 'diff', diffSide, virtual: true,
+      git: r.status === 'deleted' ? 'D' : '', outside: rel === null, hunks: [], peek: null, repo: true, prefix: '',
+    };
+    banner = null;
+    paintBanner();
+    paintMain();
+    return;
+  }
+  if (file && file.path === rel && !file.error && !file.loading && !file.virtual) {
+    if (file.diffSide !== diffSide) {
+      file.diffSide = diffSide;
+      file.diff = null;
+    }
+    if (file.view === 'diff') {
+      paintHead();
+      applyMode();
+    } else setMode('diff');
+    syncReading();
+    return;
+  }
+  openPath(rel, { focus, view: 'diff', diffSide });
+}
+
+/** The open file's change moved between Staged and Changes: follow it there
+ * (`prefer` = where it just went, when it is now in both). */
+function followChange(path, prefer) {
+  const group = [prefer, 'conflict', 'unstaged', 'staged'].find((g) => g && scmRow(g, path));
+  if (!group) return false;
+  scmSel = { group, path };
+  file.diffSide = group === 'staged' ? 'staged' : 'unstaged';
+  file.diff = null;
+  paintScm();
+  paintHead();
+  if (file.view === 'diff') applyMode();
+  return true;
+}
+
+/** After git changed the files: the list, the tree, the open file's diff. */
+async function afterGitChange(prefer = '') {
+  await Promise.all([loadScm(), refreshTree()]);
+  if (file?.diffSide && !followChange(file.repoPath || `${file.prefix}${file.path}`, prefer)) {
+    file.diff = null; // committed, discarded: "no changes" now
+    paintHead();
+    if (file.view === 'diff') applyMode();
+  }
+  refreshBase();
+  checkDisk();
+}
+
+async function scmOp(op, { paths = null, all = false } = {}) {
+  if (scmBusy) return;
+  scmBusy = op;
+  paintScm();
+  const res = await gitCall(op, all ? { all: true } : { paths });
+  scmBusy = '';
+  if (!res.ok) showToast(res.error || 'That did not work', true);
+  // The open diff follows its file only when this touched it.
+  const here = file?.diffSide ? (file.repoPath || `${file.prefix}${file.path}`) : '';
+  const touched = all || (paths || []).includes(here);
+  await afterGitChange(touched ? (op === 'stage' ? 'staged' : 'unstaged') : scmSel?.group || '');
+  syncCommitBtn();
+}
+
+function stageRow(group, path) {
+  if (scmRow(group, path)) scmOp('stage', { paths: [path] });
+}
+
+function unstageRow(path) {
+  const r = scmRow('staged', path);
+  if (r) scmOp('unstage', { paths: [r.path, r.old_path].filter(Boolean) });
+}
+
+function startDiscard(path) {
+  const r = path ? scmRow('unstaged', path) : null;
+  const rows = scmRows('unstaged');
+  if (path && !r) return;
+  if (!path && !rows.length) return;
+  startPrompt('discard', path ? { paths: [path], rows: [r] } : { all: true, rows });
+}
+
+async function commitScm() {
+  const ta = $(`${ID}-msg`);
+  const message = (ta?.value || '').trim();
+  if (scmBusy || !scm?.ok) return;
+  if (!message) {
+    showToast('Write a commit message first', true);
+    ta?.focus();
+    return;
+  }
+  if (isDirty()) {
+    showToast(`Save ${file.name} first — unsaved edits aren’t part of a commit`, true);
+    return;
+  }
+  const staged = scmRows('staged').length > 0;
+  scmBusy = 'commit';
+  syncCommitBtn();
+  const res = await gitCall('commit', { message, staged });
+  scmBusy = '';
+  if (res.ok) {
+    scmMsg = '';
+    if (ta) {
+      ta.value = '';
+      sizeMsg();
+    }
+    showToast(`Committed ${res.sha || ''}`.trim());
+    scmSel = null;
+  } else showToast(res.error || 'Could not commit', true);
+  syncCommitBtn();
+  await afterGitChange();
+}
+
+async function generateMsg() {
+  if (scmBusy || !scm?.ok) return;
+  scmBusy = 'generate';
+  syncCommitBtn();
+  const res = await gitCall('generate', { kind: 'commit', staged: scmRows('staged').length > 0 });
+  scmBusy = '';
+  syncCommitBtn();
+  const ta = $(`${ID}-msg`);
+  if (!res.ok) {
+    showToast(res.error || 'Could not write a message', true);
+    return;
+  }
+  scmMsg = res.message || '';
+  if (ta) {
+    ta.value = scmMsg;
+    sizeMsg();
+    ta.focus();
+  }
+}
+
+/** Stage / Unstage in the file header while a change's diff is open. */
+function scmHeadBtn() {
+  if (!file?.diffSide || !scm?.ok) return '';
+  const path = file.repoPath || `${file.prefix}${file.path}`;
+  if (file.diffSide === 'staged' && scmRow('staged', path)) {
+    return `<button type="button" class="btn btn-sm btn-quiet" data-act="head-unstage" ${scmBusy ? 'disabled' : ''} title="Take it out of the next commit">${icon('minus')}<span>Unstage</span></button>`;
+  }
+  const group = scmRow('conflict', path) ? 'conflict' : scmRow('unstaged', path) ? 'unstaged' : '';
+  if (file.diffSide === 'unstaged' && group) {
+    return `<button type="button" class="btn btn-sm btn-quiet" data-act="head-stage" data-group="${group}" ${scmBusy ? 'disabled' : ''} title="Add it to the next commit">${icon('plus')}<span>Stage</span></button>`;
+  }
+  return '';
+}
+
 // ─── Editor behaviour ─────────────────────────────────────────────────────
 
 function insertText(ta, text) {
@@ -1437,7 +1898,8 @@ function onEditorKey(e) {
 // ─── Events ───────────────────────────────────────────────────────────────
 
 function rowsInList() {
-  return [...(listEl()?.querySelectorAll(results ? '.gx-row' : '.fb-row') || [])];
+  const sel = pane === 'scm' ? '.fb-scm-main' : results ? '.gx-row' : '.fb-row';
+  return [...(listEl()?.querySelectorAll(sel) || [])];
 }
 
 function startRename(path) {
@@ -1453,6 +1915,7 @@ function startDelete(path) {
 function onRowClick(row, ev) {
   const path = row.dataset.path;
   cursorPath = path;
+  scmSel = null;
   if (row.dataset.dir === '1') {
     toggleDir(path);
     return;
@@ -1463,7 +1926,9 @@ function onRowClick(row, ev) {
 
 function openHit(i, focus = false) {
   const r = results?.items?.[i];
-  if (r) openPath(r.path, { focus });
+  if (!r) return;
+  scmSel = null;
+  openPath(r.path, { focus });
 }
 
 function actBanner(name) {
@@ -1622,6 +2087,67 @@ async function act(name, b) {
     case 'p-confirm':
       submitPrompt();
       break;
+    case 'pane':
+      setPane(b.dataset.pane === 'scm' ? 'scm' : 'files');
+      break;
+    case 'scm-open':
+      openChange(b.dataset.group, b.dataset.path, { focus: false });
+      break;
+    case 'scm-file': {
+      const rel = relOf(b.dataset.path);
+      if (rel === null) break;
+      scmSel = null;
+      if (file && file.path === rel && !file.virtual) {
+        setMode('edit');
+        focusEditor();
+      } else openPath(rel, { focus: true });
+      paintScm();
+      break;
+    }
+    case 'scm-stage':
+      stageRow(b.dataset.group, b.dataset.path);
+      break;
+    case 'scm-unstage':
+      unstageRow(b.dataset.path);
+      break;
+    case 'scm-discard':
+      startDiscard(b.dataset.path);
+      break;
+    case 'scm-stage-all':
+      scmOp('stage', { all: true });
+      break;
+    case 'scm-unstage-all':
+      scmOp('unstage', { all: true });
+      break;
+    case 'scm-discard-all':
+      startDiscard('');
+      break;
+    case 'scm-toggle': {
+      const g = b.dataset.group;
+      if (scmCollapsed.has(g)) scmCollapsed.delete(g);
+      else scmCollapsed.add(g);
+      paintScm();
+      break;
+    }
+    case 'scm-refresh':
+      b.classList.add('is-spinning');
+      await afterGitChange(scmSel?.group || '');
+      b.classList.remove('is-spinning');
+      break;
+    case 'scm-commit':
+      commitScm();
+      break;
+    case 'scm-generate':
+      generateMsg();
+      break;
+    case 'head-stage': {
+      const path = file?.repoPath || `${file?.prefix}${file?.path}`;
+      if (file) stageRow(b.dataset.group, path);
+      break;
+    }
+    case 'head-unstage':
+      if (file) unstageRow(file.repoPath || `${file.prefix}${file.path}`);
+      break;
     case 'p-cancel':
       cancelPrompt();
       break;
@@ -1700,6 +2226,17 @@ function onKey(e) {
     save();
     return;
   }
+  if (t.id === `${ID}-msg`) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) {
+      e.preventDefault();
+      commitScm();
+    }
+    return;
+  }
+  if (pane === 'scm' && t.closest?.('.fb-scm-main')) {
+    arrowRows(e, $(`${ID}-msg`), rowsInList());
+    return;
+  }
   if (t.id === `${ID}-prompt-input`) {
     if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault();
@@ -1728,6 +2265,10 @@ function onKey(e) {
 
 function onInput(e) {
   if (e.target.id === `${ID}-search`) setQuery(e.target.value);
+  else if (e.target.id === `${ID}-msg`) {
+    scmMsg = e.target.value;
+    sizeMsg();
+  }
 }
 
 function toolsHtml() {
@@ -1736,9 +2277,9 @@ function toolsHtml() {
 }
 
 function paintAll() {
-  $(`${ID}-bar`).innerHTML = toolbar({
-    id: `${ID}-search`, placeholder: 'Search files by name', label: 'Search project files', kbd: false, extra: toolsHtml(),
-  });
+  $(`${ID}-bar`).innerHTML = '';
+  paintTabs();
+  paintBar();
   cardEl()?.classList.toggle('is-reading', reading && !wide());
   paintBanner();
   paintPrompt();
@@ -1747,17 +2288,22 @@ function paintAll() {
   paintFoot();
 }
 
-/** The drawer. `path` opens that file (a project-relative path) right away. */
-export function openFiles({ path = '' } = {}) {
+/** The drawer. `path` opens that file (a project-relative path) right away;
+ * `pane: 'scm'` starts on the Source Control tab, `'files'` on the Explorer. */
+export function openFiles({ path = '', pane: want = '' } = {}) {
   const key = projectKey();
   if (shownFor !== key) resetProject(key);
+  if (want === 'scm' || want === 'files') {
+    pane = want;
+    storageSet(PANE_KEY, pane);
+  }
   query = '';
   results = null;
   reading = false;
   setHomeSub(ID, store.session?.cwd_display || store.session?.cwd || 'This project');
   paintAll();
   openModal(ID, {
-    focus: `${ID}-search`,
+    focus: pane === 'scm' ? `${ID}-msg` : `${ID}-search`,
     onClose: () => {
       saveViewState();
       reading = false;

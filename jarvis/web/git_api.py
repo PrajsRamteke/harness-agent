@@ -342,15 +342,18 @@ def push(cwd: str) -> dict[str, Any]:
             return {"ok": False, "error": str(exc)}
 
 
-def commit(cwd: str, message: str, *, then_push: bool = False) -> dict[str, Any]:
+def commit(cwd: str, message: str, *, then_push: bool = False, staged_only: bool = False) -> dict[str, Any]:
+    """Commit everything (``git add --all`` first), or with ``staged_only`` just
+    what is staged (the Files drawer's Source Control tab)."""
     message = (message or "").strip()
     if not message:
         return {"ok": False, "error": "Write a commit message first (or Generate one)"}
     with _lock:
         try:
-            _ok(cwd, "add", "--all")
+            if not staged_only:
+                _ok(cwd, "add", "--all")
             if _git(cwd, "diff", "--cached", "--quiet")[0] == 0:
-                raise GitError("Nothing to commit")
+                raise GitError("Nothing staged — stage files with + first" if staged_only else "Nothing to commit")
             _ok(cwd, "commit", "-m", message)
             sha = _git(cwd, "rev-parse", "--short", "HEAD")[1].strip()
             result: dict[str, Any] = {"ok": True, "sha": sha}
@@ -579,6 +582,227 @@ def file_diff(cwd: str, path: str, side: str = "local") -> dict[str, Any]:
     return {**out, "hunks": hunks, "hidden": hidden}
 
 
+# ─── Source control: staged / unstaged, stage, unstage, discard ──────────
+# The Files drawer's Source Control tab (files.js), like VS Code's: what is
+# staged for the next commit, what isn't yet, and merge conflicts. Paths are
+# named from the repository root (the page adds / strips ``prefix``).
+
+_CONFLICT_XY = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
+
+
+def _porcelain(root: str) -> list[tuple[str, str, str]]:
+    """``git status --porcelain=v1 -z`` → [(xy, path, old_path)]."""
+    out = _ok(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    parts, rows, i = out.split("\0"), [], 0
+    while i < len(parts):
+        rec = parts[i]
+        i += 1
+        if len(rec) < 4:
+            continue
+        xy, path, old = rec[:2], rec[3:], ""
+        if ("R" in xy or "C" in xy) and i < len(parts):  # -z: "XY new\0old\0"
+            old = parts[i]
+            i += 1
+        rows.append((xy, path, old))
+    return rows
+
+
+def _untracked_row(root: str, path: str) -> dict[str, Any]:
+    full = Path(root, path)
+    lines = _count_lines(full)
+    try:
+        binary = lines == 0 and full.is_file() and full.stat().st_size > 0
+    except OSError:
+        binary = False
+    return {"path": path, "old_path": "", "status": "untracked", "added": lines, "removed": 0, "binary": binary}
+
+
+def _scm_rows(root: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """(staged, unstaged, conflicts) — each row {path, old_path, status, added, removed, binary}."""
+    rows = _porcelain(root)
+    staged_n = _numstat(_git(root, "diff", "--cached", "-M", "--numstat", "-z")[1])
+    work_n = _numstat(_git(root, "diff", "--numstat", "-z")[1])
+
+    def row(path: str, old: str, status_: str, counts: dict[str, tuple[int, int, bool]]) -> dict[str, Any]:
+        added, removed, binary = counts.get(path, (0, 0, False))
+        return {"path": path, "old_path": old, "status": status_, "added": added, "removed": removed, "binary": binary}
+
+    staged: list[dict[str, Any]] = []
+    unstaged: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    untracked = 0
+    for xy, path, old in rows:
+        if xy == "??":
+            untracked += 1
+            if untracked <= UNTRACKED_MAX_FILES:
+                unstaged.append(_untracked_row(root, path))
+            else:
+                unstaged.append({"path": path, "old_path": "", "status": "untracked", "added": 0, "removed": 0,
+                                 "binary": False})
+        elif xy in _CONFLICT_XY:
+            conflicts.append(row(path, "", "conflict", work_n))
+        else:
+            x, y = xy[0], xy[1]
+            if x not in " ?!":
+                staged.append(row(path, old if x in "RC" else "", _STATUS.get(x, "modified"), staged_n))
+            if y not in " ?!":
+                unstaged.append(row(path, "", _STATUS.get(y, "modified"), work_n))
+    key = lambda r: r["path"].lower()  # noqa: E731
+    return sorted(staged, key=key), sorted(unstaged, key=key), sorted(conflicts, key=key)
+
+
+def source_control(cwd: str) -> dict[str, Any]:
+    try:
+        root = _root(cwd)
+        staged, unstaged, conflicts = _scm_rows(root)
+    except GitError as exc:
+        return {"ok": False, "error": str(exc)}
+    branch = _git(root, "symbolic-ref", "--short", "-q", "HEAD")[1].strip() or _git(root, "rev-parse", "--short", "HEAD")[1].strip()
+    prefix = _git(cwd, "rev-parse", "--show-prefix")[1].strip()
+    total = len(staged) + len(unstaged) + len(conflicts)
+    return {"ok": True, "branch": branch, "prefix": prefix,
+            "has_head": _git(root, "rev-parse", "--verify", "-q", "HEAD")[0] == 0,
+            "staged": staged[:FILES_MAX], "unstaged": unstaged[:FILES_MAX], "conflicts": conflicts[:FILES_MAX],
+            "truncated": max(0, len(staged) - FILES_MAX) + max(0, len(unstaged) - FILES_MAX), "total": total}
+
+
+def _pathspecs(paths: Any) -> list[str]:
+    """Repository-relative paths from the page, checked: never outside the repo, never ``.git``."""
+    if not isinstance(paths, list) or not paths:
+        raise GitError("Pick a file first")
+    out = []
+    for p in paths[:FILES_MAX]:
+        text = str(p or "").replace("\\", "/")
+        parts = [s for s in text.split("/") if s not in ("", ".")]
+        if not parts or "\x00" in text or text.startswith("/") or ".." in parts or ".git" in parts:
+            raise GitError("That path is outside the repository")
+        out.append("/".join(parts))
+    return out
+
+
+def _forget_file_marks(cwd: str) -> None:
+    try:
+        from . import files_api
+
+        files_api.forget(cwd)
+    except Exception:  # the file browser's markers just stay a moment longer
+        pass
+
+
+def stage(cwd: str, paths: Any = None, *, everything: bool = False) -> dict[str, Any]:
+    """``git add`` (new, changed and deleted files alike; a conflict counts as resolved)."""
+    with _lock:
+        try:
+            root = _root(cwd)
+            if everything:
+                _ok(root, "add", "--all")
+            else:
+                _ok(root, "--literal-pathspecs", "add", "--all", "--", *_pathspecs(paths))
+        except GitError as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            _forget_file_marks(cwd)
+    return {"ok": True}
+
+
+def unstage(cwd: str, paths: Any = None, *, everything: bool = False) -> dict[str, Any]:
+    """Take files out of the next commit; their text on disk is untouched."""
+    with _lock:
+        try:
+            root = _root(cwd)
+            has_head = _git(root, "rev-parse", "--verify", "-q", "HEAD")[0] == 0
+            if everything:
+                if has_head:
+                    _ok(root, "restore", "--staged", "--", ".")
+                else:
+                    _ok(root, "rm", "--cached", "-r", "-q", "--ignore-unmatch", "--", ".")
+            else:
+                specs = _pathspecs(paths)
+                if has_head:
+                    _ok(root, "--literal-pathspecs", "restore", "--staged", "--", *specs)
+                else:
+                    _ok(root, "--literal-pathspecs", "rm", "--cached", "-r", "-q", "--ignore-unmatch", "--", *specs)
+        except GitError as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            _forget_file_marks(cwd)
+    return {"ok": True}
+
+
+def discard(cwd: str, paths: Any = None, *, everything: bool = False) -> dict[str, Any]:
+    """Throw away changes that aren't staged. A changed file goes back to its staged
+    (else committed) text — its current text is first *copied* to the Trash; a new
+    file is *moved* to the Trash. Nothing is lost for good."""
+    from . import files_api
+
+    with _lock:
+        try:
+            root = _root(cwd)
+            _, unstaged, _ = _scm_rows(root)
+            wanted = None if everything else set(_pathspecs(paths))
+            rows = [r for r in unstaged if wanted is None or r["path"] in wanted]
+            if not rows:
+                raise GitError("Nothing to discard")
+            restore, trashed = [], []
+            for r in rows:
+                full = Path(root, r["path"])
+                if r["status"] == "untracked":
+                    files_api.delete(Path(root), r["path"])
+                    trashed.append(r["path"])
+                    continue
+                if r["status"] != "deleted" and full.is_file():
+                    files_api.trash_copy(full)
+                restore.append(r["path"])
+            if restore:
+                _ok(root, "--literal-pathspecs", "checkout", "-q", "--", *restore)
+        except files_api.FilesError as exc:
+            return {"ok": False, "error": str(exc)}
+        except OSError as exc:
+            return {"ok": False, "error": f"Couldn't put a copy in the Trash: {exc.strerror or exc}"}
+        except GitError as exc:
+            return {"ok": False, "error": str(exc)}
+        finally:
+            _forget_file_marks(cwd)
+    return {"ok": True, "discarded": len(rows), "restored": restore, "trashed": trashed}
+
+
+def scm_diff(cwd: str, path: str, side: str) -> dict[str, Any]:
+    """One file's diff for the Source Control tab: ``staged`` = HEAD → the index
+    (what the next commit gets), ``unstaged`` = the index → the file on disk."""
+    from ..file_changes import build_hunks
+
+    side = "staged" if side == "staged" else "unstaged"
+    try:
+        root = _root(cwd)
+        staged, unstaged, conflicts = _scm_rows(root)
+        rows = staged if side == "staged" else unstaged + conflicts
+        row = next((r for r in rows if r["path"] == path), None)
+        if row is None:
+            return {"ok": False, "code": "gone", "error": "That file has no changes here any more"}
+        out: dict[str, Any] = {"ok": True, "side": side, **row, "hunks": [], "hidden": 0}
+        if row.get("binary"):
+            return {**out, "binary": True}
+        has_head = _git(root, "rev-parse", "--verify", "-q", "HEAD")[0] == 0
+        st = row["status"]
+        if side == "staged":
+            before = "" if st == "added" or not has_head else _blob(root, "HEAD", row["old_path"] or path)
+            after = "" if st == "deleted" else _blob(root, "", path)  # ":path" = the index
+        else:
+            if st == "untracked":
+                before = ""
+            elif st == "conflict":  # the index holds the merge stages: compare with HEAD
+                before = _blob(root, "HEAD", path) if has_head else ""
+            else:
+                before = _blob(root, "", path)
+            after = "" if st == "deleted" else _disk(root, path)
+    except GitError as exc:
+        return {"ok": False, "error": str(exc)}
+    if before is None or after is None:
+        return {**out, "binary": True, "too_large": True}
+    hunks, hidden = build_hunks(before, after)
+    return {**out, "hunks": hunks, "hidden": hidden}
+
+
 _URL = re.compile(r"https?://\S+")
 
 
@@ -718,6 +942,16 @@ def _diff_for_model(cwd: str, *, against: str = "HEAD", limit: int = DIFF_MAX_CH
     return text
 
 
+def _staged_diff_for_model(cwd: str, *, limit: int = DIFF_MAX_CHARS) -> str:
+    """Like ``_diff_for_model`` but only what is staged (a staged-only commit)."""
+    stat = _git(cwd, "diff", "--cached", "--stat")[1].strip()
+    diff = _git(cwd, "diff", "--cached")[1]
+    text = "\n\n".join(p for p in (f"Stat:\n{stat}" if stat else "", f"Diff:\n{diff}" if diff.strip() else "") if p)
+    if len(text) > limit:
+        text = text[:limit] + "\n… (diff cut here)"
+    return text
+
+
 def _default_base(cwd: str) -> str:
     code, out, _ = _git(cwd, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
     if code == 0 and out.strip():
@@ -827,7 +1061,7 @@ def _branch_line(lines: list[str]) -> tuple[str, list[str]]:
     return "", lines
 
 
-def generate(cwd: str, kind: str = "commit", *, title: str = "") -> dict[str, Any]:
+def generate(cwd: str, kind: str = "commit", *, title: str = "", staged: bool = False) -> dict[str, Any]:
     try:
         if kind == "pr":
             base = _default_base(cwd)
@@ -859,9 +1093,9 @@ def generate(cwd: str, kind: str = "commit", *, title: str = "") -> dict[str, An
             if "/" in name and re.fullmatch(r"[a-z0-9]+/[a-z0-9][a-z0-9-]*", name):
                 return {"ok": True, "branch": name[:60]}
             return {"ok": True, "branch": slug_branch(name)}
-        diff = _diff_for_model(cwd)
+        diff = _staged_diff_for_model(cwd) if staged else _diff_for_model(cwd)
         if not diff.strip():
-            raise GitError("Nothing to commit")
+            raise GitError("Nothing staged to describe" if staged else "Nothing to commit")
         recent = _git(cwd, "log", "-8", "--format=%s")[1].strip()
         user = (f"Recent commit subjects in this repository:\n{recent or '(none yet)'}\n\n"
                 f"Changes to commit:\n{diff}\n\nWrite the commit message.")
@@ -872,12 +1106,12 @@ def generate(cwd: str, kind: str = "commit", *, title: str = "") -> dict[str, An
 
 # ─── Entry point for the HTTP handler ─────────────────────────────────────
 
-MUTATING = {"checkout", "stash", "commit", "push", "pr", "pull"}
+MUTATING = {"checkout", "stash", "commit", "push", "pr", "pull", "stage", "unstage", "discard"}
 
 
 def post(op: str, data: dict[str, Any], *, busy: bool = False) -> dict[str, Any]:
     cwd = os.getcwd()
-    if op in ("checkout", "stash", "pull") and busy:
+    if op in ("checkout", "stash", "pull", "discard") and busy:
         return {"ok": False, "code": "busy",
                 "error": "Jarvis is working in these files. Wait for it to finish, or stop it first."}
     if op == "open":
@@ -897,13 +1131,24 @@ def post(op: str, data: dict[str, Any], *, busy: bool = False) -> dict[str, Any]
     if op == "stash":
         return stash(cwd, str(data.get("message") or ""))
     if op == "commit":
-        return commit(cwd, str(data.get("message") or ""), then_push=bool(data.get("push")))
+        return commit(cwd, str(data.get("message") or ""), then_push=bool(data.get("push")),
+                      staged_only=bool(data.get("staged")))
+    if op == "scm":
+        return source_control(cwd)
+    if op == "stage":
+        return stage(cwd, data.get("paths"), everything=bool(data.get("all")))
+    if op == "unstage":
+        return unstage(cwd, data.get("paths"), everything=bool(data.get("all")))
+    if op == "discard":
+        return discard(cwd, data.get("paths"), everything=bool(data.get("all")))
     if op == "push":
         return push(cwd)
     if op == "pull":
         return pull(cwd)
     if op == "files":
         return changed_files(cwd)
+    if op == "diff" and data.get("side") in ("staged", "unstaged"):
+        return scm_diff(cwd, str(data.get("path") or ""), str(data["side"]))
     if op == "diff":
         return file_diff(cwd, str(data.get("path") or ""), str(data.get("side") or "local"))
     if op == "pr":
@@ -916,5 +1161,6 @@ def post(op: str, data: dict[str, Any], *, busy: bool = False) -> dict[str, Any]
                          draft=bool(data.get("draft")))
     if op == "generate":
         kind = str(data.get("kind") or "commit")
-        return generate(cwd, kind if kind in ("pr", "branch") else "commit", title=str(data.get("title") or ""))
+        return generate(cwd, kind if kind in ("pr", "branch") else "commit", title=str(data.get("title") or ""),
+                        staged=bool(data.get("staged")))
     return {"ok": False, "error": f"unknown git op: {op}"}

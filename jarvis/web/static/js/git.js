@@ -8,10 +8,10 @@ import { brand } from './brands.js';
 import { api } from './api.js';
 import { store, subscribe } from './store.js';
 import { isInspectorOpen, onInspectorChange } from './inspector.js';
-import { openGitChanges, refreshGitChanges, initGitChanges } from './gitchanges.js';
 import { openFiles, refreshFiles } from './files.js';
 
 const EDITOR_KEY = 'jarvis-git-editor';
+const COLLAPSED_KEY = 'jarvis-git-collapsed';
 /** The git_api.py this page was written for (GIT_API_VERSION; 3 = pull + changed files). */
 const NEEDS_API = 3;
 const RESTART_NOTE = 'Restart Jarvis to finish updating — it still runs older git code that can only open a PR from the branch you are on';
@@ -35,6 +35,7 @@ let seq = 0;              // newest /api/git request; older answers are dropped
 let shownFor = null;      // the project (BASE + folder) the card shows
 
 const card = () => $('git-card');
+const isCollapsed = () => storageGet(COLLAPSED_KEY, '') === '1';
 const num = (n) => Number(n) || 0;
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -95,7 +96,6 @@ export function handleGitEvent(data) {
     seq += 1; // newer than any request still on its way
     st = data;
     render();
-    refreshGitChanges();
     refreshFiles();
   }
 }
@@ -177,6 +177,7 @@ function render() {
   }
   el.hidden = false;
   el.classList.toggle('is-working', !!working);
+  el.classList.toggle('is-collapsed', isCollapsed());
   const rows = el.querySelector('.gc-rows') || el.appendChild(Object.assign(document.createElement('div'), { className: 'gc-rows' }));
   const ed = editorChoice();
   const parts = [pathHeader()];
@@ -226,35 +227,43 @@ function render() {
       </button>
       <button type="button" class="gc-more" data-menu="commit" aria-haspopup="menu" aria-label="More git actions">${icon('chevron-down')}</button>
     </div>`);
-  parts.push(`
-    <button type="button" class="gc-row gc-changes" data-act="changes" title="See what changed, file by file">
-      ${icon('file-diff')}<span>Changes</span>
-      <span class="gc-nums">${num(st.files) ? `<b class="num-add">+${num(st.added)}</b><b class="num-del">−${num(st.removed)}</b>` : num(st.behind) ? `<em class="gc-incoming">${num(st.behind)} incoming</em>` : '<em>clean</em>'}</span>
-    </button>`);
   parts.push(filesRow());
   rows.innerHTML = parts.join('');
   paintForm();
 }
 
-/** Browse and edit the project's files (files.js). */
+/** Browse and edit the project's files (files.js). With uncommitted changes,
+ * their +/− sit next to it and open the drawer's Source Control tab. */
 function filesRow() {
-  return `
-    <button type="button" class="gc-row gc-files" data-act="files" title="Browse and edit this project's files (${isMac ? '⌥F' : 'Alt F'})">
+  const key = isMac ? '⌥F' : 'Alt F';
+  const files = st?.repo ? num(st.files) : 0;
+  const row = `
+    <button type="button" class="gc-row gc-files" data-act="files" title="Browse and edit this project's files (${key})">
       ${icon('folder-open')}<span>Files</span>
-      <span class="gc-nums"><em>${isMac ? '⌥F' : 'Alt F'}</em></span>
+      ${files ? '' : `<span class="gc-nums"><em>${key}</em></span>`}
     </button>`;
+  if (!files) return row;
+  return `
+    <div class="gc-line">${row}
+      <button type="button" class="gc-scm" data-act="files-scm" title="${plural(files, 'changed file')} — see the diffs, stage, commit or discard">
+        ${icon('git-branch')}<span class="gc-nums"><b class="num-add">+${num(st.added)}</b><b class="num-del">−${num(st.removed)}</b></span>
+      </button>
+    </div>`;
 }
 
-/** Which project this card is for: the folder's name (full path on hover). */
+/** Which project this card is for: the folder's name (full path on hover).
+ * Clicking it folds the card down to just this header (remembered). */
 function pathHeader() {
   const full = String(st.cwd || st.display || '').replace(/\/+$/, '');
   const name = full.split('/').pop() || full;
   if (!name) return '';
+  const open = !isCollapsed();
   return `
-    <div class="gc-path" title="${escapeHtml(st.display || full)}">
+    <button type="button" class="gc-path" data-act="toggle-card" aria-expanded="${open}" title="${escapeHtml(st.display || full)} — ${open ? 'collapse' : 'expand'}">
       <span class="gc-path-ic">${icon('folder')}</span>
       <span class="gc-path-name">${escapeHtml(name)}</span>
-    </div>`;
+      <span class="gc-chev gc-path-chev">${icon('chevron-down')}</span>
+    </button>`;
 }
 
 /** The inline form under the rows; rebuilt only when it changes (typing survives). */
@@ -716,7 +725,6 @@ async function after(res, okText) {
     showToast(res.error || 'That did not work', true);
   }
   await refreshGit();
-  refreshGitChanges();
   refreshFiles();
   return res.ok;
 }
@@ -742,11 +750,16 @@ async function act(name, btn) {
       else if (main?.op) setForm(main.op);
       break;
     }
-    case 'changes':
-      openGitChanges();
+    case 'toggle-card':
+      storageSet(COLLAPSED_KEY, isCollapsed() ? '' : '1');
+      closeMenu();
+      render();
       break;
     case 'files':
       openFiles();
+      break;
+    case 'files-scm':
+      openFiles({ pane: 'scm' });
       break;
     case 'pull': {
       closeMenu();
@@ -894,7 +907,6 @@ function schedulePoll() {
 export function initGit() {
   const el = card();
   if (!el) return;
-  initGitChanges({ pull: () => act('pull') });
   el.addEventListener('click', (e) => {
     const m = e.target.closest('[data-menu]');
     if (m && !m.disabled) {
@@ -926,10 +938,7 @@ export function initGit() {
       wasBusy = !!s.busy;
       return;
     }
-    if (wasBusy && !s.busy) {
-      refreshGit();
-      refreshGitChanges();
-    }
+    if (wasBusy && !s.busy) refreshGit();
     else if (s.busy !== wasBusy) render();
     wasBusy = !!s.busy;
   });

@@ -130,6 +130,11 @@ def _forget(root: Path) -> None:
         _cache.pop((kind, str(root)), None)
 
 
+def forget(cwd: str | None = None) -> None:
+    """Drop the cached git markers / name index (git_api calls this after staging, a discard, a commit)."""
+    _forget(_root(cwd))
+
+
 # ─── Git markers (M / A / U …) ────────────────────────────────────────────
 
 def _mark(xy: str) -> str:
@@ -505,6 +510,19 @@ def _trash_dir() -> Path:
     path = home / ".Trash" if sys.platform == "darwin" else home / ".local" / "share" / "Trash" / "files"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def trash_copy(path: Path, note: str = "discarded") -> Path:
+    """Put a *copy* of ``path`` in the Trash (``name (discarded).ext``) — the
+    safety net before git overwrites a file's text."""
+    trash = _trash_dir()
+    dest = trash / f"{path.stem} ({note}){path.suffix}"
+    n = 1
+    while os.path.lexists(dest):
+        n += 1
+        dest = trash / f"{path.stem} ({note} {n}){path.suffix}"
+    shutil.copy2(str(path), str(dest))
+    return dest
 
 
 def delete(root: Path, rel: str) -> dict[str, Any]:
