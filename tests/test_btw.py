@@ -373,6 +373,48 @@ def test_clients_that_force_tools_get_a_reply_tool(chat, monkeypatch):
     assert "".join(e.text for e in events if e.op == "delta") == "Almost done."
 
 
+class GatedStreamClient:
+    """A tool-forcing gateway: the answer only exists as the ``reply`` call's JSON arguments."""
+
+    def __init__(self, args_chunks):
+        self.args_chunks = args_chunks
+        self.gate_tools = [{"name": "bash"}]
+        self.messages = self
+
+    @contextlib.contextmanager
+    def stream(self, **kwargs):
+        args = "".join(self.args_chunks)
+        final = SimpleNamespace(content=[SimpleNamespace(
+            type="tool_use", id="t1", name="reply", input=json.loads(args))])
+
+        def delta_stream():
+            yield "thinking", "hmm"
+            yield "tool_input", (0, "reply", "")
+            for chunk in self.args_chunks:
+                yield "tool_input", (0, "", chunk)
+
+        yield SimpleNamespace(delta_stream=delta_stream(), get_final_message=lambda: final)
+
+
+def test_forced_reply_tool_text_streams_as_it_arrives(chat, monkeypatch):
+    chunks = ['{"te', 'xt": "Half', 'way \\"there\\"\\n', 'caf\\u00e9 \\ud83d', '\\ude00 done"}']
+    monkeypatch.setitem(chat.tab.config, "client", GatedStreamClient(chunks))
+    _, events = run_ask("progress?")
+    deltas = [e.text for e in events if e.op == "delta"]
+    want = 'Halfway "there"\ncaf\u00e9 \U0001F600 done'
+    assert len(deltas) > 1                      # it arrived in pieces, not all at the end
+    assert "".join(deltas) == want
+    assert events[-1].op == "done" and events[-1].text == want
+
+
+def test_reply_text_reader_waits_for_cut_off_escapes():
+    reader = btw._ReplyText()
+    assert reader.feed('{"text": "a\\') == "a"
+    assert reader.feed('u00') == ""
+    assert reader.feed('e9\\n"}') == "\u00e9\n"
+    assert reader.feed("tail") == ""            # nothing after the closing quote
+
+
 def test_oauth_keeps_the_identity_block_first(chat, monkeypatch):
     from jarvis.constants import AUTH_OAUTH, OAUTH_IDENTITY
 

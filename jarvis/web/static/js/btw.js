@@ -24,8 +24,10 @@ import { activeTab, onActiveTab, tabKey } from './tabkey.js';
 const POS_KEY = 'jarvis-btw-pos';
 const SIZE_KEY = 'jarvis-btw-size';
 const DRAFT_KEY = 'jarvis-btw-draft';
-/** The unsent question belongs to the chat it was typed in. */
-const draftKey = () => `${DRAFT_KEY}:${tabKey(activeTab()) || 'x'}`;
+/** The unsent question belongs to the chat it was typed in; ``draftTab``
+ *  records which chat the visible textarea currently holds so a tab switch
+ *  swaps the text synchronously (composer.js keeps the same ledger). */
+const draftKey = (t) => `${DRAFT_KEY}:${(t ? tabKey(t) : tabKey(activeTab())) || 'x'}`;
 const MARGIN = 12;
 const MIN_W = 300;
 const MIN_H = 220;
@@ -45,6 +47,7 @@ let lastHeadButton = 0;         // a click on a header button just happened
 let unread = false;             // an answer finished while the window was out of sight
 let dragMoved = false;          // the header was dragged (so its click is not "open")
 let win = null;
+let draftTab = '';   // whose question the textarea holds right now ('' until first shown)
 
 const log = () => $('btw-log');
 const input = () => $('btw-input');
@@ -117,7 +120,7 @@ function build() {
   el.addEventListener('input', () => {
     grow();
     syncSend();
-    storageSet(draftKey(), el.value);
+    storageSet(draftTab || draftKey(), el.value);
   });
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -168,15 +171,20 @@ function show({ focus = true } = {}) {
   build();
   win.hidden = false;
   setMin(false);
-  if (!input().value) loadDraft();
+  swapDraft();      // owner check: never shows the other chat's question
   render();
   if (focus) input()?.focus();
 }
 
-function loadDraft() {
+/** Put the other chat's question away and bring this chat's back. Called at
+ *  tab-switch time (before any network await) and on every show. */
+function swapDraft() {
   const el = input();
-  if (!el) return;
-  el.value = storageGet(draftKey(), '');
+  const key = draftKey();
+  if (!el || draftTab === key) return;
+  if (draftTab) storageSet(draftTab, el.value);   // never file it under the new chat
+  el.value = storageGet(key, '');
+  draftTab = key;
   requestAnimationFrame(() => { grow(); syncSend(); });
 }
 
@@ -434,7 +442,7 @@ async function resumeSaved(id) {
 function threadToConv(thread) {
   const turns = (thread?.turns || (thread?.pairs || []).map((p) => ({ q: p.q, a: p.a, status: 'done' })))
     .map((t) => ({ q: t.q || '', a: t.a || '', status: t.status || 'done', error: '' }));
-  return { id: thread?.id || '', turns };
+  return { id: thread?.id || '', tab: thread?.tab, session: thread?.session ?? thread?.session_id ?? null, turns };
 }
 
 // ─── Asking ──────────────────────────────────────────────────────────────
@@ -451,13 +459,13 @@ async function ask(text, { retry = false } = {}) {
     showToast('Still answering — wait for it, or stop it first');
     return;
   }
-  conv = conv || { id: '', turns: [] };
+  conv = conv || { id: '', tab: scope().tab, session: scope().session ?? null, turns: [] };
   const mine = conv;
   if (retry) mine.turns.pop();
   mine.turns.push({ q: text, a: '', status: 'wait', error: '' });
   asking = true;
   early = [];
-  storageSet(draftKey(), '');
+  storageSet(draftTab || draftKey(), '');
   render();
   haptic(6);
   let res;
@@ -496,7 +504,7 @@ function sendFromInput() {
     return;
   }
   el.value = '';
-  storageSet(draftKey(), '');
+  storageSet(draftTab || draftKey(), '');
   grow();
   syncSend();
   ask(text);
@@ -545,7 +553,7 @@ export function handleBtwEvent(evt) {
   // Another page of this Jarvis asked — in the chat this page shows: follow along
   // here too, if nothing else is open. A side chat of another session never appears.
   if (!conv && evt.op === 'start' && inScope(evt)) {
-    conv = { id: evt.id, turns: [] };
+    conv = { id: evt.id, tab: evt.tab, session: evt.session ?? null, turns: [] };
     show({ focus: false });
   }
   if (conv?.id === evt.id) apply(evt);
@@ -590,6 +598,15 @@ function apply(evt) {
 
 let scopeSeq = 0;
 
+/** A cross-chat window never survives the switch itself. */
+function usesCurrentChat(c) {
+  const tab = activeTab();
+  if (!c || !tab) return true;
+  if (c.session != null) return tab.session_id === c.session;
+  if (c.tab != null) return c.tab === tab.id;
+  return true;
+}
+
 /** Show the side chats of the chat on screen, and only those.
  *
  * Runs on load and whenever another session is shown (a tab switch, a resumed
@@ -599,6 +616,18 @@ let scopeSeq = 0;
  */
 async function syncScope() {
   const seq = ++scopeSeq;
+  // The textarea swap happens first, synchronously — the old chat's pending
+  // question is put away and this chat's comes back without waiting for I/O.
+  swapDraft();
+  // A window from the chat we left must not linger while the fetch is out.
+  if (conv && !usesCurrentChat(conv)) {
+    conv = null;
+    asking = false;
+    early = [];
+    unread = false;
+    setHistory(false);
+    if (win) win.hidden = true;
+  }
   const res = await fetchScoped();
   if (!res || seq !== scopeSeq) return;          // a newer switch is already on its way
   staleServer = !Array.isArray(res.history);
@@ -620,7 +649,7 @@ async function syncScope() {
     setMin(true);
   }
   armedForget = '';
-  if (win) loadDraft();                          // the question typed in this chat, not the last one
+  swapDraft();                                   // the other chat's question never lingers
   paintBadge();
   if (histOpen) renderHistory();
   if (win && !win.hidden) render();

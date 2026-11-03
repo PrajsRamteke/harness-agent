@@ -702,6 +702,97 @@ def _blocks(final: Any) -> list[dict[str, Any]]:
     return [_block(b) for b in (getattr(final, "content", None) or [])]
 
 
+_JSON_ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+_TEXT_KEY_RE = re.compile(r'"text"\s*:\s*"')
+_HIGH_SURROGATES = range(0xD800, 0xDC00)
+_LOW_SURROGATES = range(0xDC00, 0xE000)
+
+
+class _ReplyText:
+    """Reads the ``text`` argument of a ``reply`` call out of its JSON while it is still
+    arriving, so a gateway that forces tools streams the answer like any other."""
+
+    def __init__(self) -> None:
+        self._raw = ""
+        self._pos: int | None = None    # just past the opening quote of the value
+        self._done = False
+
+    def feed(self, chunk: str) -> str:
+        """The newly readable part of the text after ``chunk`` arrived."""
+        if self._done or not chunk:
+            return ""
+        self._raw += chunk
+        raw = self._raw
+        if self._pos is None:
+            found = _TEXT_KEY_RE.search(raw)
+            if found is None:
+                return ""
+            self._pos = found.end()
+        out: list[str] = []
+        i = self._pos
+        while i < len(raw):
+            ch = raw[i]
+            if ch == '"':
+                self._done = True
+                break
+            if ch != "\\":
+                out.append(ch)
+                i += 1
+                continue
+            if i + 1 >= len(raw):
+                break                     # the escape is cut off: wait for the rest
+            kind = raw[i + 1]
+            if kind != "u":
+                out.append(_JSON_ESCAPES.get(kind, kind))
+                i += 2
+                continue
+            if i + 6 > len(raw):
+                break
+            try:
+                code = int(raw[i + 2:i + 6], 16)
+            except ValueError:
+                out.append("\ufffd")
+                i += 6
+                continue
+            if code in _HIGH_SURROGATES:  # an emoji: needs its second half too
+                if i + 12 > len(raw):
+                    break
+                try:
+                    low = int(raw[i + 8:i + 12], 16) if raw[i + 6:i + 8] == "\\u" else 0
+                except ValueError:
+                    low = 0
+                if low in _LOW_SURROGATES:
+                    code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
+                    i += 6
+                else:
+                    code = 0xFFFD
+            out.append(chr(code) if code not in _LOW_SURROGATES else "\ufffd")
+            i += 6
+        self._pos = i
+        return "".join(out)
+
+
+def _pieces(stream: Any, gated: bool) -> Any:
+    """The answer's text as it arrives. Plain text normally; through a gateway that
+    forces tools it is the ``reply`` call's text argument (other text is chatter)."""
+    if gated:
+        if not hasattr(stream, "delta_stream"):
+            return
+        readers: dict[Any, _ReplyText] = {}
+        names: dict[Any, str] = {}
+        for kind, chunk in stream.delta_stream:
+            if kind != "tool_input":
+                continue
+            key, name, args = chunk
+            names[key] = name or names.get(key, "")
+            if names[key] == _ANSWER_TOOL["name"]:
+                piece = readers.setdefault(key, _ReplyText()).feed(args)
+                if piece:
+                    yield piece
+    elif hasattr(stream, "text_stream"):
+        yield from stream.text_stream
+
+
 def _stream_answer(client: Any, kwargs: dict[str, Any], alive: Callable[[], bool],
                    on_text: Callable[[str], None], deadline: float) -> str:
     """Ask the model; ``on_text`` gets each new piece. Returns the whole answer."""
@@ -709,15 +800,14 @@ def _stream_answer(client: Any, kwargs: dict[str, Any], alive: Callable[[], bool
     for _ in range(RETRIES + 1):
         streamed = ""
         with client.messages.stream(**kwargs) as stream:
-            if not gated and hasattr(stream, "text_stream"):
-                for piece in stream.text_stream:
-                    if not alive():
-                        return streamed
-                    if time.monotonic() > deadline:
-                        raise BtwError(f"the model took longer than {int(TIMEOUT_SECS)}s — try again")
-                    if piece:
-                        streamed += piece
-                        on_text(piece)
+            for piece in _pieces(stream, gated):
+                if not alive():
+                    return streamed
+                if time.monotonic() > deadline:
+                    raise BtwError(f"the model took longer than {int(TIMEOUT_SECS)}s — try again")
+                if piece:
+                    streamed += piece
+                    on_text(piece)
             if not alive():
                 return streamed
             blocks = _blocks(stream.get_final_message())
