@@ -473,6 +473,8 @@ def describe(kind: str, *, provider: str = "", provider_id: str = "", model: str
                                              mid_reply=mid_reply, said=said)
     elif provider_id == "claude_agent":
         title, msg, actions, said = _claude_agent_wording(kind, status, model, title, msg, actions, said)
+    elif provider_id == "cursor":
+        title, msg, actions, said = _cursor_wording(kind, status, model, title, msg, actions, said)
 
     if said and kind not in ("request",) and not _says_nothing_new(said, f"{title} {msg}"):
         msg = f"{msg}\n{who} said: “{said}”."
@@ -481,6 +483,34 @@ def describe(kind: str, *, provider: str = "", provider_id: str = "", model: str
         status=status, code=code, detail=clean_detail(detail), retry_after=retry_after,
         attempts=attempts,
     )
+
+
+def _cursor_wording(kind: str, status: int | None, model: str, title: str, msg: str,
+                    actions: list[Action], said: str) -> tuple[str, str, list[Action], str]:
+    """Cursor (through its SDK) failed: the fix is the Cursor API key or the SDK
+    install, or the plan's own limits — not a Jarvis setting."""
+    keys = Action("Cursor API key", "/key", primary=True)
+    other = Action("Change provider", "/provider")
+    retry = Action("Retry", RETRY)
+    if kind == "auth":
+        return ("Cursor didn't accept the API key",
+                "Cursor refused the API key. Create a new one at cursor.com/dashboard (Integrations → "
+                "API Keys), add it in /key (or set CURSOR_API_KEY), then retry.",
+                [keys, retry, other], "")
+    if status == 424:
+        return ("Cursor SDK isn't installed", said or msg, [Action("Change provider", "/provider", primary=True)], "")
+    if kind in ("quota", "rate_limit"):
+        from ..auth import cursor_agent as cu
+
+        pool = cu.POOL_LABELS[cu.pool_of(model)]
+        spare = cu.other_pool_label(model)
+        hint = (f" {spare} draw on a separate pool — pick one in /model." if spare
+                else " Pick another model, or wait for the reset.")
+        return ("Cursor limit reached",
+                f"Cursor says the {pool} usage for your plan is used up for now."
+                + (f" It said: “{said}”." if said else "") + hint,
+                [Action("Switch model", "/model", primary=True), retry], "")
+    return title, msg, actions, said
 
 
 def _claude_agent_wording(kind: str, status: int | None, model: str, title: str, msg: str,

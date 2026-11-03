@@ -90,7 +90,7 @@ _SECTIONS = [
         ("/plan", "toggle plan mode — read-only research until you approve a plan"),
         ("/model <name>", "switch model (Harness Agent free tier listed first)"),
         ("/provider", "provider setup hub — OAuth login, API keys, and provider switch"),
-        ("/provider <name>", "switch provider (anthropic/openrouter/opencode/opencode_zen)"),
+        ("/provider <name>", "switch provider (anthropic/openrouter/opencode/opencode_zen/cursor)"),
         ("/stats", "session stats (time, msgs, tools, tokens)"),
         ("/usage", "OpenRouter spend — key limit, what's left, today / week / month, account credit"),
     ]),

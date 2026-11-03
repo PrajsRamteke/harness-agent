@@ -37,6 +37,7 @@ from ..constants.providers import (
     PROVIDER_ANTHROPIC_AUTH,
     PROVIDER_ANTIGRAVITY,
     PROVIDER_CLAUDE_AGENT,
+    PROVIDER_CURSOR,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENAI_CODEX_AUTH,
@@ -81,6 +82,11 @@ CARDS: tuple[Card, ...] = (
     Card("claude_agent", "cli", "Claude Code CLI", "Your own signed-in claude — Pro, Max, Team or API key",
          PROVIDER_CLAUDE_AGENT, "CC", "https://code.claude.com/docs/en/setup",
          safety="safe", safety_note=SAFE_CLAUDE_CODE),
+    # A Cursor subscription, used through the Cursor SDK with an API key from the
+    # Cursor dashboard (kind "key": pasted, checked and saved like the others;
+    # the page groups it with the subscriptions).
+    Card("cursor", "key", "Cursor", "Every Cursor model with your Cursor subscription",
+         PROVIDER_CURSOR, "Cu", "https://cursor.com/dashboard?tab=integrations"),
     Card("anthropic", "oauth", "Claude Pro / Max", "Sign in with your Claude subscription",
          PROVIDER_ANTHROPIC_AUTH, "C", safety="risky", safety_note=RISKY_CLAUDE),
     Card("openai_codex", "oauth", "ChatGPT Plus / Pro", "Codex models with your ChatGPT plan",
@@ -101,7 +107,7 @@ CARDS: tuple[Card, ...] = (
 CARD_BY_ID = {c.id: c for c in CARDS}
 
 # Keys the server checks with the provider before saving (verify_key).
-CHECKED_CARDS = frozenset({"anthropic_api", "openrouter"})
+CHECKED_CARDS = frozenset({"anthropic_api", "openrouter", "cursor"})
 
 
 def _monogram(name: str) -> str:
@@ -253,6 +259,12 @@ def card_row(card: Card, active: str | None = None, *, sources: dict | None = No
             env_var=spec.get("env_var", ""),
             key_prefix=spec.get("key_prefix") or "",
         )
+        if card.id == "cursor":
+            from ..auth import cursor_agent
+
+            # What the page needs besides the key: the Cursor SDK (and Cursor's
+            # verdict on the key, once it has given one).
+            row["sdk"] = cursor_agent.status().public()
     return row
 
 
@@ -369,6 +381,10 @@ def _check_request(card_id: str, key: str) -> tuple[str, dict[str, str]] | None:
 
 def verify_key(card_id: str, key: str, *, timeout: float = 8.0) -> str:
     """``ok`` | ``rejected`` (the provider said 401/403) | ``unknown``."""
+    if card_id == "cursor":  # no plain HTTP check: the Cursor SDK asks (a few seconds)
+        from ..auth import cursor_agent
+
+        return cursor_agent.verify_key(key)
     check = _check_request(card_id, key)
     if check is None:
         return "unknown"
@@ -513,6 +529,9 @@ def use_card(card_id: str) -> dict[str, Any]:
             return _err(row["cli"].get("message") or "Claude Code CLI isn't set up yet")
         verb = "Sign in to" if card.kind == "oauth" else "Add a key for"
         return _err(f"{verb} {card.label} first")
+    if card.id == "cursor" and not row["sdk"]["ready"]:  # a key, but no SDK (or Cursor refused it)
+        sdk = row["sdk"]
+        return _err(sdk["message"], fix=sdk["fix"], problem=sdk["problem"])
     if row["active"]:
         return _ok(f"Already using {card.label}", model=state.MODEL)
     from ..commands.control import _apply_model_selection

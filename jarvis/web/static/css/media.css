@@ -157,6 +157,8 @@
 }
 .lr-cap .ic { width: 12px; height: 12px; stroke-width: 2.2; }
 .lr-cap.is-empty, .lr-free.is-empty { visibility: hidden; }
+/* Cursor's own models (the plan's included pool): just the "Cursor models" tag in the theme colour (pickers.js). */
+.lr-sub .lr-pool { color: var(--accent); }
 /* "Free" next to models that cost nothing to use. */
 .lr-free {
   flex-shrink: 0;

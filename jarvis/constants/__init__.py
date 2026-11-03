@@ -45,6 +45,7 @@ from .providers import (
     PROVIDER_OPENAI_CODEX_AUTH, PROVIDER_ANTIGRAVITY,
     antigravity_models_for_picker, antigravity_default_model,
     PROVIDER_CLAUDE_AGENT, claude_agent_models_for_picker, claude_agent_default_model,
+    PROVIDER_CURSOR, cursor_models_for_picker, cursor_default_model,
     AUTH_API_KEY, AUTH_OAUTH,
     MODEL_SOURCES, MODEL_SOURCE_LABELS,
     MODEL_INFO, PRICING,

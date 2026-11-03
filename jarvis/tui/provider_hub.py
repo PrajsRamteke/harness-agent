@@ -21,7 +21,7 @@ from . import theme as ui
 
 _MODE_OPTIONS = [
     ("oauth", "Auth (OAuth)",     "Claude · ChatGPT · Google Antigravity — subscription sign-in"),
-    ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode + 200 more via models.dev"),
+    ("api",   "API Key",          "Anthropic, OpenRouter, OpenCode, Cursor + 200 more via models.dev"),
     ("local", "Local models",     "Ollama, LM Studio, llama.cpp … on this computer — no key"),
     ("claude", "Claude Code CLI", "Your own signed-in `claude` — Pro / Max / Team plan or API key"),
 ]

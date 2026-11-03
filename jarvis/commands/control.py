@@ -14,6 +14,7 @@ from ..constants import (
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX, PROVIDER_OPENAI_CODEX_AUTH, PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_AGENT,
+    PROVIDER_CURSOR,
     PROVIDER_ANTHROPIC_API, PROVIDER_ANTHROPIC_AUTH,
     AUTH_API_KEY, AUTH_OAUTH,
 )
@@ -279,7 +280,7 @@ def _apply_model_selection(chosen: str, *, source: str = ""):
     if source == PROVIDER_HARNESS_AGENT:
         target_provider = PROVIDER_OPENCODE_ZEN
     elif source in (PROVIDER_OPENCODE_ZEN, PROVIDER_OPENCODE, PROVIDER_OPENROUTER, PROVIDER_ANTIGRAVITY,
-                    PROVIDER_CLAUDE_AGENT):
+                    PROVIDER_CLAUDE_AGENT, PROVIDER_CURSOR):
         # The picked source decides: OpenCode Go serves gpt-… ids too, and
         # guessing from the id would send those to ChatGPT (Codex).
         target_provider = source
@@ -521,6 +522,17 @@ def apply_key_change(provider: str, *, removed: bool = False) -> str:
     else:
         in_use = state.provider == provider
 
+    if provider == PROVIDER_CURSOR and not removed:
+        from ..auth import cursor_agent as _cu
+
+        _cu.reset()  # a different key: Cursor's earlier verdict no longer applies
+        _code, _msg, fix = _cu.status().problem()
+        if _code == "no_sdk":
+            return f"Cursor key saved — Cursor also needs its SDK: run {fix}"
+        if not in_use:
+            _cu.refresh_in_background()  # lists the account's models for /model
+            return "Cursor models are now in /model"
+
     if removed:
         if not in_use:
             return ""
@@ -540,6 +552,15 @@ def apply_key_change(provider: str, *, removed: bool = False) -> str:
             state.client = _build_opencode_zen_client_for_model(
                 state.MODEL, source=PROVIDER_OPENCODE_ZEN,
             )
+        elif provider == PROVIDER_CURSOR:
+            from ..auth import cursor_agent as _cu
+            from ..auth.client import _build_cursor_client
+
+            _cu.reset()  # the key (or the SDK) changed: look again, ask Cursor in the background
+            state.client = _build_cursor_client()
+            if state.client is None:
+                return "saved, but Cursor still needs the Cursor SDK — " + _cu.status().problem()[2]
+            _cu.refresh_in_background()
         elif is_catalog_provider(provider):
             from ..auth.client import _build_catalog_client
 
@@ -605,6 +626,9 @@ def _usable_anthropic_auth_mode(preferred: str = "") -> str | None:
     return None
 
 
+# Typed names for the Cursor provider (`/provider cursor`).
+CURSOR_ALIASES = ("cursor", "cursor-sdk", "cursor_sdk", "cursor-agent", "cursor_agent")
+
 # Typed names for the Claude Code CLI provider (`/provider claude`).
 CLAUDE_AGENT_ALIASES = ("claude", "claude-code", "claude_code", "claudecode", "claude-agent",
                         "claude_agent", "cc", "claude-cli")
@@ -626,13 +650,14 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             "  [cyan]4[/]  OpenCode Zen       [dim](MiniMax, HY3, Nemotron)[/]\n"
             "  [cyan]5[/]  Google Antigravity [dim](Gemini + Claude, Google sign-in — /login)[/]\n"
             "  [cyan]6[/]  Claude Code CLI    [dim](your own signed-in `claude` — Pro/Max/Team or API key)[/]\n"
+            "  [cyan]7[/]  Cursor             [dim](every Cursor model with your Cursor subscription — API key)[/]\n"
             "  [dim]…or any provider id from models.dev, e.g.[/] [cyan]deepseek[/] [dim](/key lists them all)[/]\n"
             "  [dim]…or a model server on this computer, e.g.[/] [cyan]ollama[/] [dim](/local-models lists them)[/]\n\n"
             "usage: [dim]/provider <name>[/]",
             title="◎ provider", border_style="cyan",
         ))
         try:
-            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, 5=Antigravity, 6=Claude Code CLI, enter to cancel]: ").strip().lower()
+            sel = console.input("choose [1=Anthropic, 2=OpenRouter, 3=OpenCode Go, 4=OpenCode Zen, 5=Antigravity, 6=Claude Code CLI, 7=Cursor, enter to cancel]: ").strip().lower()
         except (RuntimeError, EOFError):
             console.print("[dim]TUI mode — run [cyan]/provider anthropic[/], "
                           "[cyan]/provider openrouter[/], [cyan]/provider opencode[/], "
@@ -644,15 +669,19 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         elif sel in ("4", "opencode_zen", "zen", "z"): target = PROVIDER_OPENCODE_ZEN
         elif sel in ("5", "antigravity", "ag"):         target = PROVIDER_ANTIGRAVITY
         elif sel == "6":                               target = PROVIDER_CLAUDE_AGENT
+        elif sel == "7":                               target = PROVIDER_CURSOR
         elif sel:                                      target = sel
         else: return
     if target in ("google", "google-antigravity", "ag"):
         target = PROVIDER_ANTIGRAVITY
     if target in CLAUDE_AGENT_ALIASES:
         target = PROVIDER_CLAUDE_AGENT
+    if target in CURSOR_ALIASES:
+        target = PROVIDER_CURSOR
     builtin = (
         PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE,
         PROVIDER_OPENCODE_ZEN, PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_AGENT,
+        PROVIDER_CURSOR,
     )
     if target not in builtin:
         # A model server on this computer: "local:ollama", or just "ollama".
@@ -715,6 +744,23 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
         state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_CLAUDE_AGENT)
         state.auth_mode = AUTH_OAUTH
         _secure_write(AUTH_MODE_FILE, AUTH_OAUTH)
+    elif target == PROVIDER_CURSOR:
+        from ..auth import cursor_agent as _cu
+
+        _cu.reset()
+        if not _cu.status().checked_at and _cu.status().ready:
+            console.print("[dim]checking your key with Cursor…[/]")
+            _cu.refresh()  # is the key accepted? which models does it have?
+        st = _cu.status()
+        if not st.ready:
+            _code, msg, fix = st.problem()
+            how = (f"[dim]Run[/] [bold]{fix}[/bold][dim], then /provider cursor again.[/]" if _code == "no_sdk"
+                   else f"[dim]Get a key at[/] {fix} [dim]and add it with /key, then /provider cursor again.[/]")
+            console.print(f"[yellow]{msg}[/] {how}")
+            state.provider = prev_provider
+            _secure_write(PROVIDER_FILE, prev_provider)
+            return
+        state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_CURSOR)
     elif target == PROVIDER_ANTIGRAVITY:
         if not load_antigravity_tokens():
             console.print("[yellow]Google Antigravity isn't signed in — run /login first[/]")
@@ -773,6 +819,11 @@ def _handle_provider(arg: str, *, skip_key_prompt: bool = False, auth_mode: str 
             state.client = _build_claude_agent_client()
             if state.client is None:
                 raise RuntimeError("Claude Code CLI isn't ready — /provider claude shows why")
+        elif target == PROVIDER_CURSOR:
+            from ..auth.client import _build_cursor_client
+            state.client = _build_cursor_client()
+            if state.client is None:
+                raise RuntimeError("Cursor isn't ready — /provider cursor shows why")
         elif target == PROVIDER_ANTIGRAVITY:
             from ..auth.client import _build_antigravity_client
             state.client = _build_antigravity_client()

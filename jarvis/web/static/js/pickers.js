@@ -35,6 +35,14 @@ let loadSeq = 0;
 
 // ─── Shell ────────────────────────────────────────────────────────────────
 
+/** A Cursor model's description with its trailing "Cursor models" tag in a themed span ('' when it has none). */
+function cursorPoolSub(desc) {
+  const tag = 'Cursor models';
+  const text = desc || '';
+  if (!text.endsWith(tag)) return '';
+  return `${escapeHtml(text.slice(0, -tag.length))}<span class="lr-pool">${tag}</span>`;
+}
+
 function rowHtml(row, idx) {
   if (row.section) return `<div class="list-section" role="presentation">${escapeHtml(row.section)}</div>`;
   // `node`: rows that hang off a drawer's rail (models) show a dot on it instead of an icon tile.
@@ -42,11 +50,11 @@ function rowHtml(row, idx) {
     ? '<span class="lr-node" aria-hidden="true"></span>'
     : `<span class="lr-icon">${row.emoji ? escapeHtml(row.emoji) : icon(row.icon || 'circle')}</span>`;
   return `
-    <div class="list-row${row.current ? ' is-current' : ''}${row.node ? ' has-node' : ''}" role="option" data-idx="${idx}" aria-selected="false"${row.disabled ? ' aria-disabled="true"' : ''}>
+    <div class="list-row${row.current ? ' is-current' : ''}${row.node ? ' has-node' : ''}${row.cls ? ` ${row.cls}` : ''}" role="option" data-idx="${idx}" aria-selected="false"${row.disabled ? ' aria-disabled="true"' : ''}>
       ${lead}
       <span class="lr-body">
         <span class="lr-title">${escapeHtml(row.title)}</span>
-        ${row.sub ? `<span class="lr-sub${row.wrap ? ' lr-sub-wrap' : ''}">${escapeHtml(row.sub)}</span>` : ''}
+        ${row.sub ? `<span class="lr-sub${row.wrap ? ' lr-sub-wrap' : ''}">${row.subHtml || escapeHtml(row.sub)}</span>` : ''}
       </span>
       ${row.meta || ''}
     </div>`;
@@ -435,6 +443,8 @@ const modelSpec = {
       // The Free tag says it now; drop the trailing "free" from the description.
       sub: m.free ? freeLess(m.description) : m.description || '',
       current: m.active,
+      // Cursor's own models (the plan's included pool): only the "Cursor models" tag wears the theme colour.
+      subHtml: m.pool === 'cursor' ? cursorPoolSub(m.description) : '',
       meta: tags ? `<span class="lr-tags">${tags}</span>` : '',
       pick: () => {
         if (this.target === 'side') {

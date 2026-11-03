@@ -31,6 +31,7 @@ from ..constants.providers import (
     PROVIDER_ANTHROPIC,
     PROVIDER_ANTIGRAVITY,
     PROVIDER_CLAUDE_AGENT,
+    PROVIDER_CURSOR,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENCODE_ZEN,
@@ -315,6 +316,19 @@ def _from_claude_agent(model: str) -> ThinkCaps | None:
     return _anthropic_builtin(real)
 
 
+def _from_cursor(model: str) -> ThinkCaps | None:
+    """The reasoning-effort levels Cursor lists for the model (its own
+    parameter, ``cursor_agent.model_selection``). A model without one has
+    nothing to steer: unknown, so no "doesn't think" notes."""
+    from .cursor_agent import get_model
+
+    m = get_model(model)
+    if not m or not m.get("efforts"):
+        return None
+    return ThinkCaps(known=True, source="Cursor", reasoning=True, levels=_sorted_levels(m["efforts"]),
+                     can_off=bool(m.get("thinking_off")))
+
+
 def _from_local(model: str, provider: str) -> ThinkCaps | None:
     """What the last scan of a local server said (Ollama's capabilities);
     None for the OpenAI-compatible servers, which don't say."""
@@ -339,6 +353,8 @@ def _lookup(model: str, provider: str) -> ThinkCaps:
         readers = (lambda: _from_antigravity(model),)
     elif provider == PROVIDER_CLAUDE_AGENT:
         readers = (lambda: _from_claude_agent(model),)
+    elif provider == PROVIDER_CURSOR:
+        readers = (lambda: _from_cursor(model),)
     elif provider == PROVIDER_ANTHROPIC:
         readers = (
             lambda: _from_anthropic(model),
@@ -363,7 +379,8 @@ def _lookup(model: str, provider: str) -> ThinkCaps:
 # only while the cache files they came from are untouched (mtime + size), so a
 # refresh, a refusal or a test seeding a catalog is seen at once.
 _memo: dict[tuple[str, str], tuple[tuple, ThinkCaps]] = {}
-_CACHES = ("codex_models", "anthropic_caps", "openrouter_reasoning", "claude_agent_models", REFUSED_CACHE)
+_CACHES = ("codex_models", "anthropic_caps", "openrouter_reasoning", "claude_agent_models", "cursor_models",
+           REFUSED_CACHE)
 
 
 def _stamp() -> tuple:

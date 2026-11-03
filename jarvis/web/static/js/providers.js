@@ -27,6 +27,7 @@ import { openLocal } from './local.js';
 
 const TONES = {
   claude_agent: 'clay',
+  cursor: 'slate',
   anthropic: 'clay',
   anthropic_api: 'clay',
   openai_codex: 'mint',
@@ -40,11 +41,12 @@ const TONES = {
 const GROUPS = [
   // The user's own Claude Code (kind "cli") leads: it's the account-safe way
   // to use a Claude plan here (Claude Code itself makes every request).
-  { kind: 'oauth', kinds: ['cli', 'oauth'], title: 'Subscriptions', sub: 'Use a plan you already pay for' },
+  // Cursor is a plan too, but it's used with an API key (kind "key"), so it joins by id.
+  { kind: 'oauth', kinds: ['cli', 'oauth', 'key'], title: 'Subscriptions', sub: 'Use a plan you already pay for', only: (p) => p.kind !== 'key' || p.id === 'cursor' },
   // Only providers that have a key (saved here or from an env var).
-  { kind: 'key', title: 'API keys', sub: 'Providers you’ve added a key for', only: (p) => p.connected },
+  { kind: 'key', title: 'API keys', sub: 'Providers you’ve added a key for', only: (p) => p.connected && p.id !== 'cursor' },
   // Everything else: the built-ins first, then models.dev. Searchable.
-  { kind: 'key', more: true, title: 'More providers', sub: 'Paste a key from the provider’s site to add one', only: (p) => !p.connected },
+  { kind: 'key', more: true, title: 'More providers', sub: 'Paste a key from the provider’s site to add one', only: (p) => !p.connected && p.id !== 'cursor' },
   { kind: 'free', title: 'Free', sub: 'Works without an account' },
 ];
 
@@ -188,6 +190,12 @@ function statusLine(row) {
   }
   if (!row.connected || row.kind === 'free') return row.blurb;
   if (row.kind === 'oauth') return 'Signed in';
+  if (row.sdk?.problem === 'no_sdk') return 'Key saved · needs the Cursor SDK';
+  if (row.sdk?.problem === 'bad_key') return 'Cursor didn’t accept this key';
+  if (row.id === 'cursor' && row.sdk?.limits?.length) {
+    return row.sdk.limits.map((l) => `${l.label}: limit reached · resets ${l.until_text}`).join(' · ');
+  }
+  if (row.sdk?.checked_at && row.sdk.account && row.sdk.account !== 'Cursor API key') return row.sdk.account;
   if (row.source === 'env') return `From ${row.env_var} on your computer`;
   if (row.hint?.startsWith('$')) return `Uses ${row.hint} on your computer`;
   return row.hint ? `Key ${row.hint} saved on your computer` : 'Key saved on your computer';
@@ -353,10 +361,17 @@ function freePanel(row) {
     ${row.active ? '' : `<div class="pv-actions">${btn('use', 'Use Harness Agent', { cls: 'btn-primary', busy: busyId === row.id })}</div>`}`;
 }
 
+/** Cursor needs its SDK installed next to Jarvis: say so, with the one command. */
+function sdkNoteHtml(row) {
+  const s = row.sdk;
+  if (!s || s.problem !== 'no_sdk') return '';
+  return `<p class="pv-note">${icon('terminal')}<span>Cursor also needs the Cursor SDK on the computer running Jarvis. Run <code>${escapeHtml(s.sdk_install_cmd)}</code>, then reopen this panel.</span></p>`;
+}
+
 function panelHtml(row) {
   const body = row.kind === 'oauth' ? oauthPanel(row) : row.kind === 'key' ? keyPanel(row)
     : row.kind === 'cli' ? cliPanel(row) : freePanel(row);
-  return riskNoteHtml(row) + body + noteHtml(row.id);
+  return riskNoteHtml(row) + sdkNoteHtml(row) + body + noteHtml(row.id);
 }
 
 function rowClass(row) {

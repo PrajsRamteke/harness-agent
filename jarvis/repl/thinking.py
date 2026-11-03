@@ -28,6 +28,7 @@ from ..constants.providers import (
     PROVIDER_ANTHROPIC,
     PROVIDER_ANTIGRAVITY,
     PROVIDER_CLAUDE_AGENT,
+    PROVIDER_CURSOR,
     PROVIDER_HARNESS_AGENT,
     PROVIDER_OPENAI_CODEX,
     PROVIDER_OPENCODE,
@@ -130,6 +131,12 @@ def apply(
             kwargs["thinking"] = {"type": "adaptive", "effort": eff.effort or caps.lowest or "low"}
         else:
             kwargs["thinking"] = {"type": "disabled"}
+        return eff
+    if provider == PROVIDER_CURSOR:
+        # Cursor takes the model's own reasoning-effort parameter, when it has
+        # one (cursor_agent_client.build_spec / cursor_agent.model_selection).
+        kwargs["thinking"] = ({"type": "adaptive", "effort": eff.effort} if eff.on and eff.effort
+                              else {"type": "disabled"})
         return eff
     if provider == PROVIDER_ANTHROPIC and claude_uses_adaptive_thinking(model):
         # Claude 5: adaptive thinking + effort; budget_tokens is a 400 there.

@@ -29,6 +29,9 @@ dependencies = [
 # the `claude` you already have:
 #   pip install --no-binary claude-agent-sdk -e ".[claude]"
 claude = ["claude-agent-sdk>=0.2.176"]
+# The Cursor provider (/provider cursor). The wheel bundles Cursor's Node bridge
+# (~165 MB), so it's opt-in:  pip install -e ".[cursor]"
+cursor = ["cursor-sdk>=1.2.0"]
 
 [tool.setuptools.dynamic]
 version = {attr = "jarvis.constants.models.VERSION"}

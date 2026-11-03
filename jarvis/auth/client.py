@@ -25,7 +25,8 @@ from ..constants import (
     OPENCODE_ZEN_BASE_URL,
     harness_agent_default_model,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-    PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_AGENT, PROVIDER_HARNESS_AGENT, PROVIDERS,
+    PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_AGENT, PROVIDER_CURSOR,
+    PROVIDER_HARNESS_AGENT, PROVIDERS,
     is_harness_agent_model, is_catalog_provider, is_local_provider,
     AUTH_API_KEY, AUTH_OAUTH, DEFAULT_RETRIES, DEFAULT_BASH_TIMEOUT,
     normalize_model_for_provider,
@@ -204,7 +205,7 @@ def _resolve_provider(*, interactive: bool = True) -> str:
     """Decide provider from env → saved → stored → first-run Harness Agent default."""
     env_provider = os.getenv("HARNESS_PROVIDER", "").strip().lower()
     if env_provider in (PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, PROVIDER_OPENCODE, PROVIDER_OPENCODE_ZEN,
-                        PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_AGENT):
+                        PROVIDER_OPENAI_CODEX, PROVIDER_ANTIGRAVITY, PROVIDER_CLAUDE_AGENT, PROVIDER_CURSOR):
         return env_provider
     if env_provider.startswith(CATALOG_PREFIX) or is_local_provider(env_provider):
         return env_provider
@@ -239,6 +240,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
         return PROVIDER_ANTIGRAVITY
     if saved_provider == PROVIDER_CLAUDE_AGENT and _claude_agent_usable():
         return PROVIDER_CLAUDE_AGENT
+    if saved_provider == PROVIDER_CURSOR and _cursor_usable():
+        return PROVIDER_CURSOR
     if saved_provider == PROVIDER_ANTHROPIC and _has_usable_anthropic_auth():
         return PROVIDER_ANTHROPIC
     if saved_provider == PROVIDER_OPENROUTER and _has_openrouter_key():
@@ -262,6 +265,8 @@ def _resolve_provider(*, interactive: bool = True) -> str:
             return PROVIDER_ANTIGRAVITY
         if stored == PROVIDER_CLAUDE_AGENT and _claude_agent_usable():
             return PROVIDER_CLAUDE_AGENT
+        if stored == PROVIDER_CURSOR and _cursor_usable():
+            return PROVIDER_CURSOR
         if stored == PROVIDER_ANTHROPIC and _has_usable_anthropic_auth():
             return PROVIDER_ANTHROPIC
         if stored == PROVIDER_OPENROUTER and _has_openrouter_key():
@@ -485,6 +490,28 @@ def _build_claude_agent_client():
     return ClaudeAgentClient()
 
 
+def _cursor_usable() -> bool:
+    try:
+        from .cursor_agent import is_usable
+
+        return is_usable()
+    except Exception:
+        return False
+
+
+def _build_cursor_client():
+    """Cursor through the Cursor SDK, or None when the SDK isn't installed or
+    there's no API key (``cursor_agent.py``). Never asks Cursor here: a key it
+    refuses surfaces on the first request."""
+    from . import cursor_agent as cu
+
+    if not cu.status().ready:
+        return None
+    from .cursor_agent_client import CursorAgentClient
+
+    return CursorAgentClient()
+
+
 def build_side_client(source: str, model: str = "") -> "tuple[Any, str, str]":
     """A one-off client for a provider other than the session's.
 
@@ -529,6 +556,11 @@ def build_side_client(source: str, model: str = "") -> "tuple[Any, str, str]":
         if client is None:
             raise RuntimeError("the Claude Code CLI isn't ready on this Mac")
         return client, PROVIDER_CLAUDE_AGENT, ""
+    if source == PROVIDER_CURSOR:
+        client = _build_cursor_client()
+        if client is None:
+            raise RuntimeError("Cursor isn't set up — it needs the Cursor SDK and an API key")
+        return client, PROVIDER_CURSOR, ""
     if is_catalog_provider(source):
         return _build_catalog_client(source), source, ""
     if is_local_provider(source):
@@ -783,6 +815,29 @@ def make_client(*, interactive: bool = True, _retried: bool = False):
         if not _retried:
             fallback = _pick_fallback_provider(interactive=interactive)
             if fallback and fallback != PROVIDER_CLAUDE_AGENT:
+                state.provider = fallback
+                _secure_write(PROVIDER_FILE, state.provider)
+                return make_client(interactive=interactive, _retried=True)
+        return _fallback_harness_agent_client(preferred_model=harness_agent_default_model())
+
+    if state.provider == PROVIDER_CURSOR:
+        try:
+            c = _build_cursor_client()
+        except Exception:
+            c = None
+        if c is not None:
+            state.MODEL = normalize_model_for_provider(state.MODEL, PROVIDER_CURSOR)
+            return c
+        # No SDK or no key: never block startup.
+        if interactive:
+            from .cursor_agent import status as _cu_status
+
+            _code, msg, fix = _cu_status().problem()
+            console.print(f"[yellow]Cursor: {msg or 'not available'}"
+                          + (f" — [bold]{fix}[/bold]" if fix else "") + "[/]")
+        if not _retried:
+            fallback = _pick_fallback_provider(interactive=interactive)
+            if fallback and fallback != PROVIDER_CURSOR:
                 state.provider = fallback
                 _secure_write(PROVIDER_FILE, state.provider)
                 return make_client(interactive=interactive, _retried=True)

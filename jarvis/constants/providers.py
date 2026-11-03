@@ -24,7 +24,7 @@ from typing import Any
 
 # ── Provider identifiers ──────────────────────────────────────────────────────
 PROVIDERS = ("anthropic", "openrouter", "opencode", "opencode_zen", "openai_codex", "antigravity",
-             "claude_agent")
+             "claude_agent", "cursor")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_OPENCODE = "opencode"
@@ -36,6 +36,9 @@ PROVIDER_ANTIGRAVITY = "antigravity"
 # The user's own Claude Code CLI (signed in by the user, run unmodified through
 # the Claude Agent SDK) — auth/claude_agent*.py. Also its own picker source.
 PROVIDER_CLAUDE_AGENT = "claude_agent"
+# Cursor models through the user's own Cursor subscription (Cursor SDK, API key
+# from the Cursor dashboard) — auth/cursor_agent*.py. Also its own picker source.
+PROVIDER_CURSOR = "cursor"
 # Model-picker only — free OpenCode Zen tier (no API key). Backend: opencode_zen.
 PROVIDER_HARNESS_AGENT = "harness_agent"
 
@@ -57,6 +60,7 @@ PROVIDER_LABELS = {
     PROVIDER_OPENAI_CODEX: "OpenAI Codex",
     PROVIDER_ANTIGRAVITY: "Google Antigravity",
     PROVIDER_CLAUDE_AGENT: "Claude Code CLI",
+    PROVIDER_CURSOR: "Cursor",
 }
 
 MODEL_SOURCE_LABELS = {
@@ -69,6 +73,7 @@ MODEL_SOURCE_LABELS = {
     PROVIDER_OPENAI_CODEX_AUTH: "OpenAI Codex Auth",
     PROVIDER_ANTIGRAVITY: "Google Antigravity",
     PROVIDER_CLAUDE_AGENT: "Claude Code CLI",
+    PROVIDER_CURSOR: "Cursor",
 }
 
 # Picker display order (Harness Agent first — always free, no setup).
@@ -82,6 +87,7 @@ MODEL_SOURCES = (
     PROVIDER_OPENAI_CODEX_AUTH,
     PROVIDER_ANTIGRAVITY,
     PROVIDER_CLAUDE_AGENT,
+    PROVIDER_CURSOR,
 )
 
 # ── SINGLE SOURCE OF TRUTH: all models ────────────────────────────────────────
@@ -179,6 +185,8 @@ def model_supports_images(model_id: str, provider: str | None = None) -> bool:
         return bool(am and am.supports_images)
     if provider == PROVIDER_CLAUDE_AGENT:
         return True  # every model Claude Code serves reads images
+    if provider == PROVIDER_CURSOR:
+        return True  # images go to Cursor with the message; it decides what a model does with them
     if is_local_provider(provider):
         try:
             lm = _local().get_model(provider, model_id)
@@ -434,8 +442,8 @@ def model_pricing(model: str, provider: str | None = None) -> tuple[float, float
     None when unknown. Catalog providers are priced from models.dev, never
     from the id-keyed PRICING table (another provider may share the id).
     """
-    if provider in (PROVIDER_HARNESS_AGENT, PROVIDER_ANTIGRAVITY) or is_local_provider(provider):
-        return (0.0, 0.0)  # the free tier / your own hardware / a Google plan: no cost
+    if provider in (PROVIDER_HARNESS_AGENT, PROVIDER_ANTIGRAVITY, PROVIDER_CURSOR) or is_local_provider(provider):
+        return (0.0, 0.0)  # the free tier / your own hardware / a Google or Cursor plan: no per-token cost
     if provider == PROVIDER_CLAUDE_AGENT:
         return claude_agent_pricing(model)
     if is_catalog_provider(provider):
@@ -682,6 +690,35 @@ def claude_agent_pricing(model: str) -> tuple[float, float] | None:
 def _has_claude_agent() -> bool:
     try:
         from ..auth.claude_agent import is_ready
+
+        return is_ready()
+    except Exception:
+        return False
+
+
+def cursor_models_for_picker() -> list[tuple[str, str]]:
+    """Cursor rows: the models Cursor listed for this API key (cached), else its
+    documented ids. Never in MODEL_INFO — ids like Claude's overlap other providers'."""
+    try:
+        from ..auth.cursor_agent import models_for_picker
+
+        return models_for_picker()
+    except Exception:
+        return []
+
+
+def cursor_default_model() -> str:
+    try:
+        from ..auth.cursor_agent import default_model
+
+        return default_model()
+    except Exception:
+        return "composer-2.5"
+
+
+def _has_cursor() -> bool:
+    try:
+        from ..auth.cursor_agent import is_ready
 
         return is_ready()
     except Exception:
@@ -1031,6 +1068,8 @@ def connected_model_sources() -> list[str]:
         sources.append(PROVIDER_ANTIGRAVITY)
     if _has_claude_agent():
         sources.append(PROVIDER_CLAUDE_AGENT)
+    if _has_cursor():
+        sources.append(PROVIDER_CURSOR)
     if os.getenv("OPENROUTER_API_KEY"):
         sources.append(PROVIDER_OPENROUTER)
     else:
@@ -1132,6 +1171,8 @@ def models_for_source(source: str, live: bool = False, cached: bool = False):
         return antigravity_models_for_picker(live=live)
     if source == PROVIDER_CLAUDE_AGENT:
         return claude_agent_models_for_picker()
+    if source == PROVIDER_CURSOR:
+        return cursor_models_for_picker()
     if is_catalog_provider(source):
         return catalog_models_for_picker(source)
     if is_local_provider(source):
@@ -1179,6 +1220,8 @@ def connected_providers() -> set[str]:
         connected.add(PROVIDER_ANTIGRAVITY)
     if _has_claude_agent():
         connected.add(PROVIDER_CLAUDE_AGENT)
+    if _has_cursor():
+        connected.add(PROVIDER_CURSOR)
     if _has_content(OPENROUTER_KEY_FILE):
         connected.add(PROVIDER_OPENROUTER)
     if _has_content(OPENCODE_KEY_FILE):
@@ -1231,6 +1274,8 @@ def models_for(provider: str):
         return antigravity_models_for_picker()
     if provider == PROVIDER_CLAUDE_AGENT:
         return claude_agent_models_for_picker()
+    if provider == PROVIDER_CURSOR:
+        return cursor_models_for_picker()
     if is_catalog_provider(provider):
         return catalog_models_for_picker(provider)
     if is_local_provider(provider):
@@ -1264,6 +1309,14 @@ def model_belongs_to_provider(model: str, provider: str) -> bool:
             from ..auth.claude_agent import get_model as _ca_model
 
             return _ca_model(m) is not None
+        except Exception:
+            return False
+    if provider == PROVIDER_CURSOR:
+        # Strict: what Cursor listed for the key (ids overlap other providers').
+        try:
+            from ..auth.cursor_agent import get_model as _cu_model
+
+            return _cu_model(m) is not None
         except Exception:
             return False
     if provider == PROVIDER_ANTIGRAVITY:
@@ -1343,6 +1396,10 @@ def normalize_model_for_provider(model: str, provider: str) -> str:
         if model_belongs_to_provider(model, provider):
             return model.strip()
         return claude_agent_default_model()
+    if provider == PROVIDER_CURSOR:
+        if model_belongs_to_provider(model, provider):
+            return model.strip()
+        return cursor_default_model()
     if provider == PROVIDER_ANTIGRAVITY:
         try:
             from ..auth.antigravity_catalog import refused_ids
@@ -1457,6 +1514,15 @@ def refresh_model_catalogs(retry_blocked: bool = False) -> bool:
             _ca.refresh()  # installed + SDK: is it (still) signed in?
         if _ca.is_ready() and (retry_blocked or not _ca.models_cache_is_fresh()):
             ok = bool(_ca.refresh_models()) or ok
+    except Exception:
+        pass
+    try:
+        # Cursor: the model list for the user's API key. Only with an SDK and a
+        # key — the SDK's bridge is started once, no model request is made.
+        from ..auth import cursor_agent as _cu
+
+        if _cu.is_ready() and (retry_blocked or not _cu.models_cache_is_fresh()):
+            ok = bool(_cu.refresh_models()) or ok
     except Exception:
         pass
     try:

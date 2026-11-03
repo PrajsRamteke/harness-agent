@@ -26,6 +26,15 @@ from ..tui.model_modal import model_picker_rows
 from ..utils.time_fmt import _fmt_ts
 
 
+def _cursor_pool(source: str, model_id: str) -> str:
+    """``cursor`` | ``other`` for a Cursor model, ``""`` for any other provider."""
+    if source != "cursor":
+        return ""
+    from ..auth.cursor_agent import pool_of
+
+    return pool_of(model_id)
+
+
 def _model_is_active(source: str, model_id: str) -> bool:
     if model_id != state.MODEL:
         return False
@@ -192,6 +201,8 @@ def list_models(*, query: str = "", for_side: bool = False) -> dict[str, Any]:
             "images": images,
             "free": free,
             "local": is_local_provider(src),
+            # Cursor: which usage pool the model draws on ("cursor" = the plan's own models).
+            "pool": _cursor_pool(src, model_id),
         })
     if for_side:
         from .. import side_model
