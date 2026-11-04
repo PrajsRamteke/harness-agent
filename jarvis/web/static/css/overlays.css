@@ -510,6 +510,8 @@
   color: var(--text-3);
 }
 .setting-block .switch-row { padding: 7px 8px; margin: 0 -8px; border-radius: var(--r-row); }
+/* Under "Push notifications": Send a test · Install app (indented to the row's text). */
+.pwa-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 8px 25px; }
 
 .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .mode-card {

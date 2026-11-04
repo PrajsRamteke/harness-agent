@@ -111,6 +111,9 @@ def start_web_server(
     instance_id: str | None = None,
 ) -> tuple[_JarvisHTTPServer, list[str], int]:
     instance_id = instance_id or str(os.getpid())
+    from . import push
+
+    push.configure(instance_id=instance_id)  # the /p/<id> a notification opens
     handler = type(
         "JarvisWebHandler",
         (WebHandler,),

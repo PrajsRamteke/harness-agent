@@ -4,6 +4,7 @@ import { icon } from './icons.js';
 import { patchStore } from './store.js';
 import { openModal } from './modal.js';
 import { api, hasToken } from './api.js';
+import { notifyLocal, pushActive } from './pwa.js';
 
 export const MODES = [
   { id: 'system', label: 'System', icon: 'monitor' },
@@ -584,17 +585,9 @@ export function replyReady(summary = '') {
   if (!prefs.alert || !document.hidden) return;
   if (restoreTitle === null) restoreTitle = document.title;
   document.title = '✓ Reply ready — Jarvis';
-  if (notificationsUsable() && Notification.permission === 'granted') {
-    try {
-      const n = new Notification('Jarvis finished', {
-        body: summary || 'Your reply is ready.',
-        tag: 'jarvis-reply',
-      });
-      n.onclick = () => {
-        window.focus();
-        n.close();
-      };
-    } catch { /* some mobile browsers only allow service-worker notifications */ }
+  // With push on, the computer alerts this device itself (long turns only, page or no page).
+  if (!pushActive()) {
+    notifyLocal('Jarvis finished', { body: summary || 'Your reply is ready.', tag: 'jarvis-reply' });
   }
   haptic(60);
 }
@@ -607,18 +600,12 @@ export function needsAttention(body) {
   if (!prefs.alert || !document.hidden) return;
   if (restoreTitle === null) restoreTitle = document.title;
   document.title = '(!) Jarvis needs you';
-  if (notificationsUsable() && Notification.permission === 'granted') {
-    try {
-      const n = new Notification('Jarvis is waiting for you', {
-        body: body || 'Open Jarvis to respond.',
-        tag: 'jarvis-waiting',
-        requireInteraction: true,
-      });
-      n.onclick = () => {
-        window.focus();
-        n.close();
-      };
-    } catch { /* see replyReady */ }
+  if (!pushActive()) {
+    notifyLocal('Jarvis is waiting for you', {
+      body: body || 'Open Jarvis to respond.',
+      tag: 'jarvis-waiting',
+      requireInteraction: true,
+    });
   }
   haptic([40, 60, 40]);
 }

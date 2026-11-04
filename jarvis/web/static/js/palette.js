@@ -11,6 +11,7 @@ import { newChat, toggleSetting } from './actions.js';
 import { toggleTheme, toggleGlass, isGlass, openAppearance, themeLabel } from './theme.js';
 import { submitPrompt, fillPrompt } from './composer.js';
 import { openShortcuts } from './shortcuts.js';
+import { promptInstall } from './pwa.js';
 import { openInspector } from './inspector.js';
 import { openFiles } from './files.js';
 import { openFilePicker } from './media.js';
@@ -120,6 +121,10 @@ export async function runItem(item) {
   }
   if (item.action === 'shortcuts') {
     openShortcuts();
+    return;
+  }
+  if (item.action === 'install') {
+    promptInstall();
     return;
   }
   if (item.action === 'inspector-changes' || item.action === 'inspector-activity') {

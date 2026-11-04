@@ -38,6 +38,7 @@ import { initQueue } from './queue.js';
 import { initTabs } from './tabs.js';
 import { initPrompts } from './prompts.js';
 import { initTheme, toggleTheme, syncAppearance } from './theme.js';
+import { initPwa } from './pwa.js';
 import { initQuickbar } from './quickbar.js';
 import { initShortcuts } from './shortcuts.js';
 import { initQuote } from './quote.js';
@@ -129,6 +130,7 @@ function boot() {
   try { sessionStorage.removeItem('jarvis-boot-retry'); } catch { /* private mode */ }
   initTheme();
   hydrateIcons(document);
+  initPwa(); // service worker, Install app, push notifications
   $('gate-retry')?.addEventListener('click', () => location.reload());
 
   if (!hasToken()) {

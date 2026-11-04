@@ -533,6 +533,20 @@ class WebRemoteMixin:
             "now": time.time(),
         })
 
+    def _web_push_turn_done(self, seconds: float, *, interrupted: bool) -> None:
+        """A long turn ended: Web Push to subscribed devices (web/push.py decides if it's worth it)."""
+        if self._web_bridge is None:
+            return
+        from ...web import push
+
+        reply = state.last_assistant_text or ""
+        if reply == getattr(self, "_reply_before_turn", None):
+            reply = ""  # this turn said nothing new (a shell command, a tool-only turn)
+        try:
+            push.notify_turn_done(seconds, interrupted=interrupted, reply=reply)
+        except push.PushError:
+            pass  # no key / library: the page's in-tab alert still works
+
     def _sync_web_queue(self) -> None:
         bridge = self._web_bridge
         if bridge is None:
