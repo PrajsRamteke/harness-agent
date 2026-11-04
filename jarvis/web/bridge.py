@@ -249,7 +249,17 @@ class WebBridge:
         with self._lock:
             self._pending[prompt_id] = pending
         self.emit(kind, {"id": prompt_id, **payload})
+        from . import push
+
+        # Still unanswered a few seconds on: alert subscribed phones / desktops.
+        push.notify_prompt(kind, payload, lambda: self.prompt_open(prompt_id))
         return prompt_id
+
+    def prompt_open(self, prompt_id: str) -> bool:
+        """Is this prompt still waiting for an answer?"""
+        with self._lock:
+            pending = self._pending.get(prompt_id)
+            return pending is not None and not pending.resolved
 
     def resolve_prompt(self, prompt_id: str, result: Any) -> bool:
         with self._lock:

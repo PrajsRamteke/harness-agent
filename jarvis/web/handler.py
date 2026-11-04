@@ -33,6 +33,8 @@ _HEARTBEAT_SECS = 8.0
 _POLL_WAIT_SECS = 20.0
 _PING = b'data: {"type": "ping", "data": {}, "ts": 0}\n\n'
 _INDEX_PATH = _STATIC_DIR / "index.html"
+_SW_PATH = _STATIC_DIR / "sw.js"
+_APP_BG = "#0a0a0b"  # matches <meta name="theme-color"> in index.html
 
 _MIME = {
     ".css": "text/css; charset=utf-8",
@@ -232,6 +234,68 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": "index.html missing"})
             return
         self._send_bytes(200, _INDEX_PATH.read_bytes(), "text/html; charset=utf-8")
+
+    def _serve_manifest(self, qs: dict[str, list[str]]) -> None:
+        """Web app manifest (Add to Home Screen / Install).
+
+        The installed app opens ``start_url``; it carries the token only for a
+        page that already has it (the link tag passes it along) — otherwise
+        the app starts at ``/`` like any other visit.
+        """
+        token = self._query_str(qs, "token")
+        start = f"/?token={urllib.parse.quote(token)}" if token and self._token_ok(token) else "/"
+        icon = "/static/icons/"
+        manifest = {
+            "id": "/",
+            "name": "Jarvis",
+            "short_name": "Jarvis",
+            "description": "Jarvis web remote: your Jarvis sessions from any device.",
+            "start_url": start,
+            "scope": "/",
+            "display": "standalone",
+            "background_color": _APP_BG,
+            "theme_color": _APP_BG,
+            "icons": [
+                {"src": icon + "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": icon + "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {"src": icon + "maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            ],
+        }
+        body = json.dumps(manifest, ensure_ascii=False).encode("utf-8")
+        self._send_bytes(200, body, "application/manifest+json; charset=utf-8")
+
+    def _serve_service_worker(self) -> None:
+        """``/sw.js`` from the site root, so its scope covers every page (``/``, ``/p/<id>/``)."""
+        if not _SW_PATH.is_file():
+            self.send_response(404)
+            self.end_headers()
+            return
+        body = _SW_PATH.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/javascript; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Service-Worker-Allowed", "/")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _push_request(self, path: str, data: dict[str, Any]) -> None:
+        """``/api/push/*`` that belong to the device, not a project (never forwarded)."""
+        from . import push
+
+        endpoint = str(data.get("endpoint") or "")
+        try:
+            if path == "/api/push/subscribe":
+                label = str(data.get("label") or self.headers.get("User-Agent") or "")
+                # The page's own server's token: the link a notification opens.
+                push.add_subscription(data.get("subscription"), token=self.bridge.token, label=label)
+                self._send_json(200, {"ok": True})
+            elif path == "/api/push/unsubscribe":
+                self._send_json(200, {"ok": True, "removed": push.remove_subscription(endpoint)})
+            else:  # /api/push/test
+                self._send_json(200, push.send_test(endpoint))
+        except push.PushError as exc:
+            self._send_json(200, {"ok": False, "error": str(exc)})
 
     def _serve_static(self, path: str) -> None:
         if not path.startswith("/static/"):
@@ -1067,6 +1131,14 @@ class WebHandler(BaseHTTPRequestHandler):
             self._serve_static(path)
             return
 
+        if path == "/manifest.webmanifest":
+            self._serve_manifest(qs)
+            return
+
+        if path == "/sw.js":
+            self._serve_service_worker()
+            return
+
         if path == "/":
             if foreign and registry.get(foreign) is None:
                 # That project closed since the link was made: back to this one.
@@ -1098,6 +1170,21 @@ class WebHandler(BaseHTTPRequestHandler):
             from . import appearance_api
 
             self._send_json(200, {"ok": True, "appearance": appearance_api.load()})
+            return
+
+        if path == "/api/push/config":
+            # Device-level (one key and device list per computer): never forwarded.
+            from . import push
+
+            body: dict[str, Any] = {"ok": True, "available": push.available(), "public_key": ""}
+            if body["available"]:
+                try:
+                    body["public_key"] = push.public_key()
+                    endpoint = self._query_str(qs, "endpoint")
+                    body["subscribed"] = bool(endpoint) and push.has_subscription(endpoint)
+                except push.PushError as exc:
+                    body.update(available=False, error=str(exc))
+            self._send_json(200, body)
             return
 
         if foreign:
@@ -1189,6 +1276,10 @@ class WebHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "appearance": saved})
             return
 
+        if path in ("/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test"):
+            self._push_request(path, self._read_json())
+            return
+
         if foreign:  # the body is streamed to that project, not read here
             self._forward_to_project(foreign, close=True)
             return
@@ -1198,6 +1289,14 @@ class WebHandler(BaseHTTPRequestHandler):
             return
 
         data = self._read_json()
+
+        if path == "/api/push/presence":
+            # From the project the page shows: while it's on screen, this Jarvis stays quiet.
+            from . import push
+
+            push.note_presence(str(data.get("client") or ""), bool(data.get("visible")))
+            self._send_json(200, {"ok": True})
+            return
 
         if path in ("/api/projects/open", "/api/projects/stop", "/api/projects/stop_all",
                     "/api/projects/restore", "/api/projects/forget_saved"):

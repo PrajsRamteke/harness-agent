@@ -9,6 +9,18 @@
   <meta name="theme-color" content="#0a0a0b">
   <title>Jarvis Remote</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='8' fill='%23161618' stroke='%23333'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%238b7cff'/%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <script>
+    // Web app manifest (Install / Add to Home Screen). The token rides along so the
+    // installed app opens signed in; the server only echoes a valid one (web/handler.py).
+    (function () {
+      var link = document.createElement('link');
+      var t = new URLSearchParams(location.search).get('token');
+      link.rel = 'manifest';
+      link.href = '/manifest.webmanifest' + (t ? '?token=' + encodeURIComponent(t) : '');
+      document.head.appendChild(link);
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -923,6 +935,15 @@
           <span class="sw-text"><strong>Alert when a reply is ready</strong><span id="alert-sub">While this tab is in the background</span></span>
           <input type="checkbox" class="switch" id="sw-alert" role="switch">
         </label>
+        <label class="switch-row" for="sw-push">
+          <span class="sw-icon" data-icon="bell-ring"></span>
+          <span class="sw-text"><strong>Push notifications</strong><span id="push-sub">Alerts when a long reply finishes or Jarvis needs you, even with this page closed</span></span>
+          <input type="checkbox" class="switch" id="sw-push" role="switch">
+        </label>
+        <div class="pwa-actions" id="pwa-actions" hidden>
+          <button class="btn btn-sm" type="button" id="push-test" hidden><span data-icon="bell"></span>Send a test</button>
+          <button class="btn btn-sm" type="button" id="pwa-install" hidden><span data-icon="download"></span>Install app</button>
+        </div>
         <label class="switch-row" for="sw-compact">
           <span class="sw-icon" data-icon="rows-3"></span>
           <span class="sw-text"><strong>Compact transcript</strong><span>Tighter spacing, smaller text</span></span>

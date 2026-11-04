@@ -54,6 +54,9 @@ export const CATALOG = [
   { group: 'Settings', action: 'glass', label: 'Frosted glass', desc: 'Translucent panels; messages scroll under them', icon: 'blend', keys: 'glass frosted blur translucent transparent transparency appearance' },
   { group: 'Settings', action: 'appearance', cmd: '/theme', label: 'Appearance', desc: 'Colour themes, light, dark or system, soft contrast, frosted glass, accent colour, compact view', icon: 'palette', keys: 'theme midnight nord dracula forest ember rose claude code opencode vscode vs code solar sky accent color colour compact notification soft dim dark light glass frosted blur' },
 
+  { group: 'Settings', action: 'install', label: 'Install Jarvis app', desc: 'Add the remote to your home screen or dock', icon: 'download', keys: 'install pwa app home screen dock add standalone' },
+  { group: 'Settings', action: 'appearance', label: 'Push notifications', desc: 'Alerts on this device when a long reply finishes or Jarvis needs you', icon: 'bell-ring', keys: 'push notifications notify alert phone mobile approval background' },
+
   { group: 'Memory', picker: 'memory', cmd: '/memory', label: 'Memory', desc: 'Facts Jarvis remembers about you: browse, add, edit or forget them', icon: 'database', keys: 'memory facts remember remembered personal about me forget dashboard' },
   { group: 'Memory', picker: 'lesson', cmd: '/lesson', label: 'Lessons', desc: 'What Jarvis learned from past tasks: browse by topic, edit or delete', icon: 'graduation-cap', keys: 'lessons learned experience tips topics tags knowledge dashboard' },
   { group: 'Memory', picker: 'pin', cmd: '/pin', label: 'Pinned context', desc: 'Rules sent with every message: add, edit or unpin them', icon: 'pin', keys: 'pin pinned unpin context rules instructions always standing system prompt' },

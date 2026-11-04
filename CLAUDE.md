@@ -74,6 +74,9 @@ python3 scripts/pr_shots.py upload --manifest <run>/manifest.json   # → orphan
 - `HARNESS_MOUSE` — set to `0` to run the TUI without mouse capture (native terminal selection)
 - `HARNESS_UPLOAD_MAX_MB` — largest file the web remote accepts as an attachment (default: 50)
 - `HARNESS_UPLOAD_KEEP_DAYS` — days sent web attachments are kept under `~/.config/harness-agent/uploads/` (default: 30; never-sent ones go after a day)
+- `HARNESS_WEB_PUSH` — set to `0` to turn off Web Push from the web remote (`web/push.py`: alerts on subscribed devices when a long turn finishes or an approval waits, even with the page closed; key + devices in `~/.config/harness-agent/web_push_*.json`)
+- `HARNESS_PUSH_MIN_SECONDS` — shortest turn that sends a push when it finishes (default: 20)
+- `HARNESS_PUSH_SUBJECT` — VAPID contact (`mailto:` or `https://`) sent to push services (default: a placeholder `mailto:` address)
 - `HARNESS_CHROME` — Chrome/Chromium binary for `screenshot(url=…)`. Auto-detected otherwise, preferring `chrome-headless-shell` (PATH, Playwright or Puppeteer cache) over full Chrome: on macOS every full-Chrome headless run leaves a Chrome icon in the Dock's recent apps
 
 ## Architecture

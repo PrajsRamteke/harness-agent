@@ -2161,6 +2161,7 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
             if seconds >= 15 and not self._app_focused:
                 self.bell()  # long turn finished while you were in another window
         self._pet_turn_finished(seconds, interrupted=self._turn_cancelled, llm=self._turn_is_llm)
+        self._web_push_turn_done(seconds, interrupted=self._turn_cancelled)
         was_llm = self._turn_is_llm
         self._turn_is_llm = False
         self._busy = False
