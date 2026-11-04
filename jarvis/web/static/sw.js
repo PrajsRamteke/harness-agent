@@ -4,14 +4,18 @@
  * show notifications, both the page's own and Web Push from web/push.py, which
  * arrive even when no Jarvis page is open.
  *
- * There is no fetch handler on purpose. The remote is useless offline (it
- * drives a live Jarvis), and cached assets would go stale on every upgrade.
+ * The fetch handler below does nothing on purpose: it never answers a request,
+ * so the browser fetches everything as usual. The remote is useless offline (it
+ * drives a live Jarvis) and cached assets would go stale on every upgrade, but
+ * Android Chrome only offers "Install app" (beforeinstallprompt) when a service
+ * worker has a fetch handler.
  */
 const ICON = '/static/icons/icon-192.png';
 const BADGE = '/static/icons/badge-96.png';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', () => {}); // pass-through: see the note at the top
 
 self.addEventListener('push', (event) => {
   let msg = {};

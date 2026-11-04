@@ -238,7 +238,9 @@ export async function promptInstall() {
   if (!evt) {
     showToast(isIos()
       ? 'Tap Share → Add to Home Screen to install Jarvis.'
-      : 'Use the browser menu → Install app (or Add to Home screen).');
+      : window.isSecureContext
+        ? 'Open the browser menu (⋮) → Install app, or Add to Home screen.'
+        : 'Installing needs HTTPS (the Anywhere link). This address is plain http.');
     return;
   }
   installEvent = null;
@@ -274,7 +276,9 @@ function paint() {
   const test = $('push-test');
   if (test) test.hidden = !push.subscribed;
   const install = $('pwa-install');
-  if (install) install.hidden = isStandalone() || (!installEvent && !(isIos() && !isStandalone()));
+  // Always offered outside the installed app: when the browser hasn't handed us its
+  // install prompt (it decides when), tapping explains the menu route instead.
+  if (install) install.hidden = isStandalone();
   const actions = $('pwa-actions');
   if (actions) actions.hidden = !!test?.hidden && !!install?.hidden;
 }
