@@ -31,7 +31,7 @@ import { renderDiff, gutterWidth } from './diffview.js';
 import { renderMarkdown } from './markdown.js';
 import { diffLines } from './linediff.js';
 import { highlight as colorize, modeFor } from './syntax.js';
-import { initFind, openFind, closeFind, stepFind, restoreFind, refreshFind, syncFind, showFindFor, isFindOpen } from './findbar.js';
+import { initFind, openFind, closeFind, stepFind, restoreFind, refreshFind, syncFind, showFindFor, isFindOpen, pinMatch } from './findbar.js';
 import { popOpen, closePop, showPop, popKey, wirePop } from './branchpop.js';
 import { dockTerminal, undockTerminal, terminalState, toggleTerminal } from './terminal.js';
 
@@ -55,7 +55,14 @@ const CONFIRM_ID = 'files-confirm';
 const FULL_KEY = 'jarvis-files-full';
 const BR_ID = 'files-br';        // the footer branch chip's switcher (index.html)
 const PR_ID = 'files-pr';        // the Create pull request modal (index.html)
-const PANE_KEY = 'jarvis-files-pane';  // the left pane's tab: 'files' (Explorer) | 'scm' (Source Control)
+// The left pane: 'search' (Explorer, searching code in files — the default) | 'files' (Explorer, searching names) | 'scm' (Source Control).
+// -v2: the first version had no code search, so a saved 'files' would have hidden the new default.
+const PANE_KEY = 'jarvis-files-pane-v2';
+const PANES = ['files', 'search', 'scm'];
+const PANE_FOCUS = { files: `${ID}-search`, search: `${ID}-gq`, scm: `${ID}-msg` }; // the field each tab starts in
+const GREP_OPTS_KEY = 'jarvis-files-grep-opts'; // { cs: match case, word: whole word, re: regex }
+const GREP_MS = 220;               // wait after a keystroke before searching file contents
+const GREP_SEED_MAX = 200;         // a selection longer than this doesn't become the query
 const SCM_STATUS = {
   modified: ['M', 'Modified'], added: ['A', 'Added'], untracked: ['U', 'New file'], deleted: ['D', 'Deleted'],
   renamed: ['R', 'Renamed'], copied: ['C', 'Copied'], conflict: ['!', 'Conflict'],
@@ -113,7 +120,15 @@ let noticeTimer = 0;
 let searchSeq = 0;
 let diffSeq = 0;
 const dirSeq = new Map();
-let pane = storageGet(PANE_KEY, 'files') === 'scm' ? 'scm' : 'files';
+let pane = PANES.includes(storageGet(PANE_KEY, 'search')) ? storageGet(PANE_KEY, 'search') : 'search';
+let explorer = pane === 'scm' ? 'search' : pane; // the Explorer mode the Explorer tab returns to
+let gq = '';                      // the content search's text (kept while you switch tabs)
+let gopts = loadGrepOpts();      // its toggles
+let grep = null;                 // null | { loading?, query, files, matches, truncated, error?, bad? } — the last {op: grep} answer
+let grepSeq = 0;
+let grepTimer = 0;
+let grepCur = '';                // 'path:line' of the match last opened (marked in the list)
+const grepFolded = new Set();    // files whose matches are folded away
 let scm = null;                  // last {op: scm} answer (Source Control tab)
 let scmSel = null;               // { group, path } — the change whose diff is open
 let scmMsg = '';                 // the commit message being written
@@ -252,6 +267,10 @@ function resetProject(key) {
   prompt = null;
   query = '';
   results = null;
+  grep = null;
+  grepSeq += 1;
+  grepCur = '';
+  grepFolded.clear();
   cursorPath = '';
   reading = false;
   scm = null;
@@ -404,6 +423,10 @@ function paintTree() {
     paintScm();
     return;
   }
+  if (pane === 'search' && gq) { // an empty code search shows the tree, like the Explorer always did
+    paintGrep();
+    return;
+  }
   if (results) {
     paintResults();
     return;
@@ -507,6 +530,162 @@ function setQuery(value) {
   results = { items: results?.items, truncated: false };
   paintResults();
   runSearch();
+}
+
+// ─── Search in files (the Explorer's contents mode) ──────────────────────────────────────────────────
+// The text inside every file, not just the names. The server (files_api `grep`)
+// runs ripgrep when it is installed, else scans from Python, and answers with the
+// matches grouped by file and the ranges to highlight already worked out — the
+// page only paints them. A click opens the file with the match selected.
+
+function loadGrepOpts() {
+  try {
+    const o = JSON.parse(storageGet(GREP_OPTS_KEY, '{}'));
+    return { cs: !!o.cs, word: !!o.word, re: !!o.re };
+  } catch {
+    return { cs: false, word: false, re: false };
+  }
+}
+
+function scheduleGrep(now = false) {
+  clearTimeout(grepTimer);
+  grepTimer = setTimeout(grepNow, now ? 0 : GREP_MS);
+}
+
+async function grepNow() {
+  clearTimeout(grepTimer);
+  const q = gq;
+  if (!q) return;
+  const mine = ++grepSeq;
+  const key = shownFor;
+  grep = { ...(grep?.files ? grep : null), loading: true }; // the old answer stays (dimmed) until the new one lands
+  paintGrep();
+  const res = await call('grep', { query: q, ...gopts });
+  if (mine !== grepSeq || key !== shownFor) return;
+  if (res.ok) {
+    grep = { query: q, files: res.files || [], matches: num(res.matches), truncated: !!res.truncated };
+  } else {
+    const old = /unknown files op/.test(res.error || '');
+    grep = { query: q, error: old ? RESTART_NOTE : res.error || 'Search failed', bad: res.code === 'bad_pattern' };
+  }
+  paintGrep();
+}
+
+function setGrepQuery(value) {
+  gq = value;
+  grepSeq += 1; // an answer still on its way is for an older query
+  clearTimeout(grepTimer);
+  if (!gq) {
+    grep = null;
+  } else {
+    grep = { ...(grep?.files ? grep : null), loading: true };
+    scheduleGrep();
+  }
+  paintGrep();
+}
+
+/** `text` with the server's highlight ranges (UTF-16 offsets, like JS strings) wrapped in <mark>. */
+function markedText(text, hl) {
+  let out = '';
+  let at = 0;
+  for (const [s, e] of hl || []) {
+    if (s < at || e <= s || e > text.length) continue;
+    out += `${escapeHtml(text.slice(at, s))}<mark>${escapeHtml(text.slice(s, e))}</mark>`;
+    at = e;
+  }
+  return out + escapeHtml(text.slice(at));
+}
+
+function grepMatchHtml(f, m) {
+  const cur = grepCur === `${f.path}:${m.line}`;
+  return `<button type="button" class="fb-gm${cur ? ' is-current' : ''}" data-path="${escapeHtml(f.path)}" data-line="${num(m.line)}"
+    data-col="${num(m.col)}" data-len="${num(m.len)}" title="${escapeHtml(`${f.path}:${m.line}`)}"><span class="fb-gl">${num(m.line)}</span><span class="fb-gt">${markedText(m.text, m.hl)}</span></button>`;
+}
+
+function grepFileHtml(f) {
+  const open = !grepFolded.has(f.path);
+  const n = `${f.matches.length}${f.more ? '+' : ''}`;
+  return `<div class="fb-gf">
+    <button type="button" class="fb-gh" data-act="g-fold" data-path="${escapeHtml(f.path)}" aria-expanded="${open}" title="${escapeHtml(f.path)}">
+      <span class="fb-chev">${icon('chevron-right')}</span><span class="fb-ic">${icon(fileIcon(f.name))}</span>
+      <span class="fb-gname">${escapeHtml(f.name)}</span>${f.dir ? `<span class="fb-gdir">${escapeHtml(f.dir)}</span>` : ''}
+      <b class="fb-gn" title="${n} match${f.matches.length === 1 && !f.more ? '' : 'es'}">${n}</b>
+    </button>${open ? f.matches.map((m) => grepMatchHtml(f, m)).join('') : ''}</div>`;
+}
+
+function paintGrep() {
+  const el = listEl();
+  if (!el || pane !== 'search') return;
+  el.classList.toggle('is-loading', !!gq && !!grep?.loading && !!grep.files);
+  if (!gq) {
+    paintTree();
+    return;
+  }
+  if (grep?.error) {
+    el.innerHTML = empty(grep.bad ? 'Can’t search for that' : 'Search failed', escapeHtml(grep.error), { ic: 'triangle-alert' });
+    return;
+  }
+  if (!grep?.files) {
+    el.innerHTML = '<div class="gx-loading"><span class="spinner"></span><span>Searching…</span></div>';
+    return;
+  }
+  if (!grep.files.length) {
+    el.innerHTML = empty('No results', `No file in this project contains “${escapeHtml(grep.query)}”.`, { ic: 'search' });
+    return;
+  }
+  const plus = grep.truncated ? '+' : '';
+  const folded = grep.files.every((f) => grepFolded.has(f.path));
+  const nFiles = grep.files.length;
+  const active = document.activeElement;
+  const refocus = active && el.contains(active) ? active.matches('.fb-gm') ? `.fb-gm[data-path="${CSS.escape(active.dataset.path)}"][data-line="${active.dataset.line}"]` : active.matches('.fb-gh') ? `.fb-gh[data-path="${CSS.escape(active.dataset.path)}"]` : '' : '';
+  const scroll = el.scrollTop;
+  el.innerHTML = section('Results', {
+    count: `${grep.matches}${plus} in ${nFiles}${plus} file${nFiles === 1 && !plus ? '' : 's'}`,
+    right: `<button type="button" class="dlg-section-btn" data-act="g-fold-all">${folded ? 'Expand all' : 'Collapse all'}</button>`,
+  }) + grep.files.map(grepFileHtml).join('')
+    + (grep.truncated ? '<p class="gx-none">Only the first matches are shown — type more, or turn on Match case / Whole word, to narrow it down.</p>' : '');
+  el.scrollTop = scroll;
+  if (refocus) el.querySelector(refocus)?.focus({ preventScroll: true });
+}
+
+/** Switch to the Search tab; `seed`, else the editor's one-line selection, becomes the query. */
+function startGrep(seed = '') {
+  const ta = findAvailable() ? editorEl() : null;
+  const picked = seed || (ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : '');
+  if (picked.trim() && picked.length <= GREP_SEED_MAX && !picked.includes('\n')) {
+    gq = picked;
+    grep = null;
+  }
+  setPane('search');
+  const input = $(`${ID}-gq`);
+  if (input) {
+    input.value = gq;
+    input.focus({ preventScroll: true });
+    input.select();
+  }
+  if (gq) scheduleGrep(true);
+  paintGrep();
+}
+
+/** Names: switch the Explorer to the file-name search (the code search's text comes along) and focus it. */
+function startNameSearch() {
+  if (pane === 'search') toggleContentSearch();
+  else setPane('files');
+  const input = $(`${ID}-search`);
+  input?.focus({ preventScroll: true });
+  input?.select();
+}
+
+/** A match was clicked (or Enter on it): open its file, the match selected. */
+function openMatch(btn, focus = false) {
+  const { path } = btn.dataset;
+  const line = num(btn.dataset.line);
+  grepCur = `${path}:${line}`;
+  scmSel = null;
+  listEl()?.querySelector('.fb-gm.is-current')?.classList.remove('is-current');
+  btn.classList.add('is-current');
+  openPath(path, { focus: false });
+  revealLineWhenShown(path, line, { col: num(btn.dataset.col), len: num(btn.dataset.len), focus, pin: true });
 }
 
 // ─── Opening a file ───────────────────────────────────────────────────────
@@ -1200,8 +1379,11 @@ function paintFoot() {
   const foot = $(`${ID}-foot`);
   if (!foot) return;
   foot.innerHTML = branchChip() + termChip() + footer({
-    note: pane === 'scm' ? 'Stage with +, then commit — discarded text goes to the Trash' : 'Edits save straight to your project files',
-    hints: wide() || reading ? [[`${MOD} S`, 'save'], ['esc', wide() ? 'close' : 'back']] : [['↵', 'open'], ['esc', 'close']],
+    note: { scm: 'Stage with +, then commit — discarded text goes to the Trash', search: 'Searches the text of every file — ignored and binary files are skipped' }[pane]
+      || 'Edits save straight to your project files',
+    hints: wide() || reading
+      ? [[`${MOD} ⇧ P`, 'file'], [`${MOD} ⇧ F`, 'code'], [`${MOD} S`, 'save'], ['esc', wide() ? 'close' : 'back']]
+      : [['↵', 'open'], ['esc', 'close']],
   });
 }
 
@@ -2220,12 +2402,44 @@ function paintTabs() {
   const el = $(`${ID}-tabs`);
   if (!el) return;
   const n = scm?.ok ? num(scm.total) : 0;
-  const tab = (id, ic, label, extra = '') => `<button type="button" class="fb-tab" role="tab" data-act="pane" data-pane="${id}" aria-selected="${pane === id}" title="${label}">${icon(ic)}<span>${label}</span>${extra}</button>`;
+  // Searching inside files is a mode of the Explorer (its search box has the switch), not a tab of its own.
+  const tab = (id, ic, label, extra = '') => `<button type="button" class="fb-tab" role="tab" data-act="pane" data-pane="${id}" aria-selected="${(pane === 'search' ? 'files' : pane) === id}" title="${label}">${icon(ic)}<span>${label}</span>${extra}</button>`;
   el.innerHTML = tab('files', 'folder-open', 'Explorer')
     + tab('scm', 'git-branch', 'Source Control', n ? `<b class="fb-tab-n" title="${n} changed file${n === 1 ? '' : 's'}">${n > 999 ? '999+' : n}</b>` : '');
 }
 
-/** The left pane's top: the name search (Explorer) or the commit box (Source Control). */
+/** The switch between searching names and searching inside files, at the right of the Explorer's search box. */
+function modeSwitch(on) {
+  const tip = `Searching file names — switch to code search (${isMac ? '⌘⇧F' : 'Ctrl+Shift+F'})`;
+  const label = on ? `Searching code — switch to file names (${isMac ? '⌘⇧P' : 'Ctrl+Shift+P'})` : tip;
+  return `<button type="button" class="tool-icon fb-gmode" data-act="g-mode" aria-pressed="${on}" title="${label}" aria-label="${label}">${icon('file-text')}</button>`;
+}
+
+function grepOptsHtml() {
+  const opt = (key, label, tip) => `<button type="button" class="fb-find-opt" data-act="g-opt" data-opt="${key}" aria-pressed="${gopts[key]}" title="${tip}" aria-label="${tip}">${label}</button>`;
+  return `<span class="search-extra fb-gopts">${opt('cs', 'Aa', 'Match case')}${opt('word', '<u>ab</u>', 'Whole word')}${opt('re', '.*', 'Regular expression')}${modeSwitch(true)}</span>`;
+}
+
+/** Names ⇄ contents: the text typed so far comes along. */
+function toggleContentSearch() {
+  if (pane === 'files') {
+    if (query) {
+      gq = query;
+      grep = null;
+    }
+    results = null;
+    setPane('search');
+    return;
+  }
+  query = gq.trim();
+  results = null;
+  grepSeq += 1;
+  clearTimeout(grepTimer);
+  setPane('files');
+  if (query) setQuery(query);
+}
+
+/** The left pane's top: the name search (Explorer), the text search, or the commit box (Source Control). */
 function paintBar() {
   const bar = $(`${ID}-bar`);
   if (!bar) return;
@@ -2233,6 +2447,14 @@ function paintBar() {
     if (!$(`${ID}-search`)) {
       bar.innerHTML = toolbar({
         id: `${ID}-search`, placeholder: 'Search files by name', label: 'Search project files', kbd: false, extra: toolsHtml(), value: query,
+      });
+    }
+    return;
+  }
+  if (pane === 'search') {
+    if (!$(`${ID}-gq`)) {
+      bar.innerHTML = toolbar({
+        id: `${ID}-gq`, placeholder: 'Search code in files', label: 'Search code in every file', kbd: false, extra: grepOptsHtml(), value: gq,
       });
     }
     return;
@@ -2531,16 +2753,19 @@ function setPane(next) {
   if (next === pane) return;
   closeScmMenu();
   pane = next;
+  if (pane !== 'scm') explorer = pane;
   storageSet(PANE_KEY, pane);
   prompt = null;
   $(`${ID}-bar`).innerHTML = '';
+  listEl()?.classList.remove('is-loading'); // a search that was still loading dimmed the list
   paintTabs();
   paintBar();
   paintPrompt();
   paintTree();
   paintFoot();
   if (pane === 'scm' && !scm) loadScm();
-  requestAnimationFrame(() => (pane === 'scm' ? $(`${ID}-msg`) : $(`${ID}-search`))?.focus({ preventScroll: true }));
+  if (pane === 'search' && gq && !grep) scheduleGrep(true);
+  requestAnimationFrame(() => $(PANE_FOCUS[pane])?.focus({ preventScroll: true }));
 }
 
 /** A change row: its diff on the right — in the editor's Diff view when the file
@@ -2852,7 +3077,7 @@ function onEditorKey(e) {
 // ─── Events ───────────────────────────────────────────────────────────────
 
 function rowsInList() {
-  const sel = pane === 'scm' ? '.fb-scm-main' : results ? '.gx-row' : '.fb-row';
+  const sel = pane === 'scm' ? '.fb-scm-main' : pane === 'search' && gq ? '.fb-gh, .fb-gm' : results ? '.gx-row' : '.fb-row';
   return [...(listEl()?.querySelectorAll(sel) || [])];
 }
 
@@ -3050,8 +3275,37 @@ async function act(name, b) {
       submitPrompt();
       break;
     case 'pane':
-      setPane(b.dataset.pane === 'scm' ? 'scm' : 'files');
+      setPane(b.dataset.pane === 'scm' ? 'scm' : explorer); // the Explorer tab: the mode it was last in
       break;
+    case 'g-mode':
+      toggleContentSearch();
+      break;
+    case 'g-opt': {
+      const key = b.dataset.opt;
+      gopts = { ...gopts, [key]: !gopts[key] };
+      storageSet(GREP_OPTS_KEY, JSON.stringify(gopts));
+      b.setAttribute('aria-pressed', String(gopts[key]));
+      if (gq) {
+        grep = { ...(grep?.files ? grep : null), loading: true };
+        grepSeq += 1;
+        scheduleGrep(true);
+        paintGrep();
+      }
+      $(`${ID}-gq`)?.focus({ preventScroll: true });
+      break;
+    }
+    case 'g-fold':
+      if (grepFolded.has(b.dataset.path)) grepFolded.delete(b.dataset.path);
+      else grepFolded.add(b.dataset.path);
+      paintGrep();
+      break;
+    case 'g-fold-all': {
+      const files = grep?.files || [];
+      if (files.every((f) => grepFolded.has(f.path))) grepFolded.clear();
+      else files.forEach((f) => grepFolded.add(f.path));
+      paintGrep();
+      break;
+    }
     case 'scm-open':
       openChange(b.dataset.group, b.dataset.path, { focus: false });
       break;
@@ -3176,6 +3430,11 @@ function onClick(e) {
     onRowClick(row, e);
     return;
   }
+  const gm = e.target.closest('.fb-gm');
+  if (gm && listEl()?.contains(gm)) {
+    openMatch(gm, e.detail === 0); // Enter arrives as a click with no pointer: that one goes on to the editor
+    return;
+  }
   const b = e.target.closest('[data-act]');
   if (!b || b.disabled || !$(ID).contains(b)) return;
   act(b.dataset.act, b);
@@ -3268,6 +3527,18 @@ function onKey(e) {
     save();
     return;
   }
+  // ⌘⇧F / Ctrl+Shift+F: search every file (the selected text, when there is one, is the query).
+  if ((isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && e.shiftKey && !e.altKey && !e.isComposing && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    startGrep();
+    return;
+  }
+  // ⌘⇧P / Ctrl+Shift+P: search files by name.
+  if ((isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && e.shiftKey && !e.altKey && !e.isComposing && e.key.toLowerCase() === 'p') {
+    e.preventDefault();
+    startNameSearch();
+    return;
+  }
   if (findKey(e)) return;
   // ⌥W closes the shown tab (⌘W / Ctrl+W belong to the browser). e.code: ⌥ changes e.key on a Mac.
   const typing = t.matches?.('input, textarea') && !t.matches('.fb-text');
@@ -3291,6 +3562,25 @@ function onKey(e) {
     } else menuKey(e);
     return;
   }
+  if (t.id === `${ID}-gq`) {
+    if (e.key === 'Enter' && !e.isComposing) {
+      e.preventDefault();
+      scheduleGrep(true); // don't wait for the typing pause
+    } else arrowRows(e, t, rowsInList());
+    return;
+  }
+  if (pane === 'search' && gq && t.closest?.(`#${ID}-list`)) {
+    if (t.matches('.fb-gh') && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      const open = t.getAttribute('aria-expanded') === 'true';
+      if ((e.key === 'ArrowRight') !== open) {
+        e.preventDefault();
+        t.click();
+      }
+      return;
+    }
+    arrowRows(e, $(`${ID}-gq`), rowsInList());
+    return;
+  }
   if (t.id === `${ID}-msg`) {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) {
       e.preventDefault();
@@ -3310,7 +3600,7 @@ function onKey(e) {
     return;
   }
   if (t.matches?.('.fb-text')) return;
-  const search = $(`${ID}-search`);
+  const search = $(`${ID}-search`) || $(`${ID}-gq`); // the tree's ↑ goes back to whichever box is shown
   const rows = rowsInList();
   if (t === search) {
     if (e.key === 'Enter' && results?.items?.length) {
@@ -3355,6 +3645,7 @@ function tabKey(e, tab) {
 
 function onInput(e) {
   if (e.target.id === `${ID}-search`) setQuery(e.target.value);
+  else if (e.target.id === `${ID}-gq`) setGrepQuery(e.target.value);
   else if (e.target.id === `${BR_ID}-q`) paintBranchList();
   else if (e.target.id === `${ID}-msg`) {
     scmMsg = e.target.value;
@@ -3364,7 +3655,7 @@ function onInput(e) {
 
 function toolsHtml() {
   const t = (act, ic, label) => `<button type="button" class="tool-icon" data-act="${act}" title="${label}" aria-label="${label}">${icon(ic)}</button>`;
-  return `<span class="search-extra fb-tools">${t('new-file', 'plus', 'New file')}${t('new-folder', 'folder-plus', 'New folder')}${t('refresh', 'refresh-cw', 'Refresh')}</span>`;
+  return `<span class="search-extra fb-tools">${modeSwitch(false)}${t('new-file', 'plus', 'New file')}${t('new-folder', 'folder-plus', 'New folder')}${t('refresh', 'refresh-cw', 'Refresh')}</span>`;
 }
 
 function paintAll() {
@@ -3394,43 +3685,57 @@ function setFull(on) {
 }
 
 /** Put the caret on `line` (1-based) once `path`'s editor is up — a terminal
- * link like `app.py:42`. Gives up quietly if the file doesn't open as text. */
-function revealLineWhenShown(path, line, tries = 40) {
+ * link like `app.py:42`, or a search match. `col` / `len` (a match's place in the
+ * line) select just that text, else the whole line is selected; `focus: false`
+ * leaves the keyboard where it is (the search list). Gives up quietly if the
+ * file doesn't open as text. */
+function revealLineWhenShown(path, line, { col = -1, len = 0, focus = true, pin = false, tries = 40 } = {}) {
   const doc = docFor(path);
   if (!doc || doc.error || tries <= 0) return;
   const ta = $(`${ID}-view`)?.querySelector('.fb-text');
   if (doc.loading || doc.pending || mounted !== doc || !ta) {
-    setTimeout(() => revealLineWhenShown(path, line, tries - 1), 75);
+    setTimeout(() => revealLineWhenShown(path, line, { col, len, focus, pin, tries: tries - 1 }), 75);
     return;
   }
+  if (file === doc && doc.view !== 'edit') setMode('edit'); // opened from a diff: the text is what we point at
   const lines = ta.value.split('\n');
   const n = Math.max(1, Math.min(line, lines.length));
   let pos = 0;
   for (let i = 0; i < n - 1; i++) pos += lines[i].length + 1;
-  ta.focus({ preventScroll: true });
-  ta.setSelectionRange(pos, pos + lines[n - 1].length);
+  const from = col >= 0 && col < lines[n - 1].length ? pos + col : pos;
+  const to = col >= 0 && len > 0 ? Math.min(from + len, pos + lines[n - 1].length) : pos + lines[n - 1].length;
+  if (focus) ta.focus({ preventScroll: true });
+  ta.setSelectionRange(from, to);
   const lh = parseFloat(getComputedStyle(ta).lineHeight) || 18;
   ta.scrollTop = Math.max(0, (n - 1) * lh - ta.clientHeight / 3);
   ta.dispatchEvent(new Event('scroll'));   // the gutter follows
+  scheduleCaret();                         // the line band and the status bar too
+  if (pin && col >= 0 && len > 0) pinMatch(viewEl(), from, to); // drawn like a find match, even while the list has focus
 }
 
 /** The drawer. `path` opens that file (a project-relative path) right away,
- * at `line` when given; `pane: 'scm'` starts on the Source Control tab,
- * `'files'` on the Explorer. */
-export function openFiles({ path = '', line = 0, pane: want = '' } = {}) {
+ * at `line` when given; `pane` starts on a tab — `'scm'` Source Control,
+ * `'files'` the Explorer, `'search'` the text search (with `search` as its query). */
+export function openFiles({ path = '', line = 0, pane: want = '', search: seed = '' } = {}) {
   const key = projectKey();
   if (shownFor !== key) resetProject(key);
-  if (want === 'scm' || want === 'files') {
+  if (PANES.includes(want)) {
     pane = want;
+    if (pane !== 'scm') explorer = pane;
     storageSet(PANE_KEY, pane);
+  }
+  if (pane === 'search' && String(seed).trim()) {
+    gq = String(seed).slice(0, GREP_SEED_MAX);
+    grep = null;
   }
   query = '';
   results = null;
   reading = false;
   setHomeSub(ID, store.session?.cwd_display || store.session?.cwd || 'This project');
   paintAll();
+  if (pane === 'search' && gq) scheduleGrep(true); // files may have changed since the last search
   openModal(ID, {
-    focus: pane === 'scm' ? `${ID}-msg` : `${ID}-search`,
+    focus: PANE_FOCUS[pane],
     onClose: () => {
       saveViewState();
       closeScmMenu();
@@ -3462,7 +3767,7 @@ export function openFiles({ path = '', line = 0, pane: want = '' } = {}) {
     }
     if (path) {
       openPath(path, { focus: true });
-      if (line > 0) revealLineWhenShown(path, line);
+      if (line > 0) revealLineWhenShown(path, line, { focus: true });
     } else if (!file && restore && wide()) openPath(restore, { restoring: true });
     else if (file) checkDisk();
   });
@@ -3543,6 +3848,7 @@ export function initFiles(hooks = {}) {
       refreshTree();
       refreshBase();
       checkDisk();
+      if (pane === 'search' && gq) scheduleGrep(true); // Jarvis may have changed what the results point at
     }
     wasBusy = !!s.busy;
   });

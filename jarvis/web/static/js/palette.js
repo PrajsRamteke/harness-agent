@@ -34,6 +34,7 @@ function itemMeta(item) {
   if (item.action === 'glass') return `<span class="lr-state${isGlass() ? ' is-on' : ''}">${isGlass() ? 'On' : 'Off'}</span>`;
   if (item.action === 'inspector-changes') return `<span class="lr-code">${isMac ? '⌥D' : 'Alt D'}</span>`;
   if (item.action === 'files') return `<span class="lr-code">${isMac ? '⌥F' : 'Alt F'}</span>`;
+  if (item.action === 'search-files') return `<span class="lr-code">${isMac ? '⌥⇧F' : 'Alt Shift F'}</span>`;
   if (item.laptop) return '<span class="lr-meta">on computer</span>';
   if (item.cmd) return `<span class="lr-code">${escapeHtml(item.cmd.trim())}</span>`;
   return '';
@@ -133,6 +134,10 @@ export async function runItem(item) {
   }
   if (item.action === 'files') {
     openFiles();
+    return;
+  }
+  if (item.action === 'search-files') {
+    openFiles({ pane: 'search' });
     return;
   }
   if (item.action === 'attach') {

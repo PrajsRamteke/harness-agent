@@ -396,6 +396,77 @@
 .fb-hit .gx-name mark { background: rgba(var(--accent-rgb), 0.22); color: inherit; border-radius: 2px; }
 .fb-hit .fb-git { margin-left: 4px; }
 
+/* ─── Search tab: text in files, grouped by file ───────────────────────────────── */
+.fb-gopts { gap: 2px; margin-left: 2px; align-items: center; }
+.fb-gmode { margin-left: 2px; }
+.fb-gmode[aria-pressed="true"] { color: var(--accent); background: rgba(var(--accent-rgb), 0.18); border-color: var(--accent-line); }
+.fb-gf { display: flex; flex-direction: column; margin-bottom: 2px; }
+.fb-gh {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px 0 4px;
+  border: none;
+  border-radius: var(--r-ctl);
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.fb-gh:hover { background: var(--card-hover); }
+.fb-gh:focus-visible, .fb-gm:focus-visible { outline: 1px solid rgba(var(--accent-rgb), 0.55); outline-offset: -1px; }
+.fb-gh[aria-expanded="true"] .fb-chev .ic { transform: rotate(90deg); }
+.fb-gname { flex: none; max-width: 60%; margin-left: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-gdir {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;           /* a long folder path loses its start, not the part next to the file */
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.fb-gn {
+  flex: none;
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--card-hover);
+  color: var(--text-2);
+  font: 600 11px/18px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.fb-gdir + .fb-gn { margin-left: 4px; }
+.fb-gm {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 8px 2px 26px;
+  border: none;
+  border-radius: var(--r-ctl);
+  background: none;
+  color: var(--text-2);
+  text-align: left;
+  font: 12px/1.5 var(--font-mono);
+}
+.fb-gm:hover { background: var(--card-hover); color: var(--text); }
+.fb-gm.is-current { background: rgba(var(--accent-rgb), 0.13); color: var(--text); }
+.fb-gm.is-current::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; border-radius: 2px; background: var(--accent); }
+.fb-gl { flex: none; min-width: 3ch; color: var(--text-3); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+.fb-gt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.fb-gt mark { background: rgba(var(--accent-rgb), 0.28); color: var(--text); border-radius: 2px; }
+.fb-gm.is-current .fb-gt mark { background: rgba(var(--accent-rgb), 0.42); }
+
 /* ─── Right: open-file tabs (above the header) ──────────────────────────── */
 .fb-ftabs {
   display: flex;

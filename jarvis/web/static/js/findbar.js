@@ -32,6 +32,7 @@ const state = {
 let hooks = { onMove: () => {}, onToggle: () => {}, escHeld: () => false };
 let refreshTimer = 0;
 let seekTimer = 0;
+let pinned = false;              // a search result's match is painted (see pinMatch)
 
 function loadOpts() {
   try {
@@ -122,6 +123,34 @@ export function syncFind(root) {
   const layer = root?.querySelector('.fb-fm-in');
   const ta = taOf(root);
   if (layer && ta && layer.firstChild) layer.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+}
+
+/** Pin one range as the current match (a search result opened from the Search box): the
+ * textarea's own selection isn't drawn while it isn't focused, so it is painted here, the
+ * same way as a find match. It stays until an edit, a click or key in the editor, or the find bar. */
+export function pinMatch(root, start, end) {
+  const layer = root?.querySelector('.fb-fm-in');
+  const ta = taOf(root);
+  if (!layer || !ta || state.open) return;
+  if (end <= start || ta.value.length > MARKS_MAX_CHARS) {
+    unpinMatch(root);
+    return;
+  }
+  const text = ta.value;
+  layer.style.tabSize = ta.style.tabSize || '4';
+  layer.innerHTML = `${escapeHtml(text.slice(0, start))}<mark class="is-cur">${escapeHtml(text.slice(start, end))}</mark>${escapeHtml(text.slice(end))}`;
+  pinned = true;
+  syncFind(root);
+  const drop = () => unpinMatch(root);
+  ta.addEventListener('mousedown', drop, { once: true });
+  ta.addEventListener('keydown', drop, { once: true });
+}
+
+export function unpinMatch(root) {
+  if (!pinned) return;
+  pinned = false;
+  const layer = root?.querySelector('.fb-fm-in');
+  if (layer && !state.open) layer.textContent = '';
 }
 
 /** Move the current-match highlight without repainting everything. */
@@ -268,6 +297,7 @@ function step(root, dir) {
 export function openFind(root) {
   const ta = taOf(root);
   if (!root || !ta) return;
+  pinned = false; // the find bar paints the layer from here on
   const picked = ta.value.slice(ta.selectionStart, ta.selectionEnd);
   if (picked && picked.length <= 200 && !picked.includes('\n')) state.query = picked;
   state.open = true;
@@ -328,6 +358,7 @@ export function showFindFor(root, mode) {
 
 /** The text changed: the painted matches are stale at once, the new ones follow shortly. */
 export function refreshFind(root) {
+  if (pinned) unpinMatch(root); // the text changed: the pinned range is stale
   if (!state.open || !root) return;
   const layer = root.querySelector('.fb-fm-in');
   if (layer) layer.textContent = '';

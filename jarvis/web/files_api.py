@@ -20,7 +20,9 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -37,6 +39,15 @@ MAX_IMAGE_BYTES = 4_000_000      # images are sent inline (data URL) up to this 
 MAX_ENTRIES = 1500               # entries listed per folder (the rest is counted)
 SEARCH_MAX_FILES = 40_000        # files the name search indexes
 SEARCH_RESULTS = 60
+GREP_MAX_MATCHES = 500           # content search: matching lines returned in all
+GREP_MAX_FILES = 120             # … files they may come from
+GREP_PER_FILE = 50               # … and per file
+GREP_MAX_FILE_BYTES = 1_000_000  # bigger files aren't searched (same cap as the editor)
+GREP_MAX_QUERY = 400
+GREP_TIMEOUT = 8.0               # seconds before a slow search is cut short (partial results)
+GREP_LINE_CHARS = 220            # a long line is cut around its first match
+GREP_LEAD_CHARS = 36             # … keeping this much text before it
+GREP_MAX_SPANS = 20              # highlighted matches kept per line
 INDEX_TTL = 10.0                 # seconds a file index / git marks answer is reused
 MARKS_TTL = 2.0
 MAX_NAME_BYTES = 255
@@ -340,6 +351,214 @@ def search(root: Path, query: str, limit: int = SEARCH_RESULTS) -> dict[str, Any
     return {"ok": True, "query": " ".join(tokens), "results": results, "truncated": truncated}
 
 
+# ─── Search in files (contents) ───────────────────────────────────────────
+
+def _rg_path() -> str | None:
+    """ripgrep when it is installed: much faster on a big project than scanning from Python."""
+    return shutil.which("rg")
+
+
+def _grep_pattern(query: str, *, cs: bool, word: bool, regex: bool) -> tuple[Any, str]:
+    """``(compiled, "")`` or ``(None, reason)`` — Python's own reading of the query.
+
+    It drives the Python engine and the highlighting; ripgrep parses the query
+    itself (so a pattern only it understands, like ``\\p{L}``, still searches —
+    just without highlights).
+    """
+    src = query if regex else re.escape(query)
+    if word:
+        src = rf"\b(?:{src})\b"
+    try:
+        return re.compile(src, re.MULTILINE | (0 if cs else re.IGNORECASE)), ""
+    except (re.error, RecursionError, OverflowError) as exc:
+        return None, str(exc)
+
+
+def _u16(text: str, i: int) -> int:
+    """``i`` (a code-point offset) as a UTF-16 one — the page's strings count that way."""
+    return i if text.isascii() else len(text[:i].encode("utf-16-le")) // 2
+
+
+def _snippet(line: str, spans: list[tuple[int, int]]) -> dict[str, Any]:
+    """One result row: the line trimmed to a window around its first match, with
+    the matches to highlight (offsets inside ``text``) and where the first one
+    starts in the *whole* line (``col``) — the page selects it when it opens the file."""
+    lead = len(line) - len(line.lstrip())
+    start = lead
+    if spans and spans[0][0] - start > GREP_LEAD_CHARS:
+        start = spans[0][0] - GREP_LEAD_CHARS
+    end = min(len(line), start + GREP_LINE_CHARS)
+    pre = "…" if start > lead else ""
+    text = f"{pre}{line[start:end]}{'…' if end < len(line) else ''}"
+    hl: list[list[int]] = []
+    for s, e in spans:
+        if s >= end:
+            break
+        a = max(s, start) - start + len(pre)
+        b = min(e, end) - start + len(pre)
+        if b > a:
+            hl.append([_u16(text, a), _u16(text, b)])
+    row: dict[str, Any] = {"text": text, "hl": hl, "col": -1, "len": 0}
+    if spans:
+        row["col"] = _u16(line, spans[0][0])
+        row["len"] = _u16(line, spans[0][1]) - row["col"]
+    return row
+
+
+def _line_row(pat: Any, number: int, line: str) -> dict[str, Any]:
+    spans: list[tuple[int, int]] = []
+    if pat is not None:
+        for m in pat.finditer(line):
+            if m.end() > m.start():
+                spans.append((m.start(), m.end()))
+                if len(spans) >= GREP_MAX_SPANS:
+                    break
+    return {"line": number, **_snippet(line, spans)}
+
+
+def _grep_rg(rg: str, root: Path, query: str, pat: Any, *, cs: bool, word: bool, regex: bool,
+             repo: bool) -> tuple[dict[str, list[dict[str, Any]]], int, bool]:
+    cmd = [rg, "--no-config", "--color", "never", "--no-heading", "--with-filename", "--line-number", "--null",
+           "--hidden", "--no-messages", f"--max-filesize={GREP_MAX_FILE_BYTES}", f"--max-count={GREP_PER_FILE}",
+           "-i" if not cs else "-s", "-g", "!.git"]
+    if not repo:  # no .gitignore to lean on: skip the usual heavy folders, like the name search does
+        for d in sorted(NOISE_DIRS - {".git"}):
+            cmd += ["-g", f"!{d}"]
+    if not regex:
+        cmd.append("-F")
+    if word:
+        cmd.append("-w")
+    cmd += ["-e", query, "--", "."]
+    proc = subprocess.Popen(cmd, cwd=str(root), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    cut = {"why": ""}
+
+    def stop(why: str) -> None:
+        if not cut["why"]:
+            cut["why"] = why
+            proc.kill()
+
+    timer = threading.Timer(GREP_TIMEOUT, stop, args=("time",))
+    timer.start()
+    found: dict[str, list[dict[str, Any]]] = {}
+    total = 0
+    try:
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            head, sep, rest = raw.rstrip(b"\n").partition(b"\0")
+            num, colon, body = rest.partition(b":")
+            if not sep or not colon or not num.isdigit():
+                continue  # a "binary file matches" note, not a match
+            path = os.fsdecode(head).replace("\\", "/")
+            path = path[2:] if path.startswith("./") else path
+            if path not in found:
+                if len(found) >= GREP_MAX_FILES:
+                    stop("files")
+                    break
+                found[path] = []
+            found[path].append(_line_row(pat, int(num), body.decode("utf-8", "replace").rstrip("\r")))
+            total += 1
+            if total >= GREP_MAX_MATCHES:
+                stop("matches")
+                break
+        proc.wait()
+        err = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+    finally:
+        timer.cancel()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe:
+                pipe.close()
+    if proc.returncode == 2 and not total and not cut["why"]:
+        lines = [ln.strip() for ln in err.splitlines() if ln.strip()]
+        note = next((ln for ln in reversed(lines) if ln.startswith("error:")), lines[0] if lines else "ripgrep failed")
+        raise FilesError("bad_pattern", f"Invalid search — {note.removeprefix('error:').strip()}")
+    return found, total, bool(cut["why"])
+
+
+def _grep_python(root: Path, pat: Any) -> tuple[dict[str, list[dict[str, Any]]], int, bool]:
+    """The same search without ripgrep: the name index's files, read and matched here."""
+    files, _ = _cached("index", root, INDEX_TTL, lambda: _build_index(root))
+    deadline = time.monotonic() + GREP_TIMEOUT
+    found: dict[str, list[dict[str, Any]]] = {}
+    total = 0
+    for path in files:
+        if time.monotonic() > deadline:
+            return found, total, True
+        full = root / path
+        try:
+            if full.is_symlink() and not _inside(root, full.resolve()):
+                continue
+            st = full.stat()
+            if not 0 < st.st_size <= GREP_MAX_FILE_BYTES or not full.is_file():
+                continue
+            raw = full.read_bytes()
+        except OSError:
+            continue
+        if b"\0" in raw[:8192]:
+            continue
+        text = raw.decode("utf-8", "replace")  # like ripgrep: a Latin-1 file is still text worth searching
+        if not pat.search(text):  # one pass over the file rejects most of them
+            continue
+        rows: list[dict[str, Any]] = []
+        for number, line in enumerate(text.split("\n"), 1):
+            line = line.rstrip("\r")
+            if pat.search(line):
+                rows.append(_line_row(pat, number, line))
+                total += 1
+                if len(rows) >= GREP_PER_FILE or total >= GREP_MAX_MATCHES:
+                    break
+        if not rows:
+            continue
+        if len(found) >= GREP_MAX_FILES:
+            return found, total, True
+        found[path] = rows
+        if total >= GREP_MAX_MATCHES:
+            return found, total, True
+    return found, total, False
+
+
+def grep(root: Path, query: str, *, cs: bool = False, word: bool = False, regex: bool = False) -> dict[str, Any]:
+    """Lines whose *text* matches, grouped by file (path order).
+
+    Honours .gitignore (ripgrep) / the name index (Python); skips binary and
+    over-:data:`GREP_MAX_FILE_BYTES` files; stops at the ``GREP_MAX_*`` caps or
+    :data:`GREP_TIMEOUT` and says so with ``truncated``.
+    """
+    query = str(query or "")
+    if not query:
+        return {"ok": True, "query": "", "files": [], "matches": 0, "truncated": False, "engine": ""}
+    if len(query) > GREP_MAX_QUERY:
+        raise FilesError("bad_pattern", f"That search is too long (over {GREP_MAX_QUERY} characters).")
+    pat, why = _grep_pattern(query, cs=cs, word=word, regex=regex)
+    rg = _rg_path()
+    if pat is None and (not rg or not regex):
+        raise FilesError("bad_pattern", f"Invalid regular expression — {why}")
+    if pat is not None and pat.search(""):
+        raise FilesError("bad_pattern", "That pattern matches empty text — it would match every line.")
+    started = time.monotonic()
+    engine = "python"
+    result = None
+    if rg:
+        try:
+            result = _grep_rg(rg, root, query, pat, cs=cs, word=word, regex=regex, repo=_git_state(root)["repo"])
+            engine = "rg"
+        except OSError:
+            result = None  # not runnable after all: search from Python instead
+    if result is None:
+        result = _grep_python(root, pat)
+    found, total, truncated = result
+    files = []
+    for path in sorted(found):
+        name = path.rsplit("/", 1)[-1]
+        files.append({"path": path, "name": name, "dir": path[:-len(name)].rstrip("/"), "matches": found[path],
+                      "more": len(found[path]) >= GREP_PER_FILE})
+    return {"ok": True, "query": query, "files": files, "matches": total, "truncated": truncated,
+            "engine": engine, "ms": int((time.monotonic() - started) * 1000)}
+
+
 # ─── Read ─────────────────────────────────────────────────────────────────
 
 def _eol(text: str) -> tuple[str, bool]:
@@ -563,6 +782,9 @@ def post(op: str, data: dict[str, Any], *, cwd: str | None = None) -> dict[str, 
             return base_file(root, rel)
         if op == "search":
             return search(root, str(data.get("query") or ""), int(data.get("limit") or SEARCH_RESULTS))
+        if op == "grep":
+            return grep(root, str(data.get("query") or ""), cs=bool(data.get("cs")),
+                        word=bool(data.get("word")), regex=bool(data.get("re")))
         if op in MUTATING:
             with _lock:
                 try:

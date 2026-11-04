@@ -20,6 +20,8 @@ const SHEET = [
   { keys: [ALT, 'B'], label: 'Show or hide the sidebar' },
   { keys: [ALT, 'D'], label: 'Show or hide the changes panel' },
   { keys: [ALT, 'F'], label: 'Browse and edit the project\u2019s files' },
+  { keys: [ALT, 'Shift', 'F'], label: 'Search code in every file' },
+  { keys: [MOD, 'Shift', 'P'], label: 'Find a file by name' },
   { keys: [ALT, 'T'], label: 'Light or dark mode' },
   { keys: ['?'], label: 'This list' },
 ];
@@ -51,6 +53,13 @@ export function initShortcuts(handlers) {
       return;
     }
 
+    // ⌘⇧P / Ctrl+Shift+P: find a file by name (inside the Files drawer the drawer handles it).
+    if (e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p' && (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) {
+      e.preventDefault();
+      handlers.openFiles?.({ pane: 'files' });
+      return;
+    }
+
     if (!e.altKey || e.metaKey || e.ctrlKey) return;
     // e.code: on macOS ⌥ turns letters into symbols (⌥N → ˜).
     const map = {
@@ -60,7 +69,7 @@ export function initShortcuts(handlers) {
       KeyA: () => handlers.openPicker('agent'),
       KeyB: () => handlers.toggleSidebar?.(),
       KeyD: () => handlers.toggleInspector?.(),
-      KeyF: () => handlers.openFiles?.(),
+      KeyF: () => (e.shiftKey ? handlers.openFiles?.({ pane: 'search' }) : handlers.openFiles?.()),
       KeyT: () => handlers.toggleTheme(),
       KeyE: () => handlers.enhance?.(),
     };

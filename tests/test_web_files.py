@@ -291,6 +291,123 @@ def test_unknown_op(project):
     assert post(project, "explode")["ok"] is False
 
 
+# ─── Search in files (contents) ───────────────────────────────────────────
+
+@pytest.fixture(params=["python", "rg"])
+def engine(request, monkeypatch):
+    """Every content search runs on both engines and must answer the same."""
+    if request.param == "python":
+        monkeypatch.setattr(files_api, "_rg_path", lambda: None)
+    elif shutil.which("rg") is None:
+        pytest.skip("ripgrep is not installed")
+    return request.param
+
+
+def grep(project, query, **opts):
+    return post(project, "grep", query=query, **opts)
+
+
+def hits(res):
+    return {f["path"]: [m["line"] for m in f["matches"]] for f in res["files"]}
+
+
+def test_grep_groups_matches_by_file_with_lines_and_highlights(project, engine):
+    (project / "src" / "util.py").write_text("x = 1\nprint(x)\n\nprint('again')\n")
+    res = grep(project, "print")
+    assert res["ok"] and res["engine"] == ("rg" if engine == "rg" else "python")
+    assert hits(res) == {"src/app.py": [1], "src/util.py": [2, 4]}
+    assert res["matches"] == 3 and res["truncated"] is False
+    first = res["files"][0]
+    assert (first["name"], first["dir"]) == ("app.py", "src")
+    row = first["matches"][0]
+    assert row["text"] == "print('hi')" and row["hl"] == [[0, 5]] and (row["col"], row["len"]) == (0, 5)
+
+
+def test_grep_never_reads_git_binary_noise_or_big_files(project, engine):
+    (project / ".git" / "config").write_text("needle\n")
+    (project / "node_modules").mkdir()
+    (project / "node_modules" / "m.js").write_text("needle\n")
+    (project / "blob.bin").write_bytes(b"needle\0\1\2")
+    (project / "huge.txt").write_text("needle\n" + "x" * files_api.GREP_MAX_FILE_BYTES)
+    (project / "ok.txt").write_text("a needle here\n")
+    (project / "latin.txt").write_bytes("needle \xe9\n".encode("latin-1"))  # not UTF-8, still text
+    assert hits(grep(project, "needle")) == {"latin.txt": [1], "ok.txt": [1]}
+
+
+def test_grep_options(project, engine):
+    (project / "t.txt").write_text("Foo\nfoo bar\nfoobar\nf.o\n")
+    assert hits(grep(project, "foo"))["t.txt"] == [1, 2, 3]
+    assert hits(grep(project, "foo", cs=True))["t.txt"] == [2, 3]
+    assert hits(grep(project, "foo", word=True))["t.txt"] == [1, 2]
+    assert hits(grep(project, "f.o"))["t.txt"] == [4]                 # literal by default: a dot is a dot
+    assert hits(grep(project, "f.o", re=True))["t.txt"] == [1, 2, 3, 4]
+    assert hits(grep(project, r"^foo\b", re=True, cs=True))["t.txt"] == [2]
+
+
+def test_grep_bad_input_is_an_error_not_a_crash(project, engine):
+    assert grep(project, "")["files"] == [] and grep(project, "")["ok"] is True
+    bad = grep(project, "(foo(", re=True)
+    assert bad["ok"] is False and bad["code"] == "bad_pattern"
+    assert grep(project, "a*", re=True)["code"] == "bad_pattern"        # would match every line
+    assert grep(project, "x" * 500)["code"] == "bad_pattern"
+    assert grep(project, "-rf")["ok"] is True                           # not read as an option
+
+
+def test_grep_cuts_long_lines_around_the_match(project, engine):
+    (project / "long.txt").write_text(f"    {'a' * 300} needle {'b' * 300}\n")
+    row = grep(project, "needle")["files"][0]["matches"][0]
+    assert len(row["text"]) < 300 and row["text"].startswith("…") and row["text"].endswith("…")
+    s, e = row["hl"][0]
+    assert row["text"][s:e] == "needle"
+    assert row["col"] == 4 + 300 + 1 and row["len"] == 6               # where it sits in the whole line
+
+
+def test_grep_offsets_count_utf16_like_the_page(project, engine):
+    (project / "e.txt").write_text("😀 needle\n")
+    row = grep(project, "needle")["files"][0]["matches"][0]
+    assert row["col"] == 3 and row["hl"] == [[3, 9]]                    # the emoji is two UTF-16 units
+
+
+def test_grep_caps_matches_per_file_and_in_all(project, engine, monkeypatch):
+    (project / "many.txt").write_text("hit\n" * 10)
+    (project / "more.txt").write_text("hit\n" * 10)
+    monkeypatch.setattr(files_api, "GREP_PER_FILE", 3)
+    res = grep(project, "hit")
+    assert hits(res) == {"many.txt": [1, 2, 3], "more.txt": [1, 2, 3]}
+    assert all(f["more"] for f in res["files"])
+    monkeypatch.setattr(files_api, "GREP_MAX_MATCHES", 4)
+    res = grep(project, "hit")
+    assert res["matches"] == 4 and res["truncated"] is True
+    monkeypatch.setattr(files_api, "GREP_MAX_MATCHES", 500)
+    monkeypatch.setattr(files_api, "GREP_MAX_FILES", 1)
+    res = grep(project, "hit")
+    assert len(res["files"]) == 1 and res["truncated"] is True
+
+
+def test_grep_does_not_follow_links_out_of_the_project(project, engine, tmp_path_factory):
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "secret.txt").write_text("needle\n")
+    os.symlink(outside / "secret.txt", project / "link.txt")
+    os.symlink(outside, project / "linkdir")
+    (project / "mine.txt").write_text("needle\n")
+    assert hits(grep(project, "needle")) == {"mine.txt": [1]}
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_grep_in_a_real_repo_skips_ignored_files(tmp_path, engine, monkeypatch):
+    monkeypatch.setattr(files_api, "_cache", {})
+    (tmp_path / "keep.py").write_text("needle\n")
+    (tmp_path / "new.py").write_text("needle\n")
+    (tmp_path / "skip.log").write_text("needle\n")
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "tracked.js").write_text("needle\n")
+    (tmp_path / ".gitignore").write_text("*.log\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "add", "keep.py", "dist/tracked.js", ".gitignore"], cwd=tmp_path, check=True, capture_output=True)
+    # A tracked file in a folder with a "noise" name is still searched inside a repo (git decides what is hidden).
+    assert hits(grep(tmp_path, "needle")) == {"dist/tracked.js": [1], "keep.py": [1], "new.py": [1]}
+
+
 # ─── Against real git (the fakes above can't catch a wrong git invocation) ─
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
