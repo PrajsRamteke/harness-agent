@@ -4,6 +4,18 @@
  * Explorer / Source Control tabs, the tree, the commit box, the editor and the
  * prompts. */
 
+/* ─── Header: one slim line (title · folder · full screen · close) ───────── */
+.files-card .picker-head { min-height: 40px; padding: 4px 6px 4px 12px; gap: 8px; }
+.files-card .picker-icon { width: 22px; height: 22px; }
+.files-card .picker-icon .ic { width: 13px; height: 13px; }
+.files-card .picker-titles { display: flex; align-items: baseline; gap: 10px; }
+.files-card .picker-titles h2 { flex: none; font-size: 13px; }
+.files-card .picker-titles p { flex: 1; min-width: 0; font: 11.5px/1.3 var(--font-mono); }
+.files-card .picker-head .icon-btn { width: 28px; height: 28px; }
+
+/* Full screen (#files-full): the drawer covers the whole window. */
+.modal.gx-drawer .modal-card.files-card.is-full { width: 100vw; border-radius: 0; border-right: none; }
+
 /* ─── Top bar: unsaved / conflict / changed on disk ─────────────────────── */
 .fb-banner {
   display: flex;

@@ -4,6 +4,10 @@
   last prompt, so ``/retry`` sends it again and the model answers afresh.
 * **Branch into new chat**: a new session holding the conversation up to and
   including one reply; the page then opens it in a new header tab.
+* **Unanswered prompt** (``prompt_unsent``): the turn was stopped before any
+  reply. ``edit`` takes the prompt back out of the conversation (the page puts
+  its text in the message box); ``resend`` says whether ``/retry`` can send it
+  again as it is (attachments included).
 
 The page names a reply by its text (+ which occurrence of that text, for
 replies that repeat) — the transcript it shows can hold command echoes and
@@ -96,6 +100,31 @@ def retry_messages(messages: list[dict]) -> list[dict] | None:
     return None
 
 
+def unanswered_prompt(messages: list[dict]) -> int | None:
+    """Index of the user's last prompt when nothing answered it (stopped right away)."""
+    if messages and is_prompt(messages[-1]):
+        return len(messages) - 1
+    return None
+
+
+def _run_unsent(op: str, messages: list[dict]) -> dict[str, Any]:
+    from ..storage.sessions import db_replace_session_messages
+
+    idx = unanswered_prompt(messages)
+    if op == "resend":
+        # Not in the conversation (stopped before Jarvis took it): the page sends the text anew.
+        return {"ok": True, "retry": idx is not None}
+    if op != "edit":
+        return {"ok": False, "error": f"unknown op: {op}"}
+    if idx is None:
+        return {"ok": True, "removed": False}
+    cut = copy.deepcopy(messages[:idx])
+    state.messages = cut
+    if state.current_session_id:
+        db_replace_session_messages(state.current_session_id, cut)
+    return {"ok": True, "removed": True, "session_id": state.current_session_id}
+
+
 def run(action: str, data: dict[str, Any], *, console_print) -> dict[str, Any]:
     from ..storage.sessions import (
         db_create_session, db_get_title, db_rename_session, db_replace_session_messages,
@@ -107,6 +136,9 @@ def run(action: str, data: dict[str, Any], *, console_print) -> dict[str, Any]:
     except (TypeError, ValueError):
         nth = 0
     messages = list(state.messages or [])
+
+    if action == "prompt_unsent":
+        return _run_unsent(str(data.get("op") or ""), messages)
 
     if action == "reply_branch":
         msgs = branch_messages(messages, text, nth)

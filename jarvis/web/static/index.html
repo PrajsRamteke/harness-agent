@@ -118,7 +118,6 @@
         </div>
         <div class="side-head-actions">
           <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme" title="Switch theme"><span data-icon="moon"></span></button>
-          <button class="icon-btn" id="appearance-btn" type="button" aria-label="Appearance" title="Appearance"><span data-icon="palette"></span></button>
           <button class="icon-btn" id="settings-btn" type="button" aria-label="Settings" title="Settings"><span data-icon="settings"></span></button>
           <button class="icon-btn only-narrow" id="side-close" type="button" aria-label="Close panel"><span data-icon="x"></span></button>
         </div>
@@ -173,23 +172,18 @@
       </button>
 
       <div class="side-toggles" id="side-toggles">
-        <section class="side-sec">
-          <h2 class="sec-title">Transcript</h2>
+        <div class="toggle-card">
           <label class="switch-row" for="sw-thinking">
-            <span class="sw-icon" data-icon="brain"></span>
-            <span class="sw-text"><strong>Show thinking</strong><span>The model's reasoning</span></span>
+            <span class="sw-tile"><span class="sw-icon" data-icon="brain"></span></span>
+            <span class="sw-text"><strong>Show thinking</strong><span>Model reasoning in the transcript</span></span>
             <input type="checkbox" class="switch" id="sw-thinking" role="switch">
           </label>
-        </section>
-
-        <section class="side-sec">
-          <h2 class="sec-title">Shell</h2>
           <label class="switch-row warn" for="sw-auto">
-            <span class="sw-icon" data-icon="shield"></span>
-            <span class="sw-text"><strong>Auto-approve commands</strong><span>Skip the approval prompt</span></span>
+            <span class="sw-tile"><span class="sw-icon" data-icon="shield"></span></span>
+            <span class="sw-text"><strong>Auto-approve commands</strong><span>Run shell commands without asking</span></span>
             <input type="checkbox" class="switch" id="sw-auto" role="switch">
           </label>
-        </section>
+        </div>
       </div>
 
       <div class="side-foot" id="side-foot">
@@ -245,8 +239,8 @@
           </div>
         </section>
         <div class="usage" id="usage" aria-label="Usage this session">
-          <div class="usage-cell"><span class="usage-num" id="use-in">0</span><span class="usage-lbl">tokens in</span><span class="usage-badge" id="use-in-cache" hidden></span></div>
-          <div class="usage-cell"><span class="usage-num" id="use-out">0</span><span class="usage-lbl">tokens out</span></div>
+          <div class="usage-cell"><span class="usage-num" id="use-in">0</span><span class="usage-lbl">in<span class="usage-badge" id="use-in-cache" hidden></span></span></div>
+          <div class="usage-cell"><span class="usage-num" id="use-out">0</span><span class="usage-lbl">out</span></div>
           <div class="usage-cell"><span class="usage-num" id="use-tools">0</span><span class="usage-lbl">tool calls</span></div>
         </div>
         <div class="foot-actions">
@@ -697,6 +691,7 @@
           <h2 id="files-title">Files</h2>
           <p>Browse and edit this project</p>
         </div>
+        <button class="icon-btn only-wide" id="files-full" type="button" aria-pressed="false" aria-label="Full screen" title="Full screen"><span data-icon="maximize-2"></span></button>
         <button class="icon-btn" data-close="files" type="button" aria-label="Close"><span data-icon="x"></span></button>
       </div>
       <div class="fb-banner" id="files-banner" role="alert" hidden></div>

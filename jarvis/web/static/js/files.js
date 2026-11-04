@@ -47,6 +47,7 @@ const CHANGES_MS = 140;          // wait this long after a keystroke before comp
 const PEEK_MAX_LINES = 30;
 const DIFF_VIEW_KEY = 'jarvis-files-diffview'; // the Diff view: 'unified' | 'split' (side by side, wide screens)
 const CONFIRM_ID = 'files-confirm';
+const FULL_KEY = 'jarvis-files-full';
 const BR_ID = 'files-br';        // the footer branch chip's switcher (index.html)
 const PR_ID = 'files-pr';        // the Create pull request modal (index.html)
 const PANE_KEY = 'jarvis-files-pane';  // the left pane's tab: 'files' (Explorer) | 'scm' (Source Control)
@@ -3261,6 +3262,20 @@ function paintAll() {
   paintFoot();
 }
 
+/** Full screen: the drawer covers the whole window instead of its right-hand strip. */
+function setFull(on) {
+  cardEl()?.classList.toggle('is-full', on);
+  const btn = $(`${ID}-full`);
+  if (btn) {
+    const label = on ? 'Exit full screen' : 'Full screen';
+    btn.setAttribute('aria-pressed', String(on));
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    btn.querySelector('span').innerHTML = icon(on ? 'minimize-2' : 'maximize-2');
+  }
+  storageSet(FULL_KEY, on ? '1' : '0');
+}
+
 /** The drawer. `path` opens that file (a project-relative path) right away;
  * `pane: 'scm'` starts on the Source Control tab, `'files'` on the Explorer. */
 export function openFiles({ path = '', pane: want = '' } = {}) {
@@ -3332,6 +3347,8 @@ export function initFiles(hooks = {}) {
   el.addEventListener('click', onClick);
   el.addEventListener('keydown', onKey);
   el.addEventListener('input', onInput);
+  $(`${ID}-full`)?.addEventListener('click', () => setFull(!cardEl()?.classList.contains('is-full')));
+  setFull(storageGet(FULL_KEY, '0') === '1');
   $(`${CONFIRM_ID}-ok`)?.addEventListener('click', onConfirmOk);
   initPr();
   document.addEventListener('jarvis:terminal-state', onTerminalState);

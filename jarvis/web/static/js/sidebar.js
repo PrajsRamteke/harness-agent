@@ -508,7 +508,6 @@ export function initSidebar({ onOpenPicker }) {
   $('open-mcp')?.addEventListener('click', () => { closeOnNarrow(); openPicker('mcp'); });
   initBottomToggle();
   $('theme-btn')?.addEventListener('click', toggleTheme);
-  $('appearance-btn')?.addEventListener('click', () => { closeOnNarrow(); openAppearance(); });
 
   // The native flip already matches the optimistic store value; a failed
   // save reverts the store, and render() puts the checkbox back.

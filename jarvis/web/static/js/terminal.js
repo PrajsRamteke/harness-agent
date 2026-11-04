@@ -457,7 +457,10 @@ function wireSession(s) {
     if (mod && e.shiftKey && (e.key === 'C' || e.key === 'c')) { copySelection(); return false; }
     if (mod && e.shiftKey && (e.key === 'V' || e.key === 'v')) { pasteInto(); return false; }
     if (e.metaKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); setFind(true); return false; }
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === '`' || e.code === 'Backquote')) { hide({ focusComposer: true }); return false; }
+    // Ctrl+` is the panel's toggle: keep it out of the shell and let the
+    // page-level shortcut handle it once (hiding here too would bubble up
+    // to that listener and reopen the panel straight away).
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === '`' || e.code === 'Backquote')) return false;
     return true;
   });
   s.pane.addEventListener('contextmenu', (e) => {

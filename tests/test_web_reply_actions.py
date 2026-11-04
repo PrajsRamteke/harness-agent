@@ -52,6 +52,30 @@ def test_retry_cuts_back_to_the_last_prompt():
     assert not branch_api.is_prompt(_chat()[2])
 
 
+def test_unanswered_prompt_is_only_a_last_prompt_with_no_reply():
+    assert branch_api.unanswered_prompt(_chat()) is None
+    stopped = _chat() + [{"role": "user", "content": "and the footer"}]
+    assert branch_api.unanswered_prompt(stopped) == len(stopped) - 1
+    mid_tool = _chat()[:3]  # stopped after a tool ran: tool results are not a prompt
+    assert branch_api.unanswered_prompt(mid_tool) is None
+    assert branch_api.unanswered_prompt([]) is None
+
+
+def test_prompt_unsent_edit_takes_the_prompt_back_and_resend_says_retry(monkeypatch):
+    monkeypatch.setattr(state, "current_session_id", None)
+    monkeypatch.setattr(state, "messages", _chat() + [{"role": "user", "content": "and the footer"}])
+
+    assert branch_api.run("prompt_unsent", {"op": "resend"}, console_print=print) == {"ok": True, "retry": True}
+    res = branch_api.run("prompt_unsent", {"op": "edit"}, console_print=print)
+    assert res["ok"] and res["removed"]
+    assert state.messages == _chat()
+    # Nothing unanswered any more: no cut, and Send again sends the text anew.
+    assert branch_api.run("prompt_unsent", {"op": "edit"}, console_print=print) == {"ok": True, "removed": False}
+    assert state.messages == _chat()
+    assert branch_api.run("prompt_unsent", {"op": "resend"}, console_print=print) == {"ok": True, "retry": False}
+    assert not branch_api.run("prompt_unsent", {"op": "nope"}, console_print=print)["ok"]
+
+
 def test_reply_actions_through_run_web_action(monkeypatch, tmp_path):
     from jarvis.storage import sessions
     from jarvis.web.actions_api import run_web_action

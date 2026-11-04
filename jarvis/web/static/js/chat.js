@@ -203,10 +203,12 @@ function removeTyping() {
   document.getElementById('typing')?.remove();
 }
 
-/** Show the "working" dots while busy and nothing else is visibly moving. */
+/** Show the "working" dots while busy and nothing else is visibly moving
+ * (and, once idle, Edit / Send again on a prompt that got no reply). */
 export function syncTyping() {
   const root = chat();
   if (!root) return;
+  syncUnanswered();
   const running = [...toolRows.values()].some((r) => r.isConnected && r.dataset.status === 'running');
   const want = store.busy && store.connected && !live && !running && !store.activePrompt;
   if (!want) {
@@ -322,6 +324,80 @@ async function branchReply(wrap, btn) {
   }
 }
 
+// ─── Unanswered prompt: stopped (Esc) before any reply → Edit · Send again ─
+
+/** What may follow a prompt that still counts as unanswered: notices, an empty turn. */
+const ANSWER_SEL = '.agent-text, .think, .tool, .diff, .err-entry, .stats-entry';
+
+function isAnswered(row) {
+  for (let el = row.nextElementSibling; el; el = el.nextElementSibling) {
+    if (el.classList.contains('turn-you')) return true;
+    if (el.matches(ANSWER_SEL) || el.querySelector(ANSWER_SEL)) return true;
+  }
+  return false;
+}
+
+/** The last prompt shows Edit / Send again while idle with no reply after it. */
+function syncUnanswered() {
+  const root = chat();
+  if (!root) return;
+  const rows = root.querySelectorAll(':scope > .turn-you');
+  const last = rows[rows.length - 1];
+  const want = !store.busy && last?.querySelector('.act-unsent') && !isAnswered(last) ? last : null;
+  root.querySelectorAll(':scope > .turn-you.is-unanswered').forEach((r) => {
+    if (r !== want) r.classList.remove('is-unanswered');
+  });
+  want?.classList.add('is-unanswered');
+}
+
+function busyNote() {
+  showToast('Jarvis is working — wait for it to finish, or stop it first', true);
+}
+
+/** Take the prompt back out of the chat and put it in the message box. */
+async function editUnsent(row, text, btn) {
+  if (store.busy) {
+    busyNote();
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const { runAction } = await import('./actions.js');
+    const res = await runAction('prompt_unsent', { op: 'edit' });
+    if (!res.ok) return;
+    row.remove();
+    syncUnanswered();
+    const { fillPrompt } = await import('./composer.js');
+    fillPrompt(text);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/** Send the stopped prompt again: `/retry` when Jarvis kept it, else the text anew. */
+async function resendUnsent(row, text, btn) {
+  if (store.busy) {
+    busyNote();
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const { runAction } = await import('./actions.js');
+    const res = await runAction('prompt_unsent', { op: 'resend' });
+    if (!res.ok) return;
+    const { submitPrompt } = await import('./composer.js');
+    if (res.retry) {
+      row.classList.remove('is-unanswered');
+      await submitPrompt('/retry');
+    } else {
+      row.remove(); // never reached Jarvis: the new send shows it again
+      await submitPrompt(text);
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function appendUser(text, files = [], { steered = false } = {}) {
   removeTyping();
   const row = document.createElement('div');
@@ -358,6 +434,17 @@ function appendUser(text, files = [], { steered = false } = {}) {
   bubble.appendChild(body);
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
+  if (!isCommand) {
+    const note = document.createElement('span');
+    note.className = 'unsent-note';
+    note.textContent = 'Stopped before a reply';
+    actions.append(note);
+    // Attachments can't go back into the box, so such prompts only get Send again.
+    if (!files.length) {
+      actions.append(actionButton('pencil', 'Edit message', (btn) => editUnsent(row, text, btn), { iconOnly: true, cls: 'act-unsent' }));
+    }
+    actions.append(actionButton('refresh-cw', 'Send again', (btn) => resendUnsent(row, text, btn), { iconOnly: true, cls: 'act-unsent' }));
+  }
   actions.append(copyAction(() => text));
   row.append(bubble, actions);
   markNew(row);

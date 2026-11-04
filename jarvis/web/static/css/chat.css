@@ -225,6 +225,36 @@
 .turn-you { position: relative; }
 .turn-you .msg-actions { right: 8px; }
 
+/* Stopped (Esc) before any reply: Edit · Send again sit under the prompt,
+   always visible. Fades in late so a prompt that's just starting never flashes them. */
+.unsent-note,
+.turn-you .act-unsent { display: none; }
+.turn-you.is-unanswered .act-unsent { display: inline-flex; }
+.turn-you.is-unanswered .unsent-note {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 6px 0 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.turn-you.is-unanswered .msg-actions {
+  position: static;
+  align-items: center;
+  margin-top: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  opacity: 1;
+  animation: unsent-in var(--dur) var(--ease) 0.3s backwards;
+}
+@keyframes unsent-in {
+  from { opacity: 0; transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-you.is-unanswered .msg-actions { animation: none; }
+}
+
 .act-btn {
   display: inline-flex;
   align-items: center;

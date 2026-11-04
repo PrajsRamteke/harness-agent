@@ -314,12 +314,35 @@ body.side-collapsed .side-resize { display: none; }
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
 }
-.side-toggles .side-sec { gap: 0; padding-top: 0; }
-.side-toggles .switch-row { padding: 5px 8px; }
+/* Transcript + Shell: one card, a row each — icon tile, title, one line of help, switch. */
+.toggle-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.toggle-card .switch-row { min-height: 0; gap: 9px; padding: 7px 10px; border-radius: 0; }
+.toggle-card .switch-row:hover { background: var(--card-hover); }
+.toggle-card .switch-row + .switch-row { border-top: 1px solid var(--line); }
+.sw-tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--line);
+  background: var(--tile);
+}
+.sw-tile .sw-icon .ic { width: 13px; height: 13px; }
+.toggle-card .sw-text strong { font-size: 12.5px; }
+.toggle-card .sw-text span,
+.toggle-card .switch-row.warn:has(.switch:checked) .sw-text span { font-size: 11px; color: var(--text-3); }
 .side-toggles + .side-foot { border-top: 1px solid var(--line); }
 
 /* Handle above the switches + usage: hides them so the chat list gets the room. */
@@ -356,20 +379,25 @@ body.side-collapsed .side-resize { display: none; }
   border-top: 1px solid var(--line);
 }
 
-.usage { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+/* This session's counters: three small centred boxes. */
+.usage { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .usage-cell {
   display: flex;
   flex-direction: column;
-  padding: 7px 9px;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 5px 4px;
   border-radius: var(--r-ctl);
   background: var(--card);
   border: 1px solid var(--line);
   line-height: 1.2;
+  text-align: center;
   min-width: 0;
 }
 .usage-num {
   font-family: var(--font-ui);
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   transition: color 0.6s;
@@ -379,7 +407,7 @@ body.side-collapsed .side-resize { display: none; }
 .usage-lbl { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .usage-cell:has(.usage-badge) { position: relative; }
 .usage-badge {
-  position: absolute; top: 7px; right: 8px;
+  margin-left: 3px;
   font-size: 10px; font-weight: 500; color: var(--text-2);
   font-variant-numeric: tabular-nums; cursor: help;
 }
