@@ -26,6 +26,11 @@ jw ls              # running web remotes · jw stop [folder|--all] stops browser
 # Run unit tests
 pip install pytest
 python -m pytest tests/ -q
+
+# Before/after screenshots of the web UI for a PR (headless; skill: .harness/skills/pr-screenshots)
+python3 scripts/pr_shots.py doctor
+python3 scripts/pr_shots.py capture --spec shots.json   # base vs working tree, demo data only
+python3 scripts/pr_shots.py upload --manifest <run>/manifest.json   # → orphan `pr-assets` branch + PR Markdown
 ```
 
 `tests/conftest.py` points `HOME` at a throwaway dir before anything imports `jarvis`, so a test run (even `!pytest` inside Jarvis) never touches the real `~/.config/harness-agent` — it used to rewrite `settings.json` / `provider` / `auth_mode`. Tests that only *read* local data use `JARVIS_REAL_HOME`; `JARVIS_TESTS_REAL_HOME=1` opts out.
