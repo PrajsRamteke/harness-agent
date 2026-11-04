@@ -12,12 +12,18 @@
  * panel, reloading the page or switching project leaves them running, and
  * opening the panel again re-attaches to them (their output replays from the
  * server's buffer). Only a tab's × ends a shell.
+ *
+ * The AI tools on top (error chip, selection → chat, clickable links, ⌘K
+ * command writer) live in terminal_ai.js.
  */
 import { $, storageGet, storageSet, showToast, copyText, haptic, debounce } from './utils.js';
 import { api } from './api.js';
 import { icon } from './icons.js';
 import { isLightTheme } from './theme.js';
 import { allProjects, currentProjectId } from './projects.js';
+import {
+  initTerminalAi, attachAi, detachAi, noteInput, afterOutput, clearAi, handleAiKey,
+} from './terminal_ai.js';
 
 const HEIGHT_KEY = 'jarvis-term-h';
 const MIN_H = 140;
@@ -375,8 +381,9 @@ function makeView(title = 'Terminal') {
   const s = {
     id: null, title, term, fit, search, pane, cursor: 0,
     exited: false, disposed: false, queue: '', flush: 0, sending: false,
-    replay: false, sentSize: '', resizeTimer: 0, resizeAgain: false,
+    replay: false, sentSize: '', resizeTimer: 0, resizeAgain: false, ai: null,
   };
+  attachAi(s);
   pane.addEventListener('mousedown', () => { if (s.id && s.id !== state.active) selectTab(s.id, { focus: false }); });
   return s;
 }
@@ -447,12 +454,14 @@ async function spawn({ secondary = false } = {}) {
 function wireSession(s) {
   s.term.onData((data) => {
     if (s.replay) return;   // xterm answering queries in replayed history, not you typing
+    noteInput(s, data);
     s.queue += data;
     if (!s.flush && !s.sending) s.flush = setTimeout(() => flushInput(s), 8);
   });
   s.term.onResize(() => queueResize(s));
   s.term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
+    if (handleAiKey(e)) return false;
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.shiftKey && (e.key === 'C' || e.key === 'c')) { copySelection(); return false; }
     if (mod && e.shiftKey && (e.key === 'V' || e.key === 'v')) { pasteInto(); return false; }
@@ -608,6 +617,7 @@ function draw(s, r) {
     s.cursor = r.cursor;
     const done = () => {
       s.replay = replay && !!r.more;   // a long replay comes in several answers
+      if (r.data) afterOutput(s, replay);
       if (r.exited) markExited(s);
       resolve();
     };
@@ -624,6 +634,7 @@ function disposeView(s) {
   s.disposed = true;
   clearTimeout(s.flush);
   clearTimeout(s.resizeTimer);
+  detachAi(s);
   try { s.term.dispose(); } catch { /* already gone */ }
   s.pane.remove();
   state.sessions = state.sessions.filter((x) => x !== s);
@@ -651,6 +662,7 @@ function clearActive() {
   const s = activeSession();
   if (!s) return;
   s.term.clear();
+  clearAi(s);
   // Ask the shell to redraw its prompt (Ctrl+L) — only when nothing is typed after it.
   typeInto(s, '\x0c');
   focusActive();
@@ -943,8 +955,19 @@ async function onAccessChanged() {
   }
 }
 
-export function initTerminal() {
+/** `hooks` (app.js) reach the chat that is open on the page:
+ *  { onAsk(text) — send it, onAddToChat(text) — put it in the composer,
+ *    onOpenFile(path, line) — show it in Files }. */
+export function initTerminal(hooks = {}) {
   build();
+  initTerminalAi({
+    active: activeSession,
+    typeInto,
+    focus: focusActive,
+    relayout: () => requestAnimationFrame(() => fitAll()),
+    // Maximised hides the transcript and the composer: make room for the chat.
+    roomForChat: () => { if (state.max) setMax(false); },
+  }, hooks);
   // A tunnel visitor gets no shell unless the QR dialog's "Terminal on the link"
   // switch is on — the server answers `allowed` for this page.
   refreshAllowed();

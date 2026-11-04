@@ -266,6 +266,149 @@ body.is-term-resizing .term-resize { pointer-events: auto; }
 }
 .term-find input:focus { border-color: var(--accent-line); }
 
+/* ─── ⌘K command writer (js/terminal_ai.js) ───────────────────────────── */
+.term-ask {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  margin: 0;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, var(--accent-soft), transparent 55%);
+}
+.term-ask[hidden] { display: none; }
+.term-ask-ic { display: grid; color: var(--accent); }
+.term-ask-ic svg { width: 15px; height: 15px; }
+.term-ask input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 27px;
+  padding: 0 9px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-ctl, 6px);
+  background: var(--bg);
+  color: var(--text);
+  font: 12.5px/1 var(--font-ui, inherit);
+  outline: none;
+}
+.term-ask input:focus { box-shadow: 0 0 0 2px var(--accent-soft); }
+.term-ask-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.term-ask.is-busy .term-ask-ic { animation: term-pulse 0.9s ease-in-out infinite; }
+.term-ask.is-busy input { color: var(--text-3); cursor: progress; }
+.term-ask.is-busy .term-ask-hint::before { content: "Writing the command… "; color: var(--accent); }
+.term-ai-btn[aria-pressed="true"],
+.term-ai-btn:hover { color: var(--accent); }
+
+/* ─── Error chip · selection bar · link tips (inside a pane) ──────────── */
+.term-ai-chip,
+.term-ai-sel {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl, 8px);
+  background: var(--glass-strong, var(--surface-2, var(--bg)));
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font: 500 12px/1 var(--font-ui, inherit);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--dur-fast, 0.12s) var(--ease, ease), transform var(--dur-fast, 0.12s) var(--ease, ease);
+}
+.term-ai-chip[hidden],
+.term-ai-sel[hidden] { display: none; }
+.term-ai-chip.is-shown,
+.term-ai-sel.is-shown { opacity: 1; transform: none; }
+:root[data-surface="glass"] :is(.term-ai-chip, .term-ai-sel) {
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+}
+
+/* The error chip sits bottom-right, out of the way of the prompt. */
+.term-ai-chip {
+  right: 12px;
+  bottom: 10px;
+  max-width: calc(100% - 24px);
+  border-color: var(--danger-line, var(--line-2));
+}
+.tai-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 6px 0 5px;
+  color: var(--danger);
+  white-space: nowrap;
+}
+.tai-flag svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.tai-flag-text { overflow: hidden; text-overflow: ellipsis; }
+
+.tai-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: calc(var(--r-ctl, 8px) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast, 0.12s) var(--ease, ease), color var(--dur-fast, 0.12s) var(--ease, ease);
+}
+.tai-btn svg { width: 13px; height: 13px; flex: 0 0 auto; }
+.tai-btn:hover { background: var(--line); color: var(--text); }
+.tai-btn.is-primary { background: var(--accent); color: var(--on-accent, #fff); }
+.tai-btn.is-primary:hover { background: var(--accent-deep, var(--accent)); color: var(--on-accent, #fff); }
+.tai-btn:focus-visible,
+.tai-x:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+.tai-x {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--r-ctl, 8px) - 2px);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.tai-x svg { width: 13px; height: 13px; }
+.tai-x:hover { background: var(--line); color: var(--text); }
+
+.term-link-tip {
+  position: absolute;
+  z-index: 21;
+  padding: 4px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--surface-3, var(--bg));
+  box-shadow: var(--shadow-pop);
+  color: var(--text-2);
+  font: 500 11px/1.2 var(--font-ui, inherit);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.term-link-tip[hidden] { display: none; }
+
 /* ─── Panes ───────────────────────────────────────────────────────────── */
 .term-body {
   flex: 1 1 auto;
@@ -347,8 +490,14 @@ body.is-term-resizing .term-resize { pointer-events: auto; }
   .term-add, .term-tool { width: 32px; height: 32px; }
   #term-split, .term-sep { display: none; }
   .term-xterm { inset: 6px 2px 2px 8px; }
+  .term-ask-hint, .tai-flag-text { display: none; }
+  .term-ai-chip { right: 8px; bottom: 8px; }
+  .tai-btn { height: 30px; }
+  .tai-x { width: 30px; height: 30px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .term-tab.is-pending .term-tab-dot { animation: none; }
+  .term-ask.is-busy .term-ask-ic { animation: none; }
+  .term-ai-chip, .term-ai-sel { transition: none; transform: none; }
 }

@@ -1,6 +1,7 @@
 /** Markdown → safe HTML for assistant messages (GFM subset) */
 import { escapeHtml, showToast, copyText, flashDone } from './utils.js';
 import { icon } from './icons.js';
+import { highlight as colorize, modeForLang } from './syntax.js';
 
 const FENCE_RE = /```(\w*)\n?([\s\S]*?)```/g;
 const TILDE_FENCE_RE = /~~~(\w*)\n?([\s\S]*?)~~~/g;
@@ -329,7 +330,7 @@ function renderCodeBlock(lang, code, store) {
           `${icon('copy')}` +
         `</button>` +
       `</div>` +
-      `<pre class="md-pre"><code class="language-${escapeHtml(lang || 'text')}">${escapeHtml(trimmed)}</code></pre>` +
+      `<pre class="md-pre"><code class="language-${escapeHtml(lang || 'text')} syn">${colorize(trimmed, modeForLang(lang))}</code></pre>` +
     `</div>`,
   );
   return `\x00CODE${idx}\x00`;

@@ -540,14 +540,18 @@
 .fb-editor { display: flex; flex: 1; min-height: 0; background: var(--code-bg); }
 .fb-editor[hidden], .fb-alt[hidden] { display: none; }
 .fb-gutter,
-.fb-text {
+.fb-text,
+.fb-hl-in {
   margin: 0;
   padding-top: 12px;
   padding-bottom: 64px;
   font: 12.5px/20px var(--font-mono);
+  font-weight: var(--code-weight, 400);
   letter-spacing: 0;
+  font-variant-ligatures: none; /* ligatures would let the coloured layer drift from the caret */
 }
 .fb-gutter {
+  position: relative;
   flex: none;
   box-sizing: border-box;
   width: calc(var(--gd, 3) * 1ch + 26px);
@@ -555,12 +559,21 @@
   padding-left: 8px;
   overflow: hidden;
   text-align: right;
-  color: var(--text-3);
-  opacity: 0.75;
+  color: color-mix(in srgb, var(--code-dim) 70%, transparent);
   user-select: none;
   -webkit-user-select: none;
   font-variant-numeric: tabular-nums;
 }
+/* The caret's line number, laid over the dim one (files.js paintCurLine). */
+.fb-ln-cur {
+  position: absolute;
+  left: 0;
+  right: 12px;
+  height: 20px;
+  background: var(--code-bg);
+  color: var(--code-text);
+}
+.fb-ln-cur[hidden] { display: none; }
 /* Git change bars (files.js "Changes against git"): a column between the line
    numbers and the text. Bars are placed by line number, so wrapping hides them. */
 .fb-marks {
@@ -610,7 +623,46 @@
 .fb-mark.is-deleted:hover::before { width: 0; border-left-width: 8px; }
 .fb-editor.is-wrap .fb-marks { display: none; }
 
+/* The text area: a textarea (it owns typing, caret, selection, undo) over a
+   coloured copy of its text (.fb-hl, files.js paintHighlight). The textarea's
+   own glyphs go transparent only while the copy is in sync (.has-hl). */
+.fb-code { position: relative; display: flex; flex: 1; min-width: 0; }
+.fb-hl {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: var(--sbw, 0px);   /* clear of the textarea's scrollbars, so wrapping matches */
+  bottom: var(--sbh, 0px);
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.fb-hl-in {
+  position: relative;
+  display: block;
+  padding-left: 14px;
+  padding-right: 16px;
+  color: var(--code-text, var(--text));
+  white-space: pre;
+  tab-size: 4;
+  will-change: transform;
+}
+.fb-editor:not(.has-hl) .fb-hl { display: none; }
+/* The caret's line, a quiet band (hidden while wrapping: lines aren't one row then). */
+.fb-curline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: var(--code-line-active);
+  box-shadow: inset 2px 0 0 rgba(var(--accent-rgb), 0.5);
+  will-change: transform;
+}
+.fb-curline[hidden], .fb-editor.is-wrap .fb-curline { display: none; }
+.fb-code:not(:focus-within) .fb-curline { box-shadow: none; }
+
 .fb-text {
+  position: relative;
   flex: 1;
   min-width: 0;
   padding-left: 14px;
@@ -626,10 +678,13 @@
   overscroll-behavior: contain;
   tab-size: 4;
 }
+.fb-editor.has-hl .fb-text { color: transparent; -webkit-text-fill-color: transparent; }
 .fb-text::selection { background: rgba(var(--accent-rgb), 0.28); }
+.fb-editor.has-hl .fb-text::selection { color: transparent; -webkit-text-fill-color: transparent; }
 .fb-text:read-only { cursor: default; }
 .fb-editor.is-wrap .fb-gutter { display: none; }
-.fb-editor.is-wrap .fb-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fb-editor.is-wrap .fb-text,
+.fb-editor.is-wrap .fb-hl-in { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The popover under a change: what git has, what you have, Revert. */
 .fb-peek {
@@ -714,7 +769,7 @@
   .fb-head { min-height: 44px; padding-left: 10px; justify-content: flex-end; }
   .fb-fic, .fb-titles { display: none; }
   .fb-actions { flex-wrap: wrap; justify-content: flex-end; }
-  .fb-text { font-size: 13px; }
+  .fb-text, .fb-hl-in { font-size: 13px; }
 }
 @media (max-width: 560px) {
   .fb-seg-btn span { display: none; }

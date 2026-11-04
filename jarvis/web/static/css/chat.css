@@ -1033,6 +1033,7 @@ body.is-busy .agent-text .act-branch { display: none; }
   background: none;
   color: var(--code-text);
   font-size: 12.5px;
+  font-weight: var(--code-weight, 400);
   line-height: 1.6;
   overflow-wrap: normal;
 }

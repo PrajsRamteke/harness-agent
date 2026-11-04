@@ -69,6 +69,23 @@
   --code-line: rgba(255, 255, 255, 0.08);
   --code-text: #e4e4e7;
   --code-dim: #7b7b84;
+  /* Syntax colours (js/syntax.js → .syn .t-…): GitHub-dark-like, readable on
+     any dark code surface; light polarity overrides them below. */
+  --syn-comment: #8b949e;
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-number: #e3b341;
+  --syn-literal: #79c0ff;
+  --syn-func: #d2a8ff;
+  --syn-type: #ffa657;
+  --syn-prop: #79c0ff;
+  --syn-var: #ffa657;
+  --syn-meta: #d2a8ff;
+  --syn-tag: #7ee787;
+  --syn-attr: #79c0ff;
+  --syn-heading: #79c0ff;
+  --code-weight: 380;   /* editor + code blocks: a touch lighter than body text */
+  --code-line-active: rgba(255, 255, 255, 0.035);
 
   --blur: 0px;
   --blur-strong: 0px;
@@ -146,6 +163,21 @@
   --code-line: rgba(0, 0, 0, 0.08);
   --code-text: #27272a;
   --code-dim: #8a8a93;
+  --syn-comment: #6e7781;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-number: #9a6700;
+  --syn-literal: #0550ae;
+  --syn-func: #8250df;
+  --syn-type: #953800;
+  --syn-prop: #0550ae;
+  --syn-var: #953800;
+  --syn-meta: #8250df;
+  --syn-tag: #116329;
+  --syn-attr: #0550ae;
+  --syn-heading: #0550ae;
+  --code-weight: 400;   /* thin strokes lose contrast on a light surface */
+  --code-line-active: rgba(0, 0, 0, 0.035);
 
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 16px 48px -12px rgba(0, 0, 0, 0.18);
@@ -980,3 +1012,25 @@ body.is-offline .mark::before { background: var(--text-3); }
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
+
+/* ─── Syntax colours (js/syntax.js) ─────────────────────────────────────────
+   Scoped to .syn so the short token class names can't leak. Styles never
+   change glyph widths (no bold, no size): the Files editor lays this text
+   exactly under its textarea, so widths must match the plain text. */
+.syn .t-c { color: var(--syn-comment); font-style: italic; }
+.syn .t-k { color: var(--syn-keyword); }
+.syn .t-s { color: var(--syn-string); }
+.syn .t-n { color: var(--syn-number); }
+.syn .t-l { color: var(--syn-literal); }
+.syn .t-f { color: var(--syn-func); }
+.syn .t-t { color: var(--syn-type); }
+.syn .t-p { color: var(--syn-prop); }
+.syn .t-v { color: var(--syn-var); }
+.syn .t-m { color: var(--syn-meta); }
+.syn .t-g { color: var(--syn-tag); }
+.syn .t-a { color: var(--syn-attr); }
+.syn .t-h { color: var(--syn-heading); }
+.syn .t-b { color: var(--syn-type); }
+.syn .t-add { color: var(--ok); background: var(--ok-soft); }
+.syn .t-del { color: var(--danger); background: var(--danger-soft); }
+.syn .t-hunk { color: var(--syn-meta); }

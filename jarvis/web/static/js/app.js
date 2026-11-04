@@ -5,7 +5,7 @@ import { store } from './store.js';
 import { connectEvents, fetchState, hasToken, transportMode } from './api.js';
 import { handleEvent } from './events.js';
 import { initChat, invalidateSnapshot } from './chat.js';
-import { initComposer, fillPrompt, submitPrompt, insertQuote, enhanceMessage } from './composer.js';
+import { initComposer, fillPrompt, submitPrompt, insertQuote, insertSnippet, enhanceMessage } from './composer.js';
 import { initMedia, openFilePicker } from './media.js';
 import { initStatus, setConnected } from './status.js';
 import { initSidebar, toggleSidebar } from './sidebar.js';
@@ -21,7 +21,7 @@ import { initGit, filesHost } from './git.js';
 import { initFiles, openFiles } from './files.js';
 import { initChanges } from './changes.js';
 import { initActivity } from './activity.js';
-import { initModals } from './modal.js';
+import { initModals, closeAllModals } from './modal.js';
 import { initDialogs } from './dialog.js';
 import { initPalette, runItem } from './palette.js';
 import { initPickers, openPickerByKind } from './pickers.js';
@@ -155,7 +155,15 @@ function boot() {
   initFolders();
   initWorkspace();
   initInspector();
-  initTerminal();
+  // The terminal's AI tools talk to the chat that is open here — never a new one.
+  initTerminal({
+    onAsk: (text) => submitPrompt(text),
+    onAddToChat: (text) => {
+      closeAllModals();   // docked in Files: the composer is behind it
+      requestAnimationFrame(() => insertSnippet(text));
+    },
+    onOpenFile: (path, line) => openFiles({ path, line }),
+  });
   initGit();
   initFiles(filesHost);
   initChanges();

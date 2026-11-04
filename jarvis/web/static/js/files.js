@@ -9,6 +9,8 @@
  * The editor is a plain <textarea> with a line-number gutter: no library, so it
  * loads offline on the LAN. Tab / Shift+Tab indent, Enter keeps the indent,
  * ⌘/Ctrl+S saves. Native undo is kept (edits go through execCommand).
+ * Its text is coloured by a copy laid exactly underneath (syntax.js): the
+ * textarea's own glyphs are transparent, the caret line gets a quiet band.
  *
  * Nothing is ever lost quietly:
  *   - saves carry the file's etag; if Jarvis (or anything) changed the file
@@ -28,6 +30,7 @@ import { setView, setHomeSub, toolbar, section, footer, empty, arrowRows } from 
 import { renderDiff, gutterWidth } from './diffview.js';
 import { renderMarkdown } from './markdown.js';
 import { diffLines } from './linediff.js';
+import { highlight as colorize, modeFor } from './syntax.js';
 import { popOpen, closePop, showPop, popKey, wirePop } from './branchpop.js';
 import { dockTerminal, undockTerminal, terminalState, toggleTerminal } from './terminal.js';
 
@@ -43,6 +46,7 @@ const MAX_TABS = 40;             // open-file tabs remembered per project
 const MOD = isMac ? '⌘' : 'Ctrl';
 const LINE_PX = 20;              // the editor's line height (css .fb-text): the gutter bars are placed by it
 const EDITOR_PAD_PX = 12;        // the editor's top padding (same)
+const HL_MAX_CHARS = 300_000;    // bigger files stay plain: colouring runs on every keystroke
 const CHANGES_MS = 140;          // wait this long after a keystroke before comparing with git
 const PEEK_MAX_LINES = 30;
 const DIFF_VIEW_KEY = 'jarvis-files-diffview'; // the Diff view: 'unified' | 'split' (side by side, wide screens)
@@ -102,6 +106,8 @@ let pollTimer = null;
 let ticks = 0;
 let wasBusy = false;
 let caretFrame = 0;
+let curLineTop = 0;              // the caret line's offset in the text (px), for the band and the gutter
+let hlResize = null;             // ResizeObserver keeping the coloured layer clear of the scrollbars
 let noticeTimer = 0;
 let searchSeq = 0;
 let diffSeq = 0;
@@ -686,6 +692,7 @@ async function reloadFile({ notice = '' } = {}) {
     ta.scrollLeft = keep.left;
     ta.setSelectionRange(Math.min(keep.s, ta.value.length), Math.min(keep.e, ta.value.length));
     paintGutter(true);
+    paintHighlight();
     recomputeChanges();
     paintHead();
     applyMode();
@@ -765,6 +772,7 @@ function discardEdits() {
   if (ta) {
     ta.value = file.saved;
     paintGutter(true);
+    paintHighlight();
     closePeek();
     recomputeChanges();
   }
@@ -943,8 +951,11 @@ function mountEditor(el) {
     <div class="fb-editor${wrap ? ' is-wrap' : ''}">
       <pre class="fb-gutter" aria-hidden="true"></pre>
       <div class="fb-marks" role="group" aria-label="Changes compared with git"><div class="fb-marks-in"></div></div>
-      <textarea class="fb-text" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" wrap="${wrap ? 'soft' : 'off'}"
-        aria-label="Editing ${escapeHtml(file.path)}" data-gramm="false" data-1p-ignore data-lpignore="true"></textarea>
+      <div class="fb-code">
+        <pre class="fb-hl" aria-hidden="true"><span class="fb-curline" hidden></span><code class="fb-hl-in syn"></code></pre>
+        <textarea class="fb-text" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" wrap="${wrap ? 'soft' : 'off'}"
+          aria-label="Editing ${escapeHtml(file.path)}" data-gramm="false" data-1p-ignore data-lpignore="true"></textarea>
+      </div>
     </div>
     <div class="fb-alt" hidden></div>
     <div class="fb-peek" role="dialog" aria-label="Change compared with git" hidden></div>`;
@@ -953,15 +964,23 @@ function mountEditor(el) {
   ta.value = file.text;
   ta.readOnly = file.writable === false;
   ta.style.tabSize = file.indent === '\t' ? '4' : String(file.indent.length);
+  el.querySelector('.fb-hl-in').style.tabSize = ta.style.tabSize;
   paintGutter(true);
+  paintHighlight();
   ta.scrollTop = file.scroll || 0;
   ta.scrollLeft = file.scrollX || 0;
   if (file.sel) ta.setSelectionRange(Math.min(file.sel[0], ta.value.length), Math.min(file.sel[1], ta.value.length));
+  syncHighlight();
+  paintCurLine();
+  hlResize?.disconnect();
+  hlResize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => syncHighlight()) : null;
+  hlResize?.observe(ta);
   ta.addEventListener('input', onEdit);
   ta.addEventListener('keydown', onEditorKey);
   ta.addEventListener('scroll', () => {
     const g = el.querySelector('.fb-gutter');
     if (g) g.scrollTop = ta.scrollTop;
+    syncHighlight();
     syncMarks();
     positionPeek();
   }, { passive: true });
@@ -969,7 +988,8 @@ function mountEditor(el) {
     closePeek();
     ta.focus({ preventScroll: true });
   });
-  ['keyup', 'click', 'select', 'focus'].forEach((t) => ta.addEventListener(t, scheduleCaret));
+  // keydown too: its rAF runs after the caret moved, so held arrow keys move the line band.
+  ['keydown', 'keyup', 'click', 'select', 'focus'].forEach((t) => ta.addEventListener(t, scheduleCaret));
   file.peek = null;
   recomputeChanges();
 }
@@ -1075,7 +1095,57 @@ function paintGutter(force = false) {
   file.gutterLines = lines;
   ed.style.setProperty('--gd', String(Math.max(3, String(lines).length)));
   g.textContent = Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+  g.insertAdjacentHTML('beforeend', '<span class="fb-ln-cur" hidden></span>');
   g.scrollTop = ta.scrollTop;
+  paintCurLine();
+}
+
+/** Colour the text under the textarea (syntax.js). Huge files stay plain so typing never lags. */
+function paintHighlight() {
+  const ed = mainEl()?.querySelector('.fb-editor');
+  const ta = ed?.querySelector('.fb-text');
+  const out = ed?.querySelector('.fb-hl-in');
+  if (!ta || !out || !file) return;
+  const on = ta.value.length <= HL_MAX_CHARS;
+  ed.classList.toggle('has-hl', on);
+  out.innerHTML = on ? colorize(ta.value, modeFor(file.name)) : '';
+  syncHighlight();
+}
+
+/** Keep the coloured copy (and the caret band) under the textarea's scroll, clear of its scrollbars. */
+function syncHighlight() {
+  const ed = mainEl()?.querySelector('.fb-editor');
+  const ta = ed?.querySelector('.fb-text');
+  const code = ed?.querySelector('.fb-code');
+  if (!ta || !code || !ed.classList.contains('has-hl')) return;
+  code.style.setProperty('--sbw', `${Math.max(0, ta.offsetWidth - ta.clientWidth)}px`);
+  code.style.setProperty('--sbh', `${Math.max(0, ta.offsetHeight - ta.clientHeight)}px`);
+  const inner = code.querySelector('.fb-hl-in');
+  if (inner) inner.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+  const band = code.querySelector('.fb-curline');
+  if (band) band.style.transform = `translateY(${curLineTop - ta.scrollTop}px)`;
+}
+
+/** The caret's line: a band across the text and its number lit in the gutter. */
+function paintCurLine() {
+  const ed = mainEl()?.querySelector('.fb-editor');
+  const ta = ed?.querySelector('.fb-text');
+  if (!ta) return;
+  const pos = ta.selectionDirection === 'backward' ? ta.selectionStart : ta.selectionEnd;
+  let line = 0;
+  for (let i = ta.value.indexOf('\n'); i !== -1 && i < pos; i = ta.value.indexOf('\n', i + 1)) line += 1;
+  curLineTop = EDITOR_PAD_PX + line * LINE_PX;
+  const band = ed.querySelector('.fb-curline');
+  if (band) {
+    band.hidden = false;
+    band.style.transform = `translateY(${curLineTop - ta.scrollTop}px)`;
+  }
+  const num = ed.querySelector('.fb-ln-cur');
+  if (num) {
+    num.hidden = false;
+    num.style.top = `${curLineTop}px`;
+    num.textContent = String(line + 1);
+  }
 }
 
 function caretText(ta) {
@@ -1093,6 +1163,7 @@ function scheduleCaret() {
     const out = $(`${ID}-caret`);
     const ta = mainEl()?.querySelector('.fb-text');
     if (out && ta) out.textContent = caretText(ta);
+    paintCurLine();
   });
 }
 
@@ -2694,6 +2765,7 @@ function onEdit(e) {
   if (!file) return;
   file.text = e.target.value;
   paintGutter();
+  paintHighlight();
   scheduleCaret();
   closePeek();
   scheduleChanges();
@@ -2916,6 +2988,7 @@ async function act(name, b) {
       ta?.setAttribute('wrap', on ? 'soft' : 'off');
       b.setAttribute('aria-pressed', String(on));
       paintGutter(true);
+      syncHighlight();
       closePeek();
       paintChgChip();
       break;
@@ -3276,9 +3349,31 @@ function setFull(on) {
   storageSet(FULL_KEY, on ? '1' : '0');
 }
 
-/** The drawer. `path` opens that file (a project-relative path) right away;
- * `pane: 'scm'` starts on the Source Control tab, `'files'` on the Explorer. */
-export function openFiles({ path = '', pane: want = '' } = {}) {
+/** Put the caret on `line` (1-based) once `path`'s editor is up — a terminal
+ * link like `app.py:42`. Gives up quietly if the file doesn't open as text. */
+function revealLineWhenShown(path, line, tries = 40) {
+  const doc = docFor(path);
+  if (!doc || doc.error || tries <= 0) return;
+  const ta = $(`${ID}-view`)?.querySelector('.fb-text');
+  if (doc.loading || doc.pending || mounted !== doc || !ta) {
+    setTimeout(() => revealLineWhenShown(path, line, tries - 1), 75);
+    return;
+  }
+  const lines = ta.value.split('\n');
+  const n = Math.max(1, Math.min(line, lines.length));
+  let pos = 0;
+  for (let i = 0; i < n - 1; i++) pos += lines[i].length + 1;
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(pos, pos + lines[n - 1].length);
+  const lh = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+  ta.scrollTop = Math.max(0, (n - 1) * lh - ta.clientHeight / 3);
+  ta.dispatchEvent(new Event('scroll'));   // the gutter follows
+}
+
+/** The drawer. `path` opens that file (a project-relative path) right away,
+ * at `line` when given; `pane: 'scm'` starts on the Source Control tab,
+ * `'files'` on the Explorer. */
+export function openFiles({ path = '', line = 0, pane: want = '' } = {}) {
   const key = projectKey();
   if (shownFor !== key) resetProject(key);
   if (want === 'scm' || want === 'files') {
@@ -3321,8 +3416,10 @@ export function openFiles({ path = '', pane: want = '' } = {}) {
       pendingTabs = [];
       paintFileTabs();
     }
-    if (path) openPath(path, { focus: true });
-    else if (!file && restore && wide()) openPath(restore, { restoring: true });
+    if (path) {
+      openPath(path, { focus: true });
+      if (line > 0) revealLineWhenShown(path, line);
+    } else if (!file && restore && wide()) openPath(restore, { restoring: true });
     else if (file) checkDisk();
   });
 }

@@ -23,7 +23,7 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <script>
     // Apply the saved appearance before first paint (no flash). See js/theme.js.
     (function () {
@@ -398,6 +398,13 @@
           </button>
           <span class="term-spacer"></span>
           <div class="term-tools" role="toolbar" aria-label="Terminal actions">
+            <button class="term-tool term-ai-btn" id="term-ai" type="button" aria-pressed="false" title="Write a command with AI (⌘K)" aria-label="Write a command with AI">
+              <span data-icon="sparkles"></span>
+            </button>
+            <button class="term-tool" id="term-ai-last" type="button" title="Add the last command and its output to your message" aria-label="Add the last command and its output to your message">
+              <span data-icon="message-square"></span>
+            </button>
+            <span class="term-sep" aria-hidden="true"></span>
             <button class="term-tool term-touch-only" id="term-copy" type="button" title="Copy selection" aria-label="Copy selection">
               <span data-icon="copy"></span>
             </button>
@@ -429,6 +436,12 @@
           <button class="term-tool" id="term-find-next" type="button" title="Next match (Enter)" aria-label="Next match"><span data-icon="chevron-down"></span></button>
           <button class="term-tool" id="term-find-close" type="button" title="Close (Esc)" aria-label="Close find"><span data-icon="x"></span></button>
         </div>
+        <form class="term-ask" id="term-ask" hidden>
+          <span class="term-ask-ic" data-icon="sparkles" aria-hidden="true"></span>
+          <input id="term-ask-input" type="text" placeholder="Describe a command — e.g. “find files over 100 MB here”" autocomplete="off" spellcheck="false" enterkeyhint="go" aria-label="Describe the command you want" aria-describedby="term-ask-hint">
+          <span class="term-ask-hint" id="term-ask-hint">Enter writes it at the prompt · you run it</span>
+          <button class="term-tool" id="term-ask-close" type="button" title="Close (Esc)" aria-label="Close the command writer"><span data-icon="x"></span></button>
+        </form>
         <div class="term-body" id="term-body"></div>
         <div class="term-empty" id="term-empty" hidden>
           <span class="term-empty-ic" data-icon="terminal"></span>

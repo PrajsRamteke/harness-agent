@@ -623,6 +623,23 @@ class WebHandler(BaseHTTPRequestHandler):
             )
             self._send_json(200, result)
             return True
+        if path == "/api/terminal/suggest":
+            # Words → one shell command, from the side model. Never run here:
+            # the page writes it at the prompt and the user presses Enter.
+            from .terminal_ai import SuggestError, suggest_command
+
+            shell = terminal_api.get_terminal(str(data.get("id") or ""))
+            try:
+                found = suggest_command(
+                    str(data.get("request") or ""),
+                    context=str(data.get("context") or ""),
+                    cwd=shell.cwd if shell is not None else os.getcwd(),
+                )
+            except SuggestError as exc:
+                self._send_json(200, {"ok": False, "error": str(exc)})
+                return True
+            self._send_json(200, {"ok": True, "command": found.command, "risky": found.risky})
+            return True
         tid = str(data.get("id") or "")
         if path == "/api/terminal/close":
             self._send_json(200, {"ok": terminal_api.close_terminal(tid)})

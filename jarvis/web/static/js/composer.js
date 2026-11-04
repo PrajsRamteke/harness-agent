@@ -348,9 +348,13 @@ export function fillPrompt(text) {
 
 /** Add a quote of `text` to the message being written (quote.js). */
 export function insertQuote(text) {
+  insertSnippet(`${quoteLines(text)}\n\n`);
+}
+
+/** Add a ready-made block (a quote, terminal output …) after what's typed in the box. */
+export function insertSnippet(block) {
   const el = prompt();
-  if (!el) return;
-  const block = `${quoteLines(text)}\n\n`;
+  if (!el || !block) return;
   const cur = el.value.replace(/\s+$/, '');
   fillPrompt(cur ? `${cur}\n\n${block}` : block);
   el.scrollTop = el.scrollHeight;
