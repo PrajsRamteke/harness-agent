@@ -3,7 +3,22 @@
 .side-sec[hidden] { display: none; }
 #projects-sec[hidden] + .side-sec { padding-top: 8px; }
 
-.projects { display: flex; flex-direction: column; gap: 2px; }
+.projects { display: flex; flex-direction: column; gap: 2px; position: relative; }
+
+/* One movable unit per folder (reorder.js): drag it, hold on touch, or Alt+↑/↓. */
+.pj-group { display: flex; flex-direction: column; position: relative; }
+.pj-group:not(:first-child) > .proj-group { margin-top: 4px; }
+.projects.is-reordering { cursor: grabbing; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.projects.is-reordering .project-row { cursor: grabbing; }
+.projects.is-reordering .pj-group:not(.is-dragging) { transition: transform 150ms var(--ease); }
+.pj-group.is-dragging {
+  z-index: 5;
+  border-radius: var(--r-row);
+  background: var(--card-hover);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--line-2);
+  pointer-events: none;
+}
+@media (pointer: coarse) { .projects { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; } }
 .project-row {
   display: flex;
   align-items: flex-start;
@@ -103,7 +118,6 @@
   color: var(--text-2);
   white-space: nowrap;
 }
-.proj-group:not(:first-child) { margin-top: 4px; }
 .pg-ic { display: inline-grid; color: var(--text-3); }
 .pg-ic .ic { width: 14px; height: 14px; }
 .pg-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--text); }

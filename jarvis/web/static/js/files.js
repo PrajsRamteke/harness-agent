@@ -31,6 +31,7 @@ import { renderDiff, gutterWidth } from './diffview.js';
 import { renderMarkdown } from './markdown.js';
 import { diffLines } from './linediff.js';
 import { highlight as colorize, modeFor } from './syntax.js';
+import { initFind, openFind, closeFind, stepFind, restoreFind, refreshFind, syncFind, showFindFor, isFindOpen } from './findbar.js';
 import { popOpen, closePop, showPop, popKey, wirePop } from './branchpop.js';
 import { dockTerminal, undockTerminal, terminalState, toggleTerminal } from './terminal.js';
 
@@ -893,6 +894,7 @@ function paintHead() {
       ${scmHeadBtn()}
       <span class="fb-chg" id="${ID}-chg" role="group" aria-label="Changes in this file" hidden></span>
       ${seg}
+      ${text && file.view === 'edit' ? tool('find', 'search', `Find in file (${MOD} F)`, { pressed: isFindOpen() }) : ''}
       ${text && file.view === 'edit' ? tool('wrap', 'wrap-text', 'Wrap long lines', { pressed: storageGet(WRAP_KEY, '') === '1' }) : ''}
       ${file.view === 'diff' ? splitToggle() : ''}
       <span class="gx-tsep" aria-hidden="true"></span>
@@ -952,6 +954,7 @@ function mountEditor(el) {
       <pre class="fb-gutter" aria-hidden="true"></pre>
       <div class="fb-marks" role="group" aria-label="Changes compared with git"><div class="fb-marks-in"></div></div>
       <div class="fb-code">
+        <pre class="fb-fm" aria-hidden="true"><code class="fb-fm-in"></code></pre>
         <pre class="fb-hl" aria-hidden="true"><span class="fb-curline" hidden></span><code class="fb-hl-in syn"></code></pre>
         <textarea class="fb-text" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" wrap="${wrap ? 'soft' : 'off'}"
           aria-label="Editing ${escapeHtml(file.path)}" data-gramm="false" data-1p-ignore data-lpignore="true"></textarea>
@@ -985,13 +988,17 @@ function mountEditor(el) {
     positionPeek();
   }, { passive: true });
   ta.addEventListener('esc-cancel', () => {
-    closePeek();
+    // Esc steps out one layer: the change peek, then the find bar, then (next press) the drawer.
+    if (file?.peek != null) closePeek();
+    else if (isFindOpen()) closeFind(viewEl(), { refocus: true });
+    else closePeek();
     ta.focus({ preventScroll: true });
   });
   // keydown too: its rAF runs after the caret moved, so held arrow keys move the line band.
   ['keydown', 'keyup', 'click', 'select', 'focus'].forEach((t) => ta.addEventListener(t, scheduleCaret));
   file.peek = null;
   recomputeChanges();
+  restoreFind(el);
 }
 
 /** Show the editor, the diff or the Markdown preview (the editor stays mounted: undo + caret survive). */
@@ -1004,6 +1011,7 @@ function applyMode() {
   if (mode !== 'edit') closePeek();
   editor.hidden = mode !== 'edit';
   alt.hidden = mode === 'edit';
+  showFindFor(el, mode);
   if (mode === 'preview') {
     alt.innerHTML = `<div class="fb-preview"><div class="md">${renderMarkdown(file.text) || '<p class="fb-muted">Nothing to preview yet.</p>'}</div></div>`;
   } else if (mode === 'diff') {
@@ -1110,10 +1118,12 @@ function paintHighlight() {
   ed.classList.toggle('has-hl', on);
   out.innerHTML = on ? colorize(ta.value, modeFor(file.name)) : '';
   syncHighlight();
+  refreshFind(viewEl());
 }
 
 /** Keep the coloured copy (and the caret band) under the textarea's scroll, clear of its scrollbars. */
 function syncHighlight() {
+  syncFind(viewEl());
   const ed = mainEl()?.querySelector('.fb-editor');
   const ta = ed?.querySelector('.fb-text');
   const code = ed?.querySelector('.fb-code');
@@ -1917,6 +1927,7 @@ const KIND_LABEL = { added: 'Added', modified: 'Modified', deleted: 'Removed' };
 
 const wrapOn = () => storageGet(WRAP_KEY, '') === '1';
 const editorEl = () => mainEl()?.querySelector('.fb-text') || null;
+const viewEl = () => $(`${ID}-view`);
 
 /** "line 3" / "lines 3–5" (1-based) for a hunk of the current text. */
 function rangeLabel(h) {
@@ -2058,7 +2069,7 @@ function closePeek() {
     peek.hidden = true;
     peek.innerHTML = '';
   }
-  editorEl()?.removeAttribute('data-esc-cancels');
+  if (!isFindOpen()) editorEl()?.removeAttribute('data-esc-cancels'); // the find bar still needs the editor's Esc
 }
 
 /** Character position of the start of line `n` (0-based) in `text`. */
@@ -2979,6 +2990,10 @@ async function act(name, b) {
     case 'mode':
       setMode(b.dataset.mode);
       break;
+    case 'find':
+      if (isFindOpen()) closeFind(viewEl(), { refocus: true });
+      else if (findAvailable()) openFind(viewEl());
+      break;
     case 'wrap': {
       const on = storageGet(WRAP_KEY, '') !== '1';
       storageSet(WRAP_KEY, on ? '1' : '');
@@ -3210,6 +3225,34 @@ function treeKey(e, row) {
   }
 }
 
+/** The editor is showing text: ⌘F can search it (otherwise the browser's own find stays in charge). */
+function findAvailable() {
+  const ed = mainEl()?.querySelector('.fb-editor');
+  return !!(file && file.kind === 'text' && file.view === 'edit' && !file.loading && ed && !ed.hidden && editorEl());
+}
+
+/** ⌘F / Ctrl+F opens find in the open file; ⌘G / Ctrl+G / F3 step through matches. True when handled. */
+function findKey(e) {
+  if (e.isComposing || e.altKey || !findAvailable()) return false;
+  const t = e.target;
+  const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  const k = e.key.toLowerCase();
+  const inEditor = t.matches?.('.fb-text') || !!t.closest?.('.fb-find');
+  // Other fields (tree search, commit message, rename) keep their keys; so do the tabs and the terminal.
+  if (!inEditor && t.matches?.('input, textarea, select, [contenteditable]')) return false;
+  if (mod && !e.shiftKey && k === 'f') {
+    e.preventDefault();
+    openFind(viewEl());
+    return true;
+  }
+  if ((mod && k === 'g') || (e.key === 'F3' && !mod)) {
+    e.preventDefault();
+    stepFind(viewEl(), e.shiftKey ? -1 : 1);
+    return true;
+  }
+  return false;
+}
+
 function onKey(e) {
   const t = e.target;
   // The docked terminal's keys go to its shell; ⌘S still saves the open file.
@@ -3225,6 +3268,7 @@ function onKey(e) {
     save();
     return;
   }
+  if (findKey(e)) return;
   // ⌥W closes the shown tab (⌘W / Ctrl+W belong to the browser). e.code: ⌥ changes e.key on a Mac.
   const typing = t.matches?.('input, textarea') && !t.matches('.fb-text');
   if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyW' && file && !typing) {
@@ -3439,6 +3483,11 @@ function schedulePoll() {
 /** `host`: { openInEditor(path), editorLabel() } — the git card owns the editor choice. */
 export function initFiles(hooks = {}) {
   host = { ...host, ...hooks };
+  initFind({
+    onMove: scheduleCaret,
+    onToggle: (on) => mainEl()?.querySelector('[data-act="find"]')?.setAttribute('aria-pressed', String(on)),
+    escHeld: () => file?.peek != null,
+  });
   const el = $(ID);
   if (!el) return;
   el.addEventListener('click', onClick);

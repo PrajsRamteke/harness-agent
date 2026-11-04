@@ -28,11 +28,13 @@ import { handleMcpEvent } from './mcp.js';
 import { setProjectItems } from './catalog.js';
 import { icon } from './icons.js';
 import { openFolders } from './folders.js';
+import { initReorder } from './reorder.js';
 
 const POLL_MS = 10_000;         // the fallback; `projects` events carry changes as they happen
 const POLL_ALONE_MS = 20_000;
 const PREFETCH_TTL_MS = 8_000;
 const CLOSED_KEY = 'jarvis-closed-projects';
+const ORDER_KEY = 'jarvis-project-order';   // folder keys, in the order you dragged them into
 
 let onSnapshot = () => {};
 let hostId = '';        // the server this page was loaded from
@@ -44,6 +46,8 @@ let timer = 0;
 let sig = '';
 let switching = null;   // id being switched to
 let queued = null;      // a click that came while switching
+let dragging = false;   // a row is being dragged: hold back redraws until it is dropped
+let drawLater = false;  // …and one came in meanwhile
 let lost = false;       // the server this page came from stopped answering
 const unseen = new Set();         // finished while you were looking at another project
 const wasBusy = new Map();
@@ -120,6 +124,34 @@ function rememberClosed(p) {
   // Keep the newest 30.
   const keep = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, 30);
   try { localStorage.setItem(CLOSED_KEY, JSON.stringify(Object.fromEntries(keep))); } catch { /* private mode */ }
+}
+
+// ─── Your own order ───────────────────────────────────────────────────────
+
+function readOrder() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((k) => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOrder(keys) {
+  // Keep keys of folders not running right now, after the ones just placed.
+  const rest = readOrder().filter((k) => !keys.includes(k));
+  try { localStorage.setItem(ORDER_KEY, JSON.stringify([...keys, ...rest].slice(0, 100))); } catch { /* private mode */ }
+  sig = ''; // the next list update redraws in the saved order
+}
+
+/** Folders in the order you arranged them; ones you never placed come last, as before. */
+function orderedGroups() {
+  const order = readOrder();
+  const rank = (g) => { const i = order.indexOf(g.key); return i < 0 ? order.length : i; };
+  return groupByFolder(projects)
+    .map((g, i) => [g, i])
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1])
+    .map(([g]) => g);
 }
 
 const sessionsChanged = () => document.dispatchEvent(new Event('jarvis:sessions-changed'));
@@ -207,31 +239,33 @@ function renderList(cur) {
   const shown = switching || cur;
   // Several chats in one folder: a folder header, then each chat by its title
   // (not "harness", "harness 2", "harness 3" that all read the same).
-  list.innerHTML = groupByFolder(projects).map((g) => {
-    if (g.rows.length === 1) {
-      const p = g.rows[0];
-      return rowHtml(p, { title: g.name, sub: p.session_title || p.model || 'New chat', active: p.id === shown });
-    }
-    const labels = chatLabels(g.rows);
-    const working = g.rows.filter((p) => p.busy).length;
-    const asking = g.rows.filter((p) => p.needs_approval).length;
-    const live = asking ? `<span class="pg-live is-ask">${asking} waiting</span>`
-      : working ? `<span class="pg-live">${working} working</span>` : '';
-    // A chat's own line: its state while it has one, else its model (the folder's already above).
-    return `
-      <div class="proj-group" role="presentation" title="${escapeHtml(g.cwd || g.name)}">
-        <span class="pg-ic" aria-hidden="true">${icon('folder')}</span>
-        <span class="pg-name">${escapeHtml(g.name)}</span>
-        <span class="pg-count">${g.rows.length} chats</span>${live}
-      </div>
-      <div class="proj-children">${g.rows.map((p) => rowHtml(p, {
-        ...labels.get(p.id),
-        title: labels.get(p.id).text,
-        sub: status(p).text ? '' : p.model || '',
-        active: p.id === shown,
-        child: true,
-      })).join('')}</div>`;
-  }).join('');
+  list.innerHTML = orderedGroups().map((g) => `<div class="pj-group" data-key="${escapeHtml(g.key)}">${groupHtml(g, shown)}</div>`).join('');
+}
+
+function groupHtml(g, shown) {
+  if (g.rows.length === 1) {
+    const p = g.rows[0];
+    return rowHtml(p, { title: g.name, sub: p.session_title || p.model || 'New chat', active: p.id === shown });
+  }
+  const labels = chatLabels(g.rows);
+  const working = g.rows.filter((p) => p.busy).length;
+  const asking = g.rows.filter((p) => p.needs_approval).length;
+  const live = asking ? `<span class="pg-live is-ask">${asking} waiting</span>`
+    : working ? `<span class="pg-live">${working} working</span>` : '';
+  // A chat's own line: its state while it has one, else its model (the folder's already above).
+  return `
+    <div class="proj-group" role="presentation" title="${escapeHtml(g.cwd || g.name)}">
+      <span class="pg-ic" aria-hidden="true">${icon('folder')}</span>
+      <span class="pg-name">${escapeHtml(g.name)}</span>
+      <span class="pg-count">${g.rows.length} chats</span>${live}
+    </div>
+    <div class="proj-children">${g.rows.map((p) => rowHtml(p, {
+      ...labels.get(p.id),
+      title: labels.get(p.id).text,
+      sub: status(p).text ? '' : p.model || '',
+      active: p.id === shown,
+      child: true,
+    })).join('')}</div>`;
 }
 
 /** Working times tick on their own; the list is redrawn only when something else changes. */
@@ -262,6 +296,10 @@ function render({ force = false } = {}) {
   const section = $('projects-sec');
   // Always there once known: it holds "Open folder", even with one project.
   if (section) section.hidden = !projects.length;
+  if (dragging) {
+    drawLater = true;
+    return;
+  }
   const next = JSON.stringify([cur, switching, [...unseen], projects.map((p) =>
     [p.id, p.project, p.session_id, p.session_title, p.model, p.busy, p.needs_approval, p.headless, p.cwd])]);
   if (next === sig && !force) return;
@@ -555,6 +593,16 @@ export function initProjects({ onEvent }) {
   onSnapshot = onEvent;
   takeClosedNote();
   const list = $('projects-list');
+  initReorder(list, {
+    onChange: saveOrder,
+    onActive: (on) => {
+      dragging = on;
+      if (!on && drawLater) {
+        drawLater = false;
+        render({ force: true });
+      }
+    },
+  });
   const isPlainClick = (e) => !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0);
   list?.addEventListener('click', (e) => {
     const stop = e.target.closest('.pr-stop');
