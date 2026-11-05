@@ -7,7 +7,9 @@
  *    Web Push from web/push.py. Alerts then arrive with the page closed: a long turn
  *    finished, or Jarvis waiting on an approval or question.
  *  - Presence: while this page is on screen it tells the Jarvis it shows, every
- *    30 s, and that Jarvis sends no push (you're already looking).
+ *    30 s, and that Jarvis sends no push (you're already looking). Each report
+ *    also names this device's subscription: a device only gets alerts while it
+ *    had a Jarvis page open in the last `active_minutes` (web/push.py).
  *  - notifyLocal(): the page's own in-tab alerts (theme.js) go through the service
  *    worker when there is one. Android Chrome only allows notifications that way.
  */
@@ -24,7 +26,7 @@ let registration = null;
 let installEvent = null;
 let presenceTimer = 0;
 let busy = false;
-const push = { available: false, subscribed: false, error: '' };
+const push = { available: false, subscribed: false, error: '', endpoint: '', activeMinutes: 0 };
 
 export function isStandalone() {
   return window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -130,12 +132,14 @@ async function subscribe() {
   push.available = true;
   push.subscribed = true;
   push.error = '';
+  push.endpoint = sub.endpoint;
   localStorage.setItem(PUSH_PREF, '1');
 }
 
 async function unsubscribe() {
   localStorage.setItem(PUSH_PREF, '0');
   push.subscribed = false;
+  push.endpoint = '';
   const reg = registration || (swSupported() ? await navigator.serviceWorker.getRegistration('/') : null);
   const sub = await reg?.pushManager?.getSubscription();
   if (!sub) return;
@@ -153,6 +157,8 @@ async function reconcile() {
     const cfg = await pushConfig(sub?.endpoint || '');
     push.available = !!cfg.available;
     push.error = cfg.error || '';
+    push.activeMinutes = Number(cfg.active_minutes) || 0;
+    push.endpoint = '';
     const wanted = localStorage.getItem(PUSH_PREF) === '1';
     if (!pushSupported() || !registration || !wanted || !cfg.available || Notification.permission !== 'granted') {
       push.subscribed = false;
@@ -160,11 +166,13 @@ async function reconcile() {
     }
     if (sub && cfg.subscribed && sameKey(sub, cfg.public_key)) {
       push.subscribed = true;
+      push.endpoint = sub.endpoint;
       return;
     }
     await subscribe(); // re-register silently: permission is already granted
   } catch (err) {
     push.subscribed = false;
+    push.endpoint = '';
     push.error = err?.message || String(err);
   } finally {
     paint();
@@ -214,10 +222,10 @@ function reportPresence(visible) {
   if (!visible && navigator.sendBeacon) {
     // pagehide / hidden: a beacon still goes out while the page is being frozen.
     const url = `${BASE}/api/push/presence?token=${encodeURIComponent(readToken())}`;
-    const body = new Blob([JSON.stringify({ client: clientId, visible: false })], { type: 'application/json' });
+    const body = new Blob([JSON.stringify({ client: clientId, visible: false, endpoint: push.endpoint })], { type: 'application/json' });
     if (navigator.sendBeacon(url, body)) return;
   }
-  api('/api/push/presence', 'POST', { client: clientId, visible }).catch(() => {});
+  api('/api/push/presence', 'POST', { client: clientId, visible, endpoint: push.endpoint }).catch(() => {});
 }
 
 function syncPresence() {
@@ -268,7 +276,11 @@ function paint() {
     if (busy) text = 'Setting up…';
     else if (!supported) text = unsupportedReason();
     else if ('Notification' in window && Notification.permission === 'denied') text = 'Blocked in this browser’s site settings';
-    else if (push.subscribed) text = 'On · long replies and approvals, even with Jarvis closed';
+    else if (push.subscribed) {
+      text = push.activeMinutes
+        ? `On · long replies and approvals, up to ${push.activeMinutes} min after you leave Jarvis on this device`
+        : 'On · long replies and approvals, even with Jarvis closed';
+    }
     else if (push.error && !push.available) text = push.error;
     else text = 'Alerts when a long reply finishes or Jarvis needs you, even with this page closed';
     sub.textContent = text;

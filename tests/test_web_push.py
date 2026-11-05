@@ -63,6 +63,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(push, "_LOCK_FILE", tmp_path / "web_push.lock")
     monkeypatch.delenv("HARNESS_WEB_PUSH", raising=False)
     monkeypatch.delenv("HARNESS_PUSH_MIN_SECONDS", raising=False)
+    monkeypatch.delenv("HARNESS_PUSH_ACTIVE_MINUTES", raising=False)
     push.reset_for_tests()
     yield tmp_path
     push.reset_for_tests()
@@ -239,6 +240,61 @@ def test_turn_done_without_devices_or_when_off(sent, monkeypatch):
     assert push.notify_turn_done(120) is False
 
 
+def _age_device(endpoint: str, seconds: float) -> None:
+    """Pretend this device last had a Jarvis page open ``seconds`` ago."""
+    rows = push.subscriptions()
+    for r in rows:
+        if r["endpoint"] == endpoint:
+            r["seen"] = r["added"] = time.time() - seconds
+    push._write_subs(rows)
+    push.reset_for_tests()  # forget this process's write throttle too
+
+
+def test_only_recently_connected_devices_get_alerts(sent):
+    _, phone = _device()
+    _, laptop = _device()
+    push.add_subscription(phone)
+    push.add_subscription(laptop)
+    _age_device(phone["endpoint"], push.DEFAULT_ACTIVE_MINUTES * 60 + 60)  # left Jarvis long ago
+    assert push.broadcast({"title": "x"}, ttl=60) == {laptop["endpoint"]: 201}
+    _age_device(laptop["endpoint"], push.DEFAULT_ACTIVE_MINUTES * 60 + 60)
+    assert push.notify_turn_done(120) is False                     # nobody connected: silent
+    assert push.mark_seen(phone["endpoint"]) is True               # phone opens Jarvis again
+    assert push.broadcast({"title": "x"}, ttl=60) == {phone["endpoint"]: 201}
+    assert len(push.subscriptions()) == 2                          # quiet devices are kept, not dropped
+
+
+def test_old_rows_without_seen_use_added_and_window_can_be_disabled(sent, monkeypatch):
+    _, sub = _device()
+    push.add_subscription(sub)
+    rows = push.subscriptions()
+    rows[0].pop("seen")
+    rows[0]["added"] = time.time() - 86400
+    push._write_subs(rows)
+    assert push.connected_subscriptions() == []
+    monkeypatch.setenv("HARNESS_PUSH_ACTIVE_MINUTES", "0")         # 0 = always deliver
+    assert len(push.connected_subscriptions()) == 1
+
+
+def test_send_test_reaches_a_quiet_device(sent):
+    _, sub = _device()
+    push.add_subscription(sub)
+    _age_device(sub["endpoint"], 86400)
+    assert push.send_test(sub["endpoint"]) == {"ok": True}
+
+
+def test_mark_seen_unknown_and_throttled(monkeypatch):
+    assert push.mark_seen("") is False
+    assert push.mark_seen("https://push.example.test/unknown") is False
+    _, sub = _device()
+    push.add_subscription(sub)
+    assert push.mark_seen(sub["endpoint"]) is True
+    writes = []
+    monkeypatch.setattr(push, "_write_subs", lambda rows: writes.append(rows))
+    assert push.mark_seen(sub["endpoint"]) is True                 # within SEEN_WRITE_EVERY: no write
+    assert writes == []
+
+
 def test_presence_expires(monkeypatch):
     push.note_presence("p", True)
     assert push.someone_watching()
@@ -361,8 +417,14 @@ def test_push_api_round_trip(server, sent):
     cfg = json.loads(server(f"/api/push/config?endpoint={urllib.parse.quote(sub['endpoint'])}")[2])
     assert cfg["subscribed"] is True
     assert json.loads(server("/api/push/test", {"endpoint": sub["endpoint"]})[2]) == {"ok": True}
-    assert json.loads(server("/api/push/presence", {"client": "c1", "visible": True})[2]) == {"ok": True}
+    assert cfg["active_minutes"] == push.DEFAULT_ACTIVE_MINUTES
+    assert json.loads(server("/api/push/test", {"endpoint": sub["endpoint"]})[2]) == {"ok": True}
+    _age_device(sub["endpoint"], 86400)
+    assert push.connected_subscriptions() == []
+    presence = {"client": "c1", "visible": True, "endpoint": sub["endpoint"]}
+    assert json.loads(server("/api/push/presence", presence)[2]) == {"ok": True}
     assert push.someone_watching()
+    assert len(push.connected_subscriptions()) == 1               # the page reported in: connected
     bad = json.loads(server("/api/push/subscribe", {"subscription": {"endpoint": "nope"}})[2])
     assert bad["ok"] is False
     assert json.loads(server("/api/push/unsubscribe", {"endpoint": sub["endpoint"]})[2])["removed"] is True

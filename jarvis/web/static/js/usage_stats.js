@@ -31,6 +31,7 @@ const RANGES = [
 const POLL_MS = 8000; // a turn running beside the dialog keeps adding requests
 const MODELS_SHOWN = 12;
 const DAY_MS = 86400000;
+const STALE_SERVER = 'This Jarvis started before usage tracking was added. Restart it (stop it in Projects and open it again) to see usage.';
 
 let days = 7;
 let data = null;
@@ -193,7 +194,7 @@ function renderBody() {
   if (!el) return;
   if (!data) {
     patch(el, error
-      ? empty('Couldn’t load usage', escapeHtml(error), { ic: 'circle-alert' })
+      ? empty(error === STALE_SERVER ? 'Restart Jarvis to see usage' : 'Couldn’t load usage', escapeHtml(error), { ic: 'circle-alert' })
       : `<div class="dlg-empty">${loading ? '<span class="spinner" aria-hidden="true"></span>' : ''}<p>Loading usage…</p></div>`);
     return;
   }
@@ -250,7 +251,9 @@ async function load() {
   try {
     res = await api(`/api/usage/summary?days=${days}`);
   } catch (e) {
-    err = e?.message || 'Request failed';
+    // 404: the page is newer than the Jarvis serving it (static files load
+    // from disk, Python routes only at start) — it needs a restart.
+    err = e?.status === 404 ? STALE_SERVER : e?.message || 'Request failed';
   }
   if (my !== seq) return; // a newer request (another period) is on its way
   loading = false;

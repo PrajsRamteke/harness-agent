@@ -1211,6 +1211,9 @@ class WebHandler(BaseHTTPRequestHandler):
                     body["public_key"] = push.public_key()
                     endpoint = self._query_str(qs, "endpoint")
                     body["subscribed"] = bool(endpoint) and push.has_subscription(endpoint)
+                    if body["subscribed"]:
+                        push.mark_seen(endpoint)  # this device has Jarvis open again
+                    body["active_minutes"] = round(push.active_seconds() / 60)
                 except push.PushError as exc:
                     body.update(available=False, error=str(exc))
             self._send_json(200, body)
@@ -1336,6 +1339,8 @@ class WebHandler(BaseHTTPRequestHandler):
             from . import push
 
             push.note_presence(str(data.get("client") or ""), bool(data.get("visible")))
+            if data.get("endpoint"):  # open (shown or not) = connected: keep its alerts on
+                push.mark_seen(str(data.get("endpoint")))
             self._send_json(200, {"ok": True})
             return
 

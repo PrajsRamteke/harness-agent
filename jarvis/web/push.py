@@ -18,6 +18,10 @@ in by ``mcp`` → ``pyjwt[crypto]``; without it push just reports unavailable):
   what Jarvis says.
 * Presence — a visible page reports itself every ~30 s; while one does, this
   Jarvis sends nothing (you're already looking).
+* Connected devices only — every report (and every page load) also stamps
+  that device's subscription ``seen``. A device gets alerts only while it was
+  on a Jarvis page in the last ``HARNESS_PUSH_ACTIVE_MINUTES`` (default 30;
+  ``0`` = always), so a phone you stopped using goes quiet on its own.
 
 Events: a turn that ran at least ``HARNESS_PUSH_MIN_SECONDS`` (default 20)
 finished, and an approval / question / value prompt still open after
@@ -50,6 +54,8 @@ MAX_ENDPOINT_LEN = 2048
 PRESENCE_TTL = 75.0             # a page re-reports every 30 s while visible
 PROMPT_DELAY = 4.0              # answered at the terminal by then: no buzz
 DEFAULT_MIN_TURN_SECONDS = 20.0
+DEFAULT_ACTIVE_MINUTES = 30.0   # a device stops getting alerts this long after it left Jarvis
+SEEN_WRITE_EVERY = 60.0         # presence arrives every 30 s: stamp the file at most this often
 SEND_TIMEOUT = 15.0
 JWT_LIFETIME = 12 * 3600        # push services cap it at 24 h
 JWT_REUSE = JWT_LIFETIME - 3600
@@ -67,6 +73,7 @@ _lock = threading.RLock()
 _vapid: tuple[Any, str] | None = None            # (private key, public key b64url)
 _jwt_cache: dict[str, tuple[float, str]] = {}    # aud → (made at, header value)
 _presence: dict[str, float] = {}                 # page client id → visible until
+_seen_written: dict[str, float] = {}             # endpoint → when this process last stamped it
 _instance_id: str | None = None
 
 
@@ -101,6 +108,16 @@ def min_turn_seconds() -> float:
     except ValueError:
         return DEFAULT_MIN_TURN_SECONDS
     return max(0.0, value)
+
+
+def active_seconds() -> float:
+    """How long after a device was last on a Jarvis page it still gets alerts (0: no limit)."""
+    raw = os.environ.get("HARNESS_PUSH_ACTIVE_MINUTES", "")
+    try:
+        minutes = float(raw) if raw.strip() else DEFAULT_ACTIVE_MINUTES
+    except ValueError:
+        minutes = DEFAULT_ACTIVE_MINUTES
+    return max(0.0, minutes) * 60.0
 
 
 def _subject() -> str:
@@ -307,7 +324,9 @@ def add_subscription(data: Any, *, token: str = "", label: str = "") -> dict[str
     clean = clean_subscription(data)
     if clean is None:
         raise PushError("That push subscription is not valid.")
-    row: dict[str, Any] = {**clean, "token": str(token or ""), "label": str(label or "")[:80], "added": time.time()}
+    now = time.time()
+    row: dict[str, Any] = {**clean, "token": str(token or ""), "label": str(label or "")[:80],
+                           "added": now, "seen": now}
     with _file_lock():
         rows = [r for r in _read_subs() if r.get("endpoint") != clean["endpoint"]]
         rows.append(row)
@@ -325,11 +344,59 @@ def remove_subscription(endpoint: str) -> bool:
         if len(kept) == len(rows):
             return False
         _write_subs(kept)
+    with _lock:
+        _seen_written.pop(endpoint, None)
     return True
 
 
 def has_subscription(endpoint: str) -> bool:
     return any(r.get("endpoint") == endpoint for r in subscriptions())
+
+
+def _last_seen(row: dict[str, Any]) -> float:
+    for key in ("seen", "added"):  # rows saved before ``seen`` existed: when they subscribed
+        value = row.get(key)
+        if isinstance(value, (int, float)):
+            return float(value)
+    return 0.0
+
+
+def is_connected(row: dict[str, Any], now: float | None = None) -> bool:
+    """Was this device on a Jarvis page recently enough to still get alerts?"""
+    window = active_seconds()
+    if window <= 0:
+        return True
+    return (now if now is not None else time.time()) - _last_seen(row) <= window
+
+
+def connected_subscriptions() -> list[dict[str, Any]]:
+    now = time.time()
+    return [r for r in subscriptions() if is_connected(r, now)]
+
+
+def mark_seen(endpoint: str) -> bool:
+    """This device has a Jarvis page open: keep its alerts coming. True if it is subscribed."""
+    endpoint = str(endpoint or "").strip()
+    if not endpoint:
+        return False
+    now = time.time()
+    with _lock:
+        if now - _seen_written.get(endpoint, 0.0) < SEEN_WRITE_EVERY:
+            return True
+    try:
+        with _file_lock():
+            rows = _read_subs()
+            row = next((r for r in rows if r.get("endpoint") == endpoint), None)
+            if row is None:
+                return False
+            row["seen"] = now
+            _write_subs(rows)
+    except OSError as exc:
+        log.warning("web push: can't record that %s is connected (%s)", SUBS_FILE, exc)
+        return True
+    with _lock:
+        _seen_written[endpoint] = now
+    return True
 
 
 # ─── presence ─────────────────────────────────────────────────────────────
@@ -390,8 +457,11 @@ def send_one(row: dict[str, Any], message: dict[str, Any], *, ttl: int, urgency:
 
 def broadcast(message: dict[str, Any], *, ttl: int, urgency: str = "normal",
               only: str | None = None) -> dict[str, int]:
-    """Send to every device (or just ``only``); drop the ones the push service says are gone."""
-    rows = [r for r in subscriptions() if only is None or r.get("endpoint") == only]
+    """Send to every connected device (or just ``only``, connected or not); drop the gone ones."""
+    if only is None:
+        rows = connected_subscriptions()
+    else:
+        rows = [r for r in subscriptions() if r.get("endpoint") == only]
     results: dict[str, int] = {}
     for row in rows:
         try:
@@ -419,7 +489,7 @@ def _should_send() -> bool:
     if not available() or someone_watching():
         return False
     try:
-        return bool(subscriptions())
+        return bool(connected_subscriptions())
     except OSError:
         return False
 
@@ -531,3 +601,4 @@ def reset_for_tests() -> None:
         _instance_id = None
         _jwt_cache.clear()
         _presence.clear()
+        _seen_written.clear()
