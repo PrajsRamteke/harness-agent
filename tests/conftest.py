@@ -122,6 +122,22 @@ def _mcp_switches_reset():
 
 
 @pytest.fixture(autouse=True)
+def _side_model_reset():
+    """The commit text model lives in the settings singleton too; a test that
+    pins one must not leave later tests resolving a real provider client."""
+    yield
+    try:
+        from jarvis import side_model
+        from jarvis.storage.settings import get_settings
+
+        if not side_model.is_auto():
+            get_settings().reset(side_model.SETTING_SOURCE)
+            get_settings().reset(side_model.SETTING_MODEL)
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def _request_shape_reset():
     """Per-process request state — sticky tool groups, the per-turn system
     prompt, prompt caching switched off after a refusal, files the model has

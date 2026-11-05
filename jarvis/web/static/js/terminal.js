@@ -16,10 +16,12 @@
  * Across projects (workspace): a shell opened for project X lives in X's own
  * Jarvis (`s.inst` = its instance id, reached through `/p/<id>/api/terminal/*`
  * — `apiAt`), survives switching the chat to another project, and shows up in
- * X too. Tabs carry the project's colour + name once the workspace has two
- * projects; "Show all projects' terminals" decides whether the other
- * projects' shells get a tab here; the All-terminals view lists every shell
- * of every running project. The pump holds one `poll` per instance.
+ * X too. Only a master group's panel is shared: the hub and its member projects
+ * see each other's shells (tabs carry the project's colour + name; "Show the group's
+ * terminals" decides whether the siblings' shells get a tab here; the All-terminals
+ * view lists the group's shells). A project in no group is independent: its panel
+ * holds only its own shells, whatever else is running. The pump holds one `poll`
+ * per instance.
  *
  * The AI tools on top (error chip, selection → chat, clickable links, ⌘K
  * command writer) live in terminal_ai.js.
@@ -45,7 +47,7 @@ const PER_INSTANCE = 8;
 const MIN_DOCK_REST = 160;  // rows the Files drawer keeps above a panel docked in it
 const RESIZE_MS = 80;              // a size change reaches the shell at most this late
 const HIDDEN_PAUSE_MS = 45_000;    // a background tab lets go of its held request (api.js does too)
-const ALL_KEY = 'jarvis-term-all';   // '1' | '0': other projects' shells get a tab here (unset: on with >= 2 projects)
+const ALL_KEY = 'jarvis-term-all';   // '1' | '0': the master group's other shells get a tab here (unset: on)
 const MAX_PUMPS = 6;                // instances polled at once (the browser allows ~6 connections per host)
 const LAUNCH_POLL_MS = 1000;
 const LAUNCH_POLLS = 90;
@@ -271,10 +273,10 @@ function relayout() {
   requestAnimationFrame(() => fitAll());
 }
 
-/** Live shells in the other running projects (this one's are in `state`). */
+/** Live shells in the other running projects of this one's master group (this one's are in `state`). */
 function othersLive() {
   const cur = currentProjectId();
-  return allProjects().filter((p) => p.id !== cur && p.terminals > 0);
+  return allProjects().filter((p) => p.id !== cur && p.terminals > 0 && inScope(p.id));
 }
 
 function syncDot() {
@@ -345,12 +347,33 @@ const curInst = () => currentProjectId() || hostProjectId() || '';
 /** What a session stores for "the shown project" while the list hasn't loaded yet. */
 const instKey = (s) => s.inst || '';
 
-const multi = () => ws.projects.length >= 2;
+/** Workspace project ids that share this panel with the project on screen: its master group
+ *  (the hub + every member). Empty for a project in no group — its panel is its own. */
+function scopeIds() {
+  const ids = new Set();
+  const cur = projectOfInst(curInst());
+  if (!cur) return ids;
+  const hubs = cur.kind === 'group' ? [cur] : (cur.masters || []).map((m) => ws.projects.find((p) => p.id === m.id) || { id: m.id });
+  for (const h of hubs) {
+    ids.add(h.id);
+    for (const m of h.members || []) ids.add(m);
+  }
+  if (ids.size) ids.add(cur.id);
+  return ids;
+}
 
-/** "Show all projects' terminals": on by default once the workspace has two projects. */
+/** Is the project on screen part of a master group (hub or member)? */
+const inGroup = () => scopeIds().size > 0;
+
+/** Does the Jarvis `inst` belong to a project of the on-screen project's master group? */
+function inScope(inst) {
+  const p = projectOfInst(inst);
+  return !!p && scopeIds().has(p.id);
+}
+
+/** "Show the group's terminals": on by default; only ever applies inside a master group. */
 function showAll() {
-  const v = storageGet(ALL_KEY, null);
-  return v === null ? multi() : v === '1';
+  return storageGet(ALL_KEY, null) !== '0';
 }
 
 /** The workspace project whose Jarvis is instance `inst` (null: not a workspace project). */
@@ -359,9 +382,11 @@ function projectOfInst(inst) {
   return ws.projects.find((p) => p.instances?.some((i) => i.id === inst)) || null;
 }
 
-/** Does this page show a tab for `s`? Another project's shell only with the toggle on, or when opened here on purpose. */
+/** Does this page show a tab for `s`? This project's own shells always; another project's only
+ *  when it is in the same master group and the toggle is on (or it was opened here on purpose). */
 function wanted(s) {
-  return s.explicit || showAll() || !s.inst || s.inst === curInst();
+  if (!s.inst || s.inst === curInst()) return true;
+  return inScope(s.inst) && (s.explicit || showAll());
 }
 
 /** First open on this page: re-attach to the shells this project's Jarvis (and, with
@@ -389,6 +414,7 @@ function attach({ spawnIfEmpty = true } = {}) {
     for (const t of list) {
       if (!t.exited && !sessionById(t.id)) adopt(t, here);
     }
+    if (!ws.at) await refreshWorkspace();   // the group scope comes from the workspace rows
     await adoptOthers(here);
     if (!state.sessions.length) {
       if (spawnIfEmpty) await spawn();
@@ -404,14 +430,15 @@ function attach({ spawnIfEmpty = true } = {}) {
   return attaching;
 }
 
-/** Tabs for the shells of the other running workspace projects (one request: the server
- *  asks each instance and tells us which allow this page a shell). */
+/** Tabs for the shells of the other running projects in this one's master group (one request:
+ *  the server asks each instance and tells us which allow this page a shell). An independent
+ *  project adopts nothing. */
 async function adoptOthers(here) {
-  if (!showAll() || !multi()) return;
+  if (!showAll() || !inGroup()) return;
   let res;
   try { res = await fetchWorkspaceTerminals(); } catch { return; }
   for (const g of res?.groups || []) {
-    if (g.instance_id === here) continue;
+    if (g.instance_id === here || !inScope(g.instance_id)) continue;
     instAllowed.set(g.instance_id, g.allowed !== false);
     if (g.allowed === false) continue;
     for (const t of g.terminals || []) {
@@ -926,7 +953,7 @@ function renderTabs() {
     dot.className = 'term-tab-dot';
     dot.setAttribute('aria-hidden', 'true');
 
-    const info = multi() ? (projectOfInst(s.inst) || s.proj) : null;
+    const info = inGroup() || (s.inst && s.inst !== curInst()) ? (projectOfInst(s.inst) || s.proj) : null;
     let badge = null;
     if (info?.name) {
       if (info.color && !s.exited && !s.stopped && s.id) dot.style.background = info.color;
@@ -1168,10 +1195,10 @@ async function refreshWorkspace() {
   syncWorkspaceUi();
 }
 
-/** Show the controls that only matter with two or more workspace projects. */
+/** Show the controls that only matter inside a master group (an independent project has none). */
 function syncWorkspaceUi() {
   if (!el.addMore) return;
-  const cross = multi() || groupInfo().masters.length > 0;
+  const cross = inGroup() || groupInfo().masters.length > 0 || !!groupInfo().master;
   el.addMore.hidden = !cross;
   el.allBtn.hidden = !cross;
   if (!cross) { setMenu(false); setAllView(false); }
@@ -1293,7 +1320,8 @@ function renderMenu() {
       <span class="tm-globe" aria-hidden="true"${g.color ? ` style="--proj:${escapeHtml(g.color)}"` : ''}>${icon('globe')}</span><span class="tm-label">Master shell (<b>${escapeHtml(g.name || 'group')}</b>)</span>${note ? `<span class="tm-note">${note}</span>` : ''}</button>`);
   }
   const masterIds = new Set(groups.map((g) => g.id));
-  const others = ws.projects.filter((p) => p !== cur && !masterIds.has(p.id));
+  const scope = scopeIds();
+  const others = ws.projects.filter((p) => p !== cur && !masterIds.has(p.id) && scope.has(p.id));
   if (others.length) items.push('<div class="term-menu-sep" role="separator"></div>');
   for (const p of others) {
     const note = p.missing || p.status === 'missing' ? 'folder missing'
@@ -1304,7 +1332,7 @@ function renderMenu() {
   }
   items.push('<div class="term-menu-sep" role="separator"></div>');
   items.push(`<button type="button" role="menuitemcheckbox" class="term-menu-item" data-act="all" aria-checked="${showAll()}">
-    <span class="tm-check" aria-hidden="true">${showAll() ? icon('check') : ''}</span><span class="tm-label">Show all projects’ terminals</span></button>`);
+    <span class="tm-check" aria-hidden="true">${showAll() ? icon('check') : ''}</span><span class="tm-label">Show the group’s terminals</span></button>`);
   const had = el.menu.contains(document.activeElement) ? document.activeElement.dataset : null;
   el.menu.innerHTML = items.join('');
   if (had?.act) {
@@ -1344,7 +1372,7 @@ function onMenuKey(e) {
   items[(i + items.length) % items.length]?.focus();
 }
 
-/** The toggle: other projects' shells get a tab here, or only this project's (and the ones opened on purpose). */
+/** The toggle: the group's other shells get a tab here, or only this project's (and the ones opened on purpose). */
 async function setShowAll(on) {
   storageSet(ALL_KEY, on ? '1' : '0');
   if (on) {
@@ -1424,12 +1452,14 @@ async function loadAllView() {
 }
 
 /** What the All view lists: [{ g, label, off }]. In a group's hub: the hub first ("Master"),
- *  then its members in order — those not running as dimmed rows (`off`); elsewhere as the server sent them. */
+ *  then its members in order — those not running as dimmed rows (`off`); in a member: its group's
+ *  projects only. Projects outside the group never show here. */
 function viewGroups() {
   const { master: m, masters: ms } = groupInfo();
+  const scope = scopeIds();
   if (!m) {
     const mine = new Map(ms.map((g) => [g.id, g]));
-    return allGroups.map((g) => {
+    return allGroups.filter((g) => scope.has(g.project_id)).map((g) => {
       const grp = mine.get(g.project_id);
       return { g, label: grp ? `Master · ${grp.name || g.name}` : g.name, off: false };
     });
@@ -1448,19 +1478,18 @@ function viewGroups() {
       off: true,
     });
   }
-  for (const g of allGroups) if (!used.has(g)) out.push({ g, label: g.name, off: false });
   return out;
 }
 
 function renderAllView() {
   if (!el.allView) return;
   const groups = viewGroups();
-  const count = allGroups.reduce((n, g) => n + (g.terminals || []).filter((t) => !t.exited).length, 0);
+  const count = groups.reduce((n, x) => n + (x.g.terminals || []).filter((t) => !t.exited).length, 0);
   const live = groups.filter((x) => !x.off).length;
   const parts = [`<header class="tav-head">
     <strong>All terminals</strong><span class="tav-count">${count} running · ${live} project${live === 1 ? '' : 's'}</span>
     <span class="term-spacer"></span>
-    <label class="tav-toggle"><input type="checkbox" data-act="all"${showAll() ? ' checked' : ''}><span>Show all projects’ terminals</span></label>
+    <label class="tav-toggle"><input type="checkbox" data-act="all"${showAll() ? ' checked' : ''}><span>Show the group’s terminals</span></label>
     <button type="button" class="term-tool" data-act="close" title="Back to the shells (Esc)" aria-label="Close the all-terminals view">${icon('x')}</button>
   </header><div class="tav-body">`];
   if (!groups.length) parts.push('<p class="tav-empty">No project is running a shell yet.</p>');
@@ -1521,10 +1550,11 @@ function onAllClick(e) {
 
 // ─── Project switch ──────────────────────────────────────────────────────
 /** Another project is on screen. Shells belong to the Jarvis that runs them, so
- *  switching the chat does not detach them: with "Show all projects' terminals" on
- *  (or for shells opened on purpose) they keep their tabs and keep streaming.
- *  Otherwise the old project's views are let go (the shells keep running there)
- *  and the new project's are attached — or one is started if the panel is open. */
+ *  switching the chat does not detach them: inside the same master group (with "Show the
+ *  group's terminals" on, or for shells opened on purpose) they keep their tabs and keep
+ *  streaming. Switching to a project outside the group (or an independent one) lets the old
+ *  project's views go (the shells keep running there) and attaches the new project's —
+ *  or starts one if the panel is open. */
 function onProjectSwitched() {
   state.remoteLive = false;
   adoptNullInst();

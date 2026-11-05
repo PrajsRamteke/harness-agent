@@ -210,7 +210,7 @@ def test_sidebar_has_one_thinking_switch_pinned_below_the_sessions():
     html = (STATIC / "index.html").read_text()
     assert "sw-thoughts" not in html and "Tool trace" not in html
     assert html.count('id="sw-thinking"') == 1
-    scroll_end = html.index('<div class="side-toggles">')
+    scroll_end = html.index('<div class="side-toggles"')
     assert html.index('id="recent-list"') < scroll_end < html.index('id="sw-thinking"') < html.index('class="side-foot"')
     for name in ("store.js", "actions.js", "palette.js", "catalog.js", "sidebar.js", "chat.js"):
         assert "showThoughts" not in (STATIC / "js" / name).read_text(), name
