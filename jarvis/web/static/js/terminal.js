@@ -52,12 +52,23 @@ const MAX_PUMPS = 6;                // instances polled at once (the browser all
 const LAUNCH_POLL_MS = 1000;
 const LAUNCH_POLLS = 90;
 const COARSE = window.matchMedia?.('(pointer: coarse)');
+const SIDE_KEY = 'jarvis-term-side';     // '1': tabs in a rail right of the shells (unset: a row on top)
+const RAIL_KEY = 'jarvis-term-rail-w';
+const RAIL_DEFAULT_W = 180;
+const RAIL_MIN_W = 120;
+const RAIL_MAX_W = 480;
+const RAIL_KEY_STEP = 16;
+const MIN_PANES_W = 240;                 // shell room always left beside the rail
+// Phones keep the row on top: a rail would leave the shell too narrow.
+const NARROW = window.matchMedia?.('(max-width: 760px)');
 
 const state = {
   open: false,
   max: false,
   split: false,
   height: Math.max(MIN_H, Number(storageGet(HEIGHT_KEY, DEFAULT_H)) || DEFAULT_H),
+  side: storageGet(SIDE_KEY, '0') === '1',
+  railW: Math.max(RAIL_MIN_W, Number(storageGet(RAIL_KEY, RAIL_DEFAULT_W)) || RAIL_DEFAULT_W),
   // { id, inst (instance id of the Jarvis the shell lives in), explicit (opened here on purpose),
   //   stopped (that project closed), title, term, fit, search, pane, cursor, exited, disposed, queue, flush }
   sessions: [],
@@ -136,6 +147,8 @@ function build() {
   applyHeight();
   el.btn.addEventListener('click', () => (state.open ? hide() : open()));
   buildExtras();
+  buildRail();
+  $('term-side').addEventListener('click', () => setSide(!state.side));
   $('term-hide').addEventListener('click', () => hide({ focusComposer: true }));
   $('term-add').addEventListener('click', () => spawn());
   $('term-empty-new').addEventListener('click', () => spawn());
@@ -161,6 +174,7 @@ function build() {
   });
 
   bindResize();
+  bindRailResize();
   // The app can switch dark/light: repaint every terminal in the new palette.
   new MutationObserver(() => {
     const paint = theme();
@@ -168,7 +182,7 @@ function build() {
       if (!s.disposed) s.term.options.theme = paint;
     }
   }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-variant', 'data-palette', 'data-accent', 'style'] });
-  window.addEventListener('resize', debounce(() => { applyHeight(); fitAll(); }, 120));
+  window.addEventListener('resize', debounce(() => { applyHeight(); applyRailWidth(); fitAll(); }, 120));
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => fitAll()).observe(el.panel);
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && (e.key === '`' || e.code === 'Backquote')) {
@@ -999,10 +1013,15 @@ function renderTabs() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (s.id) selectTab(s.id); }
       else if (e.key === 'F2') { e.preventDefault(); renameTab(s, name); }
       else if (e.key === 'Delete') { e.preventDefault(); killSession(s); }
-      else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      else if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+        // A row on top moves with ←/→, the side rail with ↑/↓.
+        const side = el.panel.classList.contains('is-side');
+        const next = side ? 'ArrowDown' : 'ArrowRight';
+        const prev = side ? 'ArrowUp' : 'ArrowLeft';
+        if (e.key !== next && e.key !== prev) return;
         e.preventDefault();
         const tabs = [...el.tabs.querySelectorAll('.term-tab')];
-        const i = tabs.indexOf(tab) + (e.key === 'ArrowRight' ? 1 : -1);
+        const i = tabs.indexOf(tab) + (e.key === next ? 1 : -1);
         tabs[(i + tabs.length) % tabs.length]?.focus();
       }
     });
@@ -1181,6 +1200,115 @@ function bindResize() {
     state.height = Math.min(maxHeight(), Math.max(MIN_H, el.panel.offsetHeight + (e.key === 'ArrowUp' ? 24 : -24)));
     applyHeight();
     storageSet(HEIGHT_KEY, Math.round(state.height));
+  });
+}
+
+// ─── Tabs on the side: a resizable rail right of the shells ──────────────
+/** Wrap the shells in a row with a rail after them; the tab list moves between
+ *  the header (a row on top) and the rail (a column, like an editor's terminal list). */
+function buildRail() {
+  el.tabsHome = el.tabs.parentNode;
+  el.stage = document.createElement('div');
+  el.stage.className = 'term-stage';
+  el.body.before(el.stage);
+  el.stage.append(el.body, el.empty);
+
+  el.rail = document.createElement('aside');
+  el.rail.className = 'term-rail';
+  el.rail.setAttribute('aria-label', 'Terminal list');
+  el.rail.hidden = true;
+  el.railHandle = document.createElement('div');
+  el.railHandle.className = 'term-rail-resize';
+  el.railHandle.setAttribute('role', 'separator');
+  el.railHandle.setAttribute('aria-orientation', 'vertical');
+  el.railHandle.setAttribute('aria-label', 'Resize terminal list');
+  el.railHandle.tabIndex = 0;
+  el.railHandle.title = 'Drag to resize · double-click to reset';
+  el.rail.append(el.railHandle);
+  el.stage.append(el.rail);
+
+  NARROW?.addEventListener?.('change', () => applySide());
+  applySide();
+}
+
+function setSide(on) {
+  state.side = on;
+  storageSet(SIDE_KEY, on ? '1' : '0');
+  applySide();
+  focusActive();
+}
+
+function applySide() {
+  if (!el.rail) return;
+  const side = state.side && !NARROW?.matches;
+  el.panel.classList.toggle('is-side', side);
+  el.rail.hidden = !side;
+  if (side && el.tabs.parentNode !== el.rail) el.rail.append(el.tabs);
+  else if (!side && el.tabs.parentNode !== el.tabsHome) el.tabsHome.insertBefore(el.tabs, $('term-add'));
+  el.tabs.setAttribute('aria-orientation', side ? 'vertical' : 'horizontal');
+  const btn = $('term-side');
+  btn.setAttribute('aria-pressed', String(state.side));
+  btn.title = state.side ? 'Tabs on top' : 'Tabs on the side';
+  btn.setAttribute('aria-label', state.side ? 'Show terminal tabs on top' : 'Show terminal tabs on the side');
+  applyRailWidth();
+  requestAnimationFrame(() => fitAll());
+}
+
+/** The rail's widest: the saved width, never so wide the shells get squeezed out. */
+function railMax() {
+  const room = (el.stage?.clientWidth || el.panel?.clientWidth || window.innerWidth) - MIN_PANES_W;
+  return Math.max(RAIL_MIN_W, Math.min(RAIL_MAX_W, room));
+}
+
+function applyRailWidth() {
+  if (!el.panel) return;
+  const w = Math.min(Math.max(RAIL_MIN_W, state.railW), railMax());
+  el.panel.style.setProperty('--term-rail-w', `${Math.round(w)}px`);
+}
+
+function setRailWidth(w, { save = false } = {}) {
+  state.railW = Math.min(railMax(), Math.max(RAIL_MIN_W, w));
+  applyRailWidth();
+  if (save) storageSet(RAIL_KEY, Math.round(state.railW));
+}
+
+/** The rail's left edge: drag (or ←/→ when focused) to widen it; double-click resets. */
+function bindRailResize() {
+  let startX = 0;
+  let startW = 0;
+  let dragging = false;
+
+  const onMove = (e) => {
+    if (dragging) setRailWidth(startW + (startX - e.clientX));
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    el.railHandle.classList.remove('is-dragging');
+    document.body.classList.remove('is-term-rail-resizing');
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    setRailWidth(state.railW, { save: true });
+    fitAll();
+  };
+
+  el.railHandle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX;
+    startW = el.rail.offsetWidth;
+    el.railHandle.classList.add('is-dragging');
+    document.body.classList.add('is-term-rail-resizing');
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  });
+  el.railHandle.addEventListener('dblclick', () => setRailWidth(RAIL_DEFAULT_W, { save: true }));
+  el.railHandle.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    setRailWidth(el.rail.offsetWidth + (e.key === 'ArrowLeft' ? RAIL_KEY_STEP : -RAIL_KEY_STEP), { save: true });
   });
 }
 

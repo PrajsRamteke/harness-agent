@@ -115,6 +115,106 @@ function initSideResize() {
   });
 }
 
+// ─── Chats grip: drag up/down to split the sidebar between Projects and Chats ─
+
+const SPLIT_KEY = 'jarvis-side-projects-h';
+const MIN_PROJECTS_H = 48;
+let projectsH = null; // null = automatic layout
+
+/** Tallest the Projects list may get: everything in the Chats section below its header. */
+function maxProjectsH(list) {
+  const scroll = document.querySelector('.side-scroll');
+  const head = document.querySelector('.side-recent > .sec-head');
+  if (!scroll || !head) return list.clientHeight;
+  // .side-recent is the last block in .side-scroll, so everything below its
+  // header (scope, search, list — or any overflow, as a negative) is ours to take.
+  const room = scroll.getBoundingClientRect().bottom - head.getBoundingClientRect().bottom;
+  return list.getBoundingClientRect().height + room;
+}
+
+function applySplit() {
+  const scroll = document.querySelector('.side-scroll');
+  const list = $('projects-list');
+  const grip = $('chats-grip');
+  if (!scroll || !list) return;
+  if (projectsH == null) {
+    scroll.classList.remove('has-custom-split');
+    scroll.style.removeProperty('--projects-h');
+    grip?.removeAttribute('aria-valuenow');
+    return;
+  }
+  // Measure the room before switching layouts, then clamp: down to the Chats header, up to MIN.
+  const max = maxProjectsH(list);
+  scroll.classList.add('has-custom-split');
+  const h = Math.max(MIN_PROJECTS_H, Math.min(projectsH, max));
+  scroll.style.setProperty('--projects-h', `${Math.round(h)}px`);
+  projectsH = h;
+  grip?.setAttribute('aria-valuenow', String(Math.round(h)));
+}
+
+function setSplit(h, persist = true) {
+  projectsH = h == null ? null : Math.max(MIN_PROJECTS_H, Math.round(h));
+  applySplit();
+  if (persist) storageSet(SPLIT_KEY, projectsH == null ? '' : String(projectsH));
+}
+
+function initChatsGrip() {
+  const grip = $('chats-grip');
+  const list = $('projects-list');
+  if (!grip || !list) return;
+  const saved = Number(storageGet(SPLIT_KEY, ''));
+  projectsH = saved > 0 ? saved : null;
+  applySplit();
+  // Re-clamp when the sidebar's height changes (window resize, settings block
+  // hidden/shown) or the Projects section grows (restore bar, header wraps).
+  if (typeof ResizeObserver === 'function') {
+    let queued = false;
+    const ro = new ResizeObserver(() => {
+      if (queued || projectsH == null) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; applySplit(); });
+    });
+    const scroll = document.querySelector('.side-scroll');
+    if (scroll) ro.observe(scroll);
+    const sec = $('projects-sec');
+    if (sec) ro.observe(sec);
+  } else {
+    window.addEventListener('resize', applySplit);
+  }
+  let startY = 0;
+  let startH = 0;
+  const move = (e) => {
+    // Dragging up pulls the boundary up: Projects shrinks, Chats grows.
+    projectsH = startH + (e.clientY - startY);
+    applySplit();
+  };
+  const stop = () => {
+    document.body.classList.remove('is-grip-dragging');
+    grip.removeEventListener('pointermove', move);
+    grip.removeEventListener('pointerup', stop);
+    grip.removeEventListener('pointercancel', stop);
+    if (projectsH != null) storageSet(SPLIT_KEY, String(projectsH));
+  };
+  grip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    startY = e.clientY;
+    startH = list.clientHeight;
+    grip.setPointerCapture(e.pointerId);
+    document.body.classList.add('is-grip-dragging');
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', stop);
+    grip.addEventListener('pointercancel', stop);
+  });
+  grip.addEventListener('dblclick', () => setSplit(null));
+  grip.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const step = e.shiftKey ? 64 : 24;
+    setSplit(list.clientHeight + (e.key === 'ArrowDown' ? step : -step));
+  });
+}
+
 /** The top bar's panel button and Alt+B: a drawer on phones, a collapse on desktops. */
 export function toggleSidebar() {
   if (window.matchMedia('(max-width: 960px)').matches) {
@@ -488,6 +588,7 @@ export function initSidebar({ onOpenPicker }) {
   $('menu-btn')?.addEventListener('click', toggleSidebar);
   setCollapsed(storageGet(COLLAPSE_KEY, '0') === '1');
   initSideResize();
+  initChatsGrip();
   $('side-close')?.addEventListener('click', closeSidebar);
   $('scrim')?.addEventListener('click', closeSidebar);
   document.addEventListener('keydown', (e) => {

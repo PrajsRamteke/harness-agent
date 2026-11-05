@@ -410,9 +410,17 @@ body.is-term-resizing .term-resize { pointer-events: auto; }
 .term-link-tip[hidden] { display: none; }
 
 /* ─── Panes ───────────────────────────────────────────────────────────── */
+/* The shells (or the empty state) and, with tabs on the side, the rail after them. */
+.term-stage {
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
 .term-body {
   flex: 1 1 auto;
   display: flex;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -441,6 +449,82 @@ body.is-term-resizing .term-resize { pointer-events: auto; }
   scrollbar-color: var(--line-2) transparent;
 }
 .term-xterm .xterm-screen { outline: none; }
+
+/* ─── Tabs on the side (js/terminal.js: setSide) ──────────────────────── */
+/* A rail right of the shells, like an editor's terminal list; its left edge
+   drags its width (--term-rail-w, remembered per browser). */
+.term-rail {
+  position: relative;
+  flex: 0 0 var(--term-rail-w, 180px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 60%;
+  border-left: 1px solid var(--line);
+  background: var(--term-bg);
+}
+.term-rail[hidden] { display: none; }
+
+.term-rail-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.term-rail-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur-fast, 0.12s) var(--ease, ease);
+}
+.term-rail-resize:hover::after { opacity: 0.5; transition-delay: 0.25s; }
+.term-rail-resize:focus-visible::after,
+.term-rail-resize.is-dragging::after { opacity: 1; transition-delay: 0s; }
+body.is-term-rail-resizing { cursor: col-resize; user-select: none; }
+body.is-term-rail-resizing .term-panel { pointer-events: none; }
+body.is-term-rail-resizing .term-rail-resize { pointer-events: auto; }
+
+.term-panel.is-side .term-tabs {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  padding: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+.term-panel.is-side .term-tab,
+.term-panel.is-side .term-tab.is-stopped {
+  flex: 0 0 auto;
+  max-width: none;
+  min-width: 0;
+}
+/* Basis 0: the name takes what's left, so a project badge before it stays readable. */
+.term-panel.is-side .term-tab-name { flex: 1 1 0; }
+.term-panel.is-side .term-tab-rename { flex: 1 1 auto; width: auto; min-width: 0; }
+.term-panel.is-side .term-tab-start { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-panel.is-side .term-tab.is-stopped .term-tab-name { flex: 1 1 auto; }
+/* The other half of a split: a bar on the left edge instead of an underline. */
+.term-panel.is-side .term-tab.is-second::after {
+  top: 6px;
+  bottom: 6px;
+  left: 2px;
+  right: auto;
+  width: 2px;
+  height: auto;
+}
 
 /* ─── Empty state ─────────────────────────────────────────────────────── */
 .term-empty {
@@ -488,7 +572,7 @@ body.is-term-resizing .term-resize { pointer-events: auto; }
   .term-tab { max-width: 130px; height: 30px; }
   .term-tab-x { opacity: 1; }
   .term-add, .term-tool { width: 32px; height: 32px; }
-  #term-split, .term-sep { display: none; }
+  #term-split, #term-side, .term-sep { display: none; }
   .term-xterm { inset: 6px 2px 2px 8px; }
   .term-ask-hint, .tai-flag-text { display: none; }
   .term-ai-chip { right: 8px; bottom: 8px; }

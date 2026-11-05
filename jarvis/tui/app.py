@@ -2291,14 +2291,17 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
             self._begin_turn(next_prompt)
             return
 
+        # A background job this chat started finished while the turn ran: hand
+        # its output to the agent now — in this tab, shown or not. Not right
+        # after Esc — the job stays unread in the prompt.
+        woke = not self._turn_cancelled and self._bg_wake_tab()
+
         if not self._tab_visible():  # finished in a tab you aren't looking at
-            if was_llm or self._turn_cancelled:
+            if not woke and (was_llm or self._turn_cancelled):
                 self._tab_finished_in_background(tab)
             return
 
-        # A background job finished while this turn ran: hand its output to the
-        # agent now. Not right after Esc — the job stays unread in the prompt.
-        if not self._turn_cancelled and self._bg_wake():
+        if woke:
             return
 
         self._set_status("ready")

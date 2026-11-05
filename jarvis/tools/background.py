@@ -22,6 +22,12 @@ exits the TUI starts a turn carrying its output (``take_wake_batch`` +
 ``wake_message``, see ``tui/mixins/bg_jobs.py``). While it's on, blocking
 ``bg_output(wait=…)`` is capped at ``WAKE_MAX_WAIT`` so a turn can't hang on a
 long job.
+
+**Ownership**: a job belongs to the chat that started it (``Job.session_id``,
+with ``Job.tab_id`` for a chat not saved yet). Only that chat is woken with
+its output and sees it in its system prompt / Activity panel — a job never
+spills into another tab, even the one on screen when it finishes
+(``owner_tab``, ``take_wake_batch(tab)``).
 """
 from __future__ import annotations
 
@@ -64,6 +70,8 @@ class Job:
     killed: bool = False
     read_done: bool = False  # the finished output has been returned to the model
     offset: int = 0          # bytes already returned (new_only)
+    tab_id: int | None = None      # chat tab that started it (None: no tabs — owned by every chat)
+    session_id: int | None = None  # that tab's session at the time
 
     @property
     def running(self) -> bool:
@@ -114,6 +122,47 @@ def remove_finish_hook(fn: Callable[[Job], None]) -> None:
 def jobs() -> list[Job]:
     with _lock:
         return list(_jobs.values())
+
+
+def _starter() -> tuple[int | None, int | None]:
+    """``(tab id, session id)`` of the chat the calling thread works for."""
+    try:
+        from .. import tabs
+
+        tab = tabs.current()
+        return tab.id, tab.session_id
+    except Exception:
+        return None, None
+
+
+def owner_tab(job: Job):
+    """The open tab holding the chat that started ``job``, or None when that
+    chat isn't open any more (tab closed, or /new replaced its session)."""
+    from .. import tabs
+
+    if job.session_id:
+        return tabs.find_session(job.session_id)
+    # A chat with no saved session yet: its tab, while that tab is open.
+    return tabs.get(job.tab_id) if job.tab_id is not None else None
+
+
+def owned_by(job: Job, tab=None) -> bool:
+    """Does ``job`` belong to ``tab`` (default: the calling thread's tab)?
+    Jobs started outside any tab (``tab_id`` None) belong to every chat."""
+    if job.tab_id is None and job.session_id is None:
+        return True
+    try:
+        from .. import tabs
+
+        tab = tab if tab is not None else tabs.current()
+    except Exception:
+        return True
+    return owner_tab(job) is tab
+
+
+def my_jobs(tab=None) -> list[Job]:
+    """Jobs started by ``tab``'s chat (default: the calling thread's tab)."""
+    return [j for j in jobs() if owned_by(j, tab)]
 
 
 def fmt_secs(s: float) -> str:
@@ -282,7 +331,8 @@ def run_bg(cmd: str, project: str | None = None) -> str:
             )
     except OSError as e:
         return f"ERROR: could not start: {e}"
-    job = Job(id=job_id, cmd=cmd, proc=proc, log=log)
+    tab_id, session_id = _starter()
+    job = Job(id=job_id, cmd=cmd, proc=proc, log=log, tab_id=tab_id, session_id=session_id)
     with _lock:
         _jobs[job_id] = job
     watcher = threading.Thread(target=_watch, args=(job,), name=f"bg-job-{job_id}", daemon=True)
@@ -402,7 +452,8 @@ def bg_kill(job_id: int | str) -> str:
 
 
 def list_jobs() -> str:
-    rows = jobs()
+    """This chat's jobs (another tab's jobs are its own business)."""
+    rows = my_jobs()
     if not rows:
         return "No background jobs. Start one with run_bg(cmd)."
     out = ["Background jobs:"]
@@ -415,7 +466,7 @@ def list_jobs() -> str:
 
 def prompt_block() -> str:
     """System-prompt section for jobs that are running or finished-but-unread."""
-    rows = [j for j in jobs() if j.running or not j.read_done]
+    rows = [j for j in my_jobs() if j.running or not j.read_done]
     if not rows:
         return ""
     title = "BACKGROUND JOBS (started with run_bg — they keep running between turns"
@@ -434,11 +485,16 @@ def prompt_block() -> str:
 # ── auto-wake ─────────────────────────────────────────────────────────────
 
 
-def take_wake_batch() -> list[Job]:
-    """Finished jobs whose output nobody has read (killed ones excluded — the
-    agent or user stopped those on purpose). Marks them read."""
+def take_wake_batch(tab=None) -> list[Job]:
+    """Finished jobs of ``tab``'s chat (default: the calling thread's tab)
+    whose output nobody has read (killed ones excluded — the agent or user
+    stopped those on purpose). Marks them read. Jobs of another chat stay
+    put: they wake only the chat that started them."""
     with _lock:
-        batch = [j for j in _jobs.values() if not j.running and not j.read_done and not j.killed]
+        candidates = [j for j in _jobs.values() if not j.running and not j.read_done and not j.killed]
+    batch = [j for j in candidates if owned_by(j, tab)]
+    with _lock:
+        batch = [j for j in batch if not j.read_done]
         for j in batch:
             j.read_done = True
     return sorted(batch, key=lambda j: j.id)

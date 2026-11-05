@@ -371,7 +371,7 @@ def jobs_fields() -> list[dict[str, Any]]:
     except Exception:
         return []
     out: list[dict[str, Any]] = []
-    for job in background.jobs()[-12:]:
+    for job in background.my_jobs()[-12:]:  # the shown tab's chat only
         running = job.running
         out.append({
             "id": job.id,
