@@ -952,11 +952,9 @@ body.is-busy .agent-text .act-branch { display: none; }
 .md li { margin: 0.25em 0; padding-left: 0.15em; }
 .md li::marker { color: var(--text-3); }
 .md ol li::marker { font-variant-numeric: tabular-nums; }
-.md .md-li-nest-1 { margin-left: 1em; }
-.md .md-li-nest-2 { margin-left: 2em; }
-.md .md-li-nest-3 { margin-left: 3em; }
-.md .md-li-nest-4 { margin-left: 4em; }
-.md .md-task { list-style: none; margin-left: -1.3em; display: flex; gap: 8px; }
+.md li > ul, .md li > ol { margin: 0.2em 0 0.1em; }
+.md .md-task { list-style: none; margin-left: -1.3em; display: flex; flex-wrap: wrap; gap: 0 8px; }
+.md .md-task > ul, .md .md-task > ol { flex: 0 0 100%; }
 .md .md-task-box { color: var(--text-3); }
 .md .md-task-done .md-task-box { color: var(--ok); }
 .md .md-task-done > span:last-child { color: var(--text-3); text-decoration: line-through; }

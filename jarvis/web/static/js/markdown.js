@@ -176,24 +176,39 @@ function parseListLine(line) {
 function renderListBlock(lines) {
   const items = lines.map(parseListItem).filter(Boolean);
   if (!items.length) return '';
-  const ordered = items[0].ordered;
-  let html = ordered ? '<ol class="md-list">' : '<ul class="md-list">';
+  // Real nesting: a deeper-indented item opens a child <ul>/<ol> inside the
+  // open <li> above it. Flattening everything into the first item's list type
+  // made nested bullets count as numbered items (1, 2, 3 … then 2 again).
+  const openList = (ordered) => (ordered ? '<ol class="md-list">' : '<ul class="md-list">');
+  const closeList = (ordered) => (ordered ? '</ol>' : '</ul>');
+  const stack = []; // open lists: { indent, ordered }
+  let html = '';
   for (const item of items) {
-    const depth = Math.floor(item.indent / 2);
-    const depthCls = depth ? ` class="md-li-nest md-li-nest-${Math.min(depth, 4)}"` : '';
+    while (stack.length > 1 && item.indent < stack[stack.length - 1].indent) {
+      html += `</li>${closeList(stack.pop().ordered)}`;
+    }
+    const top = stack[stack.length - 1];
+    if (!top || item.indent > top.indent) {
+      html += openList(item.ordered);
+      stack.push({ indent: item.indent, ordered: item.ordered });
+    } else if (top.ordered !== item.ordered) {
+      html += `</li>${closeList(stack.pop().ordered)}${openList(item.ordered)}`;
+      stack.push({ indent: item.indent, ordered: item.ordered });
+    } else {
+      html += '</li>';
+    }
     if (item.task) {
       const cls = item.checked ? 'md-task md-task-done' : 'md-task';
-      const nest = depth ? ` md-li-nest md-li-nest-${Math.min(depth, 4)}` : '';
       const box = item.checked ? '☑' : '☐';
-      html += `<li class="${cls}${nest}"><span class="md-task-box" aria-hidden="true">${box}</span><span>${itemHtml(item)}</span></li>`;
+      html += `<li class="${cls}"><span class="md-task-box" aria-hidden="true">${box}</span><span>${itemHtml(item)}</span>`;
     } else {
       // Keep the number the text wrote, so a list split by other blocks
       // still reads 1, 2, 3 instead of restarting at 1.
-      const value = ordered && item.ordered ? ` value="${item.num}"` : '';
-      html += `<li${depthCls}${value}>${itemHtml(item)}</li>`;
+      const value = item.ordered ? ` value="${item.num}"` : '';
+      html += `<li${value}>${itemHtml(item)}`;
     }
   }
-  html += ordered ? '</ol>' : '</ul>';
+  while (stack.length) html += `</li>${closeList(stack.pop().ordered)}`;
   return html;
 }
 
