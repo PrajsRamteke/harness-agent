@@ -162,7 +162,11 @@ function setMin(min) {
   }
   if (!min) {
     unread = false;
-    requestAnimationFrame(() => { keepOnScreen(); log().scrollTop = log().scrollHeight; });
+    requestAnimationFrame(() => {
+      if (isMin()) return;        // minimized again before this frame: its bar height is not the window's
+      keepOnScreen();
+      log().scrollTop = log().scrollHeight;
+    });
   }
   syncChrome();
 }
@@ -820,7 +824,13 @@ function keepOnScreen() {
   if (!win || win.hidden) return;
   const maxW = window.innerWidth - MARGIN * 2;
   const maxH = window.innerHeight - MARGIN * 2;
-  if (win.style.width) size(Math.min(win.offsetWidth, maxW), Math.min(win.offsetHeight, maxH));
+  // Minimized, the box is only the header bar: measuring it then would pin the
+  // open window to bar height (the squashed /btw window). Never go below the
+  // minimum either, so a size squashed earlier heals on the next open.
+  if (win.style.width && !isMin()) {
+    size(Math.max(Math.min(win.offsetWidth, maxW), Math.min(MIN_W, maxW)),
+         Math.max(Math.min(win.offsetHeight, maxH), Math.min(MIN_H, maxH)));
+  }
   if (win.style.left) {
     const r = win.getBoundingClientRect();
     place(r.left, r.top);
