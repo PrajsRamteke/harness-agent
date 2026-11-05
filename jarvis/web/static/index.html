@@ -99,6 +99,7 @@
   <link rel="stylesheet" href="/static/css/git.css">
   <link rel="stylesheet" href="/static/css/files.css">
   <link rel="stylesheet" href="/static/css/btw.css">
+  <link rel="stylesheet" href="/static/css/linkchip.css">
   <link rel="stylesheet" href="/static/vendor/xterm.css">
   <link rel="stylesheet" href="/static/css/terminal.css">
 </head>
@@ -165,6 +166,7 @@
         <section class="side-sec side-recent">
           <div class="sec-head">
             <h2 class="sec-title">Chats</h2>
+            <div class="sec-grip" id="chats-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the chats list" tabindex="0" title="Drag up or down to resize · double-click to reset"><span class="sec-grip-bar" aria-hidden="true"></span></div>
             <button class="link-btn" id="all-sessions" type="button" title="Every chat, by project — search, pin, archive">View all</button>
           </div>
           <div class="recent-scope" id="recent-scope"></div>
@@ -419,6 +421,9 @@
             </button>
             <button class="term-tool" id="term-split" type="button" aria-pressed="false" title="Split side by side" aria-label="Split side by side">
               <span data-icon="columns-2"></span>
+            </button>
+            <button class="term-tool" id="term-side" type="button" aria-pressed="false" title="Tabs on the side" aria-label="Show terminal tabs on the side">
+              <span data-icon="panel-right"></span>
             </button>
             <span class="term-sep" aria-hidden="true"></span>
             <button class="term-tool" id="term-max" type="button" aria-pressed="false" title="Maximize" aria-label="Maximize terminal">

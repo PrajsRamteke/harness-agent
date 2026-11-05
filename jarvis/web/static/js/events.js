@@ -32,6 +32,7 @@ import { handleLocalEvent } from './local.js';
 import { loadChanges, applyChange } from './changes.js';
 import { loadActivity, setJobs, noteToolStart, noteToolDone } from './activity.js';
 import { handleProjectsEvent } from './projects.js';
+import { handleWorkspaceEvent } from './wsprojects.js';
 import { setTabs } from './tabs.js';
 import { handleTunnelEvent, handleTerminalTunnelEvent } from './qr.js';
 import { handleGitEvent } from './git.js';
@@ -58,7 +59,7 @@ export function handleEvent(evt) {
         switched: !!prevSession && prevSession !== data.session_id,
       });
       setQueue(data.queue || [], data.queue_items);
-      setTabs(data.tabs);
+      setTabs(data.tabs, data);
       loadChanges(data.changes, data.session_id);
       loadActivity(data.messages);
       setJobs(data.jobs);
@@ -73,7 +74,7 @@ export function handleEvent(evt) {
       loadSnapshot(data);
       setBusy(!!data.busy, { busySince: data.busy_since });
       setQueue(data.queue || [], data.queue_items);
-      setTabs(data.tabs);
+      setTabs(data.tabs, data);
       if ('jobs' in data) setJobs(data.jobs);
       syncThoughtsVisibility();
       break;
@@ -238,6 +239,10 @@ export function handleEvent(evt) {
     case 'projects':
       // Another Jarvis opened or closed, got busy, finished or asks for approval.
       handleProjectsEvent(data);
+      break;
+    case 'workspace':
+      // workspace.json changed (this page, another one, the TUI): the saved project list.
+      handleWorkspaceEvent(data);
       break;
 
     case 'commands':

@@ -16,7 +16,7 @@
  * clearAi / detachAi per shell and hands over what this needs in `initTerminalAi`.
  */
 import { $, showToast, copyText, haptic, isMac } from './utils.js';
-import { api } from './api.js';
+import { apiAt } from './api.js';
 import { icon } from './icons.js';
 import { store } from './store.js';
 
@@ -559,7 +559,8 @@ async function runAsk() {
   const here = cursorRow(s);
   const context = clip(readRows(s, Math.max(0, here - ASK_CONTEXT_LINES), here));
   try {
-    const res = await api('/api/terminal/suggest', 'POST', { id: s.id, request, context });
+    // The shell lives in its own project's Jarvis (`s.inst`): ask that one.
+    const res = await apiAt(s.inst, '/api/terminal/suggest', 'POST', { id: s.id, request, context });
     if (!res?.ok || !res.command) throw new Error(res?.error || 'no command came back');
     if (askHistory[0] !== request) askHistory.unshift(request);
     askHistory.length = Math.min(askHistory.length, ASK_HISTORY);

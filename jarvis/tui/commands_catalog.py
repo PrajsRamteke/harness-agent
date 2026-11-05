@@ -18,6 +18,7 @@ COMMANDS = [
     ("/export ", "export conversation as markdown"),
     ("/session", "open the session modal (resume / rename / delete handled inside)"),
     ("/rename", "rename this session — or /rename <new title>"),
+    ("/project", "your workspace — switch project · add · link · remove  (also /workspace, /p)"),
     ("/clear", "clear the terminal screen"),
     ("/team ", "run a big task with 2-6 agents working in parallel — /team <task>"),
     ("/subagents", "parallel agents — status · on|off · max <1-6> · steps · timeout · stop"),
@@ -87,6 +88,7 @@ COMMANDS = [
 UNLISTED_BUILTINS = frozenset({
     "search", "save", "load", "keytest", "note", "notes",
     "alias", "aliases", "multi", "mode", "tokens", "cost",
+    "workspace", "p",  # aliases of /project
 })
 
 

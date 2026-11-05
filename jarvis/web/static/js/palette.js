@@ -20,6 +20,7 @@ import { newTab, stepTab } from './tabs.js';
 let visible = [];
 let nav = null;
 let openPicker = () => {};
+let onlyGroup = '';   // ⌥ 0: the palette lists one group (Projects) until it is closed
 
 function toggleOn(item) {
   return !!store.session[item.toggle];
@@ -35,6 +36,7 @@ function itemMeta(item) {
   if (item.action === 'inspector-changes') return `<span class="lr-code">${isMac ? '⌥D' : 'Alt D'}</span>`;
   if (item.action === 'files') return `<span class="lr-code">${isMac ? '⌥F' : 'Alt F'}</span>`;
   if (item.action === 'search-files') return `<span class="lr-code">${isMac ? '⌥⇧F' : 'Alt Shift F'}</span>`;
+  if (item.hint) return `<span class="lr-code">${escapeHtml(item.hint)}</span>`;
   if (item.laptop) return '<span class="lr-meta">on computer</span>';
   if (item.cmd) return `<span class="lr-code">${escapeHtml(item.cmd.trim())}</span>`;
   return '';
@@ -43,7 +45,8 @@ function itemMeta(item) {
 function render() {
   const list = $('palette-list');
   const q = ($('palette-input')?.value || '').trim().toLowerCase();
-  visible = rankItems(allItems().filter((it) => matchItem(it, q)), q);
+  // `searchOnly` items ("New chat in …", "Terminal in …" per project) show up when you type, not in the open list.
+  visible = rankItems(allItems().filter((it) => (onlyGroup ? it.group === onlyGroup : q || !it.searchOnly) && matchItem(it, q)), q);
 
   if (!visible.length) {
     list.innerHTML = `<div class="list-empty"><strong>No command matches “${escapeHtml(q)}”</strong>Press Enter to send it to Jarvis as a message.</div>`;
@@ -168,11 +171,14 @@ function pick(idx) {
 
 let openingTimer = 0;
 
-export function openPalette() {
+/** Open the palette. `{ group: 'Projects' }` lists only that group (⌥ 0). */
+export function openPalette({ group = '' } = {}) {
   wantCustomItems();
+  onlyGroup = typeof group === 'string' ? group : '';
   const input = $('palette-input');
   const list = $('palette-list');
   input.value = '';
+  input.placeholder = onlyGroup ? `Switch to a ${onlyGroup.toLowerCase().replace(/s$/, '')}…` : input.dataset.placeholder || input.placeholder;
   render();
   // Rows cascade in on open only — typing re-renders without it.
   list.classList.add('is-opening');
@@ -186,6 +192,11 @@ export function closePalette() {
   closeModal('palette');
 }
 
+/** ⌥ 0 — the palette, projects only. */
+export function openProjectPalette() {
+  openPalette({ group: 'Projects' });
+}
+
 export function initPalette({ onOpenPicker }) {
   openPicker = onOpenPicker;
   const list = $('palette-list');
@@ -195,6 +206,7 @@ export function initPalette({ onOpenPicker }) {
 
   $('palette-btn')?.addEventListener('click', openPalette);
   const input = $('palette-input');
+  input.dataset.placeholder = input.placeholder;
   input.addEventListener('input', () => {
     list.classList.remove('is-opening');
     render();
@@ -215,7 +227,7 @@ export function initPalette({ onOpenPicker }) {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       if (isModalOpen('palette')) closePalette();
-      else openPalette();
+      else openPalette();   // (a leftover projects-only filter is dropped: group is '' here)
     }
   });
 

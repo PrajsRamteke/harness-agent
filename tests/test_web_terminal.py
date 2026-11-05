@@ -308,3 +308,105 @@ def test_closing_the_anywhere_link_turns_the_switch_off():
     fake._web_bridge.terminal_over_tunnel = True
     WebRemoteMixin._stop_tunnel(fake, quiet=True)
     assert fake._web_bridge.terminal_over_tunnel is False
+
+
+# ─── Shells across workspace projects: two real servers behind one link ─────
+
+def _post(url: str, body: dict, headers: dict | None = None):
+    import json
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read() or b"{}")
+
+
+def _getj(url: str, headers: dict | None = None):
+    import json
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers or {}), timeout=10) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read() or b"{}")
+
+
+@pytest.fixture
+def two_projects(tmp_path, monkeypatch):
+    """Two real web servers (proja = the page's host, projb = a workspace project the
+    page reaches through ``/p/projb/``) and a workspace that names both folders.
+
+    Both servers live in this process, so they share ``terminal_api``'s module-level
+    shell table: this proves the routing, tokens, grouping and tunnel policy — not
+    process isolation (that is the same code path as any two ``jarvis --web``)."""
+    from test_web_hub import _Remote
+
+    from jarvis.storage import workspace as ws
+    from jarvis.web import registry
+
+    monkeypatch.setattr(registry, "INSTANCES_DIR", tmp_path / "instances")
+    monkeypatch.setattr(ws, "CONFIG_DIR", tmp_path / "cfg")
+    monkeypatch.setattr(ws, "WORKSPACE_FILE", tmp_path / "cfg" / "workspace.json")
+    monkeypatch.setattr(ws, "LOCK_FILE", tmp_path / "cfg" / "workspace.lock")
+    monkeypatch.setenv("SHELL", "/bin/sh")
+    dirs = {"proja": tmp_path / "a", "projb": tmp_path / "b"}
+    for d in dirs.values():
+        d.mkdir()
+    pa = ws.add(dirs["proja"], name="Alpha")
+    pb = ws.add(dirs["projb"], name="Beta")
+
+    real_list = registry.list_instances
+    monkeypatch.setattr(registry, "list_instances", lambda **kw: [
+        {**rec, "cwd": str(dirs[rec["id"]])} for rec in real_list(**kw) if rec["id"] in dirs])
+    a, b = _Remote("proja", 29310), _Remote("projb", 29330)
+    yield a, b, pa, pb
+    a.stop()
+    b.stop()
+
+
+def test_a_shell_opened_through_another_project_is_listed_under_it(two_projects):
+    a, b, pa, pb = two_projects
+    # open through the link of A, aimed at B: the hub swaps in B's own token
+    status, res = _post(a.url("/p/projb/api/terminal/open"), {"cols": 80, "rows": 24})
+    assert status == 200 and res["ok"], res
+    tid = res["terminal"]["id"]
+    # typing and reading go the same way, one held poll for the instance
+    assert _post(a.url("/p/projb/api/terminal/input"), {"id": tid, "data": "echo cross-''project\n"})[1]["ok"]
+    deadline, out, cursor = time.monotonic() + 8, "", 0
+    while "cross-project" not in out and time.monotonic() < deadline:
+        _s, got = _getj(a.url(f"/p/projb/api/terminal/poll?ids={tid}:{cursor}&wait=500"))
+        piece = got["terminals"].get(tid, {})
+        out += piece.get("data", "")
+        cursor = piece.get("cursor", cursor)
+    assert "cross-project" in out
+    # B's own token is the one that worked: it is not A's, and A's does not open B directly
+    assert _post(b.url("/api/terminal/open", token=a.token), {})[0] == 401
+
+    # the workspace view groups every shell by project, with each instance's policy
+    status, view = _getj(a.url("/api/workspace/terminals"))
+    assert status == 200 and view["ok"]
+    groups = {g["instance_id"]: g for g in view["groups"]}
+    assert set(groups) == {"proja", "projb"}
+    gb = groups["projb"]
+    assert (gb["project_id"], gb["name"], gb["self"], gb["allowed"]) == (pb["id"], "Beta", False, True)
+    assert gb["color"] == pb["color"] and tid in {t["id"] for t in gb["terminals"]}
+    assert groups["proja"]["self"] is True and groups["proja"]["project_id"] == pa["id"]
+
+
+def test_a_tunnel_visitor_gets_no_shell_in_any_project(two_projects):
+    a, b, _pa, _pb = two_projects
+    tunnel = {"X-Forwarded-For": "8.8.8.8", "Host": "demo.trycloudflare.com"}
+    # through the link, the other project refuses it too (the hub forwards the marker)
+    status, res = _post(a.url("/p/projb/api/terminal/open"), {}, headers=tunnel)
+    assert status == 403 and res["code"] == "local_only"
+    # …and the all-terminals view says so per project instead of listing shells
+    status, view = _getj(a.url("/api/workspace/terminals"), headers=tunnel)
+    assert status == 200
+    assert view["groups"] and all(g["allowed"] is False for g in view["groups"])

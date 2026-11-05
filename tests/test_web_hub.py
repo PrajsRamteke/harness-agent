@@ -402,7 +402,7 @@ def test_every_request_to_the_project_goes_through_the_base_path():
     """A call that forgets BASE would silently talk to the wrong project."""
     # fetchProjects asks the server the page came from, on purpose; fetchStateAt
     # takes the project's base as a parameter (projects.js prefetches with it).
-    allowed = {"fetchProjects", "fetchStateAt"}
+    allowed = {"fetchProjects", "fetchStateAt"}  # (+ host-level /api/workspace*, below)
     bad = []
     for f in (STATIC / "js").glob("*.js"):
         lines = f.read_text().splitlines()
@@ -411,7 +411,37 @@ def test_every_request_to_the_project_goes_through_the_base_path():
                 continue
             window = "\n".join(lines[max(0, i - 1): i + 2])
             if "/api/" in window and "BASE" not in window:
+                # /api/workspace* is host-level (like /api/projects): it describes every
+                # project, so it is asked of the server the page came from — no BASE.
+                if re.search(r"['\"`]/api/workspace", window):
+                    continue
                 if any(name in "\n".join(lines[max(0, i - 4): i + 1]) for name in allowed):
                     continue
                 bad.append(f"{f.name}:{i + 1}: {line.strip()}")
     assert bad == []
+
+
+def test_other_instances_are_reached_only_through_the_url_helpers():
+    """The web terminal talks to *several* projects at once, so a request to one
+    that isn't on screen goes through `utils.js:urlAt` / `api.js:apiAt` (which
+    know the `/p/<id>` prefix and when it is just BASE) — never a hand-built path
+    and never a bare `fetch` in terminal.js."""
+    js = STATIC / "js"
+    # the prefix is built in exactly these places
+    builders = {"utils.js", "projects.js"}
+    for f in js.glob("*.js"):
+        for i, line in enumerate(f.read_text().splitlines(), 1):
+            code = line.strip()
+            if code.startswith(("//", "*", "/*")):
+                continue
+            if "`/p/${" in code or "'/p/' +" in code or '"/p/" +' in code:
+                assert f.name in builders, f"{f.name}:{i}: builds a /p/<id> path by hand: {code}"
+    utils, api = (js / "utils.js").read_text(), (js / "api.js").read_text()
+    assert "export function urlAt(" in utils and "export function apiAt(" in api
+    assert "urlAt(instanceId)" in api  # apiAt goes through the helper
+    # the terminal panel never fetches by itself: shells go through apiAt, the
+    # workspace rows through the host-level helpers (no BASE on purpose)
+    for name in ("terminal.js", "terminal_ai.js"):
+        text = (js / name).read_text()
+        assert not re.search(r"\bfetch\(|new EventSource\(|xhr\.open\(", text), name
+        assert not re.search(r"\bapi\(", text), f"{name} must use apiAt(inst, …)"

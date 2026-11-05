@@ -16,7 +16,9 @@ from ..constants import (
 from .. import state
 from .dirs import SKIP_DIRS
 from . import live_write
-from ..path_resolve import project_scope_error, robust_resolve
+from ..path_resolve import (
+    guard_refs, linked_root_for, project_scope_error, robust_resolve, write_scope_error,
+)
 
 # Extensions that are almost never useful to read as text.
 _BINARY_EXTS = {
@@ -226,6 +228,7 @@ def _read_lines_slice(p: pathlib.Path, offset: int, limit: int) -> str:
     return "\n".join(out)
 
 
+@guard_refs
 def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -> str:
     p = robust_resolve(path)
     if not p.exists():
@@ -243,6 +246,11 @@ def read_file(path: str, offset: int = 0, limit: int = 0, force: bool = False) -
             scope_err = project_scope_error(p, "read_file")
             if scope_err:
                 return scope_err
+            if p.name.startswith(".env") and linked_root_for(p) is not None:
+                return (
+                    f"ERROR: refused to read '{path}' — .env files in linked projects are off "
+                    f"limits. Pass force=true only if the user explicitly asked for this file."
+                )
 
             skip = _in_skip_dir(p)
             if skip:
@@ -308,6 +316,7 @@ def _clip_line(line: str) -> str:
     return line
 
 
+@guard_refs
 def read_file_tool(path: str, offset: int = 0, limit: int = 0, force: bool = False) -> str:
     """``read_file`` as the model calls it: numbered lines (``N<TAB>text``),
     bounded to READ_MAX_LINES / READ_MAX_CHARS, with a closing note saying
@@ -369,12 +378,12 @@ def read_file_tool(path: str, offset: int = 0, limit: int = 0, force: bool = Fal
     return "\n".join(out)
 
 
+@guard_refs
 def write_file(path: str, content: str, allow_outside_project: bool = False) -> str:
     p = robust_resolve(path)
-    if not allow_outside_project:
-        scope_err = project_scope_error(p, "write_file", "allow_outside_project=true")
-        if scope_err:
-            return scope_err
+    scope_err = write_scope_error(p, "write_file", allow_outside_project)
+    if scope_err:
+        return scope_err
     with _path_lock(p):
         # A file this call's live write created while it streamed is still new.
         existed = p.exists() and not live_write.claim(p)
@@ -660,6 +669,7 @@ def _apply_text_edit(
     return new_txt, None, replacements, None
 
 
+@guard_refs
 def edit_file(
     path: str,
     old_str: str,
@@ -668,10 +678,9 @@ def edit_file(
     allow_outside_project: bool = False,
 ) -> str:
     p = robust_resolve(path)
-    if not allow_outside_project:
-        scope_err = project_scope_error(p, "edit_file", "allow_outside_project=true")
-        if scope_err:
-            return scope_err
+    scope_err = write_scope_error(p, "edit_file", allow_outside_project)
+    if scope_err:
+        return scope_err
     with _path_lock(p):
         if not p.exists():
             return f"ERROR: {path} not found"
@@ -699,6 +708,7 @@ def edit_file(
 _MULTI_EDIT_MAX = 30
 
 
+@guard_refs
 def multi_edit(
     edits: list | None = None,
     allow_outside_project: bool = False,
@@ -735,20 +745,28 @@ def multi_edit(
             block.append(edits[j])
             j += 1
 
-        p = robust_resolve(path)
+        try:
+            p = robust_resolve(path)
+        except Exception as exc:  # an `id:path` that can't be honoured (unlinked project, escape)
+            if type(exc).__name__ != "WorkspaceError":
+                raise
+            for k, _ in enumerate(block):
+                fail += 1
+                lines.append(f"{i + k + 1}/{len(edits)} ERROR {path}: {exc}")
+            i = j
+            continue
         # The flag is honored both top-level and per edit item — models often
         # attach it to the edit object (mirroring edit_file's schema).
         allow_block = allow_outside_project or any(
             bool(e.get("allow_outside_project")) for e in block
         )
-        if not allow_block:
-            scope_err = project_scope_error(p, "multi_edit", "allow_outside_project=true")
-            if scope_err:
-                for k, _ in enumerate(block):
-                    fail += 1
-                    lines.append(f"{i + k + 1}/{len(edits)} ERROR {path}: {scope_err}")
-                i = j
-                continue
+        scope_err = write_scope_error(p, "multi_edit", allow_block)
+        if scope_err:
+            for k, _ in enumerate(block):
+                fail += 1
+                lines.append(f"{i + k + 1}/{len(edits)} ERROR {path}: {scope_err}")
+            i = j
+            continue
 
         with _path_lock(p):
             if not p.exists():

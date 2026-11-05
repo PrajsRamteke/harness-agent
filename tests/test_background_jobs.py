@@ -306,3 +306,84 @@ def test_tui_no_wake_right_after_esc(tui):
             assert "FINISHED" in bg.prompt_block()  # still offered to the model
 
     asyncio.run(run())
+
+
+def test_jobs_belong_to_the_chat_that_started_them():
+    """A job wakes, and is listed to, only the tab whose chat started it."""
+    from jarvis import tabs
+
+    tabs.reset()
+    try:
+        first = tabs.active()
+        first.session["current_session_id"] = 11
+        jid = _job_id(bg.run_bg("sleep 1.1; echo mine"))
+        second = tabs.create()  # the user opens a new tab and works there
+        second.session["current_session_id"] = 22
+        _wait_done()
+
+        assert bg.take_wake_batch(second) == []          # never spills into the new tab
+        assert bg.prompt_block() == ""                    # the shown tab's prompt: nothing
+        assert "No background jobs" in bg.bg_output()
+        with tabs.bound(first):
+            assert f"#{jid} FINISHED" in bg.prompt_block()
+        assert [j.id for j in bg.take_wake_batch(first)] == [jid]
+
+        # The starting chat replaced by /new (or its tab closed): nobody is woken.
+        with tabs.bound(first):
+            orphan = _job_id(bg.run_bg("sleep 1.1"))
+        first.session["current_session_id"] = 33
+        _wait_done()
+        assert bg.owner_tab(next(j for j in bg.jobs() if j.id == orphan)) is None
+        assert bg.take_wake_batch(first) == [] and bg.take_wake_batch(second) == []
+    finally:
+        tabs.reset()
+
+
+def test_tui_wakes_the_tab_that_started_the_job_not_the_one_on_screen(tui, monkeypatch):
+    """Start a job in tab 1, open tab 2 and work there: when the job ends, the
+    wake-up turn runs in tab 1 and tab 2 is left alone."""
+    import asyncio
+    import threading
+
+    from jarvis import tabs
+
+    JarvisTUI, seen, _script = tui
+    where: list[int] = []
+
+    def bound_fake_run_turn(self, inp, turn_id=None):
+        tab = self._turn_tabs.pop(turn_id, None) or tabs.active()
+
+        def go():
+            me = threading.get_ident()
+            tabs.bind_thread(me, tab)  # like the real _run_turn
+            try:
+                seen.append(inp)
+                where.append(tab.id)
+                time.sleep(0.05)
+                self.call_from_thread(self._turn_done, turn_id)
+            finally:
+                tabs.unbind_thread(me)
+
+        threading.Thread(target=go, daemon=True).start()
+
+    monkeypatch.setattr(JarvisTUI, "_run_turn", bound_fake_run_turn)
+
+    async def run() -> None:
+        app = JarvisTUI()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            first = tabs.active()
+            await asyncio.to_thread(bg.run_bg, "sleep 1.2; echo built-in-tab-1")
+            second = app._new_tab()
+            assert second is not None and tabs.active() is second
+            assert await _until(pilot, lambda: bool(seen))
+            await _until(pilot, lambda: not first.busy)
+            await pilot.pause(0.3)
+            assert where == [first.id]  # woke the tab that started it…
+            assert "built-in-tab-1" in seen[0]
+            assert not second.busy       # …not the one on screen
+            assert tabs.active() is second
+            assert "background job" not in second.transcript.plain_text()
+            assert "background job" in first.transcript.plain_text()
+
+    asyncio.run(run())

@@ -174,6 +174,45 @@ body.side-collapsed .side-resize { display: none; }
 
 .sec-head { display: flex; align-items: center; justify-content: space-between; min-height: 24px; margin-bottom: 2px; padding-right: 2px; }
 .sec-head .sec-title { margin: 0; }
+/* Grip in the middle of the Chats header: hold + drag up/down to move the
+   boundary with the Projects list above (sidebar.js initChatsGrip). */
+.side-recent .sec-head { position: relative; }
+.sec-grip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 56px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  border-radius: 6px;
+}
+.sec-grip-bar {
+  width: 28px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--text-3);
+  opacity: 0.55;
+  transition: opacity var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), width var(--dur-fast) var(--ease);
+}
+.sec-grip:hover .sec-grip-bar,
+.sec-grip:focus-visible .sec-grip-bar,
+body.is-grip-dragging .sec-grip-bar { opacity: 1; background: var(--accent); width: 34px; }
+.sec-grip:focus-visible { outline: none; }
+body.is-grip-dragging { cursor: row-resize; user-select: none; }
+#projects-sec[hidden] + .side-recent .sec-grip { display: none; }
+/* A dragged height replaces the 45% cap and is a real height, so the grip can
+   travel all the way down (Chats folds to its header; the rest is clipped). */
+.side-scroll.has-custom-split > #projects-sec { flex: 0 0 auto; max-height: none; }
+.side-scroll.has-custom-split > #projects-sec .projects { flex: 0 0 auto; height: var(--projects-h); max-height: none; }
+.side-scroll.has-custom-split > .side-recent { overflow: hidden; }
+.side-scroll.has-custom-split > .side-recent > .sec-head { flex-shrink: 0; }
 .sec-head .link-btn { color: var(--accent); }
 .sec-head .link-btn:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 

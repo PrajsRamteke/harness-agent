@@ -23,6 +23,7 @@ from .settings import handle_settings
 from .pet import handle_pet
 from .subagents import handle_subagents
 from .usage import handle_usage
+from .project import handle_project
 
 # commands that set `inp` for sending
 FALLTHROUGH = {"/paste", "/multi"}
@@ -41,6 +42,8 @@ def handle_slash(inp: str):
         cmd_session(arg); return ("ok", False, inp)
     if c == "/rename":
         cmd_session(f"rename {arg}".strip()); return ("ok", False, inp)
+    if handle_project(c, arg):  # /project · /workspace · /p
+        return ("ok", False, inp)
 
     if c == "/mcp":
         from ..mcp.manager import handle_mcp_command

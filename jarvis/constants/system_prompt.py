@@ -2,12 +2,62 @@
 import pathlib
 
 
+_POLICY_LABEL = {"deny": "read-only", "ask": "ask before edit", "allow": "editable"}
+
+
+def _head_branch(root: str) -> str:
+    """Branch name from ``.git/HEAD`` (no subprocess); empty when unknown/detached."""
+    try:
+        head = (pathlib.Path(root) / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    prefix = "ref: refs/heads/"
+    return head[len(prefix):] if head.startswith(prefix) else ""
+
+
+def linked_projects_block(cwd: pathlib.Path | str | None = None) -> str:
+    """Prompt lines naming the projects this one links; "" when there are none."""
+    try:
+        from ..storage import workspace
+
+        roots = [r for r in workspace.roots_for(cwd=cwd) if not r.get("primary")]
+    except Exception:
+        return ""
+    if not roots:
+        return ""
+    master = ""
+    try:
+        here = workspace.current(cwd)
+        if workspace.is_group(here):
+            master = (f"MASTER GROUP '{here['name']}': this folder is only its hub (shared master chat + terminal). "
+                      f"The code lives in the {len(roots)} member project{'s' if len(roots) != 1 else ''} below — "
+                      "do the work there (<id>:path, project=<id>), and when asked which projects you can access, "
+                      "call list_projects.\n")
+    except Exception:
+        pass
+    parts = []
+    for r in roots:
+        branch = _head_branch(r["path"])
+        label = _POLICY_LABEL.get(r.get("write", "ask"), "ask before edit")
+        parts.append(f"{r['id']} -> {r['path']}{f' ({branch})' if branch else ''} [{label}]")
+    lines = [master + "LINKED PROJECTS: " + " | ".join(parts),
+             "Refer to linked files as <id>:path; pass project='*' to search them."]
+    guides = [f"{r['id']}:{n}" for r in roots for n in ("CLAUDE.md", "AGENTS.md")
+              if (pathlib.Path(r["path"]) / n).is_file()]
+    if guides:
+        lines.append("Linked project guides (read when relevant): " + ", ".join(guides))
+    return "\n".join(lines)
+
+
 def build_base_system(cwd: pathlib.Path | None = None, git_branch: str | None = None) -> str:
     cwd = cwd or pathlib.Path.cwd()
     header = f"Jarvis — macOS agent + code assistant running in {cwd}"
     if git_branch:
         header += f" (git: {git_branch})"
     root_line = f"PROJECT ROOT: {cwd}{f'  ({git_branch})' if git_branch else ''}"
+    linked = linked_projects_block(cwd)
+    if linked:
+        root_line += "\n" + linked
     return f"""{header}.
 
 {root_line}

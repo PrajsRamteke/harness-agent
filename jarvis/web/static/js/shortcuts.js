@@ -1,6 +1,8 @@
 /** Global keyboard shortcuts + the "?" cheat sheet */
 import { $, escapeHtml, isMac } from './utils.js';
 import { openModal, topModal } from './modal.js';
+import { switchToSlot } from './wsprojects.js';
+import { openProjectPalette } from './palette.js';
 
 const MOD = isMac ? '⌘' : 'Ctrl';
 const ALT = isMac ? '⌥' : 'Alt';
@@ -23,6 +25,8 @@ const SHEET = [
   { keys: [ALT, 'Shift', 'F'], label: 'Search code in every file' },
   { keys: [MOD, 'Shift', 'P'], label: 'Find a file by name' },
   { keys: [ALT, 'T'], label: 'Light or dark mode' },
+  { keys: [ALT, '1…9'], label: 'Switch to workspace project 1–9 (starts it if it is stopped)' },
+  { keys: [ALT, '0'], label: 'Pick a project (⌘K, projects only)' },
   { keys: ['?'], label: 'This list' },
 ];
 
@@ -42,7 +46,8 @@ function typing(e) {
   return !!e.target.closest?.('input, textarea, [contenteditable="true"]');
 }
 
-/** `handlers`: { newChat, openPicker(kind), toggleTheme, enhance, toggleInspector, toggleSidebar, openFiles } */
+/** `handlers`: { newChat, openPicker(kind), toggleTheme, enhance, toggleInspector, toggleSidebar, openFiles }.
+ *  ⌥ 1…9 / ⌥ 0 (workspace projects) are wired here directly: wsprojects.js + the palette. */
 export function initShortcuts(handlers) {
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || topModal()) return;
@@ -73,6 +78,15 @@ export function initShortcuts(handlers) {
       KeyT: () => handlers.toggleTheme(),
       KeyE: () => handlers.enhance?.(),
     };
+    // ⌥ + digit: workspace projects. Also e.code — ⌥ rewrites the character (⌥ 1 → ¡). Without a
+    // project at that number the key is left alone (it types what it always typed).
+    const digit = /^Digit([0-9])$/.exec(e.code);
+    if (digit && !e.shiftKey) {
+      const n = Number(digit[1]);
+      const done = n === 0 ? (openProjectPalette(), true) : switchToSlot(n);
+      if (done) e.preventDefault();
+      return;
+    }
     const fn = map[e.code];
     if (fn) {
       e.preventDefault();

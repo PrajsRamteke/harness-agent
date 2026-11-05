@@ -38,6 +38,7 @@ class StateWatcher:
         self._busy = busy
         self._projects = projects
         self._last_projects: Any = None
+        self._last_workspace: float | None = None
         self._interval = interval
         self._stop = threading.Event()
         self._last: dict[str, Any] | None = None
@@ -75,6 +76,28 @@ class StateWatcher:
         if self._last_projects is not None and rows != self._last_projects:
             self._bridge.emit("projects", {"projects": rows})
         self._last_projects = rows
+        self._tick_workspace()
+
+    def _adopt_master(self) -> None:
+        """A group hub's first chat becomes the group's shared master chat — even with no page open."""
+        try:
+            from . import master
+
+            master.adopt()
+        except Exception:
+            pass
+
+    def _tick_workspace(self) -> None:
+        """The saved project list (``workspace.json``) changed — here or in another Jarvis."""
+        try:
+            from ..storage import workspace
+
+            rev = workspace.revision()
+        except Exception:
+            return
+        if self._last_workspace is not None and rev != self._last_workspace:
+            self._bridge.emit("workspace", {"revision": rev})
+        self._last_workspace = rev
 
     def mark_synced(self, fields: dict[str, Any]) -> None:
         """The caller just sent pages a snapshot of ``fields`` (a chat tab
@@ -84,10 +107,12 @@ class StateWatcher:
 
     def tick(self) -> str | None:
         """One poll. Returns the event type broadcast (for tests), if any."""
+        self._adopt_master()
         if not self._bridge.has_subscribers():
             # Clients get a full snapshot when they connect; start fresh then.
             self._last = None
             self._last_projects = None
+            self._last_workspace = None
             return None
         self._tick_projects()
         cur = self._current()

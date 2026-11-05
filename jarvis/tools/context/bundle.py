@@ -237,7 +237,7 @@ def _file_size(rel: str) -> int:
         p = robust_resolve(rel)
         if p.is_file():
             return p.stat().st_size
-    except OSError:
+    except Exception:  # OSError, or an `id:path` that can't be honoured
         pass
     return 0
 
@@ -482,13 +482,59 @@ def _unscannable_root() -> str:
     return ""
 
 
-def resolve_context(task: str, mode: str = "", max_chars: int = 0) -> str:
+def _linked_pack(task: str, root: dict, mode: str, cap: int) -> str:
+    """A lighter pack for a linked project: filename-scored targets, no import graph
+    (the graph is built for this project's folder only). Files are named ``id:path``."""
+    import pathlib
+
+    base = pathlib.Path(root["path"])
+    try:
+        files = _extract._scan_source_files(base)
+    except ScanCancelled:
+        return "ERROR: cancelled while indexing the repo"
+    except Exception as exc:
+        return f"Error scanning {root['id']}: {exc}"
+    rels = sorted(f.relative_to(base).as_posix() for f in files if not f.name.startswith(".env"))
+    tokens = _tokenize_task(task)
+    scored = sorted(((_score_file_for_task(r, {}, tokens, {}), r) for r in rels), key=lambda x: (-x[0], x[1]))
+    targets = [r for s, r in scored if s > 0][:5]
+    if not targets:
+        targets = [r for r in rels if any(k in r.lower() for k in ("main", "app", "index", "cli", "__init__"))][:3]
+    items = [(f"{root['id']}:{r}", "root_target") for r in targets]
+    return _build_bundle(
+        items, mode=mode, max_chars=cap, per_file_max=CONTEXT_BUNDLE_PER_FILE_MAX,
+        header_lines=[f"Task: {task}", f"Linked project: {root['id']} ({len(rels)} source files)"],
+    )
+
+
+def resolve_context(task: str, mode: str = "", max_chars: int = 0, project=None) -> str:
     """Resolve a coding task and return a budget-aware Connected Context Pack.
 
     Default mode is ``skeleton``: root targets are read (capped per file); related
     files show symbols/imports only. Use ``mode=full`` for all bodies, or
     ``mode=manifest`` for a path list only (then ``read_bundle`` on key paths).
+    ``project`` adds linked projects' packs (``id:path`` names) — an id, ids, or ``*``.
     """
+    if project not in (None, "", []):
+        from ..linked import resolve_roots
+
+        roots, err = resolve_roots(project)
+        if err:
+            return err
+        mode = _normalize_mode(mode, BUNDLE_DEFAULT_MODE)
+        cap = _pack_cap(max_chars)
+        parts: List[str] = []
+        share = max(4000, cap // max(1, len(roots)))
+        for root in roots:
+            if root.get("primary"):
+                parts.append(_resolve_primary(task, mode, share))
+            else:
+                parts.append(_linked_pack(task, root, mode, share))
+        return "\n\n".join(parts)
+    return _resolve_primary(task, mode, max_chars)
+
+
+def _resolve_primary(task: str, mode: str = "", max_chars: int = 0) -> str:
     mode = _normalize_mode(mode, BUNDLE_DEFAULT_MODE)
     cap = _pack_cap(max_chars)
     refused = _unscannable_root()
@@ -573,7 +619,7 @@ def read_bundle(paths: List[str], mode: str = "", max_chars: int = 0) -> str:
         try:
             rp = robust_resolve(p)
             path_sig.append((p, rp.stat().st_mtime, rp.stat().st_size))
-        except OSError:
+        except Exception:  # OSError, or an `id:path` that can't be honoured (read_file reports it)
             path_sig.append((p, 0, 0))
     cache_key = hashlib.sha256(
         repr((path_sig, mode, cap)).encode()

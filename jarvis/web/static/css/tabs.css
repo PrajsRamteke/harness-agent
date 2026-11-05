@@ -155,6 +155,36 @@
 .ct-new:hover { background: var(--card-hover); color: var(--text); }
 .ct-new:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
+/* Master groups: the pinned master tab (hub) / chips (member projects). A globe in the
+   group's colour; no ×, so the title keeps its full room. */
+.ct-tab.ct-master { flex-shrink: 0; max-width: 240px; }
+.ct-master .ct-main,
+.ct-master:not(.is-active) .ct-main { padding-right: 11px; }
+.ct-globe {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--grp, var(--accent));
+}
+.ct-globe svg { width: 14px; height: 14px; }
+.ct-chip {
+  border-color: color-mix(in srgb, var(--grp, var(--accent)) 28%, var(--line));
+  color: var(--text-2);
+}
+.ct-chip:hover { background: var(--card-hover); color: var(--text); }
+.ct-chip.is-opening { cursor: progress; color: var(--text); }
+.ct-master.is-active { border-color: color-mix(in srgb, var(--grp, var(--accent)) 45%, var(--line)); }
+.ct-sep {
+  flex-shrink: 0;
+  align-self: center;
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line);
+}
+
 /* Touch: no hover, so × is always there; rows a thumb can hit. */
 @media (hover: none) {
   .ct-tab.is-active .ct-close { opacity: 1; } /* close another tab after showing it */

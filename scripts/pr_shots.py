@@ -197,6 +197,38 @@ for chat in json.loads(open(data).read()):
 print(last)
 """
 
+DEMO_SIBLINGS = {  # other projects a demo master group gathers (branch shows in the sidebar row)
+    "acme-api": ("feat/orders", {
+        "README.md": "# Acme API\n\nOrders and accounts service for the demo dashboard.\n",
+        "src/orders.js": "export const listOrders = () => [{ id: 1, total: 42 }];\n",
+    }),
+    "acme-web": ("development", {
+        "README.md": "# Acme web\n\nThe storefront that the dashboard talks to.\n",
+        "src/client.js": "export const apiBase = 'https://api.acme.test';\n",
+    }),
+}
+
+SEED_WORKSPACE = r"""
+import os, sys
+
+tree, home, current = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, tree)
+try:
+    from jarvis.storage import workspace
+except Exception:  # a tree from before the workspace existed: nothing to seed (and that is the point)
+    sys.exit(0)
+try:
+    ids = []
+    for path in [current] + [os.path.join(home, "projects", n) for n in sorted(os.listdir(os.path.join(home, "projects")))
+                             if n != "acme-dashboard"]:
+        if workspace.find_by_path(path) is None:
+            ids.append(workspace.add(path, name=os.path.basename(path))["id"])
+    if ids:
+        workspace.create_group("Acme", ids)
+except Exception as exc:  # a demo, not a test: the shots still work without it
+    print("pr_shots: workspace seed skipped:", exc, file=sys.stderr)
+"""
+
 BOOT = r"""
 import os, runpy, sys
 tree, port = sys.argv[1], sys.argv[2]
@@ -289,6 +321,17 @@ class Instance:
         git("config", "branch.main.merge", "refs/heads/main", cwd=p, env=env)
         for rel, text in DEMO_EDITS.items():
             (p / rel).write_text(text)
+        # Siblings of the demo project, so a master group has members to show.
+        for name, (branch, files) in DEMO_SIBLINGS.items():
+            sib = self.home / "projects" / name
+            for rel, text in files.items():
+                (sib / rel).parent.mkdir(parents=True, exist_ok=True)
+                (sib / rel).write_text(text)
+            git("init", "-q", "-b", "main", cwd=sib, env=env)
+            git("add", "-A", cwd=sib, env=env)
+            git(*ident, "commit", "-q", "-m", f"Initial {name}", cwd=sib, env={
+                **env, "GIT_AUTHOR_DATE": "2026-01-06T10:00:00", "GIT_COMMITTER_DATE": "2026-01-06T10:00:00"})
+            git("checkout", "-q", "-b", branch, cwd=sib, env=env)
         data = self.dir / "chats.json"
         data.write_text(json.dumps(DEMO_CHATS))
         r = subprocess.run([self.python, "-c", SEED, str(self.tree), str(p), str(data)], cwd=p, env=env,
@@ -296,6 +339,11 @@ class Instance:
         if r.returncode != 0:
             raise ShotError(f"{self.label}: seeding demo chats failed: {r.stderr.strip()[-600:]}")
         self.resume = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+        # A workspace with one master group over the demo projects (skipped on trees without it).
+        w = subprocess.run([self.python, "-c", SEED_WORKSPACE, str(self.tree), str(self.home), str(p)],
+                           cwd=p, env=env, capture_output=True, text=True, timeout=120)
+        if w.returncode != 0:
+            raise ShotError(f"{self.label}: seeding the demo workspace failed: {w.stderr.strip()[-600:]}")
 
     def start(self) -> None:
         env = clean_env(self.home)

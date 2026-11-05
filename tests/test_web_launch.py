@@ -13,12 +13,23 @@ import pytest
 from jarvis import state
 from jarvis.web import fs_api, launcher, registry
 from jarvis.web.bridge import WebBridge
+from jarvis.storage import workspace as ws
 from jarvis.web.server import start_web_server, stop_web_server
+
+
+def _workspace(*folders: Path, startup: str = "lazy") -> list[dict]:
+    """Write a workspace file holding ``folders`` (a tmp folder is refused by ``ws.add``, so it is written directly)."""
+    rows = [{"id": f.name, "path": str(f), "name": f.name, "startup": startup} for f in folders]
+    ws.WORKSPACE_FILE.write_text(json.dumps({"projects": rows, "order": [r["id"] for r in rows]}))
+    return ws.load(fresh=True)["projects"]
 
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     inst = tmp_path / "instances"
+    monkeypatch.setattr(ws, "WORKSPACE_FILE", tmp_path / "workspace.json")
+    monkeypatch.setattr(ws, "LOCK_FILE", tmp_path / "workspace.lock")
+    registry._cache.clear()
     monkeypatch.setattr(registry, "INSTANCES_DIR", inst)
     monkeypatch.setattr(launcher, "LOG_DIR", inst / "logs")
     monkeypatch.setattr(launcher, "SNAPSHOT_FILE", tmp_path / "workspace_snapshot.json")
@@ -217,6 +228,109 @@ def test_open_starts_a_jarvis_in_the_folder_and_it_is_listed(isolated, fake_chil
     second = launcher.open_project(str(work / "api"), reuse=False)
     assert _wait(second["launch"]["id"])["status"] == "ready"
     assert len([r for r in registry.list_instances() if Path(r["cwd"]).name == "api"]) == 2
+
+
+def test_launch_reports_boot_time_and_starting_paths(isolated, fake_child):
+    work = _tree(isolated)
+    res = launcher.open_project("~/work/api")
+    assert launcher.starting_paths() == [str((work / "api").resolve())]
+    st = _wait(res["launch"]["id"])
+    assert st["status"] == "ready" and 0 < st["boot_secs"] <= st["elapsed"] + 0.1
+    assert launcher.starting_paths() == []
+    log = Path(launcher.LOG_DIR).glob("*api*.log")
+    assert any("[jarvis-launch] ready in" in p.read_text() for p in log)
+
+
+def test_a_failed_launch_is_not_starting_any_more(isolated, fake_child, monkeypatch):
+    _tree(isolated)
+    monkeypatch.setenv("FAKE_MODE", "crash")
+    res = launcher.open_project("~/work/api")
+    assert _wait(res["launch"]["id"])["status"] == "failed"
+    assert launcher.starting_paths() == []
+
+
+def test_stopping_a_workspace_project_saves_its_last_state(isolated, fake_child):
+    work = _tree(isolated)
+    _workspace(work / "api", work / "web")
+    st = _wait(launcher.open_project("~/work/api", resume_session=11)["launch"]["id"])
+    assert launcher.stop_project(st["instance_id"])["ok"]
+    last = ws.get("api")["last_state"]
+    assert last["session_id"] == 11 and isinstance(last["last_active"], float)
+    assert ws.get("web")["last_state"] == {}
+
+
+def test_stopping_a_folder_outside_the_workspace_writes_nothing(isolated, fake_child):
+    work = _tree(isolated)
+    _workspace(work / "web")
+    before = ws.WORKSPACE_FILE.read_text()
+    st = _wait(launcher.open_project("~/work/api")["launch"]["id"])
+    assert launcher.stop_project(st["instance_id"])["ok"]
+    assert ws.WORKSPACE_FILE.read_text() == before
+
+
+def test_stop_all_saves_last_state_for_each_workspace_project(isolated, fake_child):
+    work = _tree(isolated)
+    _workspace(work / "api", work / "web")
+    for name in ("api", "web"):
+        _wait(launcher.open_project(f"~/work/{name}")["launch"]["id"])
+    term = registry.Registration(instance_id="term", port=1, token="t", info=lambda: {"project": "cli", "headless": False})
+    term.start()
+    try:
+        assert launcher.stop_all("term")["ok"]
+    finally:
+        term.stop()
+    assert all(ws.get(n)["last_state"].get("session_id") == 7 for n in ("api", "web"))
+
+
+def test_a_stopping_remote_saves_its_last_state(isolated, monkeypatch):
+    work = _tree(isolated)
+    (work / "api" / ".git" / "HEAD").write_text("ref: refs/heads/feature/x\n")
+    _workspace(work / "api")
+    monkeypatch.chdir(work / "api")
+    bridge = WebBridge()
+    srv, _urls, _port = start_web_server(bridge=bridge, app=_App(), port=29320, host="127.0.0.1", instance_id="own1")
+    rec = registry.get("own1")
+    assert rec["branch"] == "feature/x" and rec["workspace_project"] == "api"
+    assert isinstance(rec["last_active"], int) and rec["attached"] is False
+    stop_web_server(srv, bridge)
+    last = ws.get("api")["last_state"]
+    assert last["branch"] == "feature/x" and last["last_active"] >= rec["last_active"]
+
+
+def test_instance_info_is_stable_between_ticks(isolated, monkeypatch):
+    from jarvis.web.server import _instance_info
+
+    work = _tree(isolated)
+    monkeypatch.chdir(work / "api")
+    app = _App()
+    info = _instance_info(app, WebBridge())
+    first = info()
+    time.sleep(1.1)
+    assert info() == first                       # idle: nothing moves, so the registry isn't rewritten
+    app._busy = True
+    time.sleep(1.1)
+    busy = info()
+    assert busy["busy"] and busy["last_active"] >= first["last_active"]
+    app._busy = False
+    assert info()["last_active"] >= busy["last_active"]
+
+
+def test_git_branch_reads_head_and_worktree_files(tmp_path):
+    repo = tmp_path / "r"
+    (repo / "sub").mkdir(parents=True)
+    assert registry._read_branch(str(repo)) == ""
+    (repo / ".git").mkdir()
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    assert registry._read_branch(str(repo / "sub")) == "main"
+    (repo / ".git" / "HEAD").write_text("0123456789abcdef\n")
+    assert registry._read_branch(str(repo)) == "01234567"
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    gitdir = tmp_path / "gd"
+    gitdir.mkdir()
+    (gitdir / "HEAD").write_text("ref: refs/heads/wt-branch\n")
+    (wt / ".git").write_text(f"gitdir: {gitdir}\n")
+    assert registry._read_branch(str(wt)) == "wt-branch"
 
 
 def test_stop_ends_a_web_opened_jarvis(isolated, fake_child):

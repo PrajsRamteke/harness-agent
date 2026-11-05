@@ -9,6 +9,10 @@
  * `onChange(keys)` receives the new order. `onActive(true|false)` brackets a
  * drag so the caller can hold back re-renders (they would replace the nodes
  * being dragged).
+ *
+ * A group may carry `data-zone` (the workspace's rows are `ws`, other running
+ * folders `adhoc`): it only moves among groups of its own zone, and `onChange`
+ * gets the zone as its second argument (`''` when there are none).
  */
 
 const HOLD_MS = 280;      // touch: how long to press before the drag starts
@@ -21,8 +25,9 @@ export function initReorder(list, { onChange, onActive } = {}) {
   let st = null;          // the press / drag in progress
   let suppressClick = false;
 
-  const items = () => [...list.querySelectorAll(`:scope > ${ITEM}`)];
-  const keysNow = () => items().map((el) => el.dataset.key);
+  const zoneOf = (el) => el.dataset.zone || '';
+  const items = (zone) => [...list.querySelectorAll(`:scope > ${ITEM}`)].filter((el) => zone === undefined || zoneOf(el) === zone);
+  const keysNow = (zone) => items(zone).map((el) => el.dataset.key);
   const listY = (clientY) => clientY - list.getBoundingClientRect().top;
 
   /** Move `sib` in the DOM via `mutate` and slide it from where it was to where it is now. */
@@ -44,7 +49,7 @@ export function initReorder(list, { onChange, onActive } = {}) {
     // Swap past every neighbour whose middle the dragged group's middle has crossed.
     for (let moved = true; moved;) {
       moved = false;
-      const all = items();
+      const all = items(st.zone);
       const i = all.indexOf(el);
       const center = top + el.offsetHeight / 2;
       const prev = all[i - 1];
@@ -57,9 +62,12 @@ export function initReorder(list, { onChange, onActive } = {}) {
         moved = true;
       }
     }
-    // Keep it inside the list.
-    const max = list.offsetHeight - el.offsetHeight;
-    const clamped = Math.min(Math.max(top, 0), Math.max(max, 0));
+    // Keep it inside its own zone of the list.
+    const zone = items(st.zone);
+    const min = zone[0].offsetTop;
+    const last = zone[zone.length - 1];
+    const max = last.offsetTop + last.offsetHeight - el.offsetHeight;
+    const clamped = Math.min(Math.max(top, min), Math.max(max, min));
     el.style.transform = `translateY(${clamped - el.offsetTop}px)`;
   }
 
@@ -95,18 +103,18 @@ export function initReorder(list, { onChange, onActive } = {}) {
     }, DROP_MS);
     suppressClick = true;
     setTimeout(() => { suppressClick = false; }, 60);
-    if (commit) onChange?.(keysNow());
+    if (commit) onChange?.(keysNow(cur.zone), cur.zone);
     onActive?.(false);
   }
 
   list.addEventListener('pointerdown', (e) => {
     if (st) end(false);
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.closest('.pr-stop')) return;
+    if (e.target.closest('.pr-stop, .ws-more, .pr-add, .ws-act')) return;
     const el = e.target.closest(ITEM);
-    if (!el || el.parentElement !== list || items().length < 2) return;
+    if (!el || el.parentElement !== list || items(zoneOf(el)).length < 2) return;
     const touch = e.pointerType !== 'mouse';
-    st = { el, id: e.pointerId, touch, startX: e.clientX, startY: e.clientY, y: e.clientY, active: false, grab: 0, timer: 0 };
+    st = { el, zone: zoneOf(el), id: e.pointerId, touch, startX: e.clientX, startY: e.clientY, y: e.clientY, active: false, grab: 0, timer: 0 };
     if (touch) st.timer = setTimeout(() => { if (st && !st.active) begin(); }, HOLD_MS);
   });
 
@@ -149,11 +157,11 @@ export function initReorder(list, { onChange, onActive } = {}) {
     const el = e.target.closest(ITEM);
     if (!el || el.parentElement !== list) return;
     const sib = e.key === 'ArrowUp' ? el.previousElementSibling : el.nextElementSibling;
-    if (!sib?.matches(ITEM)) return;
+    if (!sib?.matches(ITEM) || zoneOf(sib) !== zoneOf(el)) return;
     e.preventDefault();
     const focused = document.activeElement;
     list.insertBefore(el, e.key === 'ArrowUp' ? sib : sib.nextElementSibling);
     if (focused instanceof HTMLElement) focused.focus();
-    onChange?.(keysNow());
+    onChange?.(keysNow(zoneOf(el)), zoneOf(el));
   });
 }

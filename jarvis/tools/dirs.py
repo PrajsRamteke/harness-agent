@@ -1,7 +1,8 @@
 """Directory listing, glob, and lightweight file ranking."""
 import os, pathlib, re, shutil, subprocess
 from ..constants import CWD, OCR_SCAN_CHARS
-from ..path_resolve import project_scope_error, robust_resolve
+from ..path_resolve import display_ref, guard_refs, linked_root_for, project_scope_error, robust_resolve
+from .linked import base_for, resolve_roots
 
 SKIP_DIRS = {
     ".git", ".hg", ".svn", "node_modules", ".venv", "venv", "__pycache__",
@@ -16,6 +17,7 @@ DOC_EXTS = {".pdf", ".doc", ".docx", ".rtf"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".webp", ".tif", ".tiff", ".bmp"}
 
 
+@guard_refs
 def list_dir(path: str = ".", show_all: bool = False, allow_outside_project: bool = False) -> str:
     p = robust_resolve(path)
     if not p.exists(): return f"ERROR: {path} not found"
@@ -30,27 +32,64 @@ def list_dir(path: str = ".", show_all: bool = False, allow_outside_project: boo
     if not show_all:
         hidden = sum(1 for x in p.iterdir() if x.name in SKIP_DIRS)
     items = items[:300]
-    lines = [f"{'d' if x.is_dir() else 'f'} {x}" for x in items]
+    # Inside a linked project the entries are named the way the model must pass them back: `api:src/x.ts`.
+    linked = linked_root_for(p) is not None
+    lines = [f"{'d' if x.is_dir() else 'f'} {display_ref(x) if linked else x}" for x in items]
     if hidden:
         lines.append(f"… ({hidden} entries hidden: node_modules/build/caches — pass show_all=true to include)")
     return "\n".join(lines)
 
 
+def _bases(path: str, project) -> tuple[list[pathlib.Path], str | None]:
+    """The folders/files a ``path`` (+ optional ``project``) names: one per selected root."""
+    if project in (None, "", []):
+        return [robust_resolve(path)], None
+    roots, err = resolve_roots(project)
+    if err:
+        return [], err
+    out: list[pathlib.Path] = []
+    for root in roots:
+        base, berr = base_for(root, path)
+        if berr:
+            return [], berr
+        if base is not None and base not in out:
+            out.append(base)
+    return out, None
+
+
+def _glob_label(p: pathlib.Path, root: pathlib.Path) -> str:
+    try:
+        return str(p.relative_to(CWD))
+    except ValueError:
+        pass
+    if linked_root_for(p) is not None:
+        return display_ref(p)
+    try:
+        return str(p.relative_to(root))
+    except ValueError:
+        return str(p)
+
+
+@guard_refs
 def glob_files(
     pattern: str,
     path: str = ".",
     max_results: int = 200,
     allow_outside_project: bool = False,
+    project=None,
 ) -> str:
-    root = robust_resolve(path)
-    if not root.exists():
-        return f"ERROR: {path} not found"
-    if not root.is_dir():
-        return f"ERROR: {path} is not a directory"
-    if not allow_outside_project:
-        scope_err = project_scope_error(root, "glob_files", "allow_outside_project=true")
-        if scope_err:
-            return scope_err
+    roots, err = _bases(path, project)
+    if err:
+        return err
+    for root in roots:
+        if not root.exists():
+            return f"ERROR: {path} not found"
+        if not root.is_dir():
+            return f"ERROR: {path} is not a directory"
+        if not allow_outside_project:
+            scope_err = project_scope_error(root, "glob_files", "allow_outside_project=true")
+            if scope_err:
+                return scope_err
     try:
         max_results = max(1, min(1000, int(max_results)))
     except (TypeError, ValueError):
@@ -63,26 +102,22 @@ def glob_files(
         return "ERROR: pass absolute search roots via `path` and keep `pattern` relative."
 
     matches = []
-    for p in sorted(root.glob(pat)):
-        if len(matches) >= max_results:
-            break
-        if not p.is_file() or (not allow_outside_project and _is_skipped(p)):
-            continue
-        try:
-            label = str(p.relative_to(CWD))
-        except ValueError:
-            try:
-                label = str(p.relative_to(root))
-            except ValueError:
-                label = str(p)
-        matches.append(label)
+    for root in roots:
+        for p in sorted(root.glob(pat)):
+            if len(matches) >= max_results:
+                break
+            if not p.is_file() or (not allow_outside_project and _is_skipped(p)):
+                continue
+            matches.append(_glob_label(p, root))
 
     if not matches:
-        try:
-            searched = str(root.relative_to(CWD)) or "."
-        except ValueError:
-            searched = str(root)
-        return f"no matches under {searched} for {pat}"
+        searched = []
+        for root in roots:
+            try:
+                searched.append(str(root.relative_to(CWD)) or ".")
+            except ValueError:
+                searched.append(display_ref(root) if linked_root_for(root) is not None else str(root))
+        return f"no matches under {', '.join(searched)} for {pat}"
     return "\n".join(matches)
 
 
@@ -112,6 +147,12 @@ def fast_find(
         return "ERROR: query is required"
 
     scope = os.path.expanduser(path).strip() if path else ""
+    if scope and ':' in scope and scope[:1].isalnum():
+        try:
+            ref = robust_resolve(scope)
+        except Exception as exc:  # unlinked / escaping `id:path`
+            return f"ERROR: {exc}"
+        scope = str(ref) if ref.exists() and linked_root_for(ref) is not None else scope
     if scope and not os.path.isabs(scope):
         scope = str((CWD / scope).resolve())
     if scope and not os.path.isdir(scope):
@@ -194,7 +235,16 @@ def _safe_rel(path: pathlib.Path) -> str:
     try:
         return str(path.relative_to(CWD))
     except ValueError:
-        return str(path)
+        pass
+    if linked_root_for(path) is not None:
+        return display_ref(path)      # `api:src/x.ts`
+    return str(path)
+
+
+def _match_text(rel: str) -> str:
+    """The part of a ranked label worth matching terms against (not the `api:` project prefix)."""
+    head, sep, tail = rel.partition(":")
+    return tail if sep and head and "/" not in head and "\\" not in head and len(head) > 1 else rel
 
 
 def _snippet(path: pathlib.Path, terms: list[str], max_chars: int) -> str:
@@ -212,6 +262,7 @@ def _snippet(path: pathlib.Path, terms: list[str], max_chars: int) -> str:
     return " ".join(text[start:start + max_chars].split())
 
 
+@guard_refs
 def rank_files(
     query: str,
     path: str = ".",
@@ -221,15 +272,19 @@ def rank_files(
     include_snippets: bool = False,
     max_snippet_chars: int = 240,
     allow_outside_project: bool = False,
+    project=None,
 ) -> str:
     """Rank likely relevant files before expensive reads/OCR/PDF extraction."""
-    root = _resolve(path)
-    if not root.exists():
-        return f"ERROR: {path} not found"
-    if not allow_outside_project:
-        scope_err = project_scope_error(root, "rank_files", "allow_outside_project=true")
-        if scope_err:
-            return scope_err
+    bases, err = _bases(path, project)
+    if err:
+        return err
+    for root in bases:
+        if not root.exists():
+            return f"ERROR: {path} not found"
+        if not allow_outside_project:
+            scope_err = project_scope_error(root, "rank_files", "allow_outside_project=true")
+            if scope_err:
+                return scope_err
     try:
         max_files = max(1, min(100, int(max_files)))
         scan_limit = max(20, min(3000, int(scan_limit)))
@@ -238,20 +293,24 @@ def rank_files(
         max_files, scan_limit, max_snippet_chars = 30, 700, 240
 
     terms = _terms(query)
-    if root.is_file():
-        candidates = [root]
-    else:
-        candidates = []
+    candidates: list[pathlib.Path] = []
+    per_root = max(20, scan_limit // len(bases))
+    for root in bases:
+        if root.is_file():
+            candidates.append(root)
+            continue
+        found = 0
         for p in root.glob(pattern):
-            if len(candidates) >= scan_limit:
+            if found >= per_root:
                 break
             if p.is_file() and not _is_skipped(p):
                 candidates.append(p)
+                found += 1
 
     ranked = []
     for p in candidates:
         rel = _safe_rel(p)
-        hay = rel.lower()
+        hay = _match_text(rel).lower()
         score = 0
         reasons = []
         for term in terms:

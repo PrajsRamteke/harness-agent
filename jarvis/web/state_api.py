@@ -333,7 +333,23 @@ def _cwd_fields() -> dict[str, Any]:
         cwd = os.getcwd()
     except OSError:
         cwd = ""
-    return {"cwd": cwd, "cwd_display": display(cwd) if cwd else "", "headless": bool(state.headless)}
+    fields: dict[str, Any] = {
+        "cwd": cwd, "cwd_display": display(cwd) if cwd else "", "headless": bool(state.headless),
+        "workspace_project": None, "links": [],
+    }
+    try:  # the saved project this folder belongs to, and the projects its agent may reach
+        from ..storage import workspace
+
+        proj = workspace.current(cwd) if cwd else None
+        if proj is not None:
+            fields["workspace_project"] = proj["id"]
+            fields["links"] = [p["id"] for p in workspace.links_of(proj)]
+    except Exception:
+        pass
+    from . import master
+
+    fields.update(master.fields(cwd))  # `master` (this is a group hub) / `masters` (groups it belongs to)
+    return fields
 
 
 def _project_name() -> str:
@@ -355,7 +371,7 @@ def jobs_fields() -> list[dict[str, Any]]:
     except Exception:
         return []
     out: list[dict[str, Any]] = []
-    for job in background.jobs()[-12:]:
+    for job in background.my_jobs()[-12:]:  # the shown tab's chat only
         running = job.running
         out.append({
             "id": job.id,

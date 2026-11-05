@@ -1,0 +1,59 @@
+/* Multi-project display: project badges (tool rows, inline diffs), the Changes drawer's
+ * project groups, and the "Linked: api, infra" chip above the composer.
+ * --pc is a project's colour (set from /api/workspace); unset, a neutral grey. */
+
+/* ── Badge: colour dot + project name ─────────────────────────────────── */
+.pbadges { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; min-width: 0; }
+.pbadge {
+  --pc: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 140px;
+  height: 18px;
+  padding: 0 7px 0 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--pc) 38%, var(--line));
+  background: color-mix(in srgb, var(--pc) 10%, transparent);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.pbadge i { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--pc); }
+.pbadge b { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: inherit; }
+.tool-head .pbadges { margin-right: 2px; }
+.diff-head .pbadge { margin-right: 2px; }
+
+/* ── Changes drawer: one header per project when several are involved ─── */
+.chg-group {
+  --pc: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 2px 0;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--pc) 30%, var(--line));
+  font-size: 12px;
+  color: var(--text-2);
+}
+.chg-group:first-child { margin-top: 0; }
+.chg-group[hidden] { display: none; }
+.chg-group-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--pc); }
+.chg-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text); }
+.chg-group-n { margin-left: auto; flex-shrink: 0; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* ── Composer chip: Linked: api, infra ────────────────────────────────── */
+.dock-chip.is-links {
+  padding: 3px 10px;
+  color: var(--text-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  transition: border-color var(--dur-fast), color var(--dur-fast);
+}
+.dock-chip.is-links:hover { border-color: var(--accent-line); color: var(--text); }
+.dock-chip.is-links:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }

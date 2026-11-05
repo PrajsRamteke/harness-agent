@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import IO, Callable
 
 from ..constants import CONFIG_DIR
-from ..path_resolve import project_scope_error, robust_resolve
+from ..path_resolve import linked_root_for, project_scope_error, robust_resolve
 
 DRAFTS_DIR = CONFIG_DIR / "drafts"
 LIVE_TOOL = "write_file"
@@ -77,7 +77,10 @@ def discard(path: str) -> None:
     created (only if it is still exactly what the live write left)."""
     if not path:
         return
-    p = robust_resolve(path)
+    try:
+        p = robust_resolve(path)
+    except Exception:  # an `id:path` that can't be resolved owns nothing
+        return
     if not _owns(p):
         return
     with _owned_lock:
@@ -350,7 +353,7 @@ class _LiveWrite:
     def _open(self) -> None:
         try:
             p = robust_resolve(self.path)
-        except (OSError, RuntimeError, ValueError):
+        except Exception:  # OSError, or an `id:path` the workspace refuses
             self.off = True
             return
         if p.is_dir():
@@ -360,6 +363,8 @@ class _LiveWrite:
 
         to_draft = (self.drafts_only or state.plan_mode
                     or project_scope_error(p, LIVE_TOOL) is not None
+                    # a linked project's write policy is decided by the write itself, never by a draft stream
+                    or linked_root_for(p) is not None
                     or (p.exists() and not _owns(p)))
         try:
             if to_draft:

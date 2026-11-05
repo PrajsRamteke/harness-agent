@@ -239,6 +239,8 @@ def test_every_element_id_the_scripts_look_up_exists():
         # … and its primary action button: toolbar({ …, action: { id: 'x' } }).
         built_by_helpers |= set(re.findall(r"action:\s*\{[^}]*\bid:\s*'([\w-]+)'", src))
         built_by_helpers |= set(re.findall(r"\bfield\('([\w-]+)'", src))
+        # wsprojects.js make('button', { …, id: 'x' }) assigns the id with Object.assign.
+        built_by_helpers |= set(re.findall(r"\bmake\('[\w-]+',\s*\{[^}]*\bid:\s*'([\w-]+)'", src))
     for name, src in js.items():
         for ident in set(re.findall(r"\$\('([\w-]+)'\)", src)) - built_by_helpers:
             if f'id="{ident}"' not in markup and f"id='{ident}'" not in markup:

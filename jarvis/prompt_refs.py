@@ -5,6 +5,7 @@ Syntax:
   @jarvis/tui/app.py
   @./scripts/install
   @"path with spaces/file.py"
+  @api:src/x.ts          (a file in a linked workspace project)
 
 On submit, each reference is read and appended as an attached file block.
 """
@@ -15,7 +16,7 @@ import re
 from typing import List, Optional, Tuple
 
 from .constants import CWD, MAX_FILE_READ
-from .path_resolve import robust_resolve
+from .path_resolve import display_ref, robust_resolve
 from .tools.dirs import SKIP_DIRS
 from .tools.files import read_file
 
@@ -83,7 +84,8 @@ def replace_file_ref_at_cursor(
     line = lines[row]
     col = max(0, min(col, len(line)))
     # Directories keep trailing slash and no space so the user can keep typing.
-    suffix = "" if rel_path.endswith("/") else " "
+    # (`@api:` — a linked project's id — also keeps the cursor attached for the path.)
+    suffix = "" if rel_path.endswith(("/", ":")) else " "
     token = f"@{rel_path}{suffix}"
     new_line = line[:start_col] + token + line[col:]
     lines[row] = new_line
@@ -99,11 +101,12 @@ def _path_has_hidden_component(rel: str) -> bool:
     return any(_is_hidden_name(part) for part in rel.replace("\\", "/").split("/") if part)
 
 
-def _list_root_picker_entries() -> List[str]:
+def _list_root_picker_entries(base=None, prefix: str = "") -> List[str]:
     """Non-hidden files and folders at project root (empty @ query)."""
     entries: List[str] = []
+    base = base or CWD
     try:
-        items = sorted(CWD.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+        items = sorted(base.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
     except OSError:
         return entries
     for entry in items:
@@ -112,10 +115,19 @@ def _list_root_picker_entries() -> List[str]:
         if entry.is_dir():
             if entry.name in SKIP_DIRS:
                 continue
-            entries.append(f"{entry.name}/")
+            entries.append(f"{prefix}{entry.name}/")
         elif entry.is_file():
-            entries.append(entry.name)
+            entries.append(f"{prefix}{entry.name}")
     return entries
+
+
+def _linked_ref_roots() -> List[dict]:
+    try:
+        from .path_resolve import linked_roots
+
+        return linked_roots()
+    except Exception:
+        return []
 
 
 def search_project_files(query: str, max_results: int = 50) -> List[str]:
@@ -124,17 +136,31 @@ def search_project_files(query: str, max_results: int = 50) -> List[str]:
     Empty query: only non-hidden files and folders at the project root.
     With a query: search the tree (still skips hidden paths and SKIP_DIRS).
     """
+    import pathlib
+
     q = (query or "").strip().lower()
     try:
         max_results = max(1, min(200, int(max_results)))
     except (TypeError, ValueError):
         max_results = 50
 
-    if not q:
-        return _list_root_picker_entries()[:max_results]
+    base, prefix, tags = CWD, "", []
+    for root in _linked_ref_roots():
+        tag = f"{root['id']}:"
+        if q.startswith(tag):  # `@api:…` → files under that linked root
+            base, prefix, q, tags = pathlib.Path(root["path"]), tag, q[len(tag):], []
+            break
+        if not q or root["id"].startswith(q):
+            tags.append(tag)
 
+    if not q:
+        return (_list_root_picker_entries(base, prefix) + tags)[:max_results]
+    return (tags + _search_tree(base, q, max_results, prefix))[:max_results]
+
+
+def _search_tree(base, q: str, max_results: int, prefix: str) -> List[str]:
     scored: List[Tuple[int, str]] = []
-    for root_dir, dirs, names in os.walk(CWD, topdown=True):
+    for root_dir, dirs, names in os.walk(base, topdown=True):
         dirs[:] = [
             d for d in dirs
             if d not in SKIP_DIRS and not _is_hidden_name(d)
@@ -144,7 +170,7 @@ def search_project_files(query: str, max_results: int = 50) -> List[str]:
                 continue
             full = os.path.join(root_dir, name)
             try:
-                rel = os.path.relpath(full, CWD)
+                rel = os.path.relpath(full, base)
             except ValueError:
                 continue
             if rel.startswith("..") or _path_has_hidden_component(rel):
@@ -180,10 +206,10 @@ def search_project_files(query: str, max_results: int = 50) -> List[str]:
         if rel in seen:
             continue
         seen.add(rel)
-        p = CWD / rel
+        p = base / rel
         if not p.is_file():
             continue
-        out.append(rel)
+        out.append(prefix + rel)
         if len(out) >= max_results:
             break
     return out
@@ -204,11 +230,13 @@ def expand_file_refs(text: str) -> Tuple[str, List[str]]:
     total_chars = len(text or "")
 
     for ref in refs[:MAX_PROMPT_REF_FILES]:
-        content = read_file(ref)
-        p = robust_resolve(ref)
+        content = read_file(ref)  # `api:path` for a linked project; a bad ref comes back as ERROR text
         try:
-            display = str(p.relative_to(CWD)).replace("\\", "/")
-        except ValueError:
+            p = robust_resolve(ref)
+            display = display_ref(p).replace("\\", "/")
+            if display.startswith("/") or display.startswith(".."):
+                display = ref
+        except Exception:
             display = ref
 
         if content.startswith("ERROR:"):
