@@ -115,17 +115,41 @@ function header(kind, title, sub) {
 
 // ─── Shell approval ───────────────────────────────────────────────────────
 
+/** Linked-project approvals reuse this card with a `# …` first line (tools/shell.py):
+ * "# Edit a file in api (linked project)?" or "# in project api: /path". Say so in the heading. */
+function approvalKind(cmd) {
+  const edit = /^# (Edit a file in .+ \(linked project\)\?)\n/.exec(cmd);
+  if (edit) {
+    return {
+      title: edit[1], sub: 'Jarvis wants to change a file in another project you linked.',
+      go: 'Allow', note: '“Always allow” covers edits to that project for this session.',
+    };
+  }
+  const run = /^# in project ([^\n:]+):/.exec(cmd);
+  if (run) {
+    return {
+      title: `Run this command in ${run[1]}?`, sub: `Jarvis wants to run this in the linked project ${run[1]}.`,
+      go: 'Run', note: '“Always allow” skips this prompt for matching commands.',
+    };
+  }
+  return {
+    title: 'Run this command?', sub: 'Jarvis wants to run this in a shell on your computer.',
+    go: 'Run', note: '“Always allow” skips this prompt for matching commands.',
+  };
+}
+
 export function renderShellApproval(data) {
   setActive({ id: data.id, kind: 'shell_approval' });
+  const k = approvalKind(String(data.cmd || ''));
   card().innerHTML = `
-    ${header('warn', 'Run this command?', 'Jarvis wants to run this in a shell on your computer.')}
+    ${header('warn', k.title, k.sub)}
     <pre class="cmd-preview">${escapeHtml(data.cmd || '')}</pre>
     <div class="prompt-actions">
       <button type="button" class="btn btn-danger" data-val="n">${icon('x')}<span>Deny</span><kbd>N</kbd></button>
       <button type="button" class="btn" data-val="a">${icon('shield-check')}<span>Always allow</span><kbd>A</kbd></button>
-      <button type="button" class="btn btn-primary" data-val="y" data-autofocus>${icon('play')}<span>Run</span><kbd>Y</kbd></button>
+      <button type="button" class="btn btn-primary" data-val="y" data-autofocus>${icon('play')}<span>${k.go}</span><kbd>Y</kbd></button>
     </div>
-    <p class="prompt-note">“Always allow” skips this prompt for matching commands.</p>`;
+    <p class="prompt-note">${k.note}</p>`;
   card().querySelectorAll('[data-val]').forEach((btn) => {
     btn.addEventListener('click', () => answer(btn.dataset.val));
   });

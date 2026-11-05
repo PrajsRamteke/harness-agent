@@ -13,14 +13,25 @@
  * opening the panel again re-attaches to them (their output replays from the
  * server's buffer). Only a tab's × ends a shell.
  *
+ * Across projects (workspace): a shell opened for project X lives in X's own
+ * Jarvis (`s.inst` = its instance id, reached through `/p/<id>/api/terminal/*`
+ * — `apiAt`), survives switching the chat to another project, and shows up in
+ * X too. Tabs carry the project's colour + name once the workspace has two
+ * projects; "Show all projects' terminals" decides whether the other
+ * projects' shells get a tab here; the All-terminals view lists every shell
+ * of every running project. The pump holds one `poll` per instance.
+ *
  * The AI tools on top (error chip, selection → chat, clickable links, ⌘K
  * command writer) live in terminal_ai.js.
  */
-import { $, storageGet, storageSet, showToast, copyText, haptic, debounce } from './utils.js';
-import { api } from './api.js';
+import { $, escapeHtml, storageGet, storageSet, showToast, copyText, haptic, debounce } from './utils.js';
+import {
+  apiAt, fetchWorkspace, fetchWorkspaceTerminals, openWorkspaceProject, fetchLaunch,
+} from './api.js';
 import { icon } from './icons.js';
 import { isLightTheme } from './theme.js';
-import { allProjects, currentProjectId } from './projects.js';
+import { allProjects, currentProjectId, hostProjectId, findProject } from './projects.js';
+import { groupInfo } from './tabs.js';
 import {
   initTerminalAi, attachAi, detachAi, noteInput, afterOutput, clearAi, handleAiKey,
 } from './terminal_ai.js';
@@ -29,10 +40,15 @@ const HEIGHT_KEY = 'jarvis-term-h';
 const MIN_H = 140;
 const DEFAULT_H = 300;
 const MIN_CHAT = 120;   // transcript rows always left above the panel
-const MAX_SESSIONS = 8;
+const MAX_SESSIONS = 24;   // tabs on this page (each project's Jarvis allows PER_INSTANCE of its own)
+const PER_INSTANCE = 8;
 const MIN_DOCK_REST = 160;  // rows the Files drawer keeps above a panel docked in it
 const RESIZE_MS = 80;              // a size change reaches the shell at most this late
 const HIDDEN_PAUSE_MS = 45_000;    // a background tab lets go of its held request (api.js does too)
+const ALL_KEY = 'jarvis-term-all';   // '1' | '0': other projects' shells get a tab here (unset: on with >= 2 projects)
+const MAX_PUMPS = 6;                // instances polled at once (the browser allows ~6 connections per host)
+const LAUNCH_POLL_MS = 1000;
+const LAUNCH_POLLS = 90;
 const COARSE = window.matchMedia?.('(pointer: coarse)');
 
 const state = {
@@ -40,17 +56,23 @@ const state = {
   max: false,
   split: false,
   height: Math.max(MIN_H, Number(storageGet(HEIGHT_KEY, DEFAULT_H)) || DEFAULT_H),
-  sessions: [],   // { id, title, term, fit, search, pane, cursor, exited, disposed, queue, flush }
+  // { id, inst (instance id of the Jarvis the shell lives in), explicit (opened here on purpose),
+  //   stopped (that project closed), title, term, fit, search, pane, cursor, exited, disposed, queue, flush }
+  sessions: [],
   active: null,
   secondary: null,
   allowed: true,
+  allView: false,     // the All-terminals view is showing
   remoteLive: false,  // shells already running on the server before this page attached
 };
 
 const el = {};
 let built = false;
 let attaching = null;   // the in-flight re-attach / first spawn
-const pump = { running: false, abort: null };
+// One held poll per instance that has tabs: instance id → { running, abort }.
+const pumps = new Map();
+const ws = { projects: [], at: 0 };   // the workspace rows (GET /api/workspace), for badges + the menu
+const instAllowed = new Map();        // instance id → may this page open shells there (tunnel policy)
 let hiddenSince = 0;
 // Docked in another view (the Files drawer): where it lives, what it shares
 // its height with, and who takes the focus when it hides there.
@@ -111,6 +133,7 @@ function build() {
 
   applyHeight();
   el.btn.addEventListener('click', () => (state.open ? hide() : open()));
+  buildExtras();
   $('term-hide').addEventListener('click', () => hide({ focusComposer: true }));
   $('term-add').addEventListener('click', () => spawn());
   $('term-empty-new').addEventListener('click', () => spawn());
@@ -162,7 +185,7 @@ function toggle() {
   hide({ focusComposer: true });
 }
 
-function open() {
+function open({ spawnIfEmpty = true } = {}) {
   build();
   if (!state.allowed) {
     showToast('The terminal is only available on this computer or your own network.', true);
@@ -176,7 +199,7 @@ function open() {
   el.btn.classList.add('is-on');
   document.body.classList.add('term-open');
   document.body.classList.toggle('term-max', state.max);
-  if (!state.sessions.length) attach();
+  if (!state.sessions.length) attach({ spawnIfEmpty });
   else { syncPanes(); requestAnimationFrame(() => { fitAll(); focusActive(); }); }
   syncDot();
   announce();
@@ -186,6 +209,8 @@ function hide({ focusComposer = false } = {}) {
   if (!state.open) return;
   const hadFocus = el.panel.contains(document.activeElement);
   state.open = false;
+  setMenu(false);
+  setAllView(false);
   el.panel.setAttribute('aria-hidden', 'true');
   el.panel.inert = true;
   el.panel.hidden = true;
@@ -254,7 +279,7 @@ function othersLive() {
 
 function syncDot() {
   if (!el.dot) return;
-  const here = state.sessions.length ? state.sessions.some((s) => !s.exited) : state.remoteLive;
+  const here = state.sessions.length ? state.sessions.some((s) => !s.exited && !s.stopped) : state.remoteLive;
   const elsewhere = othersLive();
   // The open panel already shows this project's shells; other projects' still count.
   el.dot.hidden = !((here && !state.open) || elsewhere.length);
@@ -284,7 +309,7 @@ function setSplit(on) {
     if (!state.secondary) {
       state.secondary = state.sessions.find((s) => s.id && s.id !== state.active)?.id || null;
     }
-    if (!state.secondary) { spawn({ secondary: true }); return; }
+    if (!state.secondary) { spawn({ secondary: true, inst: activeSession()?.inst || curInst() || null }); return; }
   } else {
     state.secondary = null;
   }
@@ -315,15 +340,41 @@ function applyHeight() {
 function sessionById(id) { return state.sessions.find((s) => s.id === id) || null; }
 function activeSession() { return sessionById(state.active); }
 
-/** First open on this page: re-attach to the shells this Jarvis already runs
- *  (a reload, another device), or start one. */
-function attach() {
+/** Instance id of the project on screen ('' until the project list has loaded). */
+const curInst = () => currentProjectId() || hostProjectId() || '';
+/** What a session stores for "the shown project" while the list hasn't loaded yet. */
+const instKey = (s) => s.inst || '';
+
+const multi = () => ws.projects.length >= 2;
+
+/** "Show all projects' terminals": on by default once the workspace has two projects. */
+function showAll() {
+  const v = storageGet(ALL_KEY, null);
+  return v === null ? multi() : v === '1';
+}
+
+/** The workspace project whose Jarvis is instance `inst` (null: not a workspace project). */
+function projectOfInst(inst) {
+  if (!inst) return null;
+  return ws.projects.find((p) => p.instances?.some((i) => i.id === inst)) || null;
+}
+
+/** Does this page show a tab for `s`? Another project's shell only with the toggle on, or when opened here on purpose. */
+function wanted(s) {
+  return s.explicit || showAll() || !s.inst || s.inst === curInst();
+}
+
+/** First open on this page: re-attach to the shells this project's Jarvis (and, with
+ *  the toggle on, the other running projects') already runs, or start one. */
+function attach({ spawnIfEmpty = true } = {}) {
   if (attaching) return attaching;
   attaching = (async () => {
+    const here = curInst();
     let list = [];
     try {
-      const res = await api('/api/terminal/list');
+      const res = await apiAt(here, '/api/terminal/list');
       state.allowed = res.allowed !== false;
+      instAllowed.set(here, state.allowed);
       list = Array.isArray(res.terminals) ? res.terminals : [];
     } catch { /* fall through: spawn reports the error */ }
     if (!state.allowed) {
@@ -333,20 +384,42 @@ function attach() {
       return;
     }
     for (const t of list) {
-      if (t.exited) api('/api/terminal/close', 'POST', { id: t.id }).catch(() => {});
+      if (t.exited) apiAt(here, '/api/terminal/close', 'POST', { id: t.id }).catch(() => {});
     }
-    const live = list.filter((t) => !t.exited && !sessionById(t.id));
-    if (!live.length) {
-      if (!state.sessions.length) await spawn();
+    for (const t of list) {
+      if (!t.exited && !sessionById(t.id)) adopt(t, here);
+    }
+    await adoptOthers(here);
+    if (!state.sessions.length) {
+      if (spawnIfEmpty) await spawn();
       return;
     }
-    for (const t of live) adopt(t);
-    if (!state.active) state.active = state.sessions[0]?.id || null;
+    if (!activeSession()) {
+      state.active = (state.sessions.find((x) => x.inst === here) || state.sessions[0])?.id || null;
+    }
     renderTabs();
     syncPanes();
     requestAnimationFrame(() => { fitAll(); focusActive(); });
   })().finally(() => { attaching = null; syncEmpty(); syncDot(); });
   return attaching;
+}
+
+/** Tabs for the shells of the other running workspace projects (one request: the server
+ *  asks each instance and tells us which allow this page a shell). */
+async function adoptOthers(here) {
+  if (!showAll() || !multi()) return;
+  let res;
+  try { res = await fetchWorkspaceTerminals(); } catch { return; }
+  for (const g of res?.groups || []) {
+    if (g.instance_id === here) continue;
+    instAllowed.set(g.instance_id, g.allowed !== false);
+    if (g.allowed === false) continue;
+    for (const t of g.terminals || []) {
+      if (t.exited || sessionById(t.id)) continue;
+      if (state.sessions.length >= MAX_SESSIONS) return;
+      adopt(t, g.instance_id);
+    }
+  }
 }
 
 /** xterm view + pane for one shell (not yet connected to the server). */
@@ -379,7 +452,8 @@ function makeView(title = 'Terminal') {
   } catch (err) { console.warn('terminal addon failed', err); }
   term.open(mount);
   const s = {
-    id: null, title, term, fit, search, pane, cursor: 0,
+    id: null, inst: null, explicit: false, stopped: false, starting: false, proj: null, cwd: '',
+    title, term, fit, search, pane, cursor: 0,
     exited: false, disposed: false, queue: '', flush: 0, sending: false,
     replay: false, sentSize: '', resizeTimer: 0, resizeAgain: false, ai: null,
   };
@@ -388,25 +462,36 @@ function makeView(title = 'Terminal') {
   return s;
 }
 
-/** A shell the server already runs. */
-function adopt(t) {
+/** A shell a Jarvis already runs (`inst`: which one — its own project's). */
+function adopt(t, inst = curInst(), { explicit = false } = {}) {
   if (!window.Terminal) return null;
   const s = makeView(t.title || 'Terminal');
   s.id = t.id;
+  s.inst = inst || null;
+  s.cwd = t.cwd || '';
+  s.explicit = explicit || (!!inst && inst !== curInst());
+  rememberProject(s);
   // Its first answer replays history: xterm must not answer the terminal
   // queries in it again (they'd reach the program as typed keys).
   s.replay = true;
   state.sessions.push(s);
   wireSession(s);
-  kick();
+  kick(instKey(s));
   requestAnimationFrame(() => { try { s.fit?.fit(); } catch { /* not laid out */ } sendResize(s); });
   return s;
 }
 
-async function spawn({ secondary = false } = {}) {
+/** A new shell. `inst`: the Jarvis it lives in (default: the project on screen);
+ *  `project`: a workspace row to start first when it isn't running; `cwd`: only for
+ *  a folder that isn't a workspace project (today's behaviour: the shown Jarvis, that folder). */
+async function spawn({ secondary = false, inst = curInst() || null, project = null, cwd = '' } = {}) {
   build();
   if (state.sessions.length >= MAX_SESSIONS) {
     showToast(`You can have up to ${MAX_SESSIONS} terminals — close one first.`, true);
+    return;
+  }
+  if (inst && state.sessions.filter((x) => x.inst === inst && !x.stopped).length >= PER_INSTANCE) {
+    showToast(`That project already has ${PER_INSTANCE} shells — close one first.`, true);
     return;
   }
   if (!window.Terminal) {
@@ -414,22 +499,49 @@ async function spawn({ secondary = false } = {}) {
     return;
   }
   const s = makeView();
+  s.inst = inst;
+  s.explicit = !!inst && inst !== curInst();
+  if (project) { s.proj = { name: project.name, color: project.color, id: project.id }; s.explicit = true; }
   state.sessions.push(s);
+  if (project && !inst) {
+    // Its Jarvis isn't running: start it, then open the shell there.
+    s.starting = true;
+    s.title = `Starting ${project.name}…`;
+    s.term.write(`\x1b[90m${s.title}\x1b[0m\r\n`);
+    renderTabs();
+    syncPanes();
+    try {
+      s.inst = await startProject(project);
+    } catch (err) {
+      s.starting = false;
+      disposeView(s);
+      renderTabs();
+      syncPanes();
+      showToast(err.message || `Couldn’t start ${project.name}.`, true);
+      return;
+    }
+    s.starting = false;
+    s.title = 'Terminal';
+    if (s.disposed) return;
+    s.term.reset();
+  }
+  rememberProject(s);
   renderTabs();
   syncPanes();
   await new Promise((r) => requestAnimationFrame(r));
   try { s.fit?.fit(); } catch { /* not laid out */ }
 
   try {
-    const res = await api('/api/terminal/open', 'POST', {
-      cols: s.term.cols || 80, rows: s.term.rows || 24,
+    const res = await apiAt(s.inst, '/api/terminal/open', 'POST', {
+      cols: s.term.cols || 80, rows: s.term.rows || 24, ...(cwd ? { cwd } : {}),
     });
     if (!res.ok) throw new Error(res.error || 'Could not start the shell.');
     if (s.disposed) {   // closed (or project switched) while it started
-      api('/api/terminal/close', 'POST', { id: res.terminal.id }).catch(() => {});
+      apiAt(s.inst, '/api/terminal/close', 'POST', { id: res.terminal.id }).catch(() => {});
       return;
     }
     s.id = res.terminal.id;
+    s.cwd = res.terminal.cwd || '';
     s.title = res.terminal.title || s.title;
     s.sentSize = `${s.term.cols || 80}x${s.term.rows || 24}`;
     // A split opens the new shell on the right and puts you in it.
@@ -439,13 +551,14 @@ async function spawn({ secondary = false } = {}) {
     syncPanes();
     focusActive();
     wireSession(s);
-    kick();
+    kick(instKey(s));
   } catch (err) {
     disposeView(s);
     renderTabs();
     syncPanes();
     const local = err?.payload?.code === 'local_only';
-    if (local) { state.allowed = false; syncAllowed(); hide(); }
+    if (local && (s.inst || '') === curInst()) { state.allowed = false; syncAllowed(); hide(); }
+    if (local) instAllowed.set(s.inst || '', false);
     showToast(local ? 'The terminal is only available on this computer or your own network.'
       : (err.message || 'The terminal didn’t start.'), true);
   }
@@ -490,8 +603,11 @@ function flushInput(s) {
   const data = s.queue;
   s.queue = '';
   s.sending = true;
-  api('/api/terminal/input', 'POST', { id: s.id, data })
-    .catch((err) => { if (err?.payload?.code === 'gone') markExited(s); })
+  apiAt(s.inst, '/api/terminal/input', 'POST', { id: s.id, data })
+    .catch((err) => {
+      if (err?.payload?.code === 'gone') markExited(s);
+      else if (err?.status === 404 || err?.status === 502) markStopped(s.inst);
+    })
     .finally(() => {
       s.sending = false;
       if (s.queue) flushInput(s);
@@ -521,7 +637,7 @@ function sendResize(s) {
   const size = `${s.term.cols}x${s.term.rows}`;
   if (size === s.sentSize) return;
   s.sentSize = size;
-  api('/api/terminal/resize', 'POST', { id: s.id, cols: s.term.cols, rows: s.term.rows }).catch(() => { s.sentSize = ''; });
+  apiAt(s.inst, '/api/terminal/resize', 'POST', { id: s.id, cols: s.term.cols, rows: s.term.rows }).catch(() => { s.sentSize = ''; });
 }
 
 function markExited(s) {
@@ -531,45 +647,104 @@ function markExited(s) {
   syncDot();
 }
 
-// ─── Output: one held request for every shell ───────────────────────────
-/** Start the loop, or make the running one ask again now (a shell was added). */
-function kick() {
-  if (pump.running) pump.abort?.abort();
-  else runPump();
+/** The project's Jarvis is gone (closed, or its terminal quit): its tabs say so and offer Start. */
+function markStopped(inst) {
+  let any = false;
+  for (const s of state.sessions) {
+    if ((s.inst || '') !== (inst || '') || s.stopped || s.starting || s.disposed) continue;
+    s.stopped = true;
+    s.term.write('\r\n\x1b[90m[project stopped]\x1b[0m\r\n');
+    any = true;
+  }
+  if (any) { renderTabs(); syncDot(); renderMenu(); }
+}
+
+/** Remember which workspace project a shell belongs to (the badge outlives the project's instance). */
+function rememberProject(s) {
+  const p = projectOfInst(s.inst);
+  if (p) s.proj = { id: p.id, name: p.name, color: p.color };
+  else if (!s.proj && s.inst) {
+    const row = findProject(s.inst);
+    if (row) s.proj = { id: '', name: row.project || 'project', color: '' };
+  }
+}
+
+/** Start a workspace project's Jarvis and wait until it can be reached → its instance id. */
+async function startProject(p) {
+  const res = await openWorkspaceProject(p.id);
+  if (!res?.ok) throw new Error(res?.error || `Couldn’t start ${p.name}.`);
+  let launch = res.launch;
+  for (let i = 0; i < LAUNCH_POLLS; i += 1) {
+    if (!launch) break;
+    if (launch.status === 'ready' && launch.instance_id) { refreshWorkspace(); return launch.instance_id; }
+    if (launch.status === 'failed') throw new Error(launch.error || `Couldn’t start ${p.name}.`);
+    await sleep(LAUNCH_POLL_MS);
+    try { launch = (await fetchLaunch(launch.id))?.launch; } catch { launch = launch || null; }
+  }
+  throw new Error(`${p.name} took too long to start — check the Projects list.`);
+}
+
+// ─── Output: one held request per project's Jarvis ──────────────────────
+/** Start the loops, or make a running one ask again now (a shell was added).
+ *  `inst` limits the restart to that instance's loop. */
+function kick(inst) {
+  for (const id of pollOrder()) {
+    const p = pumps.get(id);
+    if (!p) runPump(id);
+    else if (inst === undefined || inst === id) p.abort?.abort();
+  }
 }
 
 function pollable() {
-  return state.sessions.filter((s) => s.id && !s.disposed && !s.exited);
+  return state.sessions.filter((s) => s.id && !s.disposed && !s.exited && !s.stopped);
+}
+
+/** The instances that get a held request: the shown project's first, at most MAX_PUMPS
+ *  (the browser allows ~6 connections per host); ones the tunnel policy refuses are left out. */
+function pollOrder() {
+  const here = curInst();
+  const ids = [];
+  for (const s of pollable()) {
+    const id = instKey(s);
+    if (!ids.includes(id) && instAllowed.get(id) !== false) ids.push(id);
+  }
+  ids.sort((a, b) => (a === here ? 0 : 1) - (b === here ? 0 : 1));
+  return ids.slice(0, MAX_PUMPS);
 }
 
 /** Shells keep producing output while the panel is hidden (a Claude Code run),
  *  so the loop keeps reading — just less often — instead of falling behind
- *  the server's buffer and replaying from a cut. */
-async function runPump() {
-  pump.running = true;
+ *  the server's buffer and replaying from a cut. One loop per instance with
+ *  tabs: each is a single held `poll?ids=` to that project's own Jarvis. */
+async function runPump(inst) {
+  const me = { abort: null };
+  pumps.set(inst, me);
   let backoff = 300;
   try {
     for (;;) {
       if (document.hidden && hiddenSince && Date.now() - hiddenSince > HIDDEN_PAUSE_MS) return;
-      const list = pollable();
+      if (!pollOrder().includes(inst)) return;
+      const list = pollable().filter((s) => instKey(s) === inst);
       if (!list.length) return;
       const ids = list.map((s) => `${s.id}:${s.cursor}`).join(',');
       const ctrl = new AbortController();
-      pump.abort = ctrl;
+      me.abort = ctrl;
       let res;
       try {
-        res = await api(`/api/terminal/poll?ids=${encodeURIComponent(ids)}&wait=15000`, 'GET', undefined, { signal: ctrl.signal });
+        res = await apiAt(inst, `/api/terminal/poll?ids=${encodeURIComponent(ids)}&wait=15000`, 'GET', undefined, { signal: ctrl.signal });
       } catch (err) {
         if (ctrl.signal.aborted) continue;   // kicked: ask again with the new list
+        if (err?.status === 404 || err?.status === 502) { markStopped(inst); return; }   // that project closed
         await sleep(backoff);
         backoff = Math.min(4000, backoff * 1.7);
         continue;
       } finally {
-        if (pump.abort === ctrl) pump.abort = null;
+        if (me.abort === ctrl) me.abort = null;
       }
       backoff = 300;
       if (res.ok === false) {
         if (res.code === 'local_only') {
+          instAllowed.set(inst, false);
           for (const s of list) {
             s.term.write('\r\n\x1b[31mThe terminal is only available on this computer.\x1b[0m\r\n');
             markExited(s);
@@ -603,8 +778,13 @@ async function runPump() {
       }
     }
   } finally {
-    pump.running = false;
-    pump.abort = null;
+    if (pumps.get(inst) === me) pumps.delete(inst);
+    // An instance that was over the cap may have its turn now.
+    const expired = document.hidden && hiddenSince && Date.now() - hiddenSince > HIDDEN_PAUSE_MS;
+    if (!expired) {
+      const next = pollOrder().find((id) => !pumps.has(id));
+      if (next !== undefined) runPump(next);
+    }
   }
 }
 
@@ -650,7 +830,7 @@ function disposeView(s) {
 
 function killSession(s) {
   if (!s) return;
-  if (s.id) api('/api/terminal/close', 'POST', { id: s.id }).catch(() => {});
+  if (s.id && !s.stopped) apiAt(s.inst, '/api/terminal/close', 'POST', { id: s.id }).catch(() => {});
   disposeView(s);
   renderTabs();
   syncPanes();
@@ -739,16 +919,40 @@ function renderTabs() {
     tab.classList.toggle('is-active', s.id === state.active);
     tab.classList.toggle('is-dead', s.exited);
     tab.classList.toggle('is-pending', !s.id);
+    tab.classList.toggle('is-stopped', s.stopped);
     if (state.split && s.id && s.id === state.secondary) tab.classList.add('is-second');
 
     const dot = document.createElement('span');
     dot.className = 'term-tab-dot';
     dot.setAttribute('aria-hidden', 'true');
 
+    const info = multi() ? (projectOfInst(s.inst) || s.proj) : null;
+    let badge = null;
+    if (info?.name) {
+      if (info.color && !s.exited && !s.stopped && s.id) dot.style.background = info.color;
+      badge = document.createElement('span');
+      badge.className = 'term-tab-proj';
+      badge.textContent = info.name;
+    }
+
     const name = document.createElement('span');
     name.className = 'term-tab-name';
     name.textContent = s.title || 'Terminal';
-    tab.title = s.exited ? `${s.title} — exited · double-click to rename` : `${s.title} · double-click to rename`;
+    const where = info?.name ? ` · ${info.name}` : '';
+    tab.title = s.stopped ? `${s.title}${where} — project stopped`
+      : s.exited ? `${s.title}${where} — exited · double-click to rename`
+        : `${s.title}${where}${s.cwd ? ` · ${s.cwd}` : ''} · double-click to rename`;
+
+    let start = null;
+    if (s.stopped) {
+      start = document.createElement('button');
+      start.type = 'button';
+      start.className = 'term-tab-start';
+      start.tabIndex = -1;
+      start.textContent = s.proj?.id ? 'Project stopped — Start' : 'Project stopped';
+      start.disabled = !s.proj?.id;
+      start.addEventListener('click', (e) => { e.stopPropagation(); restartProject(s); });
+    }
 
     const x = document.createElement('button');
     x.type = 'button';
@@ -759,8 +963,9 @@ function renderTabs() {
     x.innerHTML = icon('x');
     x.addEventListener('click', (e) => { e.stopPropagation(); killSession(s); });
 
-    tab.append(dot, name, x);
+    tab.append(dot, ...(badge ? [badge] : []), name, ...(start ? [start] : []), x);
     tab.addEventListener('click', () => { if (s.id) selectTab(s.id); });
+    if (badge && info.color) tab.style.setProperty('--proj', info.color);
     tab.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); killSession(s); } });
     tab.addEventListener('dblclick', (e) => { e.stopPropagation(); renameTab(s, name); });
     tab.addEventListener('keydown', (e) => {
@@ -776,7 +981,46 @@ function renderTabs() {
     });
     el.tabs.append(tab);
   }
+  renderProjects();
   syncEmpty();
+}
+
+// ─── Master groups: the hub's Projects strip ─────────────────────────────
+/** A live shell in workspace project `pid` (the strip focuses it instead of opening another). */
+function shellIn(pid) {
+  return state.sessions.find((s) => !s.exited && !s.stopped && s.id
+    && (s.proj?.id === pid || projectOfInst(s.inst)?.id === pid)) || null;
+}
+
+/** In a group's hub: one button per member project — a shell there, or the one already open. */
+function renderProjects() {
+  if (!el.projects) return;
+  const members = groupInfo().master?.members || [];
+  el.projects.hidden = !members.length;
+  if (!members.length) { el.projects.replaceChildren(); return; }
+  const had = el.projects.contains(document.activeElement) ? document.activeElement.dataset.pid : null;
+  el.projects.innerHTML = '<span class="term-projects-label" aria-hidden="true">Projects</span>'
+    + members.map((m) => {
+      const p = ws.projects.find((x) => x.id === m.id);
+      const off = !!p && p.status !== 'running';
+      const missing = p?.status === 'missing';
+      const open = !!shellIn(m.id);
+      const name = escapeHtml(m.name || p?.name || 'project');
+      const hint = open ? `Show the shell in ${name}` : off ? `Start ${name} and open a shell there` : `Open a shell in ${name}`;
+      return `<button type="button" class="term-proj${open ? ' is-open' : ''}${off ? ' is-off' : ''}" data-pid="${escapeHtml(m.id)}"`
+        + `${missing ? ' disabled' : ''} title="${hint}" aria-label="${hint}">${colorDot(m.color || p?.color)}<span>${name}</span></button>`;
+    }).join('');
+  if (had) el.projects.querySelector(`[data-pid="${CSS.escape(had)}"]`)?.focus();
+}
+
+function onProjectsStripClick(e) {
+  const b = e.target.closest('button[data-pid]');
+  if (!b || b.disabled) return;
+  const s = shellIn(b.dataset.pid);
+  if (s) { selectTab(s.id); return; }
+  const p = ws.projects.find((x) => x.id === b.dataset.pid);
+  if (p) openShellIn(p);
+  else showToast('The project list is still loading — try again in a moment.', true);
 }
 
 function selectTab(id, { focus = true } = {}) {
@@ -808,7 +1052,7 @@ function renameTab(s, nameEl) {
     const next = input.value.trim();
     if (save && next && next !== s.title) {
       s.title = next;
-      api('/api/terminal/rename', 'POST', { id: s.id, title: next }).catch(() => {});
+      apiAt(s.inst, '/api/terminal/rename', 'POST', { id: s.id, title: next }).catch(() => {});
     }
     renderTabs();
     focusActive();
@@ -913,28 +1157,412 @@ function bindResize() {
   });
 }
 
+// ─── Across projects: the + ▾ menu, the All-terminals view ───────────────
+/** The workspace rows (names, colours, which Jarvis runs each) — for badges and the menu. */
+async function refreshWorkspace() {
+  try {
+    const res = await fetchWorkspace();
+    if (res && Array.isArray(res.projects)) { ws.projects = res.projects; ws.at = Date.now(); }
+  } catch { /* an older server, or not reachable: the panel works as a single-project one */ }
+  for (const s of state.sessions) rememberProject(s);
+  syncWorkspaceUi();
+}
+
+/** Show the controls that only matter with two or more workspace projects. */
+function syncWorkspaceUi() {
+  if (!el.addMore) return;
+  const cross = multi() || groupInfo().masters.length > 0;
+  el.addMore.hidden = !cross;
+  el.allBtn.hidden = !cross;
+  if (!cross) { setMenu(false); setAllView(false); }
+  renderTabs();
+  renderMenu();
+  if (state.allView) renderAllView();
+}
+
+function buildExtras() {
+  const add = $('term-add');
+  el.addMore = document.createElement('button');
+  el.addMore.type = 'button';
+  el.addMore.id = 'term-add-menu';
+  el.addMore.className = 'term-add term-add-more';
+  el.addMore.hidden = true;
+  el.addMore.title = 'New shell in another project';
+  el.addMore.setAttribute('aria-label', 'New shell in another project');
+  el.addMore.setAttribute('aria-haspopup', 'menu');
+  el.addMore.setAttribute('aria-expanded', 'false');
+  el.addMore.innerHTML = icon('chevron-down');
+  add.after(el.addMore);
+
+  // A group's hub: its member projects, one click from a shell (hidden elsewhere).
+  el.projects = document.createElement('div');
+  el.projects.id = 'term-projects';
+  el.projects.className = 'term-projects';
+  el.projects.hidden = true;
+  el.projects.setAttribute('role', 'toolbar');
+  el.projects.setAttribute('aria-label', 'Open a shell in a member project');
+  el.addMore.after(el.projects);
+  el.projects.addEventListener('click', onProjectsStripClick);
+
+  el.menu = document.createElement('div');
+  el.menu.id = 'term-menu';
+  el.menu.className = 'term-menu';
+  el.menu.setAttribute('role', 'menu');
+  el.menu.hidden = true;
+  el.panel.append(el.menu);
+
+  el.allBtn = document.createElement('button');
+  el.allBtn.type = 'button';
+  el.allBtn.id = 'term-all';
+  el.allBtn.className = 'term-tool term-all-btn';
+  el.allBtn.hidden = true;
+  el.allBtn.setAttribute('aria-pressed', 'false');
+  el.allBtn.title = 'All terminals (⌥⇧T)';
+  el.allBtn.setAttribute('aria-label', 'All terminals');
+  el.allBtn.innerHTML = `${icon('rows-3')}<span>All</span>`;
+  el.panel.querySelector('.term-tools')?.prepend(el.allBtn);
+
+  el.allView = document.createElement('section');
+  el.allView.id = 'term-all-view';
+  el.allView.className = 'term-allview';
+  el.allView.setAttribute('aria-label', 'All terminals');
+  el.allView.hidden = true;
+  el.panel.append(el.allView);
+
+  el.addMore.addEventListener('click', (e) => { e.stopPropagation(); setMenu(el.menu.hidden); });
+  el.menu.addEventListener('click', onMenuClick);
+  el.menu.addEventListener('keydown', onMenuKey);
+  el.allBtn.addEventListener('click', () => setAllView(!state.allView));
+  el.allView.addEventListener('click', onAllClick);
+  el.allView.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setAllView(false); }
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (el.menu.hidden || el.menu.contains(e.target) || el.addMore.contains(e.target)) return;
+    setMenu(false);
+  });
+  // ⌥⇧T: capture phase, so it works from inside a shell too (the panel stops Alt keys there).
+  document.addEventListener('keydown', (e) => {
+    if (!(e.altKey && e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyT')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!state.allowed) return;
+    if (!state.open) open({ spawnIfEmpty: false });
+    setAllView(!state.allView);
+  }, true);
+}
+
+const colorDot = (color) => `<i class="tm-dot"${color ? ` style="--proj:${escapeHtml(color)}"` : ''}></i>`;
+
+function setMenu(on) {
+  if (!el.menu) return;
+  if (on) {
+    setAllView(false);
+    el.menu.hidden = false;
+    el.addMore.setAttribute('aria-expanded', 'true');
+    renderMenu();
+    const panel = el.panel.getBoundingClientRect();
+    const btn = el.addMore.getBoundingClientRect();
+    el.menu.style.left = `${Math.max(6, Math.min(btn.left - panel.left, panel.width - el.menu.offsetWidth - 6))}px`;
+    el.menu.querySelector('button:not([disabled])')?.focus();
+    refreshWorkspace();   // fresh status (running / stopped) every time it opens
+  } else {
+    if (el.menu.hidden) return;
+    el.menu.hidden = true;
+    el.addMore.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function currentName() {
+  const cur = curInst();
+  return projectOfInst(cur)?.name || findProject(cur)?.project || 'this project';
+}
+
+function renderMenu() {
+  if (!el.menu || el.menu.hidden) return;
+  const cur = projectOfInst(curInst());
+  const items = [];
+  items.push(`<button type="button" role="menuitem" class="term-menu-item" data-act="here">
+    ${colorDot(cur?.color)}<span class="tm-label">New shell in <b>${escapeHtml(currentName())}</b></span><kbd>+</kbd></button>`);
+  // Groups this project belongs to: a shell in the hub folder (their master shell).
+  const groups = groupInfo().masters;
+  for (const g of groups) {
+    const p = ws.projects.find((x) => x.id === g.id);
+    const note = p?.status === 'missing' ? 'folder missing' : p && p.status !== 'running' ? 'starts first' : '';
+    items.push(`<button type="button" role="menuitem" class="term-menu-item${note ? ' is-off' : ''}" data-act="master" data-gid="${escapeHtml(g.id)}"${p?.status === 'missing' ? ' disabled' : ''}>
+      <span class="tm-globe" aria-hidden="true"${g.color ? ` style="--proj:${escapeHtml(g.color)}"` : ''}>${icon('globe')}</span><span class="tm-label">Master shell (<b>${escapeHtml(g.name || 'group')}</b>)</span>${note ? `<span class="tm-note">${note}</span>` : ''}</button>`);
+  }
+  const masterIds = new Set(groups.map((g) => g.id));
+  const others = ws.projects.filter((p) => p !== cur && !masterIds.has(p.id));
+  if (others.length) items.push('<div class="term-menu-sep" role="separator"></div>');
+  for (const p of others) {
+    const note = p.missing || p.status === 'missing' ? 'folder missing'
+      : p.status === 'running' ? ''
+        : p.status === 'starting' ? 'starting…' : 'starts first';
+    items.push(`<button type="button" role="menuitem" class="term-menu-item${note ? ' is-off' : ''}" data-act="project" data-pid="${escapeHtml(p.id)}"${p.status === 'missing' ? ' disabled' : ''}>
+      ${colorDot(p.color)}<span class="tm-label">${escapeHtml(p.name)}</span>${note ? `<span class="tm-note">${note}</span>` : ''}</button>`);
+  }
+  items.push('<div class="term-menu-sep" role="separator"></div>');
+  items.push(`<button type="button" role="menuitemcheckbox" class="term-menu-item" data-act="all" aria-checked="${showAll()}">
+    <span class="tm-check" aria-hidden="true">${showAll() ? icon('check') : ''}</span><span class="tm-label">Show all projects’ terminals</span></button>`);
+  const had = el.menu.contains(document.activeElement) ? document.activeElement.dataset : null;
+  el.menu.innerHTML = items.join('');
+  if (had?.act) {
+    const sel = had.pid ? `[data-act="${had.act}"][data-pid="${CSS.escape(had.pid)}"]`
+      : had.gid ? `[data-act="${had.act}"][data-gid="${CSS.escape(had.gid)}"]` : `[data-act="${had.act}"]`;
+    el.menu.querySelector(sel)?.focus();
+  }
+}
+
+function onMenuClick(e) {
+  const b = e.target.closest('button[data-act]');
+  if (!b || b.disabled) return;
+  const act = b.dataset.act;
+  if (act === 'all') {
+    setShowAll(!showAll());
+    renderMenu();
+    return;
+  }
+  setMenu(false);
+  if (act === 'here') spawn();
+  else if (act === 'master') {
+    const g = ws.projects.find((x) => x.id === b.dataset.gid);
+    if (g) openShellIn(g);
+    else showToast('The project list is still loading — try again in a moment.', true);
+  } else if (act === 'project') {
+    const p = ws.projects.find((x) => x.id === b.dataset.pid);
+    if (p) openShellIn(p);
+  }
+}
+
+function onMenuKey(e) {
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMenu(false); el.addMore.focus(); return; }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const items = [...el.menu.querySelectorAll('button:not([disabled])')];
+  const i = items.indexOf(document.activeElement) + (e.key === 'ArrowDown' ? 1 : -1);
+  items[(i + items.length) % items.length]?.focus();
+}
+
+/** The toggle: other projects' shells get a tab here, or only this project's (and the ones opened on purpose). */
+async function setShowAll(on) {
+  storageSet(ALL_KEY, on ? '1' : '0');
+  if (on) {
+    await adoptOthers(curInst());
+    renderTabs();
+    syncPanes();
+    kick();
+  } else {
+    for (const s of [...state.sessions]) if (!wanted(s)) disposeView(s);
+    renderTabs();
+    syncPanes();
+    if (!state.sessions.length && state.open) attach();
+  }
+  syncDot();
+  if (state.allView) renderAllView();
+}
+
+/** A shell in a workspace project: its own Jarvis runs it (started first if it isn't running). */
+function openShellIn(p) {
+  if (p.status === 'missing') { showToast(`${p.name}’s folder is missing.`, true); return Promise.resolve(); }
+  const running = p.status === 'running' && p.instance_id;
+  return spawn({ inst: running ? p.instance_id : null, project: p });
+}
+
+/** `jarvis:open-terminal-in` { projectId, instanceId }: open the panel and a new shell in that project. */
+async function openTerminalIn(detail = {}) {
+  build();
+  if (!state.allowed) { showToast('The terminal is only available on this computer or your own network.', true); return; }
+  if (!ws.projects.length) await refreshWorkspace();
+  if (!state.open) open({ spawnIfEmpty: false });
+  if (attaching) await attaching;
+  const { projectId, instanceId } = detail;
+  const p = ws.projects.find((x) => x.id === projectId) || projectOfInst(instanceId);
+  if (p) { await openShellIn(p); return; }
+  await spawn({ inst: instanceId || curInst() || null });
+}
+
+/** A stopped tab's Start: bring the project back and open a fresh shell there. */
+async function restartProject(s) {
+  const p = ws.projects.find((x) => x.id === s.proj?.id);
+  if (!p) { showToast('Open that project from the sidebar to start it again.', true); return; }
+  for (const x of [...state.sessions]) if (x.stopped && x.proj?.id === p.id) disposeView(x);
+  renderTabs();
+  syncPanes();
+  await spawn({ inst: null, project: p });
+}
+
+// ─── All terminals: every shell of every running project ─────────────────
+let allTimer = 0;
+let allGroups = [];
+
+function setAllView(on) {
+  if (!el.allView || state.allView === on) return;
+  state.allView = on;
+  el.allView.hidden = !on;
+  el.allBtn.setAttribute('aria-pressed', String(on));
+  clearInterval(allTimer);
+  if (on) {
+    setMenu(false);
+    renderAllView();
+    loadAllView();
+    allTimer = setInterval(loadAllView, 3000);
+    el.allView.querySelector('button')?.focus();
+  } else if (state.open) {
+    focusActive();
+  }
+}
+
+async function loadAllView() {
+  if (!state.allView) return;
+  try {
+    const res = await fetchWorkspaceTerminals();
+    allGroups = Array.isArray(res?.groups) ? res.groups : [];
+    for (const g of allGroups) instAllowed.set(g.instance_id, g.allowed !== false);
+  } catch { /* keep the last list */ }
+  if (state.allView) renderAllView();
+}
+
+/** What the All view lists: [{ g, label, off }]. In a group's hub: the hub first ("Master"),
+ *  then its members in order — those not running as dimmed rows (`off`); elsewhere as the server sent them. */
+function viewGroups() {
+  const { master: m, masters: ms } = groupInfo();
+  if (!m) {
+    const mine = new Map(ms.map((g) => [g.id, g]));
+    return allGroups.map((g) => {
+      const grp = mine.get(g.project_id);
+      return { g, label: grp ? `Master · ${grp.name || g.name}` : g.name, off: false };
+    });
+  }
+  const used = new Set();
+  const out = [];
+  const hub = allGroups.find((g) => g.project_id === m.id || g.instance_id === curInst());
+  if (hub) { used.add(hub); out.push({ g: hub, label: `Master${m.name ? ` · ${m.name}` : ''}`, off: false }); }
+  for (const mem of m.members || []) {
+    const g = allGroups.find((x) => x.project_id === mem.id && !used.has(x));
+    if (g) { used.add(g); out.push({ g, label: g.name || mem.name, off: false }); continue; }
+    const p = ws.projects.find((x) => x.id === mem.id);
+    out.push({
+      g: { instance_id: '', project_id: mem.id, name: mem.name || p?.name || 'project', color: mem.color || p?.color || '', terminals: [] },
+      label: mem.name || p?.name || 'project',
+      off: true,
+    });
+  }
+  for (const g of allGroups) if (!used.has(g)) out.push({ g, label: g.name, off: false });
+  return out;
+}
+
+function renderAllView() {
+  if (!el.allView) return;
+  const groups = viewGroups();
+  const count = allGroups.reduce((n, g) => n + (g.terminals || []).filter((t) => !t.exited).length, 0);
+  const live = groups.filter((x) => !x.off).length;
+  const parts = [`<header class="tav-head">
+    <strong>All terminals</strong><span class="tav-count">${count} running · ${live} project${live === 1 ? '' : 's'}</span>
+    <span class="term-spacer"></span>
+    <label class="tav-toggle"><input type="checkbox" data-act="all"${showAll() ? ' checked' : ''}><span>Show all projects’ terminals</span></label>
+    <button type="button" class="term-tool" data-act="close" title="Back to the shells (Esc)" aria-label="Close the all-terminals view">${icon('x')}</button>
+  </header><div class="tav-body">`];
+  if (!groups.length) parts.push('<p class="tav-empty">No project is running a shell yet.</p>');
+  for (const { g, label, off } of groups) {
+    const rows = (g.terminals || []);
+    if (off) {
+      const missing = ws.projects.find((x) => x.id === g.project_id)?.status === 'missing';
+      parts.push(`<section class="tav-group is-off"><h4>${colorDot(g.color)}<span>${escapeHtml(label)}</span><em>off</em>`
+        + `<button type="button" class="tav-new" data-act="new" data-inst="" data-pid="${escapeHtml(g.project_id)}"${missing ? ' disabled' : ''}>Start &amp; open shell</button></h4>`
+        + `<p class="tav-note">${missing ? 'Folder not found.' : 'Not running — starts in a few seconds.'}</p></section>`);
+      continue;
+    }
+    parts.push(`<section class="tav-group"><h4>${colorDot(g.color)}<span>${escapeHtml(label)}</span><em>${rows.length}</em>`
+      + `<button type="button" class="tav-new" data-act="new" data-inst="${escapeHtml(g.instance_id)}" data-pid="${escapeHtml(g.project_id)}"${g.allowed === false ? ' disabled' : ''}>+ New shell</button></h4>`);
+    if (g.allowed === false) parts.push('<p class="tav-note">Shells are off on this link for that project.</p>');
+    else if (!rows.length) parts.push('<p class="tav-note">No shells.</p>');
+    for (const t of g.allowed === false ? [] : rows) {
+      const open = sessionById(t.id);
+      parts.push(`<button type="button" class="tav-row${t.exited ? ' is-exited' : ''}${open ? ' is-open' : ''}" data-act="attach" data-inst="${escapeHtml(g.instance_id)}" data-tid="${escapeHtml(t.id)}">
+        <i class="tav-state" aria-hidden="true"></i><span class="tav-title">${escapeHtml(t.title || 'Terminal')}</span>
+        <span class="tav-cwd">${escapeHtml(t.cwd || '')}</span>
+        <span class="tav-run">${t.exited ? 'exited' : 'running'}${open ? ' · in panel' : ''}</span></button>`);
+    }
+    parts.push('</section>');
+  }
+  parts.push('</div>');
+  const had = el.allView.contains(document.activeElement) ? document.activeElement?.dataset?.tid : null;
+  el.allView.innerHTML = parts.join('');
+  if (had) el.allView.querySelector(`[data-tid="${CSS.escape(had)}"]`)?.focus();
+}
+
+function onAllClick(e) {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const act = b.dataset.act;
+  if (act === 'close') { setAllView(false); return; }
+  if (act === 'all') { setShowAll(b.checked); return; }
+  if (act === 'new') {
+    setAllView(false);
+    const p = ws.projects.find((x) => x.id === b.dataset.pid);
+    if (p) openShellIn(p);
+    else if (b.dataset.inst) spawn({ inst: b.dataset.inst });
+    else showToast('The project list is still loading — try again in a moment.', true);
+    return;
+  }
+  if (act !== 'attach') return;
+  const g = allGroups.find((x) => x.instance_id === b.dataset.inst);
+  const t = g?.terminals?.find((x) => x.id === b.dataset.tid);
+  if (!t || t.exited) return;
+  setAllView(false);
+  let s = sessionById(t.id);
+  if (!s) s = adopt(t, g.instance_id, { explicit: true });
+  if (!s) return;
+  renderTabs();
+  selectTab(t.id);
+  kick(instKey(s));
+}
+
 // ─── Project switch ──────────────────────────────────────────────────────
-/** Another project is on screen: its Jarvis runs its own shells. Let go of
- *  this one's views (the shells keep running there) and attach to the new
- *  project's — or start one if the panel is open. */
+/** Another project is on screen. Shells belong to the Jarvis that runs them, so
+ *  switching the chat does not detach them: with "Show all projects' terminals" on
+ *  (or for shells opened on purpose) they keep their tabs and keep streaming.
+ *  Otherwise the old project's views are let go (the shells keep running there)
+ *  and the new project's are attached — or one is started if the panel is open. */
 function onProjectSwitched() {
   state.remoteLive = false;
-  pump.abort?.abort();   // the old project's shells: the loop ends with nothing to read
-  for (const s of [...state.sessions]) disposeView(s);
-  state.active = null;
-  state.secondary = null;
+  adoptNullInst();
+  for (const s of [...state.sessions]) if (!wanted(s)) disposeView(s);
+  for (const p of pumps.values()) p.abort?.abort();   // loops end, or ask again with the new list
   renderTabs();
   syncPanes();
   syncDot();
   if (state.open) attach();
+  else refreshAllowed();
+  refreshWorkspace();
+}
+
+/** A shell opened before the project list loaded belongs to the project that was on screen then. */
+function adoptNullInst() {
+  const here = curInst();
+  if (!here) return;
+  for (const s of state.sessions) if (!s.inst) s.inst = here;
+}
+
+/** The project list changed: the workspace rows (running / stopped) may differ. A closed
+ *  project's tabs find out from their own poll (the link answers 404 / 502). */
+let wsTimer = 0;
+function onProjectsChanged() {
+  adoptNullInst();
+  syncDot();
+  clearTimeout(wsTimer);
+  wsTimer = setTimeout(refreshWorkspace, 1200);
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────
 /** Ask the server whether this page may open shells (a tunnel page may not). */
 async function refreshAllowed() {
   try {
-    const res = await api('/api/terminal/list');
+    const here = curInst();
+    const res = await apiAt(here, '/api/terminal/list');
     state.allowed = res.allowed !== false;
+    instAllowed.set(here, state.allowed);
     syncAllowed();
     // Shells already running (a reload): show the live dot so they aren't forgotten.
     state.remoteLive = state.allowed && (res.terminals || []).some((t) => !t.exited);
@@ -977,10 +1605,15 @@ export function initTerminal(hooks = {}) {
   syncCoarse();
   COARSE?.addEventListener?.('change', syncCoarse);
   document.addEventListener('jarvis:project-switched', onProjectSwitched);
-  document.addEventListener('jarvis:projects-changed', syncDot);
+  document.addEventListener('jarvis:open-terminal-in', (e) => openTerminalIn(e.detail || {}));
+  document.addEventListener('jarvis:workspace-changed', () => refreshWorkspace());
+  // Master groups changed (this project joined / left one, the hub's members moved).
+  document.addEventListener('jarvis:groups-changed', () => syncWorkspaceUi());
+  refreshWorkspace();
+  document.addEventListener('jarvis:projects-changed', onProjectsChanged);
   document.addEventListener('visibilitychange', () => {
     hiddenSince = document.hidden ? Date.now() : 0;
-    if (!document.hidden && pollable().length && !pump.running) runPump();
+    if (!document.hidden && pollable().length) kick();
   });
   // xterm measures its cell size when a view opens; the mono web font may land later.
   document.fonts?.ready?.then(() => {

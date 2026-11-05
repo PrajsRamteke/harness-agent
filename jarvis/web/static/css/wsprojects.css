@@ -1,0 +1,464 @@
+/* The Workspace (wsprojects.js, wsmenu.js, folders.js "Add to workspace").
+ * Pulled in by projects.css. Nothing here applies until a second project is added —
+ * the single-project sidebar keeps projects.css's look. */
+
+/* ─── Header buttons ───────────────────────────────────────────────────── */
+.ws-hbtn { width: 22px; height: 22px; }
+.ws-hbtn .ic { width: 14px; height: 14px; }
+.ws-hbtn[hidden] { display: none; }
+/* Those buttons joined the Projects header row: keep it on one line instead of wrapping
+   "Open folder" onto two. The title truncates first. */
+#projects-sec .sec-head { gap: 8px; }
+#projects-sec .sec-title { flex: 0 0 auto; white-space: nowrap; }
+#projects-sec .proj-actions { flex: 0 0 auto; gap: 2px; }
+/* Three more buttons joined this row; tighten it rather than wrap or clip "Open folder". */
+#projects-sec .ws-hbtn { width: 20px; height: 20px; }
+#projects-sec .proj-add { padding: 0 4px; gap: 3px; font-size: 11.5px; white-space: nowrap; }
+/* The group dialog is short; the shared dialog shell is a fixed 720px, which left a big void. */
+#wsdlg-card { height: auto; max-height: min(720px, 84vh); }
+
+/* ─── Rows ─────────────────────────────────────────────────────────────── */
+.ws-item { --ws-color: var(--accent); }
+.ws-item::before {                       /* the colour stripe */
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--ws-color);
+  opacity: 0.85;
+  transition: opacity var(--dur-fast) var(--ease), top var(--dur-fast) var(--ease), bottom var(--dur-fast) var(--ease);
+}
+.ws-item:hover::before, .ws-item:has(.is-active)::before { opacity: 1; top: 4px; bottom: 4px; }
+.ws-item .project-row { padding-left: 14px; padding-right: 34px; }
+.ws-item:has(.is-stopped, .is-missing)::before { opacity: 0.35; }
+.ws-item:has(.is-stopped):hover::before { opacity: 0.7; }
+
+.ws-slot {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-3);
+  font: 500 10px/15px var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0.02em;
+  opacity: 0.75;
+}
+.ws-item:hover .ws-slot { opacity: 1; }
+
+.ws-branch { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; min-width: 0; max-width: 11em; }
+/* Ellipsis needs to be on the text box itself — on the flex parent it clips mid-letter ("mai"). */
+.ws-branch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-branch .ic { width: 11px; height: 11px; flex-shrink: 0; }
+
+/* stopped: hollow dashed ring, dimmed — "click to start" */
+.project-row.is-stopped .pr-ind::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--text-3);
+  opacity: 0.8;
+}
+.project-row.is-stopped .pr-name,
+.project-row.is-stopped .pr-meta { color: var(--text-3); }
+.project-row.is-stopped:hover .pr-name { color: var(--text-2); }
+.project-row.is-stopped .pr-sub { font-style: italic; }
+
+/* starting: a spinner in place of the ring */
+.project-row.is-starting .pr-ind {
+  border: 1.5px solid var(--accent-line);
+  border-top-color: var(--accent);
+  animation: pr-spin 0.9s linear infinite;
+}
+.project-row.is-starting .pr-state { color: var(--accent); }
+
+/* missing: a warning, with Locate… / Remove under the row */
+.project-row.is-missing .pr-ind { color: var(--warn); }
+.project-row.is-missing .pr-ind .ic { width: 14px; height: 14px; }
+.project-row.is-missing .pr-name { color: var(--text-2); }
+.project-row.is-missing .pr-state { color: var(--warn); }
+.ws-fix { display: flex; gap: 6px; padding: 0 8px 6px 32px; }
+.ws-act {
+  padding: 1px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.ws-act:hover { background: var(--card-hover); color: var(--text); }
+.ws-act.is-danger:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+.ws-act:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* the ⋯ button */
+.ws-more {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--text-3);
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.ws-more .ic { width: 15px; height: 15px; }
+.project-item:hover .ws-more, .ws-more:focus-visible, .ws-more[aria-expanded='true'] { opacity: 1; }
+.ws-more:hover, .ws-more[aria-expanded='true'] { background: var(--card-hover); color: var(--text); }
+.ws-more:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
+.ws-item:has(.ws-fix) .ws-more { top: 15px; }
+@media (hover: none) { .ws-more { opacity: 0.7; } }
+
+/* "Other running" + ☆ Add to workspace */
+.ws-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 2px 2px;
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ws-divider::before, .ws-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.ws-divider::before { flex: 0 0 8px; }
+
+.pr-add {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.project-item.has-add .project-row { padding-right: 34px; }
+.project-item.has-add.has-stop .project-row { padding-right: 64px; }
+.project-item.has-add.has-stop .pr-add { right: 34px; }
+.project-item:hover .pr-add, .pr-add:focus-visible { opacity: 1; }
+.pr-add:hover { color: var(--warn); background: var(--card-hover); }
+.pr-add:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
+.proj-group .pr-add { position: static; opacity: 0.7; margin-left: auto; transform: none; height: 20px; }
+.proj-group .pg-live + .pr-add { margin-left: 4px; }
+.proj-group:hover .pr-add { opacity: 1; }
+@media (hover: none) { .pr-add { opacity: 0.7; } }
+
+/* ─── First-run card ───────────────────────────────────────────────────── */
+.ws-hint { margin-top: 6px; }
+.ws-hint[hidden] { display: none; }
+.ws-hint-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 10px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-row);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.ws-hint-card strong { padding-right: 22px; color: var(--text); font-size: 12.5px; font-weight: 500; }
+.ws-hint-card p { margin: 0; color: var(--text-3); }
+.ws-hint-act { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ws-hint-act .btn { max-width: 100%; }
+.ws-hint-act .btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-hint-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; }
+.ws-hint-x .ic { width: 12px; height: 12px; }
+
+/* ─── Starting… strip (a stopped project booting under the page) ───────── */
+.ws-boot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 7px 14px 7px 12px;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--ws-color, var(--accent));
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 12.5px;
+  z-index: 3;
+  animation: rise var(--dur) var(--ease);
+}
+.ws-boot[hidden] { display: none; }
+.ws-boot .spinner { width: 14px; height: 14px; flex-shrink: 0; }
+.ws-boot .wb-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.3; }
+.ws-boot .wb-text strong { color: var(--text); font-weight: 500; }
+.ws-boot .wb-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 11.5px; }
+body.is-booting .chat-scroll { opacity: 0.35; transition: opacity 0.18s var(--ease); }
+
+/* ─── ⋯ menu ───────────────────────────────────────────────────────────── */
+.ws-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 212px;
+  padding: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-card, 10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  animation: rise var(--dur-fast) var(--ease);
+}
+.ws-mi {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: var(--r-row);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.ws-mi .ic { width: 14px; height: 14px; color: var(--text-3); flex-shrink: 0; }
+.ws-mi:hover, .ws-mi:focus-visible { background: var(--card-hover); outline: none; }
+.ws-mi:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.ws-mi.is-danger, .ws-mi.is-danger .ic { color: var(--danger); }
+.ws-mi.is-danger:hover { background: var(--danger-soft); }
+.ws-mi-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+.ws-mi-colour { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 9px; }
+.ws-mi-lbl { color: var(--text-2); font-size: 13px; }
+.ws-swatches { display: grid; grid-template-columns: repeat(8, 16px); gap: 5px; }
+.ws-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.ws-swatch:hover { transform: scale(1.18); }
+.ws-swatch.is-on { border-color: var(--bg, #111); box-shadow: 0 0 0 2px var(--c); }
+.ws-swatch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ─── Dialogs (rename, remove, links, settings) ────────────────────────── */
+.ws-card { max-width: 460px; }
+.ws-dlg-body { padding: 4px 14px 14px; overflow-y: auto; overscroll-behavior: contain; }
+.ws-dlg-body .dlg-section { margin-top: 10px; }
+.ws-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; color: var(--text-2); font-size: 12.5px; }
+.ws-field input {
+  padding: 8px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.ws-field input:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+.ws-note { display: flex; gap: 8px; margin: 10px 0 2px; color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.ws-note .ic { width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px; color: var(--text-3); }
+
+.ws-links { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.ws-link-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-row); cursor: pointer; }
+.ws-link-row:hover { background: var(--card-hover); }
+.ws-link-row.is-locked { opacity: 0.6; cursor: default; }
+.ws-link-row input { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--accent); }
+.ws-dot { width: 9px; height: 9px; flex-shrink: 0; border-radius: 50%; background: var(--c); }
+.ws-link-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.ws-link-name strong { font-size: 13px; font-weight: 500; }
+.ws-link-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 11.5px; }
+
+.ws-seg { display: inline-flex; padding: 2px; gap: 2px; margin-top: 6px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--card); }
+.ws-seg-btn { padding: 4px 14px; border: 0; border-radius: calc(var(--r-ctl) - 2px); background: transparent; color: var(--text-2); font-size: 12.5px; font-weight: 500; }
+.ws-seg-btn:hover { color: var(--text); }
+.ws-seg-btn.is-on { background: var(--card-hover); color: var(--text); box-shadow: 0 0 0 1px var(--line-2); }
+.ws-seg-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.ws-seg-note { margin: 6px 2px 0; color: var(--text-3); font-size: 12px; min-height: 1.4em; }
+
+.ws-setting { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+.ws-setting:last-child { border-bottom: 0; }
+.ws-set-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.ws-set-text strong { font-size: 13px; font-weight: 500; }
+.ws-set-text span { color: var(--text-3); font-size: 12px; }
+.ws-num {
+  width: 68px;
+  flex-shrink: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+}
+.ws-num:focus { outline: 2px solid var(--focus); outline-offset: -1px; }
+.ws-switch { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
+.ws-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.ws-switch-ui { position: absolute; inset: 0; border-radius: 999px; background: var(--line-2); transition: background var(--dur-fast) var(--ease); pointer-events: none; }
+.ws-switch-ui::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.ws-switch input:checked + .ws-switch-ui { background: var(--accent); }
+.ws-switch input:checked + .ws-switch-ui::after { transform: translateX(14px); }
+.ws-switch input:focus-visible + .ws-switch-ui { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ws-switch input:disabled { cursor: progress; }
+
+/* ─── Add to workspace (folders.js) ───────────────────────────────────── */
+.fd-ws-row { gap: 0; padding-left: 4px; }
+.fd-check {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 0 2px 0 4px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1.5px solid var(--line-2);
+  border-radius: 6px;
+  background: transparent;
+  color: transparent;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.fd-check .ic { width: 13px; height: 13px; }
+.fd-check:hover:not(:disabled) { border-color: var(--accent); }
+.fd-check.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fd-check:disabled { opacity: 0.35; cursor: not-allowed; }
+.fd-check:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.fd-ws-row.is-picked { background: var(--accent-soft); }
+
+.ws-scan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-row);
+  background: var(--accent-soft);
+  font-size: 12.5px;
+}
+.ws-scan > .ic { width: 15px; height: 15px; flex-shrink: 0; color: var(--accent); }
+.ws-scan-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.ws-scan-text strong { color: var(--text); font-weight: 500; }
+.ws-errors { flex-direction: row; align-items: flex-start; }
+.ws-errors > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ws-err-row { display: block; }
+.ws-err-row code { font-size: 11.5px; }
+
+/* ─── Master groups (virtual main projects) ───────────────────────────── */
+.ws-item.is-group { background: linear-gradient(90deg, color-mix(in srgb, var(--ws-color) 9%, transparent), transparent 70%); border-radius: var(--r-row); }
+.ws-globe { display: inline-grid; place-items: center; flex-shrink: 0; color: var(--ws-color); }
+.ws-globe .ic { width: 13px; height: 13px; }
+.ws-master { color: var(--text-2); font-weight: 500; }
+.ws-gbadge { display: inline-grid; place-items: center; flex-shrink: 0; color: var(--text-3); cursor: help; }
+.ws-gbadge .ic { width: 11px; height: 11px; }
+
+.ws-members { position: relative; margin: 0 0 4px 14px; padding-left: 8px; border-left: 1px solid var(--line); }
+.ws-members-toggle {
+  display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; border: 0; border-radius: var(--r-ctl);
+  background: transparent; color: var(--text-3); font-size: 11px; font-weight: 500; letter-spacing: 0.02em;
+}
+.ws-members-toggle .ic { width: 12px; height: 12px; transition: transform var(--dur-fast) var(--ease); }
+.ws-members.is-folded .ws-members-toggle .ic { transform: rotate(-90deg); }
+.ws-members-toggle:hover { color: var(--text); }
+.ws-members-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.ws-members.is-folded .ws-member-list { display: none; }
+.ws-member-list { display: flex; flex-direction: column; gap: 1px; }
+.ws-nested .ws-item .project-row { padding-top: 5px; padding-bottom: 5px; }
+
+/* the labelled "New master group…" invitation under the list */
+.ws-groupcta {
+  display: flex; align-items: center; gap: 6px; margin: 6px 4px 2px; padding: 4px 8px; border: 1px dashed var(--line-2);
+  border-radius: var(--r-ctl); background: transparent; color: var(--text-3); font-size: 12px; font-weight: 500;
+}
+.ws-groupcta .ic { width: 13px; height: 13px; }
+.ws-groupcta:hover { color: var(--text); border-color: var(--accent-line); background: var(--accent-soft); }
+.ws-groupcta:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.ws-groupcta[hidden] { display: none; }
+
+/* ⋯ menu: write policy */
+.ws-pols { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r-ctl); }
+.ws-pol { padding: 2px 8px; border: 0; border-radius: calc(var(--r-ctl) - 2px); background: transparent; color: var(--text-2); font-size: 11.5px; font-weight: 500; }
+.ws-pol:hover { color: var(--text); }
+.ws-pol.is-on { background: var(--card-hover); color: var(--text); box-shadow: 0 0 0 1px var(--line-2); }
+.ws-pol:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* dialogs: select, inline error, "Part of" */
+.ws-card { position: relative; }
+/* Dropdown (wsmenu.js): a button + one menu drawn in the dialog — never a native <select>. */
+.ws-dd {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; height: 36px;
+  padding: 0 10px 0 12px; border: 1px solid var(--line-2); border-radius: var(--r-ctl); background: var(--card);
+  color: var(--text); font: inherit; font-size: 13.5px; text-align: left;
+  transition: border-color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
+}
+.ws-dd:hover { background: var(--card-hover); }
+.ws-dd:focus-visible, .ws-dd[aria-expanded="true"] { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.25); }
+.ws-dd-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-dd > .ic { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-3); transition: transform var(--dur-fast) var(--ease); }
+.ws-dd[aria-expanded="true"] > .ic { transform: rotate(180deg); }
+.ws-dd-menu {
+  position: fixed; z-index: 30; overflow-y: auto; overscroll-behavior: contain; padding: 4px;
+  border-radius: var(--r-card); border: 1px solid var(--line-2); background: var(--glass-strong);
+  box-shadow: var(--shadow-pop); transform-origin: top center;
+}
+:root[data-surface="glass"] .ws-dd-menu {
+  -webkit-backdrop-filter: blur(var(--blur-strong)) saturate(var(--sat-strong, 170%));
+  backdrop-filter: blur(var(--blur-strong)) saturate(var(--sat-strong, 170%));
+}
+.ws-dd-menu[hidden] { display: none; }
+.ws-dd-menu.is-up { transform-origin: bottom center; }
+.ws-dd-menu.is-in { animation: ws-dd-in 0.14s var(--ease); }
+.ws-dd-menu.is-up.is-in { animation-name: ws-dd-up; }
+@keyframes ws-dd-in { from { opacity: 0; transform: scale(0.98) translateY(-4px); } }
+@keyframes ws-dd-up { from { opacity: 0; transform: scale(0.98) translateY(4px); } }
+.ws-dd-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 5px 8px 5px 6px;
+  border: none; border-radius: var(--r-ctl); background: none; color: var(--text); text-align: left;
+  transition: background var(--dur-fast);
+}
+.ws-dd-opt:hover, .ws-dd-opt:focus-visible { background: var(--card-hover); outline: none; }
+.ws-dd-opt[aria-selected="true"] strong { font-weight: 500; }
+.ws-dd-check { display: grid; place-items: center; width: 16px; flex-shrink: 0; color: var(--accent); }
+.ws-dd-check .ic { width: 14px; height: 14px; stroke-width: 2.4; }
+.ws-dd-body { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.ws-dd-body strong { font-size: 13px; font-weight: 400; }
+.ws-dd-body span { font-size: 12px; color: var(--text-3); white-space: normal; }
+.ws-error { margin: 10px 2px 0; padding: 7px 10px; border: 1px solid var(--danger-line); border-radius: var(--r-row); background: var(--danger-soft); color: var(--danger); font-size: 12.5px; line-height: 1.4; }
+.ws-error[hidden] { display: none; }
+.ws-partof { align-items: center; margin-top: 8px; }
+.ws-partof strong { color: var(--text); font-weight: 500; }
+#wsg-count { color: var(--text-3); font-size: 11.5px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .project-row.is-starting .pr-ind { animation: none; }
+  .ws-menu, .ws-boot { animation: none; }
+}

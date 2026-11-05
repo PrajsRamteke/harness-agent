@@ -1242,6 +1242,18 @@ class WebHandler(BaseHTTPRequestHandler):
                                   "shortcuts": fs_api.shortcuts()})
             return
 
+        if path in ("/api/workspace", "/api/workspace/terminals", "/api/workspace/scan"):
+            from . import workspace_api
+
+            if path == "/api/workspace":
+                self._send_json(200, workspace_api.payload(self.instance_id))
+            elif path == "/api/workspace/scan":
+                self._send_json(200, workspace_api.scan(self._query_str(qs, "path")))
+            else:
+                fwd = None if self._may_hand_out_token() else str((self.client_address or ("",))[0] or "unknown")
+                self._send_json(200, workspace_api.terminals_payload(self.instance_id, forwarded_for=fwd))
+            return
+
         if path == "/api/projects":
             self._send_json(200, hub.projects_payload(
                 self.instance_id,
@@ -1313,6 +1325,15 @@ class WebHandler(BaseHTTPRequestHandler):
 
             push.note_presence(str(data.get("client") or ""), bool(data.get("visible")))
             self._send_json(200, {"ok": True})
+            return
+
+        if path.startswith("/api/workspace/"):
+            # The saved project list: any project's page may edit it (it is one file for all of them).
+            from . import workspace_api
+
+            self._send_json(200, workspace_api.post(
+                path.rsplit("/", 1)[1], data, direct=self._may_hand_out_token(), self_id=self.instance_id,
+            ))
             return
 
         if path in ("/api/projects/open", "/api/projects/stop", "/api/projects/stop_all",

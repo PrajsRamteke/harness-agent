@@ -224,7 +224,9 @@ def _build_static_body() -> str:
     from pathlib import Path
     cwd = str(Path.cwd())
     branch = _get_git_branch(cwd)
-    cwd_branch_key = cwd + "|" + (branch or "")
+    from ..constants.system_prompt import linked_projects_block
+
+    cwd_branch_key = cwd + "|" + (branch or "") + "|" + linked_projects_block(cwd)
 
     if (mem_block == _cached_mem_key
             and sk_block == _cached_sk_key

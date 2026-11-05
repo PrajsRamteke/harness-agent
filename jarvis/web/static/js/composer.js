@@ -12,6 +12,7 @@ import { trayStatus, onTrayChange, lockTray, clearTray } from './media.js';
 import { editLastQueued } from './queue.js';
 import { onActiveTab, tabKey, gainedSession } from './tabkey.js';
 import { openBtw } from './btw.js';
+import { isBooting, holdPrompt } from './wsprojects.js';
 
 const HISTORY_KEY = 'jarvis-prompt-history';
 const HISTORY_MAX = 50;
@@ -160,6 +161,17 @@ export async function submitPrompt(text) {
   const tray = fromBox ? trayStatus() : null;
   const withFiles = !!tray?.count;
   if ((!value && !withFiles) || sending) return;
+  // A stopped workspace project is starting under the page (wsprojects.js): hold the message,
+  // it goes out as soon as the switch is done.
+  if (isBooting() && !/^\/btw\b/i.test(value)) {
+    if (withFiles) {
+      showToast('Attachments can be sent once the project has started', true);
+      return;
+    }
+    holdPrompt(value);
+    if (fromBox && el) setPromptValue('');
+    return;
+  }
   if (enhancing && fromBox) {
     showToast('Still enhancing — one moment');
     return;

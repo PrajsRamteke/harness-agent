@@ -25,6 +25,8 @@ from .extensions import (
     EXTENSION_TOOLS, skill_install, skill_remove, mcp_add, mcp_list, mcp_connect, mcp_remove,
 )
 from .ask_user import ask_user_question
+from .project_delegate import DELEGATE_TOOLS, ask_project
+from .workspace_tools import WORKSPACE_TOOLS, list_projects
 from ..subagents import SUBAGENT_TOOLS, spawn_agents
 from .plan import exit_plan_mode, PLAN_TOOLS, PLAN_MODE_ALLOWED
 from .schemas_core import (
@@ -38,10 +40,12 @@ from .schemas_mac import MAC_TOOLS
 MCP_TOOLS: list[dict] = []
 TOOLS = (CORE_TOOLS + BACKGROUND_TOOLS + VISION_TOOLS + MAC_TOOLS + INTERNET_TOOLS + MEMORY_TOOLS
          + LESSON_TOOLS + SKILL_TOOLS + EXTENSION_TOOLS + OCR_TOOLS + LOOP_TOOLS + SUBAGENT_TOOLS
-         + MCP_TOOLS)
+         + DELEGATE_TOOLS + WORKSPACE_TOOLS + MCP_TOOLS)
 TOOL_GROUPS: dict[str, list[dict]] = {
     "core": CORE_TOOLS,
     "agents": SUBAGENT_TOOLS,
+    "delegate": DELEGATE_TOOLS,
+    "workspace": WORKSPACE_TOOLS,
     "background": BACKGROUND_TOOLS,
     "vision": VISION_TOOLS,
     "loop": LOOP_TOOLS,
@@ -113,6 +117,10 @@ FUNC = {
     "exit_plan_mode": exit_plan_mode,
     # parallel subagents
     "spawn_agents": spawn_agents,
+    # cross-project delegation (only offered while Workspace → Delegation is on)
+    "ask_project": ask_project,
+    # which linked projects / group members this Jarvis can reach (offered only when there are some)
+    "list_projects": list_projects,
 }
 
 # ── MCP registry integration ─────────────────────────────────────────────

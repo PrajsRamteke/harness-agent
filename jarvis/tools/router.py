@@ -206,6 +206,16 @@ def select_tools(messages: list[dict]) -> list[dict]:
 
     if _subagents_enabled():
         groups.append("agents")
+    # Cross-project delegation — only while it is on and this project has a link.
+    from .project_delegate import exposed as _delegation_exposed
+
+    if _delegation_exposed():
+        groups.append("delegate")
+    # Which projects are reachable — only while this project links others / is a group hub.
+    from .workspace_tools import exposed as _workspace_exposed
+
+    if _workspace_exposed():
+        groups.append("workspace")
     active = _recent_tool_groups(messages)
     sticky = _sticky_groups(messages)
     active |= sticky

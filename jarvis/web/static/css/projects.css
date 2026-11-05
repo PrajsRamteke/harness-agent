@@ -1,3 +1,5 @@
+@import url('wsprojects.css');   /* the Workspace: colour stripes, stopped / starting rows, menus, dialogs */
+
 /* Project switcher (projects.js): one row per running Jarvis, plus the
  * "needs your approval" banner for a project you are not looking at. */
 .side-sec[hidden] { display: none; }

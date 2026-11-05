@@ -1,0 +1,114 @@
+{
+ "slug": "multi-project-workspace",
+ "title": "Multi-project workspace: one Jarvis, several projects",
+ "views": [
+  {
+   "name": "workspace-sidebar",
+   "title": "Sidebar \u2014 projects, master groups and the current one",
+   "steps": [
+    {
+     "wait": 1200
+    }
+   ]
+  },
+  {
+   "name": "group-nested-members",
+   "title": "A master group lists its members inside it, never twice",
+   "crop": "#projects-list",
+   "before": false,
+   "steps": [
+    {
+     "wait": 1200
+    }
+   ],
+   "selector": "#projects-list"
+  },
+  {
+   "name": "new-group-dialog",
+   "title": "New master group \u2014 custom dropdown for the write policy",
+   "before": false,
+   "crop": "#wsdlg",
+   "steps": [
+    {
+     "click": "#ws-group"
+    },
+    {
+     "wait_for": "#wsdlg:not([hidden])"
+    },
+    {
+     "click": "#wsg-policy-btn"
+    },
+    {
+     "wait_for": "#wsdlg-dd:not([hidden])"
+    },
+    {
+     "wait": 400
+    }
+   ]
+  },
+  {
+   "name": "master-tab",
+   "title": "The group's shared master chat, pinned as the first tab",
+   "before": false,
+   "crop": "#chat-tabs",
+   "steps": [
+    {
+     "click": ".ws-item.is-group .project-row"
+    },
+    {
+     "wait_for": ".ct-tab.ct-master"
+    },
+    {
+     "wait": 2500
+    }
+   ],
+   "selector": "#chat-tabs"
+  },
+  {
+   "name": "master-terminal",
+   "title": "Master hub \u2014 a Projects strip jumps into any member's shell",
+   "before": false,
+   "steps": [
+    {
+     "click": ".ws-item.is-group .project-row"
+    },
+    {
+     "wait_for": ".ct-tab.ct-master"
+    },
+    {
+     "wait": 1500
+    },
+    {
+     "click": "#term-btn"
+    },
+    {
+     "wait_for": "#term-panel:not([hidden])"
+    },
+    {
+     "wait_for": ".term-proj"
+    },
+    {
+     "wait": 1200
+    }
+   ]
+  },
+  {
+   "name": "member-master-chip",
+   "title": "A member project shows a Master chip that opens the shared chat",
+   "before": false,
+   "crop": "#chat-tabs",
+   "steps": [
+    {
+     "click": ".ws-nested .project-row"
+    },
+    {
+     "wait_for": ".ct-chip[data-master]"
+    },
+    {
+     "wait": 2500
+    }
+   ],
+   "selector": "#chat-tabs"
+  }
+ ]
+}

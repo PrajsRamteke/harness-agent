@@ -112,13 +112,60 @@ def file_id(path: str | os.PathLike) -> str:
     return hashlib.sha1(_norm(path).encode("utf-8", "replace")).hexdigest()[:12]
 
 
+_linked_cache: dict[str, Any] = {"key": None, "roots": []}
+
+
+def _linked_roots() -> list[dict]:
+    """Linked project roots of this project (cached until the workspace file or the folder changes)."""
+    try:
+        from .storage import workspace
+
+        key = (workspace.revision(), str(CWD))
+        if _linked_cache["key"] != key:
+            _linked_cache["roots"] = [r for r in workspace.roots_for() if not r.get("primary")]
+            _linked_cache["key"] = key
+        return _linked_cache["roots"]
+    except Exception:
+        return []
+
+
+def _linked_root_of(path: str | os.PathLike) -> dict | None:
+    if not _linked_roots():
+        return None
+    real = _norm(path)
+    best = None
+    for root in _linked_roots():
+        base = root["path"].rstrip(os.sep)
+        if (real == base or real.startswith(base + os.sep)) and (best is None or len(base) > len(best["path"])):
+            best = root
+    return best
+
+
+def project_of(path: str | os.PathLike) -> str | None:
+    """Id of the linked project a file lives in — ``None`` for this project's own files."""
+    try:
+        if _norm(path).startswith(_norm(CWD).rstrip(os.sep) + os.sep):
+            return None
+        root = _linked_root_of(path)
+        return root["id"] if root else None
+    except Exception:
+        return None
+
+
 def display_path(path: str) -> str:
-    """Project-relative when inside the project, ``~/…`` under home, else absolute."""
+    """Project-relative when inside the project (or its own linked project's root — see
+    :func:`project_of`), ``~/…`` under home, else absolute."""
     p = pathlib.Path(path)
     try:
         return p.relative_to(CWD).as_posix()
     except ValueError:
         pass
+    root = _linked_root_of(p)
+    if root is not None:
+        try:
+            return pathlib.Path(_norm(p)).relative_to(root["path"]).as_posix()
+        except ValueError:
+            pass
     try:
         return "~/" + p.relative_to(pathlib.Path.home()).as_posix()
     except ValueError:
@@ -640,6 +687,7 @@ def _row(tf: Tracked, renamed_from: str | None) -> dict[str, Any]:
         "edits": len(tf.steps),
         "first": round(tf.first_ts, 2),
         "last": round(tf.last_ts, 2),
+        "project": project_of(tf.path),     # id of the linked project (outside this one), else null
     }
     if renamed_from:
         row["from"] = display_path(renamed_from)
@@ -706,6 +754,9 @@ def patch_text(fid: str | None = None) -> str:
             if fid and file_id(tf.path) != fid:
                 continue
             name = display_path(tf.path)
+            proj = project_of(tf.path)
+            if proj:
+                chunks.append(f"# project: {proj}\n")
             if tf.big:
                 chunks.append(f"# {name}: too large to include\n")
                 continue
@@ -751,12 +802,15 @@ def _tokens(cmd: str) -> list[str]:
         return cmd.split()
 
 
-def _inside_project(p: pathlib.Path) -> bool:
-    try:
-        rel = p.relative_to(CWD)
-    except ValueError:
-        return False
-    return not (set(rel.parts) & _SKIP_PARTS)
+def _inside_project(p: pathlib.Path, base: pathlib.Path | None = None) -> bool:
+    """Inside the project root (or ``base``, a linked root a command runs in) — or a linked root."""
+    for root in (base or CWD, *(pathlib.Path(r["path"]) for r in _linked_roots())):
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            continue
+        return not (set(rel.parts) & _SKIP_PARTS)
+    return False
 
 
 def _walk_files(root: pathlib.Path, budget: int) -> list[pathlib.Path]:
@@ -770,15 +824,18 @@ def _walk_files(root: pathlib.Path, budget: int) -> list[pathlib.Path]:
     return out
 
 
-def _shell_targets(cmd: str) -> list[str]:
-    """Paths a shell command names that it might create, change or delete."""
+def _shell_targets(cmd: str, base: str | os.PathLike | None = None) -> list[str]:
+    """Paths a shell command names that it might create, change or delete.
+
+    ``base``: the folder the command runs in (a linked project's root) — default the project root."""
     found: dict[str, None] = {}
-    cur = pathlib.Path(CWD)
+    start = pathlib.Path(base) if base else None
+    cur = start or pathlib.Path(CWD)
     seg: list[str] = []
     redirect_next = False
 
     def add(p: pathlib.Path) -> None:
-        if len(found) < MAX_SHELL_FILES and _inside_project(p):
+        if len(found) < MAX_SHELL_FILES and _inside_project(p, start):
             found[str(p)] = None
 
     def consider(tok: str, walk: bool) -> None:
@@ -793,7 +850,7 @@ def _shell_targets(cmd: str) -> list[str]:
             prefix = text[:min(text.index(c) for c in _GLOB_CHARS if c in text)]
             # "dir/" is the directory itself; "dir/te" is a partial name inside dir.
             root = pathlib.Path(prefix if prefix.endswith(os.sep) else os.path.dirname(prefix))
-            if not _inside_project(root):
+            if not _inside_project(root, start):
                 return
             found_globs = itertools.islice(glob.iglob(text), MAX_SHELL_FILES * 3)
             matches = [pathlib.Path(m) for m in sorted(found_globs)[:MAX_SHELL_FILES]]
@@ -805,7 +862,7 @@ def _shell_targets(cmd: str) -> list[str]:
                 if m.is_file():
                     add(m)
                 elif m.is_dir():
-                    if walk and _inside_project(m):
+                    if walk and _inside_project(m, start):
                         for f in _walk_files(m, MAX_SHELL_FILES - len(found)):
                             add(f)
                 elif not _JUNK_CHARS & set(tok) and m.parent.is_dir():
@@ -848,8 +905,9 @@ def _shell_targets(cmd: str) -> list[str]:
     return list(found)
 
 
-def watch_shell(cmd: str) -> Callable[[], None]:
+def watch_shell(cmd: str, cwd: str | os.PathLike | None = None) -> Callable[[], None]:
     """Call before running a shell command; call the result after it.
+    ``cwd``: where the command runs when that isn't the project root (a linked project).
 
     Snapshots the files the command line names (and paths it could create),
     then records whatever really changed — deletions (``rm``), renames (``mv``),
@@ -859,7 +917,7 @@ def watch_shell(cmd: str) -> Callable[[], None]:
     try:
         before: dict[str, Any] = {}
         budget = MAX_SHELL_BYTES
-        for path in _shell_targets(cmd):
+        for path in _shell_targets(cmd, cwd):
             text = _read(path)
             if text is _BIG:
                 continue
@@ -880,7 +938,7 @@ def watch_shell(cmd: str) -> Callable[[], None]:
                     # A directory appeared (cp -r, mv dir, a scaffolder): its files are new.
                     for f in _walk_files(pathlib.Path(path), MAX_SHELL_FILES):
                         text = _read(str(f))
-                        if isinstance(text, str) and _inside_project(f):
+                        if isinstance(text, str) and _inside_project(f, pathlib.Path(cwd) if cwd else None):
                             record(f, None, text, "create")
                     continue
                 if new is _BIG or new == old:

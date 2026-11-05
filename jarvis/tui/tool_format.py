@@ -149,11 +149,54 @@ def clip(text: Any, width: int = 96) -> str:
     return one
 
 
+# ``api:src/x.ts`` — a path qualified with a workspace project id (storage/workspace.py).
+_QUALIFIED_RE = re.compile(r"^([a-z0-9][a-z0-9_-]{0,31}):(?!//)(?=[^\s\\])(.+)$")
+BADGE_SEP = " › "
+
+
+def split_qualified(path: Any) -> tuple[str, str]:
+    """``'api:src/x'`` → ``('api', 'src/x')``; anything else → ``('', path)``."""
+    raw = str(path or "").strip()
+    m = _QUALIFIED_RE.match(raw)
+    return (m.group(1), m.group(2)) if m else ("", raw)
+
+
+def project_ids(value: Any) -> list[str]:
+    """Ids named by a tool's ``project`` argument (str, list of str, or ``'*'``)."""
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: list[str] = []
+    for v in value:
+        s = str(v or "").strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def project_badge(value: Any) -> str:
+    """Text badge for a ``project`` argument: ``api ›`` · ``[api, infra]`` · ``[all projects]``."""
+    ids = project_ids(value)
+    if not ids:
+        return ""
+    if ids == ["*"]:
+        return "[all projects]"
+    if len(ids) == 1:
+        return ids[0] + BADGE_SEP.rstrip()
+    return "[" + ", ".join(ids) + "]"
+
+
 def short_path(path: Any) -> str:
-    """Project-relative when inside cwd, ``~/…`` under home, else as given."""
+    """Project-relative when inside cwd, ``~/…`` under home, else as given.
+
+    A project-qualified path (``api:src/x``) reads ``api › src/x``."""
     raw = str(path or "").strip()
     if not raw:
         return ""
+    pid, rest = split_qualified(raw)
+    if pid:
+        return f"{pid}{BADGE_SEP}{rest}"
     try:
         p = pathlib.Path(raw).expanduser()
         if p.is_absolute():
@@ -207,8 +250,22 @@ def _kv(d: dict, limit: int = 3) -> str:
 
 
 def tool_args(name: str, raw_input: Any, width: int = 96) -> str:
-    """One-line argument summary for the headline."""
+    """One-line argument summary for the headline.
+
+    When the call names another workspace project (a ``project`` argument), the
+    summary leads with ``api ›`` / ``[api, infra]`` / ``[all projects]``."""
     d = _norm(raw_input)
+    badge = "" if is_mcp(name) or name == "spawn_agents" else project_badge(d.get("project"))
+    body = _tool_args_body(name, d, width if not badge else max(10, width - len(badge) - 1))
+    if not badge:
+        return body
+    # Qualified paths already carry their own ``id ›`` — don't say it twice.
+    if body.startswith(badge.rstrip("›").strip() + BADGE_SEP.rstrip()):
+        return body
+    return f"{badge} {body}".strip()
+
+
+def _tool_args_body(name: str, d: dict, width: int) -> str:
     c = lambda s, w=width: clip(s, w)  # noqa: E731
 
     if name == "spawn_agents":

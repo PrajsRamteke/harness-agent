@@ -64,6 +64,8 @@ class Launch:
     log_path: str = ""
     started: float = field(default_factory=time.time)
     finished: float = 0.0
+    boot_secs: float = 0.0        # spawn → ready, once ready
+    registered_secs: float = 0.0  # spawn → first listed in the registry (imports done, web remote up)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -71,6 +73,7 @@ class Launch:
             "name": Path(self.path).name or self.path, "status": self.status, "stage": self.stage,
             "instance_id": self.instance_id, "code": self.code, "error": self.error, "log": self.log,
             "elapsed": round((self.finished or time.time()) - self.started, 1),
+            "boot_secs": self.boot_secs,
         }
 
 
@@ -122,6 +125,23 @@ def _finish(launch: Launch, status: str, *, code: str = "", error: str = "") -> 
         launch.finished = time.time()
         if status == "ready":
             launch.stage = "ready"
+            launch.boot_secs = round(launch.finished - launch.started, 2)
+
+
+def starting_paths() -> list[str]:
+    """Folders with a launch in the spawn / boot stage right now."""
+    with _lock:
+        return [l.path for l in _launches.values() if l.status == "starting"]
+
+
+def _note_boot(launch: Launch) -> None:
+    """Put the measured cold start in the project's launch log (the child appends to it too)."""
+    try:
+        with open(launch.log_path, "a") as fh:
+            fh.write(f"[jarvis-launch] ready in {launch.boot_secs:.2f}s "
+                     f"(listed after {launch.registered_secs:.2f}s)\n")
+    except OSError:
+        pass
 
 
 def _watch(launch: Launch, proc: subprocess.Popen) -> None:
@@ -133,8 +153,11 @@ def _watch(launch: Launch, proc: subprocess.Popen) -> None:
             with _lock:
                 launch.stage = "boot"
                 launch.instance_id = iid
+                if not launch.registered_secs:
+                    launch.registered_secs = round(time.time() - launch.started, 2)
             if rec.get("session_id") is not None:  # it has a chat to show
                 _finish(launch, "ready")
+                _note_boot(launch)
                 break
         rc = proc.poll()
         if rc is not None:
@@ -165,10 +188,12 @@ def _watch(launch: Launch, proc: subprocess.Popen) -> None:
         pass
 
 
-def open_project(raw_path: str, *, reuse: bool = True, resume_session: int | None = None) -> dict[str, Any]:
+def open_project(raw_path: str, *, reuse: bool = True, resume_session: int | None = None,
+                 env_extra: dict[str, str] | None = None) -> dict[str, Any]:
     """Start (or, with ``reuse``, find) a Jarvis in a folder. Never raises.
 
     ``resume_session``: the saved chat it opens with (a missing one starts a new chat).
+    ``env_extra``: more environment for the child only (delegation sets ``HARNESS_DELEGATED``).
     """
     try:
         path = fs_api.resolve_dir(raw_path)
@@ -185,9 +210,10 @@ def open_project(raw_path: str, *, reuse: bool = True, resume_session: int | Non
                 "error": f"{MAX_RUNNING} projects are already open. Stop one you're done with first."}
 
     launch = Launch(id=uuid.uuid4().hex[:12], path=str(path))
-    env = {k: v for k, v in os.environ.items() if k not in _DROP_ENV}
+    env = {k: v for k, v in os.environ.items() if k not in _DROP_ENV and k != "HARNESS_DELEGATED"}
     env["PWD"] = str(path)
     env["HARNESS_LAUNCHED_BY"] = str(os.getpid())
+    env.update({str(k): str(v) for k, v in (env_extra or {}).items()})  # after the above: a caller may override
     if resume_session:
         env[RESUME_ENV] = str(int(resume_session))
     try:
@@ -279,6 +305,8 @@ def stop_project(instance_id: str) -> dict[str, Any]:
     pid = int(rec.get("pid") or 0)
     if pid <= 0:
         return {"ok": False, "code": "bad_entry", "error": "That project's entry is damaged."}
+    # What the project looked like, for its stopped row (the instance may not get to say it itself).
+    registry.remember_last_state(rec)
     if pid == os.getpid():
         if _others(instance_id):
             return _retire_self()

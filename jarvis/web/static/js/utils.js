@@ -68,6 +68,19 @@ export function setBase(next) {
   BASE = next || '';
 }
 
+/**
+ * The path prefix that reaches one *specific* running Jarvis, whichever project
+ * is on screen: `/p/<id>` (the server this page came through forwards it). A
+ * falsy id, or the id of the shown project, is just `BASE`. Build every
+ * request to a project other than the shown one with this (or `api.js:apiAt`),
+ * never by hand — tests/test_web_hub.py checks the call sites.
+ */
+export function urlAt(instanceId, path = '') {
+  if (!instanceId) return BASE + path;
+  const own = BASE && BASE.slice(3) === instanceId;
+  return (own ? BASE : `/p/${instanceId}`) + path;
+}
+
 export function truncate(str, max = 72) {
   const s = String(str || '');
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;

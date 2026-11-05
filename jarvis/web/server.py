@@ -76,6 +76,7 @@ def _local_urls(port: int, token: str) -> list[str]:
 def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
     """What the project switcher shows about this instance (read every few seconds)."""
     since: list[float | None] = [None]  # when the running turn started (read every second)
+    active = [time.time(), False]       # last activity, and the busy state it was last updated for
 
     def info() -> dict[str, Any]:
         from .. import state
@@ -86,8 +87,17 @@ def _instance_info(app: Any, bridge: WebBridge) -> Callable[[], dict[str, Any]]:
             since[0] = time.time()
         elif not busy:
             since[0] = None
+        if busy != active[1]:  # a turn started or finished: that is activity
+            active[0], active[1] = time.time(), busy
+        # Whole seconds, and only moved by real activity: the record is stable between ticks.
+        last_active = int(max(active[0], registry.last_touch()))
+        cwd = os.getcwd()
         return {
-            "cwd": os.getcwd(),
+            "cwd": cwd,
+            "branch": registry.git_branch(cwd),
+            "workspace_project": registry.workspace_project_id(cwd),
+            "last_active": last_active,
+            "attached": bool(bridge.has_subscribers()),  # a browser is on this project's page
             "project": state_api._project_name(),
             "session_id": state.current_session_id,
             "session_title": state_api._session_title(state.current_session_id),  # cached
@@ -114,10 +124,14 @@ def start_web_server(
     from . import push
 
     push.configure(instance_id=instance_id)  # the /p/<id> a notification opens
+    def do_post(self: Any) -> None:
+        registry.touch()  # a prompt / edit / key press — not a poll: the project is in use
+        WebHandler.do_POST(self)
+
     handler = type(
         "JarvisWebHandler",
         (WebHandler,),
-        {"bridge": bridge, "app": app, "instance_id": instance_id},
+        {"bridge": bridge, "app": app, "instance_id": instance_id, "do_POST": do_post},
     )
     bound_port = resolve_web_port(host, port)
     server = _JarvisHTTPServer((host, bound_port), handler)
@@ -163,6 +177,10 @@ def start_web_server(
     )
     registration.start()
     server.registration = registration  # type: ignore[attr-defined]
+    from . import reaper
+
+    # Warm pool (after a short delay, never blocking start-up) + the idle reaper.
+    server.lifecycle = reaper.start_background(instance_id)  # type: ignore[attr-defined]
     from . import fs_api
 
     fs_api.remember_dir(os.getcwd())  # the folder picker's "Recent" list
@@ -176,8 +194,15 @@ def stop_web_server(server: _JarvisHTTPServer | None, bridge: WebBridge | None) 
         bridge.close()
     if server is None:
         return
+    life = getattr(server, "lifecycle", None)
+    if life is not None:
+        life.stop()
     registration = getattr(server, "registration", None)
     if registration is not None:
+        try:  # what this project looked like, for its stopped row
+            registry.remember_last_state(registration.snapshot())
+        except Exception:
+            pass
         registration.stop()
     watcher = getattr(server, "state_watcher", None)
     if watcher is not None:

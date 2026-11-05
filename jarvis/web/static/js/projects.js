@@ -29,12 +29,18 @@ import { setProjectItems } from './catalog.js';
 import { icon } from './icons.js';
 import { openFolders } from './folders.js';
 import { initReorder } from './reorder.js';
+import {
+  workspaceActive, workspaceInstanceIds, workspaceRowsHtml, otherRunningHtml, adoptButtonHtml,
+  handleWsClick, handleWsContextMenu, workspaceItems, refreshWorkspace, reorderWorkspace, initWsProjects,
+} from './wsprojects.js';
 
 const POLL_MS = 10_000;         // the fallback; `projects` events carry changes as they happen
 const POLL_ALONE_MS = 20_000;
 const PREFETCH_TTL_MS = 8_000;
 const CLOSED_KEY = 'jarvis-closed-projects';
-const ORDER_KEY = 'jarvis-project-order';   // folder keys, in the order you dragged them into
+// Folder keys in the order you dragged them into — only for folders that are not in the
+// workspace (those follow the server's order, wsprojects.js; the old list is migrated once).
+const ORDER_KEY = 'jarvis-project-order';
 
 let onSnapshot = () => {};
 let hostId = '';        // the server this page was loaded from
@@ -145,10 +151,10 @@ function saveOrder(keys) {
 }
 
 /** Folders in the order you arranged them; ones you never placed come last, as before. */
-function orderedGroups() {
+function orderedGroups(rows = projects) {
   const order = readOrder();
   const rank = (g) => { const i = order.indexOf(g.key); return i < 0 ? order.length : i; };
-  return groupByFolder(projects)
+  return groupByFolder(rows)
     .map((g, i) => [g, i])
     .sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1])
     .map(([g]) => g);
@@ -208,7 +214,7 @@ function describe(p) {
   return `“${labelText(chatLabels(group.rows).get(p.id))}” in ${nameOf(p)}`;
 }
 
-function rowHtml(p, { title, n = 1, sub, active, child }) {
+function rowHtml(p, { title, n = 1, sub, active, child, adopt }) {
   const st = status(p);
   const secs = p.busy ? busyFor(p) : null;
   const time = secs != null ? ` <span class="pr-time" data-id="${escapeHtml(p.id)}">${elapsed(secs)}</span>` : '';
@@ -220,8 +226,9 @@ function rowHtml(p, { title, n = 1, sub, active, child }) {
   const stop = p.headless
     ? `<button type="button" class="pr-stop" data-stop="${escapeHtml(p.id)}" aria-label="Stop ${escapeHtml(title)}" title="Stop this Jarvis (opened from the web)">${icon('power')}</button>`
     : '';
+  const add = adopt ? adoptButtonHtml(p.cwd) : '';
   return `
-    <div class="project-item${p.headless ? ' has-stop' : ''}${child ? ' is-child' : ''}" role="listitem">
+    <div class="project-item${p.headless ? ' has-stop' : ''}${add ? ' has-add' : ''}${child ? ' is-child' : ''}" role="listitem">
       <a class="project-row ${st.cls}${active ? ' is-active' : ''}" href="${escapeHtml(hrefFor(p.id))}"
          data-id="${escapeHtml(p.id)}" ${active ? 'aria-current="page"' : ''} title="${escapeHtml(p.cwd || p.project)} · ${where}">
         <span class="pr-ind" aria-hidden="true">${st.cls === 'is-ask' ? icon('shield') : ''}</span>
@@ -229,7 +236,7 @@ function rowHtml(p, { title, n = 1, sub, active, child }) {
           <span class="pr-title"><span class="pr-name">${escapeHtml(title)}</span>${n > 1 ? `<span class="pr-n" title="Another chat here has the same title">${n}</span>` : ''}<span class="pr-src" title="${where}">${icon(p.headless ? 'globe' : 'terminal')}</span></span>
           ${meta ? `<span class="pr-meta">${meta}</span>` : ''}
         </span>
-      </a>${stop}
+      </a>${add}${stop}
     </div>`;
 }
 
@@ -237,15 +244,25 @@ function renderList(cur) {
   const list = $('projects-list');
   if (!list) return;
   const shown = switching || cur;
+  if (workspaceActive()) {
+    // A Workspace: its projects first (running or not, the server's order), then what else is running.
+    const mine = workspaceInstanceIds();
+    const loose = orderedGroups(projects.filter((p) => !mine.has(p.id)));
+    const ctx = { shown, status, busyFor, elapsed, hrefFor };
+    list.innerHTML = workspaceRowsHtml(ctx) + (loose.length
+      ? otherRunningHtml() + loose.map((g) => `<div class="pj-group" data-key="${escapeHtml(g.key)}" data-zone="adhoc">${groupHtml(g, shown, true)}</div>`).join('')
+      : '');
+    return;
+  }
   // Several chats in one folder: a folder header, then each chat by its title
   // (not "harness", "harness 2", "harness 3" that all read the same).
   list.innerHTML = orderedGroups().map((g) => `<div class="pj-group" data-key="${escapeHtml(g.key)}">${groupHtml(g, shown)}</div>`).join('');
 }
 
-function groupHtml(g, shown) {
+function groupHtml(g, shown, adopt = false) {
   if (g.rows.length === 1) {
     const p = g.rows[0];
-    return rowHtml(p, { title: g.name, sub: p.session_title || p.model || 'New chat', active: p.id === shown });
+    return rowHtml(p, { title: g.name, sub: p.session_title || p.model || 'New chat', active: p.id === shown, adopt });
   }
   const labels = chatLabels(g.rows);
   const working = g.rows.filter((p) => p.busy).length;
@@ -257,7 +274,7 @@ function groupHtml(g, shown) {
     <div class="proj-group" role="presentation" title="${escapeHtml(g.cwd || g.name)}">
       <span class="pg-ic" aria-hidden="true">${icon('folder')}</span>
       <span class="pg-name">${escapeHtml(g.name)}</span>
-      <span class="pg-count">${g.rows.length} chats</span>${live}
+      <span class="pg-count">${g.rows.length} chats</span>${live}${adopt ? adoptButtonHtml(g.cwd) : ''}
     </div>
     <div class="proj-children">${g.rows.map((p) => rowHtml(p, {
       ...labels.get(p.id),
@@ -295,7 +312,7 @@ function render({ force = false } = {}) {
   const many = projects.length > 1;
   const section = $('projects-sec');
   // Always there once known: it holds "Open folder", even with one project.
-  if (section) section.hidden = !projects.length;
+  if (section) section.hidden = !projects.length && !workspaceActive();
   if (dragging) {
     drawLater = true;
     return;
@@ -304,16 +321,21 @@ function render({ force = false } = {}) {
     [p.id, p.project, p.session_id, p.session_title, p.model, p.busy, p.needs_approval, p.headless, p.cwd])]);
   if (next === sig && !force) return;
   sig = next;
-  if (projects.length) renderList(cur);
+  if (projects.length || workspaceActive()) renderList(cur);
   renderBanner(cur);
-  setProjectItems(many ? projects.filter((p) => p.id !== cur).map((p) => ({
-    group: 'Projects',
-    label: describe(p),
-    desc: status(p).text || p.session_title || p.cwd || 'Switch to this project',
-    icon: 'folder',
-    keys: `project switch ${p.cwd || ''}`,
-    run: () => switchProject(p.id),
-  })) : []);
+  // ⌘K: running Jarvises (the workspace's own are listed by name, with ⌥N) + add / settings.
+  const mine = workspaceActive() ? workspaceInstanceIds() : new Set();
+  setProjectItems([
+    ...(many ? projects.filter((p) => p.id !== cur && !mine.has(p.id)).map((p) => ({
+      group: 'Projects',
+      label: describe(p),
+      desc: status(p).text || p.session_title || p.cwd || 'Switch to this project',
+      icon: 'folder',
+      keys: `project switch ${p.cwd || ''}`,
+      run: () => switchProject(p.id),
+    })) : []),
+    ...workspaceItems(),
+  ]);
 }
 
 /** A new list (event or poll): note what finished / closed, then draw it. */
@@ -340,6 +362,7 @@ function applyList(rows) {
   receivedAt = Date.now();
   render();
   document.dispatchEvent(new Event('jarvis:projects-changed'));
+  refreshWorkspace(); // running / stopped / busy per workspace project follows the list
   if (closed || sessionsMoved) sessionsChanged();
   // The project on screen is no longer running.
   if (BASE && !ids.has(cur) && rows.length && !switching) projectGone();
@@ -592,9 +615,11 @@ function takeClosedNote() {
 export function initProjects({ onEvent }) {
   onSnapshot = onEvent;
   takeClosedNote();
+  initWsProjects(); // the saved workspace: rows, ⌥ 1…9, add / settings (wsprojects.js)
   const list = $('projects-list');
   initReorder(list, {
-    onChange: saveOrder,
+    // Workspace rows: the server keeps the order (shared with the phone and the TUI); other folders stay per device.
+    onChange: (keys, zone) => (zone === 'ws' ? reorderWorkspace(keys) : saveOrder(keys)),
     onActive: (on) => {
       dragging = on;
       if (!on && drawLater) {
@@ -604,7 +629,10 @@ export function initProjects({ onEvent }) {
     },
   });
   const isPlainClick = (e) => !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0);
+  list?.addEventListener('contextmenu', handleWsContextMenu);
+  document.addEventListener('jarvis:workspace-changed', () => render({ force: true }));
   list?.addEventListener('click', (e) => {
+    if (handleWsClick(e)) return;
     const stop = e.target.closest('.pr-stop');
     if (stop) {
       e.preventDefault();

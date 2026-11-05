@@ -232,8 +232,8 @@ def _headline(job: Job) -> str:
 # ── tools ─────────────────────────────────────────────────────────────────
 
 
-def run_bg(cmd: str) -> str:
-    """Start ``cmd`` in the background; return its job id immediately."""
+def run_bg(cmd: str, project: str | None = None) -> str:
+    """Start ``cmd`` in the background (in a linked project's root with ``project``); return its job id immediately."""
     global _next_id
     from .shell import (
         _bash_lock, ask_approval, is_dangerous, own_port_note, self_kill_block,
@@ -248,12 +248,19 @@ def run_bg(cmd: str) -> str:
     reason = self_kill_reason(cmd)
     if reason:
         return self_kill_block(reason)
+    from .linked import shell_root
+
+    root, err = shell_root(project, readonly=False)
+    if err:
+        return err
+    cwd = root["path"] if root else str(CWD)
+    pid = root["id"] if root else ""
     running = [j for j in jobs() if j.running]
     if len(running) >= MAX_RUNNING:
         return (f"ERROR: {len(running)} background jobs are already running — "
                 "bg_kill one first (bg_output with no job_id lists them).")
     with _bash_lock:
-        denied = ask_approval(cmd)
+        denied = ask_approval(cmd, pid, cwd)
         if denied:
             return denied
 
@@ -269,7 +276,7 @@ def run_bg(cmd: str) -> str:
     try:
         with open(log, "wb") as fh:
             proc = subprocess.Popen(
-                cmd, shell=True, cwd=str(CWD), env=env, stdout=fh,
+                cmd, shell=True, cwd=cwd, env=env, stdout=fh,
                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                 start_new_session=(os.name == "posix"),
             )
@@ -289,7 +296,8 @@ def run_bg(cmd: str) -> str:
         more = f"(… {omitted} earlier lines)\n" if omitted else ""
         return (f"$ {cmd}\nexit={job.code} (finished within a second — no need to poll)\n"
                 f"{more}{body}{own_port_note(cmd)}")
-    head = f"started background job #{job_id} (pid {proc.pid}): {cmd}\nlog: {log}\n"
+    where = f" in {pid}" if pid else ""
+    head = f"started background job #{job_id} (pid {proc.pid}){where}: {cmd}\nlog: {log}\n"
     note = own_port_note(cmd).lstrip()
     if note:
         head += note + "\n"

@@ -12,7 +12,8 @@ from ..constants import (
     DOC_MAX_FILES_DEFAULT, DOC_MAX_FILES_CAP,
     DOC_MAX_CHARS_PER_FILE_DEFAULT, DOC_CSV_MAX_ROWS_DEFAULT,
 )
-from ..path_resolve import project_scope_error, robust_resolve
+from ..path_resolve import display_ref, guard_refs, linked_root_for, project_scope_error, robust_resolve
+from .linked import base_for, resolve_roots
 from .dirs import SKIP_DIRS
 from ..utils.html_clean import _strip_html
 
@@ -206,6 +207,8 @@ def _read_one(
         return f"ERROR: not found: {path}"
     if path.is_dir():
         return f"ERROR: is a directory: {path}"
+    if path.name.startswith(".env") and linked_root_for(path) is not None:
+        return f"ERROR: refused to read '{display_ref(path)}' — .env files in linked projects are off limits."
     if not force:
         scope_err = project_scope_error(path, "read_document")
         if scope_err:
@@ -252,37 +255,52 @@ def _collect_paths(
     pattern: str,
     max_files: int,
     force: bool,
+    project=None,
 ) -> tuple[list[pathlib.Path], str | None]:
-    """Returns (files, error_message)."""
+    """Returns (files, error_message). ``id:path`` names a linked project's file; ``project`` picks the
+    root(s) plain relative paths are read from."""
     out: list[pathlib.Path] = []
+    roots, rerr = resolve_roots(project)
+    if rerr:
+        return [], rerr
+    first = roots[0]
     if path and str(path).strip():
-        out.append(robust_resolve(str(path).strip(), CWD))
+        p, err = base_for(first, str(path).strip())
+        if err:
+            return [], err
+        out.append(p)
         return out, None
     if paths:
         for raw in paths[:max_files]:
             if not raw or not str(raw).strip():
                 continue
-            out.append(robust_resolve(str(raw).strip(), CWD))
+            p, err = base_for(first, str(raw).strip())
+            if err:
+                return [], err
+            out.append(p)
         if not out:
             return [], "ERROR: paths was empty or invalid."
         return out, None
     if directory is not None and str(directory).strip() != "":
-        root = robust_resolve(str(directory).strip(), CWD)
-        if not root.exists():
-            return [], f"ERROR: directory not found: {directory}"
-        if not root.is_dir():
-            return [], f"ERROR: not a directory: {directory}"
-        scope_err = None if force else project_scope_error(root, "read_document")
-        if scope_err:
-            return [], scope_err
-        pat = pattern or "**/*"
         seen: list[pathlib.Path] = []
-        for p in sorted(root.glob(pat)):
-            if not p.is_file():
-                continue
-            s = p.suffix.lower()
-            if s in _SCAN_EXTS:
-                seen.append(p)
+        for r in roots:
+            root, err = base_for(r, str(directory).strip())
+            if err:
+                return [], err
+            if not root.exists():
+                return [], f"ERROR: directory not found: {directory}"
+            if not root.is_dir():
+                return [], f"ERROR: not a directory: {directory}"
+            scope_err = None if force else project_scope_error(root, "read_document")
+            if scope_err:
+                return [], scope_err
+            pat = pattern or "**/*"
+            for p in sorted(root.glob(pat)):
+                if not p.is_file():
+                    continue
+                s = p.suffix.lower()
+                if s in _SCAN_EXTS and not (p.name.startswith(".env") and linked_root_for(p)):
+                    seen.append(p)
         return seen[:max_files], None
     return (
         [],
@@ -290,6 +308,7 @@ def _collect_paths(
     )
 
 
+@guard_refs
 def read_document(
     path: str | None = None,
     paths: list[str] | None = None,
@@ -299,6 +318,7 @@ def read_document(
     max_chars_per_file: int = DOC_MAX_CHARS_PER_FILE_DEFAULT,
     force: bool = False,
     csv_max_rows: int = DOC_CSV_MAX_ROWS_DEFAULT,
+    project=None,
 ) -> str:
     """Read PDF, images (OCR), CSV/TSV, JSON, HTML, XLSX, or text; single or bulk.
 
@@ -308,7 +328,7 @@ def read_document(
     max_chars = _clamp(max_chars_per_file, DOC_MAX_CHARS_PER_FILE_DEFAULT, 2_000, min(MAX_FILE_READ, 200_000))
     csv_max_rows = _clamp(csv_max_rows, DOC_CSV_MAX_ROWS_DEFAULT, 10, 5_000)
 
-    collected, err = _collect_paths(path, paths, directory, pattern, max_files, force)
+    collected, err = _collect_paths(path, paths, directory, pattern, max_files, force, project)
     if err:
         return err
     if not collected:
@@ -316,11 +336,7 @@ def read_document(
 
     parts: list[str] = []
     for p in collected:
-        rel = str(p)
-        try:
-            rel = str(p.relative_to(CWD))
-        except ValueError:
-            pass
+        rel = display_ref(p)
         kind = _kind_for_path(p)
         body = _read_one(p, max_chars, csv_max_rows, force)
         parts.append(f"==== FILE: {rel} ({kind}) ====\n{body}")

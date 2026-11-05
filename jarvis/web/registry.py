@@ -27,6 +27,11 @@ HEARTBEAT_SECS = 3.0  # rewritten at least this often, changed or not
 STALE_SECS = 15.0  # a file this old belongs to a process that died without cleaning up
 
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+CACHE_SECS = 5.0      # git branch / workspace project: looked up at most this often (stable between ticks)
+
+_cache: dict[tuple[str, str], tuple[float, Any]] = {}
+_cache_lock = threading.Lock()
+_touched = [0.0]      # last non-polling web request (see ``touch``)
 
 # Set when this process was "stopped" from the page while other projects still
 # run through it: it stays up only to serve the page, hidden from every list.
@@ -78,6 +83,96 @@ def _read(path: Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def touch() -> None:
+    """A web request that is not polling (a prompt, an edit, a terminal key) just came in."""
+    _touched[0] = time.time()
+
+
+def last_touch() -> float:
+    return _touched[0]
+
+
+def _cached(kind: str, key: str, compute: Callable[[], Any]) -> Any:
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get((kind, key))
+        if hit is not None and now - hit[0] < CACHE_SECS:
+            return hit[1]
+    value = compute()
+    with _cache_lock:
+        _cache[(kind, key)] = (now, value)
+    return value
+
+
+def _read_branch(cwd: str) -> str:
+    """The branch from ``.git/HEAD`` (a worktree's ``.git`` file points at it); '' when not a repo."""
+    try:
+        here = Path(cwd).resolve()
+        for folder in (here, *here.parents):
+            git = folder / ".git"
+            if git.is_file():
+                line = git.read_text(errors="replace").strip()
+                if not line.startswith("gitdir:"):
+                    return ""
+                git = (folder / line[7:].strip()).resolve()
+            if git.is_dir():
+                head = (git / "HEAD").read_text(errors="replace").strip()
+                if head.startswith("ref:"):
+                    ref = head[4:].strip()
+                    return ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ref
+                return head[:8]  # detached: the short commit
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
+def git_branch(cwd: str) -> str:
+    """Current git branch of ``cwd`` (cached a few seconds; '' when it isn't a repo)."""
+    return _cached("branch", cwd, lambda: _read_branch(cwd))
+
+
+def workspace_project_id(cwd: str) -> str | None:
+    """The workspace project ``cwd`` belongs to (cached a few seconds), or None."""
+    def find() -> str | None:
+        try:
+            from ..storage import workspace
+
+            proj = workspace.find_by_path(cwd, within=True)
+            return str(proj["id"]) if proj else None
+        except Exception:
+            return None
+
+    return _cached("project", cwd, find)
+
+
+def remember_last_state(rec: dict[str, Any]) -> None:
+    """Write what a stopping instance looked like into its workspace project. Never raises.
+
+    A no-op when the folder is not in the workspace.
+    """
+    try:
+        cwd = str(rec.get("cwd") or "")
+        if not cwd:
+            return
+        from ..storage import workspace
+
+        proj = workspace.find_by_path(cwd, within=True)
+        if proj is None:
+            return
+        sid = rec.get("session_id")
+        sid = int(sid) if isinstance(sid, int) or str(sid).isdigit() else None
+        last = rec.get("last_active")
+        workspace.set_last_state(proj["id"], {
+            "branch": str(rec.get("branch") or _read_branch(cwd)),
+            "session_id": sid,
+            "session_title": str(rec.get("session_title") or ""),
+            "model": str(rec.get("model") or ""),
+            "last_active": float(last) if isinstance(last, (int, float)) else time.time(),
+        })
+    except Exception:
+        pass
 
 
 def retire() -> None:
@@ -188,6 +283,10 @@ class Registration:
             return  # read-only config dir: the remote still works on its own link
         self._last_info = info
         self._last_write = rec["updated"]
+
+    def snapshot(self) -> dict[str, Any]:
+        """This process's record as it would be written now (for the last-state note on stop)."""
+        return {**self._base, **self._read_info()}
 
     def tick(self) -> bool:
         """Write if something changed or the heartbeat is due. True when written."""

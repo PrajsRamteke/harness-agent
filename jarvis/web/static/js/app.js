@@ -20,6 +20,7 @@ import { initTerminal } from './terminal.js';
 import { initGit, filesHost } from './git.js';
 import { initFiles, openFiles } from './files.js';
 import { initChanges } from './changes.js';
+import { initLinkChip } from './linkchip.js';
 import { initActivity } from './activity.js';
 import { initModals, closeAllModals } from './modal.js';
 import { initDialogs } from './dialog.js';
@@ -167,6 +168,7 @@ function boot() {
   initGit();
   initFiles(filesHost);
   initChanges();
+  initLinkChip();
   initActivity();
   initPalette({ onOpenPicker: openPickerByKind });
   initPickers();

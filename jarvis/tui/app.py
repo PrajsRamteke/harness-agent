@@ -58,6 +58,7 @@ def _not_signed_in_report() -> "api_errors.ErrorReport":
 # ─── slash-command sniffers (modal-opening shortcuts) ────────────────────
 # Pure command predicates live in app_commands.py; re-exported here so callers
 # (and tests) that import them from jarvis.tui.app keep working.
+from ..commands.project import handled_by_app as _project_handled_by_app  # noqa: E402
 from .app_commands import (  # noqa: F401
     _is_bare_model_command,
     _is_session_picker_command,
@@ -244,6 +245,9 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
         self._tabs_init()
         _install_terminal_keys()  # Shift+Enter via ESC+CR (VS Code / Cursor) → newline
         self._busy = False
+        from ..commands import project as _project_cmd
+
+        _project_cmd.set_busy_probe(lambda: self._busy)  # /project <id> is refused mid-reply
         self._last_input_value = ""
         self._activity_timer = None
         self._activity_label = ""
@@ -670,6 +674,9 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
             (0, _agent_badge_markup(), "open_agents"),
             (0, f"[{ui.FG}]{_rich_escape(state.MODEL.rsplit('/', 1)[-1])}[/]", "open_models"),
         ]
+        badge = self._project_badge()
+        if badge:
+            left.append((3, badge, "open_projects"))
         prov = provider_label(state.provider or "")
         if prov:
             left.append((5, f"[{ui.FG_DIM}]{_rich_escape(prov)}[/]", "open_providers"))
@@ -735,6 +742,22 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
             right.append((10, f"[{ui.FG_DIM}]trace[/]", "toggle_internal"))
         right.append((8, f"[{ui.FG_DIM}]? help[/]", "show_shortcuts"))
         return left, right
+
+    @staticmethod
+    def _project_badge() -> str | None:
+        """``■ api`` — this folder's workspace project, once the workspace has two or more."""
+        try:
+            from ..storage import workspace
+
+            data = workspace.load()  # cached (one stat per half second)
+            if len(data["projects"]) < 2:
+                return None
+            cur = workspace.current()
+            if cur is None:
+                return None
+            return f"[{cur['color']}]■[/] [{ui.FG}]{_rich_escape(cur['name'])}[/]"
+        except Exception:
+            return None
 
     @staticmethod
     def _cells(markup: str) -> int:
@@ -946,6 +969,8 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
             self._open_session_picker()
         elif _is_rename_command(stripped):
             self._rename_command(stripped)
+        elif _project_handled_by_app(stripped):
+            self._project_command(stripped)
         elif _is_bare_model_command(stripped):
             self._route_modal_slash(stripped)  # bare → picker; with arg → switch
         elif _is_claude_code_command(stripped):
@@ -1688,6 +1713,58 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
 
         self.push_screen(SessionPickerScreen(), after)
 
+    # ─── workspace projects (/project) ───────────────────────────────
+    def _project_command(self, text: str) -> None:
+        """``/project`` → the project list · ``/project <id>`` → switch this terminal to it."""
+        from ..commands import project as pc
+
+        _head, _, arg = text.strip().partition(" ")
+        target = pc.switch_target(arg)
+        if target is not None:
+            self._switch_project(target)
+        else:
+            self._open_project_modal()
+
+    def _open_project_modal(self) -> None:
+        from .project_modal import ProjectPickerScreen
+
+        def after(pid: str | None) -> None:
+            if pid:
+                self._switch_project(pid)
+            self._render_footer()  # a rename / add / remove changes the badge
+            try:
+                self.query_one("#prompt", PromptArea).focus()
+            except Exception:
+                pass
+
+        self.push_screen(ProjectPickerScreen(), after)
+
+    def action_open_projects(self) -> None:
+        if not isinstance(self.screen, ModalScreen):
+            self._open_project_modal()
+
+    def _switch_project(self, ref: str) -> bool:
+        """Move this terminal to a workspace project: change folder, then its latest chat (or a new one)."""
+        from ..commands import project as pc
+
+        res = pc.switch_project(ref)
+        if not res["ok"]:
+            self._tui_console.print(f"[{ui.ERR}]{_rich_escape(res['error'])}[/]")
+            self.notify(res["error"], severity="warning", timeout=4)
+            return False
+        if res.get("unchanged"):
+            self.notify(f"Already in {res['project']['name']}", timeout=2.5)
+            return True
+        sid = res.get("session_id")
+        if not (sid and self._resume_session(sid)):
+            from ..commands.dispatch import handle_slash
+
+            handle_slash("/new")  # same as typing /new: clears the screen, fresh chat
+        pc.announce_switch(res, self._tui_console.print)
+        self._set_status("ready")
+        self._slow_refresh()
+        return True
+
     def _rename_command(self, text: str) -> None:
         """``/rename [title]`` · ``/session rename [#id] [title]`` — no title opens a dialog."""
         from ..commands.session import parse_rename
@@ -2204,7 +2281,7 @@ class JarvisTUI(TabsMixin, QueueMixin, WebRemoteMixin, ActivityMixin, PetMixin, 
                 if head in ("/model", "/mode", "/session", "/sessions",
                             "/settings", "/theme", "/agent", "/skills", "/memory",
                             "/lesson", "/mcp", "/think", "/local", "/pin", "/command",
-                            "/commands", "/skill", "/sidebar"):
+                            "/commands", "/skill", "/sidebar") or _project_handled_by_app(next_prompt):
                     self._handle_queued_command(next_prompt)
                     return
                 if _is_provider_hub_command(next_prompt):

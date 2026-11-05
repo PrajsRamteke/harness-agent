@@ -24,6 +24,13 @@
  * one chat, so you pick the folder and the new chat gets its own Jarvis there
  * while the running reply keeps going in the old one (under Projects).
  * (`newChatBeside` — same folder, no question — is no longer called.)
+ *
+ * Add to workspace (`openFolders({workspace: true})`, the folder-plus in the Projects
+ * header and ⌘K → Add project…): the same browser with a tick box on every folder and a
+ * footer "Add N folders" (wsprojects.js posts them). Browsing into a parent folder offers
+ * "Add all N git repos inside" (GET /api/workspace/scan); folders the server refuses are
+ * listed one by one and stay ticked. `locate: {id, name}` picks the new place of a missing
+ * project instead (one folder; its colour, links and slot carry over).
  */
 import { $, escapeHtml, showToast, debounce, haptic } from './utils.js';
 import { icon } from './icons.js';
@@ -33,6 +40,7 @@ import { setView, section, empty } from './dialog.js';
 import { fetchDirs, fetchFsStart, openProjectAt, fetchLaunch, moveChat } from './api.js';
 import { switchProject, refreshProjects, currentProjectId, findProject } from './projects.js';
 import { runAction } from './actions.js';
+import { scanRepos, addToWorkspace, inWorkspacePath, relocateProject } from './wsprojects.js';
 
 const ID = 'folders';
 const POLL_MS = 350;
@@ -50,6 +58,11 @@ const F = {
   launchTimer: 0,
   acting: '',        // 'open' | 'move' | 'switch' while a footer action runs
   newChat: false,    // opened by New chat while a reply runs: pick where the new chat starts
+  ws: false,         // "Add to workspace": tick folders, footer adds them
+  locate: null,      // { id, name }: pick the new place of a missing workspace project
+  picked: new Map(), // path → name of the ticked folders
+  scan: null,        // git repos inside the folder on screen that are not in the workspace yet
+  addErrors: [],     // [{ path, error }] the server refused
 };
 
 const HOME_TITLE = 'Open a folder';
@@ -59,9 +72,18 @@ const HOME_SUB = 'Browse to a project — open it alongside this one, or move th
 function setHead(newChat) {
   const h2 = $('folders-title');
   const sub = $('folders-sub-title');
+  if (F.ws) {
+    if (h2) h2.textContent = F.locate ? `Locate ${F.locate.name}` : 'Add to workspace';
+    if (sub) sub.textContent = F.locate ? 'Pick the folder it moved to — its colour, links and place in the list carry over'
+      : 'Tick the folders you work on — they stay in the sidebar, running or not';
+    return;
+  }
   if (h2) h2.textContent = newChat ? 'New chat — choose a folder' : HOME_TITLE;
   if (sub) sub.textContent = newChat ? 'The running reply keeps going — the new chat starts in the folder you pick' : HOME_SUB;
 }
+
+/** "/Users/me/code/app" → "/Users/me/code" (the folder to start browsing in when adding projects). */
+const parentOf = (p) => String(p || '').replace(/\/+$/, '').replace(/\/[^/]*$/, '') || '';
 
 // ─── Small helpers ────────────────────────────────────────────────────────
 
@@ -131,6 +153,7 @@ async function go(path, { focusSearch = false } = {}) {
     F.query = '';
     const input = $(`${ID}-q`);
     if (input) input.value = '';
+    if (F.ws && !F.locate) loadScan(data.path);
   } else {
     F.error = { code: data?.code || 'error', error: data?.error || 'Could not open that folder.', path };
   }
@@ -221,6 +244,7 @@ function row(d, i) {
     ? `<span class="fd-run${here ? ' is-here' : ''}"><span class="fd-live" aria-hidden="true"></span>${here ? 'This chat' : running.length > 1 ? `${running.length} running` : 'Running'}</span>`
     : '';
   const disabled = d.readable === false;
+  if (F.ws) return wsRow(d, i, disabled);
   return `
     <div class="fd-row${disabled ? ' is-locked' : ''}${d.hidden ? ' is-hidden' : ''}" style="--i:${Math.min(i, 16)}">
       <button type="button" class="fd-main" data-act="enter" data-path="${escapeHtml(d.path)}" ${disabled ? 'disabled title="Jarvis isn\'t allowed to open this folder"' : ''}>
@@ -233,6 +257,47 @@ function row(d, i) {
         ${running.length ? `data-id="${escapeHtml(here ? cur : running[0].id)}"` : ''} title="${running.length ? (here ? 'This chat works here' : 'Switch to the Jarvis running here') : 'Open in a new session'}">
         ${running.length ? (here ? 'Here' : 'Switch') : 'Open'}</button>`}
     </div>`;
+}
+
+/** A folder row in "Add to workspace": tick box, name (click goes in), "In workspace" chip. */
+function wsRow(d, i, disabled) {
+  const inWs = inWorkspacePath(d.path) && !F.locate;
+  const on = F.picked.has(d.path);
+  const chip = inWs ? '<span class="fd-run is-here">In workspace</span>' : '';
+  return `
+    <div class="fd-row fd-ws-row${disabled ? ' is-locked' : ''}${d.hidden ? ' is-hidden' : ''}${on ? ' is-picked' : ''}" style="--i:${Math.min(i, 16)}">
+      <button type="button" class="fd-check${on ? ' is-on' : ''}" role="checkbox" aria-checked="${on}" data-act="pick" data-path="${escapeHtml(d.path)}" data-name="${escapeHtml(d.name)}"
+        aria-label="${F.locate ? 'Use' : 'Add'} ${escapeHtml(d.name)}" ${disabled || inWs ? 'disabled' : ''}>${icon('check')}</button>
+      <button type="button" class="fd-main" data-act="enter" data-path="${escapeHtml(d.path)}" ${disabled ? 'disabled title="Jarvis isn\'t allowed to open this folder"' : ''}>
+        <span class="fd-ic${d.markers?.length ? ' is-project' : ''}">${icon(disabled ? 'lock' : folderIcon(d.markers))}</span>
+        <span class="fd-name">${escapeHtml(d.name)}${d.link ? `<span class="fd-link" title="Shortcut (symlink)">${icon('link')}</span>` : ''}</span>
+        <span class="fd-meta">${markerChips(d.markers)}${chip}</span>
+        <span class="fd-chev" aria-hidden="true">${icon('chevron-right')}</span>
+      </button>
+    </div>`;
+}
+
+/** Git repos inside the folder on screen (GET /api/workspace/scan) → the "Add all" offer. */
+async function loadScan(path) {
+  F.scan = null;
+  const seq = F.seq;
+  const res = await scanRepos(path);
+  if (seq !== F.seq || !F.ws) return;
+  F.scan = res?.ok ? (res.repos || []).filter((r) => !r.in_workspace) : null;
+  if (isModalOpen(ID) && !F.launch) renderBody();
+}
+
+function wsExtras() {
+  let html = '';
+  if (F.addErrors.length) {
+    html += `<div class="fd-alert ws-errors" role="alert">${icon('circle-alert')}<span><strong>Couldn’t add ${F.addErrors.length === 1 ? 'this folder' : `${F.addErrors.length} folders`}</strong>${
+      F.addErrors.map((e) => `<span class="ws-err-row"><code>${escapeHtml(String(e.path).split('/').filter(Boolean).pop() || e.path)}</code> — ${escapeHtml(e.error || 'refused')}</span>`).join('')}</span></div>`;
+  }
+  if (!F.locate && F.scan && F.scan.length >= 2) {
+    html += `<div class="ws-scan">${icon('git-branch')}<span class="ws-scan-text"><strong>${F.scan.length} git repos</strong> in ${escapeHtml(F.data?.name || 'this folder')}</span>
+      <button type="button" class="btn btn-primary" data-act="ws-add-all" ${F.acting ? 'disabled' : ''}>${icon('folder-plus')}<span>Add all ${F.scan.length} git repos inside</span></button></div>`;
+  }
+  return html;
 }
 
 function renderBody() {
@@ -253,7 +318,7 @@ function renderBody() {
   const errorNote = F.error
     ? `<div class="fd-alert" role="alert">${icon('circle-alert')}<span>${escapeHtml(F.error.error)}</span></div>`
     : '';
-  let html = errorNote;
+  let html = errorNote + (F.ws ? wsExtras() : '');
   if (q && looksLikePath(q)) {
     html += `<div class="fd-row"><button type="button" class="fd-main fd-goto" data-act="go" data-path="${escapeHtml(q)}">
       <span class="fd-ic">${icon('corner-down-right')}</span><span class="fd-name">Go to <code>${escapeHtml(q)}</code></span>
@@ -284,6 +349,10 @@ function renderFoot() {
   const d = F.data;
   if (!d) {
     foot.innerHTML = '';
+    return;
+  }
+  if (F.ws) {
+    renderWsFoot(foot, d);
     return;
   }
   const cur = currentProjectId();
@@ -319,6 +388,83 @@ function renderFoot() {
       <span class="fd-sel-marks">${markerChips(d.markers, 2)}</span>
     </div>
     <div class="fd-actions">${actions}</div>`;
+}
+
+// ─── Add to workspace ─────────────────────────────────────────────────────
+
+function renderWsFoot(foot, d) {
+  const n = F.picked.size;
+  const busy = F.acting === 'ws';
+  const spin = busy ? '<span class="spinner" aria-hidden="true"></span>' : '';
+  const hereIn = !F.locate && inWorkspacePath(d.path);
+  let label;
+  let off = busy;
+  if (F.locate) label = n ? 'Use the ticked folder' : `Use ${d.name}`;
+  else if (n) label = `Add ${n} folder${n === 1 ? '' : 's'}`;
+  else if (hereIn) {
+    label = 'Already in workspace';
+    off = true;
+  } else label = `Add ${d.name}`;
+  const summary = n
+    ? `<strong>${n} selected</strong><span>${[...F.picked.values()].slice(0, 3).map(escapeHtml).join(', ')}${n > 3 ? ` +${n - 3}` : ''}</span>`
+    : `<strong>${escapeHtml(d.name)}</strong><span>${escapeHtml(d.display)}</span>`;
+  foot.innerHTML = `
+    <div class="fd-sel">
+      <span class="fd-sel-ic">${icon(n ? 'check' : folderIcon(d.markers))}</span>
+      <span class="fd-sel-text">${summary}</span>
+    </div>
+    <div class="fd-actions">
+      ${n ? `<button type="button" class="btn btn-quiet" data-act="ws-clear" ${busy ? 'disabled' : ''}>Clear</button>` : ''}
+      <button type="button" class="btn btn-primary" data-act="ws-add-go" ${off ? 'disabled' : ''}>${spin || icon(F.locate ? 'check' : 'folder-plus')}<span>${escapeHtml(label)}</span></button>
+    </div>`;
+}
+
+function togglePick(btn) {
+  const { path, name } = btn.dataset;
+  if (F.picked.has(path)) F.picked.delete(path);
+  else {
+    if (F.locate) F.picked.clear();
+    F.picked.set(path, name);
+  }
+  F.addErrors = [];
+  if (F.locate) renderBody();
+  else {
+    const on = F.picked.has(path);
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-checked', String(on));
+    btn.closest('.fd-row')?.classList.toggle('is-picked', on);
+  }
+  renderFoot();
+}
+
+/** The result of adding: close when everything went in, else list what was refused (still ticked). */
+function finishAdd(res, paths) {
+  const added = res.added || (res.project ? [res.project] : []);
+  const errors = res.errors?.length ? res.errors : (res.ok === false && res.error ? [{ path: paths[0], error: res.error }] : []);
+  const failed = new Set(errors.map((e) => e.path));
+  F.picked = new Map([...F.picked].filter(([p]) => failed.has(p)));
+  F.addErrors = errors;
+  if (!errors.length) {
+    closeModal(ID);
+    showToast(added.length === 1 ? `${added[0].name} added to your workspace`
+      : `${added.length} projects added to your workspace`);
+    return;
+  }
+  if (added.length) showToast(`${added.length} added — ${errors.length} couldn’t be`, true);
+  F.scan = F.scan ? F.scan.filter((r) => !added.some((a) => a.path === r.path)) : F.scan;
+  renderBody();
+  renderFoot();
+}
+
+async function wsAdd(paths) {
+  if (F.acting || !paths.length) return;
+  F.acting = 'ws';
+  F.picked = new Map(paths.map((p) => [p, F.picked.get(p) || p]));
+  renderFoot();
+  renderBody();
+  const res = F.locate ? await relocateProject(F.locate.id, paths[0]) : await addToWorkspace(paths);
+  F.acting = '';
+  finishAdd(res, paths);
 }
 
 // ─── Opening a folder ─────────────────────────────────────────────────────
@@ -529,6 +675,13 @@ function onClick(e) {
   else if (act === 'open-here') openHere(F.path);
   else if (act === 'open-new') openHere(F.path, { reuse: false });
   else if (act === 'move') moveHere(F.path, F.data?.display);
+  else if (act === 'pick') togglePick(btn);
+  else if (act === 'ws-clear') {
+    F.picked.clear();
+    renderBody();
+    renderFoot();
+  } else if (act === 'ws-add-go') wsAdd(F.picked.size ? [...F.picked.keys()].slice(0, F.locate ? 1 : undefined) : [F.path]);
+  else if (act === 'ws-add-all') wsAdd((F.scan || []).map((r) => r.path));
   else if (act === 'launch-back') leaveLaunch();
   else if (act === 'launch-replace') replaceChat();
   else if (act === 'launch-retry' && F.launch?.beside) newChatBeside();
@@ -577,6 +730,11 @@ function onKey(e) {
   } else if (e.key === 'Backspace' && F.data?.parent && !e.target.matches?.('input, textarea')) {
     e.preventDefault();
     go(F.data.parent);
+    return;
+  } else if (F.ws && e.key === ' ' && e.target.classList?.contains('fd-main')) {
+    // Space ticks the folder (Enter / → still go in).
+    e.preventDefault();
+    e.target.closest('.fd-row')?.querySelector('.fd-check:not(:disabled)')?.click();
     return;
   } else if (e.key === 'ArrowRight' && e.target.classList?.contains('fd-main')) {
     e.preventDefault();
@@ -651,11 +809,24 @@ async function replaceChat() {
 // ─── Open / init ──────────────────────────────────────────────────────────
 
 /** Open the picker at `path` (default: the folder this chat works in). */
-export function openFolders({ path = '', newChat = false } = {}) {
-  const start = path || store.session.cwd || '';
-  F.newChat = !!newChat;
+export function openFolders({ path = '', newChat = false, workspace = false, locate = null } = {}) {
+  F.ws = !!workspace;
+  F.locate = workspace ? locate : null;
+  F.picked = new Map();
+  F.scan = null;
+  F.addErrors = [];
+  // Adding projects: start beside the one you are in — that is where its sibling repos live.
+  const start = path || (F.ws ? parentOf(store.session.cwd) : '') || store.session.cwd || '';
+  F.newChat = !!newChat && !F.ws;
   setHead(F.newChat);
   if (F.launch?.status === 'failed') F.launch = null; // seen already: start from the folders again
+  if (F.launch && F.ws) {
+    // The dialog is showing a project that is still opening: let that finish first.
+    F.ws = false;
+    F.locate = null;
+    showToast('A folder is still opening — add projects once it is up');
+    return;
+  }
   if (F.launch) {
     // A launch is still running: show it rather than starting over.
     openModal(ID, { onClose: onClose });
@@ -687,6 +858,11 @@ function onClose() {
   // A launch keeps going: followLaunch toasts when it's ready.
   F.acting = '';
   F.newChat = false;
+  F.ws = false;
+  F.locate = null;
+  F.picked = new Map();
+  F.scan = null;
+  F.addErrors = [];
   setHead(false);
 }
 

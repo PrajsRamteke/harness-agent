@@ -1,5 +1,9 @@
 """Tool JSON schemas for file/shell/git/internet tools."""
 
+# Optional on codebase tools; only meaningful when the workspace links other projects.
+_PROJ = {"type": "string", "description": "Linked project id, 'a,b', or '*' for all linked. Default: this project."}
+_PROJ1 = {"type": "string", "description": "Linked project id to run in. Default: this project."}
+
 CONTEXT_TOOLS = [
     {"name": "resolve_context", "description": (
         "ONE-CALL codebase understanding: give it a task description and get ALL "
@@ -28,6 +32,7 @@ CONTEXT_TOOLS = [
                  "description": "Bundle density. Default skeleton."},
         "max_chars": {"type": "integer",
                       "description": "Output cap (default ~80K chars, and never more than the model's context window allows). Rarely needed."},
+        "project": _PROJ,
      }, "required": ["task"]}},
     {"name": "read_bundle", "description": (
         "PREFERRED for 2–20 known paths: one budget-aware bundle with parallel I/O. "
@@ -36,7 +41,7 @@ CONTEXT_TOOLS = [
     ),
      "input_schema": {"type": "object", "properties": {
         "paths": {"type": "array", "items": {"type": "string"},
-                  "description": "File paths relative to project root. Max 20."},
+                  "description": "File paths relative to project root (`id:path` for a linked project). Max 20."},
         "mode": {"type": "string", "enum": ["full", "skeleton", "manifest"],
                  "description": "Default full for explicit path lists."},
         "max_chars": {"type": "integer",
@@ -100,7 +105,7 @@ CORE_TOOLS = [
         "outside-project paths. Avoid rereading files already in context. "
         "Only pass force=true if the user explicitly asked for that blocked file."),
      "input_schema":{"type":"object","properties":{
-        "path":{"type":"string"},
+        "path":{"type":"string","description":"Project-relative path, or `id:path` for a linked project."},
         "offset":{"type":"integer","description":"0-indexed starting line (offset=100 starts at line 101)"},
         "limit":{"type":"integer","description":"number of lines; 0 = to the end (max 2000 per call)"},
         "force":{"type":"boolean","description":"bypass binary/skip-dir guards; use sparingly"}},
@@ -121,15 +126,16 @@ CORE_TOOLS = [
         "max_files":{"type":"integer","description":"Bulk cap. Default 32, max 80."},
         "max_chars_per_file":{"type":"integer","description":"Per-file text cap. Default 48000."},
         "csv_max_rows":{"type":"integer","description":"Max data rows for CSV/Excel preview. Default 200."},
+        "project":_PROJ,
         "force":{"type":"boolean","description":"Bypass skip-dir and large-file guard when user asked explicitly."}}}},
     {"name":"write_file","description":"Create or overwrite a file",
      "input_schema":{"type":"object","properties":{
-        "path":{"type":"string"},"content":{"type":"string"},
+        "path":{"type":"string","description":"Project-relative path, or `id:path` for a linked project."},"content":{"type":"string"},
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to write outside the current project."}},
         "required":["path","content"]}},
     {"name":"edit_file","description":"Replace old_str with new_str in ONE file. old_str must be unique unless replace_all=true. For 2+ edits (same or different files), prefer multi_edit.",
      "input_schema":{"type":"object","properties":{
-        "path":{"type":"string"},"old_str":{"type":"string"},
+        "path":{"type":"string","description":"Project-relative path, or `id:path` for a linked project."},"old_str":{"type":"string"},
         "new_str":{"type":"string"},"replace_all":{"type":"boolean"},
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
         "required":["path","old_str","new_str"]}},
@@ -164,10 +170,10 @@ CORE_TOOLS = [
         "git status/log/diff/show) need no approval and run in parallel: issue several in one "
         "turn. Default timeout 120s (max 600); for long builds / test suites / servers use run_bg."),
      "input_schema":{"type":"object","properties":{
-        "cmd":{"type":"string"},"timeout":{"type":"integer"}},"required":["cmd"]}},
+        "cmd":{"type":"string"},"timeout":{"type":"integer"},"project":_PROJ1},"required":["cmd"]}},
     {"name":"search_code","description":"Regex search with ripgrep (or grep fallback). Project-scoped by default.",
      "input_schema":{"type":"object","properties":{
-        "pattern":{"type":"string"},"path":{"type":"string"},
+        "pattern":{"type":"string"},"path":{"type":"string"},"project":_PROJ,
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to search outside the current project."}},"required":["pattern"]}},
     {"name":"glob_files","description":(
         "Find files by glob pattern under a specific project directory. Pass `path` "
@@ -178,6 +184,7 @@ CORE_TOOLS = [
         "pattern":{"type":"string","description":"Relative glob under `path`, e.g. '**/*.py' or '**/analytics/constants*'."},
         "path":{"type":"string","description":"Directory to search under. Default current project root."},
         "max_results":{"type":"integer","description":"Maximum file paths to return. Default 200, max 1000."},
+        "project":_PROJ,
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to glob outside the current project."}},
         "required":["pattern"]}},
     {"name":"rank_files","description":(
@@ -193,6 +200,7 @@ CORE_TOOLS = [
         "scan_limit":{"type":"integer","description":"Maximum files to inspect cheaply. Default 700, max 3000."},
         "include_snippets":{"type":"boolean","description":"Read small text previews to score content matches. Default false."},
         "max_snippet_chars":{"type":"integer","description":"Snippet chars per matched text file. Default 240."},
+        "project":_PROJ,
         "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to rank files outside the current project."}},
         "required":["query"]}},
     {"name":"fast_find","description":(
@@ -211,9 +219,9 @@ CORE_TOOLS = [
         "max_results":{"type":"integer","description":"Max results. Default 50, max 500."},
         "ext":{"type":"string","description":"Extension filter, e.g. '.png' or 'png,jpg'. Optional."}},
         "required":["query"]}},
-    {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{}}},
-    {"name":"git_diff","description":"git diff. By default shows both staged and unstaged changes (vs HEAD). Set staged=true for only staged (git add'ed) changes, staged=false for only unstaged.","input_schema":{"type":"object","properties":{"path":{"type":"string"},"staged":{"type":"boolean"}}}},
-    {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"}}}},
+    {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{"project":_PROJ1}}},
+    {"name":"git_diff","description":"git diff. By default shows both staged and unstaged changes (vs HEAD). Set staged=true for only staged (git add'ed) changes, staged=false for only unstaged.","input_schema":{"type":"object","properties":{"path":{"type":"string"},"staged":{"type":"boolean"},"project":_PROJ1}}},
+    {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"},"project":_PROJ1}}},
 ]
 
 OCR_TOOLS = [
@@ -306,7 +314,7 @@ BACKGROUND_TOOLS = [
         "BACKGROUND JOBS in the system prompt; finished ones say so. Use run_bash for quick commands."
     ),
      "input_schema":{"type":"object","properties":{
-        "cmd":{"type":"string","description":"Shell command, run in the project directory"}},"required":["cmd"]}},
+        "cmd":{"type":"string","description":"Shell command, run in the project directory"},"project":_PROJ1},"required":["cmd"]}},
     {"name":"bg_output","description":(
         "Check a background job: status, exit code and its latest output. No job_id = "
         "list all jobs. wait=N blocks up to N seconds until the job finishes — only for a "

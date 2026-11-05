@@ -1,5 +1,5 @@
 /** HTTP + SSE client for the Jarvis web remote */
-import { readToken, BASE } from './utils.js';
+import { readToken, BASE, urlAt } from './utils.js';
 
 const token = readToken;
 
@@ -12,14 +12,26 @@ function authHeaders() {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-export async function api(path, method = 'GET', payload, { signal } = {}) {
+export function api(path, method = 'GET', payload, opts) {
+  return request(BASE, path, method, payload, opts);
+}
+
+/** `api()` for one specific running Jarvis (`/p/<instanceId>` + path), whichever
+ * project is on screen — the web terminal's shells live in their own project's
+ * Jarvis. A falsy id, or the shown project's id, is the shown project. Errors
+ * carry `status` (404 / 502 = that project is no longer running). */
+export function apiAt(instanceId, path, method = 'GET', payload, opts) {
+  return request(urlAt(instanceId), path, method, payload, opts);
+}
+
+async function request(base, path, method, payload, { signal } = {}) {
   const opts = { method, headers: { ...authHeaders() } };
   if (signal) opts.signal = signal;
   if (payload !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(payload);
   }
-  const res = await fetch(BASE + path, opts);
+  const res = await fetch(base + path, opts);
   const ct = res.headers.get('content-type') || '';
   const data = ct.includes('application/json') ? await res.json() : await res.text();
   if (!res.ok) {
@@ -470,6 +482,17 @@ export const forgetSavedWorkspace = () => hostJson('/api/projects/forget_saved',
  * project is on screen, hence no `BASE`. */
 export const fetchTunnel = () => hostJson('/api/tunnel');
 export const setTunnel = (op) => hostJson('/api/tunnel', 'POST', { op });
+/** The saved workspace: `{ projects: [{ id, name, color, status: running|starting|stopped|missing, instance_id, instances }], current, … }`.
+ * Host-level (every project, not the one on screen), hence no `BASE`. */
+export const fetchWorkspace = () => hostJson('/api/workspace');
+/** Create a master group (a virtual main project whose members are workspace projects) →
+ * `{ ok, project }`, or `{ ok:false, code, error }` (`code: 'remote'` over Anywhere: direct-only). */
+export const createWorkspaceGroup = ({ name, members, open = false } = {}) =>
+  hostJson('/api/workspace/create_group', 'POST', { name, members: members || [], ...(open ? { open: true } : {}) });
+/** Every live shell of every running workspace project → `{ ok, groups: [{ project_id, name, color, instance_id, self, allowed, terminals }] }`. */
+export const fetchWorkspaceTerminals = () => hostJson('/api/workspace/terminals');
+/** Start (or find) a workspace project's Jarvis → `{ ok, launch: { id, status, instance_id } }`; follow it with `fetchLaunch`. */
+export const openWorkspaceProject = (id) => hostJson('/api/workspace/open', 'POST', { id });
 /** The QR dialog's "Terminal on the link" switch: shells for a tunnel visitor. */
 export const fetchTerminalTunnel = () => hostJson('/api/terminal/tunnel');
 export const setTerminalTunnel = (on) => hostJson('/api/terminal/tunnel', 'POST', { on });

@@ -25,6 +25,7 @@ import {
   setChangeStat, setTabCount, pulseInspectorButton, isRoomy,
 } from './inspector.js';
 import { renderDiff, rowKeys, gutterWidth } from './diffview.js';
+import { projectName, projectInfo, primaryProjectId, loadWorkspaceInfo } from './projinfo.js';
 
 const STATUS = {
   added: { letter: 'A', label: 'Added', verb: 'Created' },
@@ -62,6 +63,7 @@ const S = {
   lastFocus: '',
   unseen: false,            // a change landed while the panel wasn't showing
   lastScroll: 0,
+  multi: false,             // changes span more than one project: the list is grouped
 };
 
 /** id → card element */
@@ -158,6 +160,10 @@ function applyFilter({ animate = false } = {}) {
       animateEl(card, [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 280, delay: Math.min(n, 8) * 28, easing: 'ease-out', fill: 'backwards' });
     }
     if (!hide) n += 1;
+  }
+  // A group whose files are all filtered out has nothing to head.
+  for (const h of ui.list.querySelectorAll(':scope > .chg-group')) {
+    h.hidden = !S.files.some((f) => projOf(f) === h.dataset.p && (S.filter === 'all' || f.status === S.filter));
   }
 }
 
@@ -266,7 +272,9 @@ function updateCard(card, f, { animate, changed }) {
   card.querySelector('.chg-dir').textContent = f.from ? `← ${f.from}` : dir;
   const head = card.querySelector('.chg-head');
   head.title = f.from ? `${f.from} → ${f.path}` : f.path;
-  head.setAttribute('aria-label', `${st.label}: ${f.path}, ${f.added} added, ${f.removed} removed`);
+  const proj = projOf(f);
+  card.dataset.project = proj;
+  head.setAttribute('aria-label', `${st.label}: ${f.path}${proj ? ` in ${projectName(proj)}` : ''}, ${f.added} added, ${f.removed} removed`);
   const nums = card.querySelector('.chg-nums');
   nums.hidden = !f.added && !f.removed;
   countTo(nums.querySelector('.num-add'), f.added, fmtAdd, { animate });
@@ -480,8 +488,49 @@ function repaintOpen() {
 // ─── The list ─────────────────────────────────────────────────────────────
 
 /** Order files first changed, newest on top: an edit never moves a card. */
+/** The linked project a change belongs to ('' = the project on screen). */
+const projOf = (f) => (typeof f?.project === 'string' && f.project ? f.project : '');
+
 function normalize(files) {
-  return [...files].sort((a, b) => b.first - a.first || a.path.localeCompare(b.path));
+  const sorted = [...files].sort((a, b) => b.first - a.first || a.path.localeCompare(b.path));
+  const order = [];
+  for (const f of sorted) if (!order.includes(projOf(f))) order.push(projOf(f));
+  if (order.length < 2) return sorted;
+  // More than one project: this project first, the others by newest change; each keeps its own order.
+  order.sort((a, b) => (a === '' ? 0 : 1) - (b === '' ? 0 : 1));
+  return sorted.sort((a, b) => order.indexOf(projOf(a)) - order.indexOf(projOf(b)));
+}
+
+/** `<div class="chg-group">` — colour dot, project name, file count. */
+function groupHeader(p, n) {
+  const id = p || primaryProjectId() || '';
+  const h = document.createElement('div');
+  h.className = 'chg-group';
+  h.dataset.p = p;
+  h.setAttribute('role', 'presentation');
+  const color = id ? projectInfo(id)?.color : '';
+  if (color && /^(#[0-9a-f]{3,8}|[a-z]+)$/i.test(color)) h.style.setProperty('--pc', color);
+  const name = id ? projectName(id) : (store.session.project || 'This project');
+  h.innerHTML = `<i class="chg-group-dot" aria-hidden="true"${id ? ` data-pdot="${escapeHtml(id)}"` : ''}></i>`
+    + `<b class="chg-group-name"${id ? ` data-pname="${escapeHtml(id)}"` : ''}>${escapeHtml(name)}</b>`
+    + `<span class="chg-group-n">${plural(n, 'file')}</span>`;
+  return h;
+}
+
+/** Group headers sit between cards; rebuilt from scratch after every reconcile (cheap, no state). */
+function syncGroups() {
+  for (const h of ui.list.querySelectorAll(':scope > .chg-group')) h.remove();
+  if (!S.multi) return;
+  loadWorkspaceInfo();
+  const seen = new Set();
+  for (const f of S.files) {
+    const p = projOf(f);
+    if (seen.has(p)) continue;
+    seen.add(p);
+    const card = cards.get(f.id);
+    if (!card || card.parentElement !== ui.list) continue;
+    ui.list.insertBefore(groupHeader(p, S.files.filter((x) => projOf(x) === p).length), card);
+  }
 }
 
 function resetSession(sid) {
@@ -505,7 +554,10 @@ function setFiles(payload, { live = false } = {}) {
   const before = new Map(S.files.map((f) => [f.id, f]));
   const ids = new Set(files.map((f) => f.id));
   S.files = files;
+  S.multi = new Set(files.map(projOf)).size > 1;
   S.totals = payload?.totals || { files: files.length, added: 0, removed: 0, by_status: {} };
+  // Headers aren't cards: take them out so the in-place reconcile below only sees cards.
+  for (const h of ui.list.querySelectorAll(':scope > .chg-group')) h.remove();
 
   for (const [id, card] of [...cards]) if (!ids.has(id)) removeCard(id, card, live);
   for (const id of [...S.detail.keys()]) if (!ids.has(id)) S.detail.delete(id);
@@ -532,6 +584,7 @@ function setFiles(payload, { live = false } = {}) {
   }
 
   for (const id of [...patches.keys()]) if (id && !ids.has(id)) patches.delete(id);
+  syncGroups();
   if (visible()) prefetchPatch('');
   renderSummary(live);
   renderFilters();

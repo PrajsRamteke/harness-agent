@@ -91,7 +91,7 @@ def _drain(proc: subprocess.Popen) -> tuple[str, str]:
     return out or "", err or ""
 
 
-def _run_process(cmd: str, timeout: int, env: dict) -> tuple[int, str, str]:
+def _run_process(cmd: str, timeout: int, env: dict, cwd: str | None = None) -> tuple[int, str, str]:
     """Run ``cmd`` like ``subprocess.run(shell=True, capture_output=True)``,
     but stop it as soon as the turn is cancelled.
 
@@ -105,7 +105,7 @@ def _run_process(cmd: str, timeout: int, env: dict) -> tuple[int, str, str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        cwd=str(CWD),
+        cwd=str(cwd or CWD),
         env=env,
     )
     deadline = time.monotonic() + timeout
@@ -333,9 +333,10 @@ def own_port_note(cmd: str) -> str:
             "Use another port, and never kill whatever listens on it.")
 
 
-def ask_approval(cmd: str) -> str | None:
+def ask_approval(cmd: str, project: str = "", cwd: str | None = None) -> str | None:
     """Ask the user before running ``cmd`` (unless auto-approved / read-only).
 
+    ``project`` / ``cwd`` name a linked project the command runs in, so the prompt says so.
     Returns ``"USER DENIED"`` when refused, else None. Call with
     ``_bash_lock`` held so approval prompts never overlap.
     """
@@ -350,11 +351,13 @@ def ask_approval(cmd: str) -> str | None:
     if sub is not None:
         who = f"[bold]{escape(sub[1].name)}[/] (agent) "
         sub[0].set_activity(sub[1], "Waiting for your approval")
-    console.print(f"[yellow]→ {who}run:[/] [cyan]{escape(cmd)}[/]")
+    where = f" in [bold]{escape(project)}[/] (linked project)" if project else ""
+    console.print(f"[yellow]→ {who}run{where}:[/] [cyan]{escape(cmd)}[/]")
+    shown = f"# in project {project}: {cwd}\n{cmd}" if project else cmd
     try:
         approve = getattr(console, "prompt_shell_approval", None)
         if approve is not None:
-            ok = approve(cmd).strip().lower()
+            ok = approve(shown).strip().lower()
         else:
             ok = console.input(
                 "[dim]approve? [Y/n/a=always] [/]"
@@ -368,6 +371,38 @@ def ask_approval(cmd: str) -> str | None:
     if state.turn_cancelled():
         raise KeyboardInterrupt()
     return None
+
+
+def ask_linked_write(project: str, path: str, tool: str) -> str:
+    """Ask before editing a file in a linked project whose write policy is ``ask``.
+
+    Reuses the shell-approval prompt (TUI modal / web card / terminal). Returns
+    ``"y"`` (this once), ``"a"`` (always for this project this session) or ``"n"``.
+    ``state.auto_approve`` counts as yes — the user already waved everything through.
+    """
+    if state.auto_approve:
+        return "y"
+    from ..subagents.context import current as _subagent
+
+    question = f"Edit a file in {project} (linked project)?"
+    with _bash_lock:
+        sub = _subagent()
+        who = ""
+        if sub is not None:
+            who = f"[bold]{escape(sub[1].name)}[/] (agent) "
+            sub[0].set_activity(sub[1], "Waiting for your approval")
+        console.print(f"[yellow]→ {who}{escape(question)}[/] [cyan]{escape(tool)} {escape(path)}[/]")
+        try:
+            approve = getattr(console, "prompt_shell_approval", None)
+            if approve is not None:
+                ok = approve(f"# {question}\n{tool} → {path}").strip().lower()
+            else:
+                ok = console.input("[dim]approve? [Y/n/a=always for this project] [/]").strip().lower()
+        except (RuntimeError, EOFError):
+            ok = ""
+        if state.turn_cancelled():
+            raise KeyboardInterrupt()
+    return ok if ok in ("y", "a") else "n"
 
 
 _CMD_ECHO_MAX = 1500
@@ -393,7 +428,8 @@ def _format_result(cmd: str, code: int, out: str) -> str:
     return header + out
 
 
-def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
+def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT, project: str | None = None) -> str:
+    """Run ``cmd`` in the project root, or — with ``project`` — in a linked project's root."""
     try:
         timeout = max(1, min(int(timeout or DEFAULT_BASH_TIMEOUT), MAX_BASH_TIMEOUT))
     except (TypeError, ValueError):
@@ -404,27 +440,40 @@ def run_bash(cmd: str, timeout: int = DEFAULT_BASH_TIMEOUT) -> str:
     if reason:
         return self_kill_block(reason)
 
+    from .linked import shell_root
+
+    root, err = shell_root(project, readonly=_is_safe_readonly_command(cmd))
+    if err:
+        return err
+    cwd = root["path"] if root else None
+    pid = root["id"] if root else ""
+
     env = os.environ.copy()
     env.setdefault("GIT_PAGER", "cat")
     env.setdefault("PAGER", "cat")
     if _is_safe_readonly_command(cmd):
         # Changes nothing and asks nothing: no lock, so several read-only
         # calls from one step run side by side (render.py batches them).
-        return _exec(cmd, timeout, env, watch=False)
+        return _exec(cmd, timeout, env, watch=False, cwd=cwd)
     with _bash_lock:
-        denied = ask_approval(cmd)
+        denied = ask_approval(cmd, pid, cwd)
         if denied:
             return denied
-        return _exec(cmd, timeout, env, watch=True)
+        return _exec(cmd, timeout, env, watch=True, cwd=cwd)
 
 
-def _exec(cmd: str, timeout: int, env: dict, *, watch: bool) -> str:
+def _exec(cmd: str, timeout: int, env: dict, *, watch: bool, cwd: str | None = None) -> str:
     try:
         # Files the command deletes / renames / edits in place show up in
         # the web Changes panel (nothing is recorded if nothing changed).
-        settle_changes = file_changes.watch_shell(cmd) if watch else (lambda: None)
+        if not watch:
+            settle_changes = lambda: None  # noqa: E731
+        else:
+            settle_changes = file_changes.watch_shell(cmd, cwd) if cwd else file_changes.watch_shell(cmd)
         try:
-            code, stdout, stderr = _run_process(cmd, timeout, env)
+            code, stdout, stderr = (
+                _run_process(cmd, timeout, env, cwd) if cwd else _run_process(cmd, timeout, env)
+            )
         finally:
             settle_changes()
         out = (stdout or "") + (f"\n[stderr]\n{stderr}" if stderr else "")

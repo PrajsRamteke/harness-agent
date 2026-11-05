@@ -18,6 +18,7 @@ import { openChange } from './changes.js';
 import { renderFiles, renderToolImages } from './media.js';
 import { isAgentsTool, initAgentsCard, paintAgents } from './agents.js';
 import { usageCardHtml, usageText } from './usage.js';
+import { parseToolArgs, badgesHtml, badgeText, primaryProjectId } from './projinfo.js';
 
 const chat = () => $('chat');
 const scroller = () => $('chat-scroll');
@@ -870,6 +871,10 @@ function paintTool(row, data) {
   if (data.t1) row.dataset.t1 = String(data.t1);
   const took = status !== 'running' && row.dataset.t0 && row.dataset.t1
     ? fmtDuration(Number(row.dataset.t1) - Number(row.dataset.t0)) : '';
+  // A call that reached into another workspace project: badge + the path without its prefix.
+  const toolName = row.dataset.name || data.name;
+  const { ids: projIds, rest: argsShown } = parseToolArgs(toolName, args);
+  const badgeIds = projIds.filter((p) => p !== primaryProjectId());
   const hasFull = Boolean(data.has_full) || row.dataset.hasFull === '1';
   const fullChars = data.full_chars ?? data.output_chars ?? row.dataset.fullChars ?? 0;
   if (data.has_full) {
@@ -888,13 +893,14 @@ function paintTool(row, data) {
     <button type="button" class="tool-head" ${hasOut ? `aria-expanded="${row.classList.contains('is-open')}"` : 'disabled'}>
       <span class="tool-kind">${icon(toolKindIcon(row.dataset.name || data.name))}</span>
       <span class="tool-title">${escapeHtml(title)}</span>
-      <span class="tool-args">${escapeHtml(args)}</span>
+      ${badgesHtml(badgeIds)}
+      <span class="tool-args">${escapeHtml(argsShown)}</span>
       ${took ? `<span class="tool-time">${took}</span>` : ''}
       <span class="tool-state" title="${stateLabel}" aria-label="${stateLabel}">${stateHtml}</span>
       <span class="tool-chev">${hasOut ? icon('chevron-right') : ''}</span>
     </button>
     ${hasOut ? `<div class="fold"><div class="fold-inner"><div class="tool-out">${escapeHtml(summary)}</div>${hasFull && row.dataset.id ? `<button type="button" class="tool-full" data-full="${escapeHtml(row.dataset.id)}" title="${escapeHtml(fullLabel)}">${icon('maximize-2')}<span>Full output${row.dataset.fullChars ? ` · ${escapeHtml(fmtChars(row.dataset.fullChars))}` : ''}</span></button>` : ''}</div></div>` : ''}`;
-  row.title = args ? `${title} ${args}` : title;
+  row.title = args ? `${title} ${badgeText(badgeIds)}${argsShown}` : title;
   if (row._images?.length) {
     // Screenshots the tool took: visible without opening the row.
     row.querySelector('.tool-head').after(renderToolImages(row._images));
@@ -1158,9 +1164,12 @@ export function appendDiff(data) {
     return `<span class="diff-line ${cls}">${escapeHtml(ln) || ' '}</span>`;
   }).join('');
   const extra = data.hidden ? `<span class="diff-line hunk">… ${data.hidden} more lines</span>` : '';
+  // `project`: id of a linked project (null/absent = the one on screen).
+  const diffProj = typeof data.project === 'string' && data.project && data.project !== primaryProjectId() ? [data.project] : [];
   el.innerHTML = `
     <div class="diff-head">
       ${icon('file-diff')}
+      ${badgesHtml(diffProj)}
       <span class="diff-path" title="${escapeHtml(data.path || '')}">${escapeHtml(verb)} ${escapeHtml(data.path || '')}</span>
       <span class="diff-add">+${Number(data.added) || 0}</span>
       <span class="diff-del">−${Number(data.removed) || 0}</span>
