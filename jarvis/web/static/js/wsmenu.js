@@ -4,7 +4,8 @@
  *                         Open terminal here · Remove from workspace
  *   a master group's ⋯   Open master chat · Edit members… · Rename · Colour ·
  *                         Write policy · Start / Stop · Open terminal here · Remove group
- *   New master group…   name + member checkboxes + write policy (openCreateGroup)
+ *   New master group…   name + member checkboxes + write policy (openCreateGroup); both group
+ *                         dialogs can add a project (folder picker) or remove one from the workspace
  *   Links…                which projects this one's agent may read, the write
  *                         policy (Ask / Allow / Deny) and the start-up mode
  *   Workspace settings    warm projects, idle stop, link all, delegation
@@ -455,11 +456,98 @@ const POLICIES = [
   ['deny', 'Read-only', 'The master chat can read member projects but not change them', 'Read-only'],
 ];
 
-const memberRowsHtml = (plain, picked) => plain.map((o) => `<label class="ws-link-row">
-    <input type="checkbox" data-member="${escapeHtml(o.id)}" ${picked.has(o.id) ? 'checked' : ''}>
-    <span class="ws-dot" style="--c:${escapeHtml(o.color)}" aria-hidden="true"></span>
-    <span class="ws-link-name"><strong>${escapeHtml(o.name)}</strong><span>${escapeHtml(pathTail(o.display || o.path))}</span></span>
-  </label>`).join('');
+// The member list of a group dialog: a tick per workspace project, a ✕ that removes the project from the
+// workspace (asked inline first), and "Add project…" — the folder picker, coming back with the new ones ticked.
+
+const memberRowHtml = (o, picked) => `<div class="ws-member" data-id="${escapeHtml(o.id)}">
+    <label class="ws-link-row">
+      <input type="checkbox" data-member="${escapeHtml(o.id)}" ${picked.has(o.id) ? 'checked' : ''}>
+      <span class="ws-dot" style="--c:${escapeHtml(o.color)}" aria-hidden="true"></span>
+      <span class="ws-link-name"><strong>${escapeHtml(o.name)}</strong><span>${escapeHtml(pathTail(o.display || o.path))}</span></span>
+    </label>
+    <button type="button" class="icon-btn ws-member-x" data-act="member-x" data-id="${escapeHtml(o.id)}"
+      title="Remove ${escapeHtml(o.name)} from the workspace" aria-label="Remove ${escapeHtml(o.name)} from the workspace">${icon('x')}</button>
+  </div>`;
+
+/** The whole members block (section head, rows, Add project…); drops ticks of projects no longer in the workspace. */
+function membersHtml(picked) {
+  const plain = workspacePlainRows();
+  for (const id of [...picked]) if (!plain.some((p) => p.id === id)) picked.delete(id);
+  const rows = plain.map((o) => memberRowHtml(o, picked)).join('');
+  return `${section('Projects in the group', { count: plain.length, right: '<span id="wsg-count"></span>' })}
+    <div class="ws-links" role="group" aria-label="Projects in the group">
+      ${rows || '<p class="ws-note">No projects in the workspace yet — add one.</p>'}
+      <button type="button" class="ws-member-add" data-act="member-add">${icon('folder-plus')}<span>Add project…</span></button>
+    </div>`;
+}
+
+function renderMembers(picked, focusSel = '') {
+  const box = $('wsg-members');
+  if (!box) return;
+  box.innerHTML = membersHtml(picked);
+  if (focusSel) box.querySelector(focusSel)?.focus({ preventScroll: true });
+}
+
+/**
+ * The member buttons of a group dialog. `ctx`: `{ picked, sync, reopen }` — `reopen()` draws the dialog again
+ * after the folder picker (the shell is shared, so the dialog closes while the picker is up).
+ * Returns true when `act` was one of them.
+ */
+function memberAct(act, btn, ctx) {
+  const { picked, sync, reopen } = ctx;
+  if (act === 'member-add') {
+    closeModal(DLG);
+    const opened = openFolders({
+      workspace: true,
+      onDone: async (added, reason) => {
+        if (reason === 'switch') return; // moving to another project: its dialogs would show stale data
+        if (added.length) await loadWorkspace();
+        added.forEach((p) => { if (p?.id) picked.add(p.id); });
+        reopen();
+      },
+    });
+    if (!opened) reopen();
+    return true;
+  }
+  const id = btn?.dataset.id;
+  const row = id ? workspaceProject(id) : null;
+  if (act === 'member-x') {
+    const el = btn.closest('.ws-member');
+    if (!el || !row) return true;
+    el.classList.add('is-asking');
+    el.innerHTML = `<span class="ws-member-ask">${icon('trash-2')}<span>Remove <strong>${escapeHtml(row.name)}</strong> from the workspace?
+        <em>Its folder and chats stay.</em></span></span>
+      <button type="button" class="btn btn-quiet btn-sm" data-act="member-keep" data-id="${escapeHtml(id)}" data-esc-cancels>Keep</button>
+      <button type="button" class="btn btn-danger btn-sm" data-act="member-drop" data-id="${escapeHtml(id)}" data-esc-cancels>${icon('trash-2')}<span>Remove</span></button>`;
+    const keep = () => {
+      renderMembers(picked, `.ws-member[data-id="${CSS.escape(id)}"] .ws-member-x`);
+      sync();
+    };
+    el.querySelectorAll('[data-esc-cancels]').forEach((b) => b.addEventListener('esc-cancel', keep));
+    el.querySelector('[data-act="member-keep"]')?.focus({ preventScroll: true });
+    return true;
+  }
+  if (act === 'member-keep') {
+    renderMembers(picked, `.ws-member[data-id="${CSS.escape(id || '')}"] .ws-member-x`);
+    sync();
+    return true;
+  }
+  if (act === 'member-drop') {
+    btn.disabled = true;
+    (async () => {
+      const res = await wsPost('remove', { id });
+      if (res.ok) {
+        picked.delete(id);
+        await loadWorkspace();
+        showToast(`${row?.name || 'Project'} removed from your workspace`);
+      }
+      renderMembers(picked, res.ok ? '.ws-member-add' : `.ws-member[data-id="${CSS.escape(id || '')}"] .ws-member-x`);
+      sync();
+    })();
+    return true;
+  }
+  return false;
+}
 
 /** "…/Desktop/app" — the end of a long folder path, which is the part that identifies it. */
 function pathTail(path, keep = 2) {
@@ -498,14 +586,20 @@ const policySelect = (value) => `<div class="ws-field"><span id="wsg-policy-labe
   ${ddHtml('wsg-policy', 'When the master chat edits member projects', POLICIES, value)}</div>
   <p class="ws-seg-note" id="wsg-policy-note">${escapeHtml(POLICIES.find(([v]) => v === value)?.[2] || '')}</p>`;
 
-/** 🌐 New master group… — name, members (≥ 1 plain project), write policy. Lands in the master chat. */
-export function openCreateGroup() {
+/** 🌐 New master group… — name, members (≥ 1 plain project), write policy. Lands in the master chat.
+ * `draft` (`{ name, policy, picked }`) redraws it as it was — after Add project… came back. */
+export function openCreateGroup(draft = null) {
   const plain = workspacePlainRows();
-  if (plain.length < 2) {
+  if (!draft && plain.length < 2) {
     showToast('Add at least two projects to the workspace before making a group', true);
     return;
   }
-  const picked = new Set(plain.map((r) => r.id));
+  const picked = draft?.picked || new Set(plain.map((r) => r.id));
+  const draftNow = () => ({
+    name: $('wsg-name')?.value ?? draft?.name ?? '',
+    policy: $('wsg-policy')?.value || draft?.policy || 'ask',
+    picked,
+  });
   const sync = () => {
     const btn = document.querySelector('#wsdlg-foot [data-act="create"]');
     if (btn) btn.disabled = picked.size < 1;
@@ -544,10 +638,9 @@ export function openCreateGroup() {
     title: 'New master group', sub: 'One shared chat over several projects', ic: 'globe',
     body: `
       <label class="ws-field"><span>Group name</span>
-        <input id="wsg-name" type="text" maxlength="60" value="${escapeHtml(suggestName(plain))}" autocomplete="off" autocapitalize="off" spellcheck="false" data-1p-ignore></label>
-      ${section('Projects in the group', { count: plain.length, right: '<span id="wsg-count"></span>' })}
-      <div class="ws-links" role="group" aria-label="Projects in the group">${memberRowsHtml(plain, picked)}</div>
-      ${policySelect('ask')}
+        <input id="wsg-name" type="text" maxlength="60" value="${escapeHtml(draft ? draft.name : suggestName(plain))}" autocomplete="off" autocapitalize="off" spellcheck="false" data-1p-ignore></label>
+      <div id="wsg-members">${membersHtml(picked)}</div>
+      ${policySelect(draft?.policy || 'ask')}
       <p class="ws-note">${icon('info')}<span>The master chat is pinned as the first tab here and as a 🌐 tab in every member project.</span></p>
       ${ERR}`,
     foot: `<span class="dlg-spacer"></span>${CANCEL}<button type="button" class="btn btn-primary" data-act="create">${icon('globe')}<span>Create group</span></button>`,
@@ -563,17 +656,25 @@ export function openCreateGroup() {
         if (note) note.textContent = POLICIES.find(([v]) => v === e.target.value)?.[2] || '';
       }
     },
-    onAct: (act) => { if (act === 'create') create(); },
+    onAct: (act, btn) => {
+      if (act === 'create') create();
+      else {
+        const snap = act === 'member-add' ? draftNow() : null;
+        memberAct(act, btn, { picked, sync, reopen: () => openCreateGroup(snap || draftNow()) });
+      }
+    },
     onSubmit: create,
   });
   sync();
-  $('wsg-name')?.select();
+  if (!draft) $('wsg-name')?.select();
 }
 
-/** A group's ⋯ → Edit members… */
-function openEditMembers(row) {
-  const plain = workspacePlainRows();
-  const picked = new Set((row.members || row.links || []).filter((id) => plain.some((p) => p.id === id)));
+/** A group's ⋯ → Edit members… (`picked` keeps unsaved ticks across Add project…). */
+function openEditMembers(row, picked = null) {
+  if (!picked) {
+    const plain = workspacePlainRows();
+    picked = new Set((row.members || row.links || []).filter((id) => plain.some((p) => p.id === id)));
+  }
   const sync = () => {
     const btn = document.querySelector('#wsdlg-foot [data-act="save"]');
     if (btn) btn.disabled = picked.size < 1;
@@ -582,8 +683,7 @@ function openEditMembers(row) {
   };
   showDialog({
     title: `Members — ${row.name}`, sub: 'Projects the master chat can reach', ic: 'users',
-    body: `${section('Projects in the group', { count: plain.length, right: '<span id="wsg-count"></span>' })}
-      <div class="ws-links" role="group" aria-label="Projects in the group">${memberRowsHtml(plain, picked)}</div>
+    body: `<div id="wsg-members">${membersHtml(picked)}</div>
       ${ERR}`,
     foot: `<span class="dlg-spacer"></span>${CANCEL}<button type="button" class="btn btn-primary" data-act="save">Save</button>`,
     onChange: (e) => {
@@ -594,7 +694,10 @@ function openEditMembers(row) {
       sync();
     },
     onAct: async (act, btn) => {
-      if (act !== 'save') return;
+      if (act !== 'save') {
+        memberAct(act, btn, { picked, sync, reopen: () => openEditMembers(workspaceProject(row.id) || row, picked) });
+        return;
+      }
       if (picked.size < 1) return showErr('Pick at least one project.');
       btn.disabled = true;
       const res = await wsPost('update', { id: row.id, links: [...picked] }, { quiet: true });

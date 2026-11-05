@@ -51,6 +51,7 @@ class RequestConfig:
     think_effort: str
     max_turns: int
     deadline_s: float
+    session_id: Any = None  # the chat that spawned the team (usage is counted to it)
 
     @classmethod
     def capture(cls, *, max_turns: int, deadline_s: float) -> "RequestConfig":
@@ -59,6 +60,7 @@ class RequestConfig:
             auth_mode=state.auth_mode, think_mode=bool(state.think_mode),
             think_effort=str(state.think_effort or "high"),
             max_turns=max_turns, deadline_s=deadline_s,
+            session_id=state.current_session_id,
         )
 
 
@@ -289,6 +291,27 @@ def _pause(team: Team, agent: AgentRun, seconds: float, why: str) -> None:
         time.sleep(min(0.5, left))
 
 
+def _record_usage(cfg: RequestConfig, final: Any) -> None:
+    """A subagent's request into the usage ledger, counted to the chat that
+    spawned it."""
+    try:
+        from ..repl import prompt_cache
+        from ..storage import usage_log
+
+        usage = getattr(final, "usage", None)
+        uncached, cache_read, cache_write = prompt_cache.usage_counts(usage)
+        cached = cache_read or int(getattr(usage, "cached_input_tokens", 0) or 0)
+        if not cache_read and cached:  # OpenAI-style: cached tokens are inside input_tokens
+            uncached, cache_read = max(0, uncached - cached), cached
+        cost = getattr(final, "cost_usd", None)
+        usage_log.record(provider=cfg.provider, model=cfg.model, session_id=cfg.session_id,
+                         uncached=uncached, cache_read=cache_read, cache_write=cache_write,
+                         output=int(getattr(usage, "output_tokens", 0) or 0),
+                         cost=float(cost) if cost is not None else None, source=usage_log.SOURCE_SUBAGENT)
+    except Exception:
+        pass
+
+
 def _call_model(team: Team, agent: AgentRun, cfg: RequestConfig, system: Any,
                 messages: list, tools: list) -> Any:
     from ..repl import prompt_cache
@@ -342,6 +365,7 @@ def _call_model(team: Team, agent: AgentRun, cfg: RequestConfig, system: Any,
                         agent.stream = None
                     live.close()
             check_tool_inputs(final, live)
+            _record_usage(cfg, final)
             return final
         except _Stop:
             raise

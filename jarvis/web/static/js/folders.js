@@ -63,6 +63,8 @@ const F = {
   picked: new Map(), // path → name of the ticked folders
   scan: null,        // git repos inside the folder on screen that are not in the workspace yet
   addErrors: [],     // [{ path, error }] the server refused
+  added: [],         // projects added while this picker was open (for onDone)
+  onDone: null,      // (added, reason) => void when an "Add to workspace" picker closes
 };
 
 const HOME_TITLE = 'Open a folder';
@@ -444,6 +446,7 @@ function finishAdd(res, paths) {
   const failed = new Set(errors.map((e) => e.path));
   F.picked = new Map([...F.picked].filter(([p]) => failed.has(p)));
   F.addErrors = errors;
+  F.added.push(...added);
   if (!errors.length) {
     closeModal(ID);
     showToast(added.length === 1 ? `${added[0].name} added to your workspace`
@@ -808,10 +811,14 @@ async function replaceChat() {
 
 // ─── Open / init ──────────────────────────────────────────────────────────
 
-/** Open the picker at `path` (default: the folder this chat works in). */
-export function openFolders({ path = '', newChat = false, workspace = false, locate = null } = {}) {
+/** Open the picker at `path` (default: the folder this chat works in).
+ * `onDone(added, reason)` (Add to workspace only) runs when the picker closes, with the projects it
+ * added (maybe none). Returns false when the picker could not open (onDone is not called then). */
+export function openFolders({ path = '', newChat = false, workspace = false, locate = null, onDone = null } = {}) {
   F.ws = !!workspace;
   F.locate = workspace ? locate : null;
+  F.onDone = F.ws && !F.locate && typeof onDone === 'function' ? onDone : null;
+  F.added = [];
   F.picked = new Map();
   F.scan = null;
   F.addErrors = [];
@@ -824,8 +831,9 @@ export function openFolders({ path = '', newChat = false, workspace = false, loc
     // The dialog is showing a project that is still opening: let that finish first.
     F.ws = false;
     F.locate = null;
+    F.onDone = null;
     showToast('A folder is still opening — add projects once it is up');
-    return;
+    return false;
   }
   if (F.launch) {
     // A launch is still running: show it rather than starting over.
@@ -833,7 +841,7 @@ export function openFolders({ path = '', newChat = false, workspace = false, loc
     setLaunching(true);
     setView(ID, { title: `Opening ${F.launch.name}`, sub: F.launch.display, back: leaveLaunch, backLabel: 'folders' });
     renderLaunch();
-    return;
+    return true;
   }
   F.query = '';
   F.error = null;
@@ -852,10 +860,15 @@ export function openFolders({ path = '', newChat = false, workspace = false, loc
   openModal(ID, { onClose, focus: window.matchMedia('(min-width: 961px)').matches ? `${ID}-q` : undefined });
   go(start);
   loadStart();
+  return true;
 }
 
-function onClose() {
+function onClose(reason) {
   // A launch keeps going: followLaunch toasts when it's ready.
+  const done = F.onDone;
+  const added = F.added;
+  F.onDone = null;
+  F.added = [];
   F.acting = '';
   F.newChat = false;
   F.ws = false;
@@ -864,6 +877,7 @@ function onClose() {
   F.scan = null;
   F.addErrors = [];
   setHead(false);
+  done?.(added, reason);
 }
 
 export function initFolders() {

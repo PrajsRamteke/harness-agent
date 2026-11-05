@@ -804,6 +804,33 @@ def _usage_or_estimate(final, messages) -> tuple[int, int]:
     return _total_chars(messages) // 4, _content_chars(blocks) // 4
 
 
+def _record_usage(final, in_tok: int, out_tok: int) -> None:
+    """One finished request into the usage ledger (every provider), and — on
+    the Claude Code CLI — a nudge to re-read the plan's limits soon."""
+    cache_read = int(state.cache_read_tokens or 0)
+    cache_write = int(state.cache_write_tokens or 0)
+    claude = state.provider == PROVIDER_CLAUDE_AGENT
+    try:
+        from ..storage import usage_log
+
+        usage_log.record(
+            provider=state.provider, model=state.MODEL, session_id=state.current_session_id,
+            uncached=max(0, in_tok - cache_read - cache_write), cache_read=cache_read,
+            cache_write=cache_write, output=out_tok,
+            # Claude Code's own figure (per-step estimate, settled at turn end).
+            cost=float(getattr(final, "cost_usd", 0) or 0) if claude else None,
+        )
+    except Exception:
+        pass
+    if claude:
+        try:
+            from ..auth import claude_agent_usage
+
+            claude_agent_usage.invalidate()
+        except Exception:
+            pass
+
+
 _last_fit_note: tuple = ()
 _eager_tools_off = False
 
@@ -967,6 +994,7 @@ def _call_claude_stream():
             # Anthropic's Usage exposes only input/output tokens; OpenCode's
             # fake Usage adds total_tokens. Compute when absent.
             state.total_tokens = int(getattr(final.usage, "total_tokens", 0) or 0) or (in_tok + out_tok)
+            _record_usage(final, in_tok, out_tok)
             if state.provider == PROVIDER_CLAUDE_AGENT:
                 state.claude_cost_usd += float(getattr(final, "cost_usd", 0) or 0)
                 try:  # so leaving this chat and coming back shows them again

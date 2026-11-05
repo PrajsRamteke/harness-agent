@@ -1,0 +1,131 @@
+/* Usage dialog (usage_stats.js): every request, by provider / model / day.
+ *   period switch · stat tiles · this chat · per-day bars · tables · footer
+ * Shares the dialog kit (dialogs.css) and the Memory dialog's stat tiles
+ * (.mem-stat / .ms-*, memory.css). */
+
+.us-card.dlg-card { max-width: 760px; }
+#us-body { gap: 8px; }
+
+.us-range { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.us-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.us-stat .ms-val { font-size: 20px; }
+.us-stat { cursor: default; }
+
+/* ─── This chat ───────────────────────────────────────────────────────── */
+.us-chat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-card);
+  background: var(--accent-soft);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.us-chat-ic { display: inline-flex; color: var(--accent); }
+.us-chat-ic .ic { width: 14px; height: 14px; }
+.us-chat-lbl { font-weight: 600; color: var(--text); }
+.us-chat-val b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.us-chat-val em { font-style: normal; font-size: 11px; color: var(--text-3); }
+.us-chat-cost { margin-left: auto; display: inline-flex; gap: 8px; }
+
+/* ─── Tokens per day ──────────────────────────────────────────────────── */
+.us-chart {
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  align-items: end;
+  gap: 3px;
+  height: 84px;
+  padding: 8px 10px 0;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--r-card) var(--r-card) 0 0;
+  background: var(--card);
+}
+.us-day { display: flex; align-items: flex-end; height: 100%; cursor: default; }
+.us-day i {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+  opacity: 0.75;
+  transition: opacity var(--dur-fast), height 0.3s var(--ease);
+}
+.us-day:hover i { opacity: 1; }
+.us-day.is-empty i { height: 2px !important; background: var(--line-2); }
+.us-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 10px 6px;
+  border: 1px solid var(--line);
+  border-top: 1px solid var(--line-2);
+  border-radius: 0 0 var(--r-card) var(--r-card);
+  background: var(--card);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* ─── By provider / by model ──────────────────────────────────────────── */
+.us-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--card);
+  overflow: hidden;
+}
+.us-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px minmax(110px, 0.6fr) 120px;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.us-row:first-child { border-top: 0; }
+.us-row:not(.us-head):hover { background: var(--card-hover); }
+.us-head {
+  min-height: 28px;
+  font: 500 11px var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.us-head > :nth-child(n + 2), .us-num, .us-cost { text-align: right; }
+.us-name { display: flex; flex-direction: column; min-width: 0; }
+.us-name-main { overflow: hidden; font-weight: 500; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.us-name-sub { overflow: hidden; font-size: 11px; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; }
+.us-num { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.us-tok { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.us-tok-top { display: flex; align-items: baseline; justify-content: flex-end; gap: 6px; font-variant-numeric: tabular-nums; }
+.us-tok-top b { font-weight: 500; color: var(--text); }
+.us-tok-top em { font-style: normal; font-size: 11px; color: var(--text-3); }
+.us-meter { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: var(--card-hover); }
+.us-meter i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.us-cost { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-variant-numeric: tabular-nums; }
+.us-cost b { font-weight: 500; color: var(--text); }
+.us-plan { display: inline-flex; align-items: baseline; gap: 4px; color: var(--text-2); cursor: help; }
+.us-plan em {
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  font: 500 10px/16px var(--font-ui);
+  font-style: normal;
+  color: var(--accent);
+}
+.us-chat-cost .us-plan, .us-chat-cost b { font-size: 12.5px; }
+
+@media (max-width: 640px) {
+  .us-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .us-row { grid-template-columns: minmax(0, 1fr) 48px 84px 88px; gap: 8px; padding: 6px 10px; }
+  .us-chat-cost { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .us-day i { transition: none; }
+}

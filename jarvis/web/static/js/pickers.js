@@ -17,6 +17,7 @@ import { openSkills } from './skills.js';
 import { openCommands } from './commands.js';
 import { openPin } from './pin.js';
 import { openMemory } from './memory.js';
+import { openUsageStats } from './usage_stats.js';
 import { openSessions } from './sessions.js';
 import { openSettings } from './settings.js';
 import { openLocal } from './local.js';
@@ -177,6 +178,11 @@ function open(kind, arg = '') {
   if (kind === 'session') {
     if (isModalOpen('picker')) closePicker();
     openSessions(arg);
+    return;
+  }
+  if (kind === 'cost') {
+    if (isModalOpen('picker')) closePicker();
+    openUsageStats();
     return;
   }
   if (kind === 'memory' || kind === 'lesson') {

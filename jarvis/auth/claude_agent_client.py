@@ -363,6 +363,8 @@ class _Session:
         self.saw_init = False
         self.cost_seen = 0.0     # Claude Code's running total_cost_usd for this process
         self.cost_pending = 0.0  # not yet handed to Jarvis
+        self.cost_settle = False  # a result's cost came in: settle the estimates with it
+        self.est_open = 0.0      # per-step estimates handed out since the last result
         # Loop side (only touched on the event loop).
         self._announced: list[tuple[str, str, Any]] = []
         self._claimed: set[str] = set()
@@ -523,6 +525,30 @@ class _Session:
         delta = total - self.cost_seen if total >= self.cost_seen else total  # reset: a new total
         self.cost_seen = total
         self.cost_pending += max(0.0, delta)
+        if total > 0:  # 0: Claude Code gave no figure — the estimates stand
+            self.cost_settle = True
+
+    def hand_out_cost(self, estimate: float, *, final: bool) -> float:
+        """The cost one step reports to Jarvis. Mid-turn (tool steps) Claude
+        Code says nothing about cost, so each step reports ``estimate`` (its
+        tokens at API prices); once a result brings Claude Code's own figure,
+        the next step reports that minus the estimates already given — the
+        running total ends on Claude Code's number."""
+        out = 0.0
+        settled = self.cost_settle
+        if settled:
+            out += self.cost_pending - self.est_open
+            self.est_open = 0.0
+            self.cost_settle = False
+        else:
+            out += self.cost_pending
+        self.cost_pending = 0.0
+        if final and settled:
+            return out  # Claude Code's figure covers this step too
+        out += estimate
+        # A turn that ended without a figure keeps its estimates for good.
+        self.est_open = 0.0 if final else self.est_open + estimate
+        return out
 
     async def _learn_context(self) -> None:
         """Ask Claude Code once per model how big its context window is (and
@@ -927,6 +953,7 @@ class _Stream:
                          output_tokens=0, total_tokens=0)
         self._out_total = 0
         self._error: ClaudeAgentError | None = None
+        self._got_result = False
         self._rate_note = ""
         self._timeout = float(os.getenv("HARNESS_CLAUDE_AGENT_TIMEOUT", "0") or 0) or 900.0
         self._once = threading.Lock()  # Esc (UI thread) can race the worker finishing
@@ -1012,9 +1039,13 @@ class _Stream:
     def _set_usage(self, u: dict, *, final: bool) -> None:
         if not u:
             return
-        self._usage.input_tokens = int(u.get("input_tokens") or 0)
-        self._usage.cache_read_input_tokens = int(u.get("cache_read_input_tokens") or 0)
-        self._usage.cache_creation_input_tokens = int(u.get("cache_creation_input_tokens") or 0)
+        # message_delta may carry only output_tokens: keep the prompt's numbers.
+        if "input_tokens" in u or not final:
+            self._usage.input_tokens = int(u.get("input_tokens") or 0)
+        if "cache_read_input_tokens" in u or not final:
+            self._usage.cache_read_input_tokens = int(u.get("cache_read_input_tokens") or 0)
+        if "cache_creation_input_tokens" in u or not final:
+            self._usage.cache_creation_input_tokens = int(u.get("cache_creation_input_tokens") or 0)
         if final:
             self._out_total += int(u.get("output_tokens") or 0)
         self._usage.output_tokens = self._out_total
@@ -1030,15 +1061,29 @@ class _Stream:
             sess.phase = "tools"
         else:
             sess.phase = "idle"
+        cost = sess.hand_out_cost(self._estimate(), final=self._got_result)
         final = NS(content=list(self._content), usage=self._usage, stop_reason=stop or "end_turn",
-                   model=self.spec.model, cost_usd=sess.cost_pending)
-        sess.cost_pending = 0.0
+                   model=self.spec.model, cost_usd=cost)
         if cfg.context_window(self.spec.model) is None and sess.alive:
             _LOOP.call(lambda s=sess: asyncio.ensure_future(s._learn_context()))
         sess.sig = sig_of({"content": final.content})
         sess.fed = 0
         self._final = final
         self.engine.finish(sess)
+
+    def _estimate(self) -> float:
+        """This step's tokens at Anthropic's API price for the model (0 when
+        the price is unknown)."""
+        try:
+            from ..constants.providers import claude_agent_api_pricing
+            from ..storage.usage_log import request_cost
+
+            u = self._usage
+            return request_cost(claude_agent_api_pricing(self.spec.model), uncached=u.input_tokens,
+                                cache_read=u.cache_read_input_tokens,
+                                cache_write=u.cache_creation_input_tokens, output=u.output_tokens)
+        except Exception:
+            return 0.0
 
     def _fail(self, err: ClaudeAgentError) -> None:
         if self._take_finish():
@@ -1071,6 +1116,7 @@ class _Stream:
                 self._error = _error(status, text)
             self._fail(self._error)
         self.sess.take_cost(m)
+        self._got_result = True
         stop = str(getattr(m, "stop_reason", "") or "") or self._stop or "end_turn"
         if stop not in ("end_turn", "max_tokens", "stop_sequence", "refusal", "pause_turn"):
             stop = "end_turn"

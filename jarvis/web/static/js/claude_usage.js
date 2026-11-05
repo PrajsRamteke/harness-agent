@@ -75,9 +75,10 @@ function renderChat(c) {
   $('cc-model').title = 'Model Claude Code runs for this chat';
   const el = $('cc-cost');
   el.textContent = cost(c.cost_usd);
-  el.title = c.subscription
+  el.title = (c.subscription
     ? 'What Claude Code estimates this chat would cost at API prices — covered by your plan, not billed'
-    : 'What this chat has cost so far (Claude Code’s estimate)';
+    : 'What this chat has cost so far (Claude Code’s estimate)')
+    + '\nCounted per step while a reply runs; settled to Claude Code’s own figure when it ends.';
 }
 
 function render(s) {
@@ -92,7 +93,7 @@ function render(s) {
   $('cc-updated').textContent = d.status === 'ok' && d.fetched_at ? updatedAgo(d.fetched_at) : '';
   card.classList.toggle('is-loading', !!d.loading);
   renderChat(s.claude_chat);
-  const sig = JSON.stringify([d.status, d.error, d.plan_label, d.limits, d.extra, d.available]);
+  const sig = JSON.stringify([d.status, d.error, d.plan_label, d.limits, d.extra, d.available, d.activity]);
   if (sig === lastSig) return;
   lastSig = sig;
 
@@ -143,6 +144,11 @@ function render(s) {
         <div class="cc-limit-top"><dt>${icon('credit-card')} Extra usage</dt><dd>${escapeHtml(money(x.used, x.currency))}${x.limit != null ? ` / ${escapeHtml(money(x.limit, x.currency))}` : ''}</dd></div>
         ${x.percent != null ? `<span class="or-bar"><i style="width:${pctWidth(x.percent).toFixed(2)}%"></i></span>` : ''}
       </div>`);
+  }
+  const act = d.activity;
+  if (act?.day || act?.week) {
+    const part = (w, label) => (w ? `${label} <b>${escapeHtml(w.requests.toLocaleString())}</b> requests · ${escapeHtml(w.sessions.toLocaleString())} sessions` : '');
+    rows.push(`<p class="cc-note cc-activity" title="Every Claude Code session on this account, not only Jarvis’s">${icon('activity')}<span>${[part(act.day, 'Today'), part(act.week, 'This week')].filter(Boolean).join('<br>')}</span></p>`);
   }
   if (d.error && sess) rows.push(`<p class="cc-note">${escapeHtml(d.error)} — showing the last numbers.</p>`);
   if (!rows.length) rows.push('<p class="cc-note">No weekly limits reported for this plan.</p>');

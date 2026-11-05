@@ -75,8 +75,7 @@ def handle_control(c: str, arg: str):
             )
         return True, None
     if c == "/cost":
-        console.print(f"[green]≈ ${estimated_cost():.4f}[/] "
-                      f"[dim]({state.total_in} in + {state.total_out} out = {state.total_tokens} total @ {state.MODEL})[/]")
+        _print_cost()
         return True, None
     if c == "/version":
         from ..constants import VERSION
@@ -124,6 +123,48 @@ def handle_control(c: str, arg: str):
         _handle_provider(arg)
         return True, None
     return False, None
+
+
+def _fmt_tok(n: int) -> str:
+    n = int(n or 0)
+    return f"{n / 1e6:.1f}M" if n >= 1_000_000 else f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
+def _fmt_cost(d: dict) -> str:
+    out = f"${d.get('cost', 0):.2f}"
+    if d.get("plan_cost"):
+        out += f" [dim](+ ${d['plan_cost']:.2f} plan value)[/]"
+    return out
+
+
+def _print_cost() -> None:
+    """``/cost``: this chat, then today / 7 / 30 days and the top models —
+    every request on every provider (the usage ledger, ``storage/usage_log``)."""
+    from ..storage import usage_log
+
+    chat = usage_log.chat_totals(state.current_session_id)
+    if chat:
+        console.print(
+            f"[b]This chat[/]  {chat['requests']} requests · {_fmt_tok(chat['prompt_total'])} in "
+            f"[dim](⚡{chat['cache_pct']}% cached)[/] · {_fmt_tok(chat['output'])} out · {_fmt_cost(chat)}")
+    else:
+        console.print(f"[green]≈ ${estimated_cost():.4f}[/] "
+                      f"[dim]({state.total_in} in + {state.total_out} out = {state.total_tokens} total @ {state.MODEL})[/]")
+    week = None
+    for days, label in ((1, "Today"), (7, "7 days"), (30, "30 days")):
+        s = usage_log.summary(days)
+        t = s["totals"]
+        if days == 7:
+            week = s
+        console.print(f"[dim]{label:<8}[/] {t['requests']:>5} requests · "
+                      f"{_fmt_tok(t['tokens']):>7} tokens · {_fmt_cost(t)}")
+    if week and week["models"]:
+        console.print("[dim]Top models, 7 days[/]")
+        for m in week["models"][:5]:
+            console.print(f"  {m['model']} [dim]{m['provider_label']}[/] · {m['requests']} req · "
+                          f"{_fmt_tok(m['tokens'])} · {_fmt_cost(m)}")
+    console.print("[dim]Plan value: what requests a subscription covers would cost on the API. "
+                  "Details by provider and day: /cost in the web remote.[/]")
 
 
 def session_stats() -> dict:

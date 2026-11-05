@@ -287,6 +287,29 @@ body.is-booting .chat-scroll { opacity: 0.35; transition: opacity 0.18s var(--ea
 .ws-link-name strong { font-size: 13px; font-weight: 500; }
 .ws-link-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 11.5px; }
 
+/* group dialogs: a member row = tick label + ✕ (remove from workspace, asked inline) */
+.ws-member { display: flex; align-items: center; gap: 4px; border-radius: var(--r-row); }
+.ws-member > .ws-link-row { flex: 1; min-width: 0; }
+.ws-member-x { flex-shrink: 0; width: 28px; height: 28px; color: var(--text-3); opacity: 0; transition: opacity var(--dur-fast), color var(--dur-fast), background var(--dur-fast); }
+.ws-member-x .ic { width: 14px; height: 14px; }
+.ws-member:hover .ws-member-x, .ws-member-x:focus-visible { opacity: 1; }
+.ws-member-x:hover { color: var(--danger); background: var(--danger-soft); }
+@media (hover: none) { .ws-member-x { opacity: 1; } }
+.ws-member.is-asking { gap: 6px; padding: 6px 6px 6px 8px; border: 1px solid var(--danger-line); background: var(--danger-soft); }
+.ws-member-ask { display: flex; align-items: flex-start; gap: 8px; flex: 1; min-width: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.4; }
+.ws-member-ask .ic { width: 14px; height: 14px; flex-shrink: 0; margin-top: 2px; color: var(--danger); }
+.ws-member-ask strong { color: var(--text); font-weight: 500; }
+.ws-member-ask em { display: block; font-style: normal; color: var(--text-3); font-size: 11.5px; }
+.ws-member.is-asking .btn { flex-shrink: 0; }
+.ws-member-add {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 4px; padding: 8px;
+  border: 1px dashed var(--line-2); border-radius: var(--r-row); background: none; color: var(--text-2); font: inherit; font-size: 13px; text-align: left;
+  transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
+}
+.ws-member-add .ic { width: 15px; height: 15px; flex-shrink: 0; }
+.ws-member-add:hover { color: var(--text); background: var(--card-hover); border-color: var(--text-3); }
+.ws-member-add:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
 .ws-seg { display: inline-flex; padding: 2px; gap: 2px; margin-top: 6px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--card); }
 .ws-seg-btn { padding: 4px 14px; border: 0; border-radius: calc(var(--r-ctl) - 2px); background: transparent; color: var(--text-2); font-size: 12.5px; font-weight: 500; }
 .ws-seg-btn:hover { color: var(--text); }

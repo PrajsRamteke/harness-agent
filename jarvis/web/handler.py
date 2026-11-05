@@ -804,6 +804,18 @@ class WebHandler(BaseHTTPRequestHandler):
 
             self._send_json(200, settings_public())
             return
+        if path == "/api/usage/summary":
+            # The usage ledger (every provider and model): totals, by provider /
+            # model / day for the last ``days`` days (0 = all), plus this chat.
+            from .. import state
+            from ..storage import usage_log
+
+            try:
+                days = int(self._query_str(qs, "days") or 7)
+            except ValueError:
+                days = 7
+            self._send_json(200, usage_log.summary(max(0, days), session_id=state.current_session_id))
+            return
         if path == "/api/usage":
             # OpenRouter key spend; ``refresh=1`` asks OpenRouter now (this thread).
             from ..auth import openrouter_usage

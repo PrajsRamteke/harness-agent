@@ -419,7 +419,22 @@ body.is-grip-dragging { cursor: row-resize; user-select: none; }
 }
 
 /* This session's counters: three small centred boxes. */
-.usage { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.usage {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+/* A button: opens the Usage dialog (usage_stats.js). */
+.usage:hover .usage-cell { background: var(--card-hover); border-color: var(--line-2); }
+.usage:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-ctl); }
 .usage-cell {
   display: flex;
   flex-direction: column;
@@ -506,6 +521,10 @@ body.is-grip-dragging { cursor: row-resize; user-select: none; }
 .cc-model { flex: none; max-width: 40%; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cc-cost { flex: none; font-weight: 500; color: var(--text); }
 .cc-note { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--text-3); }
+/* Claude Code's own request / session counts for the whole account. */
+.cc-activity { display: flex; align-items: flex-start; gap: 7px; }
+.cc-activity .ic { flex-shrink: 0; width: 13px; height: 13px; margin-top: 2px; }
+.cc-activity b { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text-2); }
 .or-card[data-level="warn"] { --or-tone: var(--warn); }
 .or-card[data-level="low"] { --or-tone: var(--danger); }
 .or-main {

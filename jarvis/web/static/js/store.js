@@ -47,6 +47,8 @@ export const store = {
   claude_usage: null,
   /** This chat on the Claude Code CLI: context %, model, cost (server: state_api._claude_chat_fields). */
   claude_chat: null,
+  /** Everything this chat has used, every request added up (server: storage/usage_log.chat_totals); null before its first request. */
+  chat_usage: null,
   /** Pinned context summary (`{ lines, enabled, chars }`): an open Pin dialog reloads when it changes. */
   pin: { lines: 0, enabled: true },
   /** Pending agent prompt (approval / question / input) awaiting an answer */
@@ -110,4 +112,5 @@ export function loadSnapshot(data) {
   if ('openrouter' in data) patchStore({ openrouter: data.openrouter || null });
   if ('claude_usage' in data) patchStore({ claude_usage: data.claude_usage || null });
   if ('claude_chat' in data) patchStore({ claude_chat: data.claude_chat || null });
+  if ('chat_usage' in data) patchStore({ chat_usage: data.chat_usage || null });
 }

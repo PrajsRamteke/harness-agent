@@ -445,7 +445,21 @@ def state_fields(*, busy: bool = False, session_title: str | None = None) -> dic
         "openrouter": _openrouter_fields(),
         "claude_usage": _claude_usage_fields(),
         "claude_chat": _claude_chat_fields(),
+        "chat_usage": _chat_usage_fields(),
     }
+
+
+def _chat_usage_fields() -> dict[str, Any] | None:
+    """Everything this chat has used so far, every request added up (the
+    usage ledger, ``storage/usage_log``) — ``None`` before its first request."""
+    from .. import state
+
+    try:
+        from ..storage import usage_log
+
+        return usage_log.chat_totals(state.current_session_id)
+    except Exception:
+        return None
 
 
 def _claude_chat_fields() -> dict[str, Any] | None:

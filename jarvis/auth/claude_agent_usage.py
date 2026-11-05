@@ -23,7 +23,8 @@ from typing import Any
 
 TTL = 120.0          # a fresh answer is reused this long (a process is running)
 TTL_SPAWN = 600.0    # … when asking means starting `claude` just for it
-AFTER_TURN = 5.0     # a finished turn refreshes this soon
+AFTER_TURN = 5.0     # a finished request refreshes this soon …
+MIN_GAP = 20.0       # … but never sooner than this after the last ask (long tool loops)
 RETRY = 120.0        # after a failed ask
 USAGE_URL = "https://claude.ai/settings/usage"
 
@@ -129,7 +130,26 @@ def parse(raw: dict) -> dict:
         "available": bool(raw.get("rate_limits_available", bool(limits))),
         "limits": limits,
         "extra": extra,
+        "activity": _activity(raw.get("behaviors")),
     }
+
+
+def _activity(raw: Any) -> dict | None:
+    """Requests / sessions on this Claude account today and this week — every
+    Claude Code session, not only Jarvis's (``behaviors`` in ``get_usage``)."""
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, dict] = {}
+    for key in ("day", "week"):
+        win = raw.get(key)
+        if not isinstance(win, dict):
+            continue
+        try:
+            out[key] = {"requests": int(win.get("request_count") or 0),
+                        "sessions": int(win.get("session_count") or 0)}
+        except (TypeError, ValueError):
+            continue
+    return out or None
 
 
 # ─── fetching ────────────────────────────────────────────────────────────
@@ -154,17 +174,27 @@ def _run() -> None:
     with _lock:
         _data, _error = data, None
         _fetched_at = time.time()
-        _due_at = _fetched_at + _ttl()
+        # How long it stays fresh depends on whether a `claude` is running
+        # *then* (``_stale``), not when this answer came in: one fetched while
+        # nothing ran used to stay 10 minutes even through a busy session.
+        _due_at = _fetched_at + TTL
         _inflight = False
 
 
-def _ttl() -> float:
+def _live() -> bool:
     try:
         from .claude_agent_client import engine
 
-        return TTL if engine().live_session() is not None else TTL_SPAWN
+        return engine().live_session() is not None
     except Exception:
-        return TTL_SPAWN
+        return False
+
+
+def _stale(now: float, due: float, fetched: float) -> bool:
+    """Due, and asking is cheap (a process is running) or the answer is old."""
+    if now < due:
+        return False
+    return now - fetched >= TTL_SPAWN or _live()
 
 
 def refresh(*, wait: bool = True) -> dict | None:
@@ -184,11 +214,13 @@ def refresh(*, wait: bool = True) -> dict | None:
 
 
 def invalidate(after: float = AFTER_TURN) -> None:
-    """A turn just used some of the plan: refresh soon."""
+    """A request just used some of the plan: refresh soon (at most every
+    ``MIN_GAP`` seconds, so a long tool loop keeps the numbers moving without
+    asking after every step)."""
     global _due_at
     with _lock:
         if _data is not None:
-            _due_at = min(_due_at, time.time() + after)
+            _due_at = min(_due_at, max(time.time() + after, _fetched_at + MIN_GAP))
 
 
 def note_rate_limit(info: Any) -> None:
@@ -254,7 +286,11 @@ def public(*, kick: bool = True, any_provider: bool = False) -> dict | None:
         return None
     start = False
     with _lock:
-        if kick and not _inflight and time.time() >= _due_at:
+        due, fetched, busy = _due_at, _fetched_at, _inflight
+    # Outside the lock: whether a process runs asks the engine (its own lock).
+    want = kick and not busy and _stale(time.time(), due, fetched)
+    with _lock:
+        if want and not _inflight:
             _inflight = start = True
         snap = _snapshot_locked()
     if start:

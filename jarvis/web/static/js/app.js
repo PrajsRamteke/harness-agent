@@ -11,6 +11,7 @@ import { initStatus, setConnected } from './status.js';
 import { initSidebar, toggleSidebar } from './sidebar.js';
 import { initUsageCard } from './usage.js';
 import { initClaudeUsageCard } from './claude_usage.js';
+import { initUsageStats, openUsageStats } from './usage_stats.js';
 import { initTitleRename } from './rename.js';
 import { initProjects, projectGone, serverLost } from './projects.js';
 import { initFolders } from './folders.js';
@@ -151,6 +152,9 @@ function boot() {
   initSidebar({ onOpenPicker: openPickerByKind });
   initUsageCard();
   initClaudeUsageCard();
+  initUsageStats();
+  $('usage')?.addEventListener('click', openUsageStats);
+  $('cc-details')?.addEventListener('click', (e) => { e.stopPropagation(); openUsageStats(); });
   initTitleRename();
   initProjects({ onEvent: handleEvent });
   initFolders();

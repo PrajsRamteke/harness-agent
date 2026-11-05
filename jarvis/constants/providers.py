@@ -679,11 +679,25 @@ def claude_agent_pricing(model: str) -> tuple[float, float] | None:
 
         if ca.status().subscription or not ca.status().logged_in:
             return (0.0, 0.0)
+    except Exception:
+        return (0.0, 0.0)
+    return claude_agent_api_pricing(model)
+
+
+def claude_agent_api_pricing(model: str) -> tuple[float, float] | None:
+    """Anthropic's API price for the model a Claude Code alias runs — on a
+    plan too (what the same tokens would cost on the API). None when unknown."""
+    real = model
+    try:
+        from ..auth import claude_agent as ca
+
         m = ca.get_model(model)
         real = (m or {}).get("resolved") or model
     except Exception:
-        return (0.0, 0.0)
+        pass
     p = PRICING.get(real)
+    if p is None and model != real:
+        p = PRICING.get(model)
     return (p[0], p[1]) if p else None
 
 

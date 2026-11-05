@@ -90,6 +90,7 @@
   <link rel="stylesheet" href="/static/css/media.css">
   <link rel="stylesheet" href="/static/css/queue-pin.css">
   <link rel="stylesheet" href="/static/css/memory.css">
+  <link rel="stylesheet" href="/static/css/usage.css">
   <link rel="stylesheet" href="/static/css/sessions.css">
   <link rel="stylesheet" href="/static/css/local.css">
   <link rel="stylesheet" href="/static/css/projects.css">
@@ -246,17 +247,18 @@
               <dl class="or-grid cc-grid" id="cc-grid"></dl>
               <div class="or-actions">
                 <span class="or-updated" id="cc-updated"></span>
+                <button type="button" class="icon-btn or-icon" id="cc-details" aria-label="Usage by model and provider" title="Usage by model and provider"><span data-icon="chart-column"></span></button>
                 <button type="button" class="icon-btn or-icon" id="cc-refresh" aria-label="Refresh usage" title="Ask Claude Code now"><span data-icon="refresh-cw"></span></button>
                 <a class="icon-btn or-icon" href="https://claude.ai/settings/usage" target="_blank" rel="noopener" aria-label="Usage on claude.ai" title="Usage on claude.ai"><span data-icon="external-link"></span></a>
               </div>
             </div>
           </div>
         </section>
-        <div class="usage" id="usage" aria-label="Usage this session">
-          <div class="usage-cell"><span class="usage-num" id="use-in">0</span><span class="usage-lbl">in<span class="usage-badge" id="use-in-cache" hidden></span></span></div>
-          <div class="usage-cell"><span class="usage-num" id="use-out">0</span><span class="usage-lbl">out</span></div>
-          <div class="usage-cell"><span class="usage-num" id="use-tools">0</span><span class="usage-lbl">tool calls</span></div>
-        </div>
+        <button type="button" class="usage" id="usage" aria-label="Usage this chat — open usage by model and provider" title="Usage by model and provider">
+          <span class="usage-cell"><span class="usage-num" id="use-in">0</span><span class="usage-lbl">in<span class="usage-badge" id="use-in-cache" hidden></span></span></span>
+          <span class="usage-cell"><span class="usage-num" id="use-out">0</span><span class="usage-lbl">out</span></span>
+          <span class="usage-cell"><span class="usage-num" id="use-tools">0</span><span class="usage-lbl">tool calls</span></span>
+        </button>
         <div class="foot-actions">
           <button class="chip-btn" id="open-skills" type="button"><span data-icon="book-open"></span><span>Skills</span></button>
           <button class="chip-btn" id="open-commands" type="button" aria-label="Custom commands" title="Your slash commands"><span data-icon="terminal"></span><span>Commands</span></button>
@@ -670,6 +672,24 @@
       <div class="dlg-bar" id="pin-bar"></div>
       <div class="pv-body dlg-body ex-body" id="pin-body"></div>
       <div class="dlg-foot" id="pin-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="usage-stats" hidden>
+    <div class="modal-card glass-strong ext-card us-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="usage-stats-title">
+      <div class="picker-head">
+        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
+        <span class="picker-icon"><span data-icon="gauge"></span></span>
+        <div class="picker-titles">
+          <h2 id="usage-stats-title">Usage</h2>
+          <p>Every model request Jarvis made, on every provider</p>
+        </div>
+        <button class="icon-btn" data-close="usage-stats" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="dlg-bar" id="us-bar"></div>
+      <div class="mem-stats us-stats" id="us-stats"></div>
+      <div class="pv-body dlg-body ex-body" id="us-body"></div>
+      <div class="dlg-foot" id="us-foot"></div>
     </div>
   </div>
 

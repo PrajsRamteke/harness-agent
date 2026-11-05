@@ -244,18 +244,26 @@ function renderUsage(s) {
   // The first numbers (page load, a resumed session) just appear; only
   // changes while connected count up.
   const animate = { animate: s.connected };
-  countTo($('use-in'), s.session.tokens_in, formatCount, animate);
-  countTo($('use-out'), s.session.tokens_out, formatCount, animate);
+  // Every request of this chat added up (the usage ledger): an agent loop
+  // re-sends its whole context each step, so the latest prompt's size alone
+  // (all an older chat has) hides most of what it used.
+  const cu = s.chat_usage;
+  const latest = Number(s.session.tokens_in) || 0;
+  const tin = cu ? (Number(cu.input) || 0) + (Number(cu.cache_read) || 0) + (Number(cu.cache_write) || 0) : latest;
+  const tout = cu ? Number(cu.output) || 0 : Number(s.session.tokens_out) || 0;
+  countTo($('use-in'), tin, formatCount, animate);
+  countTo($('use-out'), tout, formatCount, animate);
   countTo($('use-tools'), s.session.tool_calls, formatCount, animate);
-  $('use-out').title = `${s.session.tokens_out} output tokens`;
-  // Prompt cache (Anthropic, Codex): how much of the latest prompt was
-  // served from cache — cheaper and faster than sending it fresh.
-  const tin = Number(s.session.tokens_in) || 0;
-  const cached = Number(s.session.tokens_cache_read) || 0;
+  $('use-out').title = `${tout.toLocaleString()} output tokens${cu ? ' in this chat' : ''}`;
+  // Prompt cache (Anthropic, Codex): how much was served from cache —
+  // cheaper and faster than sending it fresh.
+  const cached = cu ? Number(cu.cache_read) || 0 : Number(s.session.tokens_cache_read) || 0;
   const pct = cached && tin ? Math.min(100, Math.floor((cached * 100) / tin)) : 0;
-  const tip = pct
-    ? `${tin} input tokens in the latest prompt — ${cached} (${pct}%) read from the prompt cache`
-    : `${tin} input tokens`;
+  const tip = cu
+    ? `${tin.toLocaleString()} input tokens over ${Number(cu.requests).toLocaleString()} requests in this chat${pct ? ` — ${pct}% read from the prompt cache` : ''}\nLatest prompt (context): ${latest.toLocaleString()} tokens`
+    : pct
+      ? `${tin} input tokens in the latest prompt — ${cached} (${pct}%) read from the prompt cache`
+      : `${tin} input tokens`;
   $('use-in').title = tip;
   const badge = $('use-in-cache');
   if (badge) {
