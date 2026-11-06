@@ -434,6 +434,29 @@ class TerminalSession:
             self.write("\x0c")   # Ctrl+L: repaint (Claude Code, vim, htop, less …)
         return result
 
+    def status(self) -> dict[str, Any]:
+        """Where the shell is now and whether a program holds it.
+
+        ``busy``: the terminal's foreground process group isn't the shell's own
+        (a dev server, Claude Code, vim …) — typing a command there would feed
+        that program, not the shell. ``cwd`` follows the shell's ``cd``s."""
+        pid = self.proc.pid
+        fg = -1
+        with self._fd_lock:
+            if self._master >= 0:
+                try:
+                    fg = os.tcgetpgrp(self._master)
+                except OSError:
+                    fg = -1
+        busy = not self.exited and fg > 0 and fg != pid
+        return {
+            "id": self.id,
+            "cwd": _live_cwd(pid) or self.cwd,
+            "busy": busy,
+            "program": _program_name(fg) if busy else "",
+            "exited": self.exited,
+        }
+
     def public(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -462,6 +485,42 @@ class TerminalSession:
             except (OSError, ProcessLookupError):
                 pass
         self._finish(self.proc.poll())
+
+
+# ─── What a shell is doing (TerminalSession.status) ─────────────────────
+
+_PROBE_TIMEOUT = 1.5
+
+
+def _live_cwd(pid: int) -> str:
+    """The current folder of process ``pid`` ('' when the OS won't say)."""
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")          # Linux
+    except OSError:
+        pass
+    try:                                               # macOS: no /proc
+        out = subprocess.run(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True, text=True, timeout=_PROBE_TIMEOUT, check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    for line in out.splitlines():
+        if line.startswith("n/"):
+            return line[1:]
+    return ""
+
+
+def _program_name(pgid: int) -> str:
+    """The command name of the process leading group ``pgid`` (`node`, `vim` …)."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "comm=", "-p", str(pgid)],
+            capture_output=True, text=True, timeout=_PROBE_TIMEOUT, check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return os.path.basename(out.splitlines()[0]) if out else ""
 
 
 # ─── Registry ────────────────────────────────────────────────────────────

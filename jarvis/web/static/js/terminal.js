@@ -24,7 +24,8 @@
  * per instance.
  *
  * The AI tools on top (error chip, selection → chat, clickable links, ⌘K
- * command writer) live in terminal_ai.js.
+ * command writer) live in terminal_ai.js; the package-script dropdown (Scripts,
+ * ⌥⇧R) in terminal_scripts.js.
  */
 import { $, escapeHtml, storageGet, storageSet, showToast, copyText, haptic, debounce } from './utils.js';
 import {
@@ -37,6 +38,7 @@ import { groupInfo } from './tabs.js';
 import {
   initTerminalAi, attachAi, detachAi, noteInput, afterOutput, clearAi, handleAiKey,
 } from './terminal_ai.js';
+import { initTerminalScripts } from './terminal_scripts.js';
 
 const HEIGHT_KEY = 'jarvis-term-h';
 const MIN_H = 140;
@@ -50,6 +52,8 @@ const HIDDEN_PAUSE_MS = 45_000;    // a background tab lets go of its held reque
 const ALL_KEY = 'jarvis-term-all';   // '1' | '0': the master group's other shells get a tab here (unset: on)
 const MAX_PUMPS = 6;                // instances polled at once (the browser allows ~6 connections per host)
 const LAUNCH_POLL_MS = 1000;
+const FIRST_PROMPT_MS = 4000;       // a new shell's first output (its prompt) is awaited this long …
+const PROMPT_SETTLE_MS = 150;       // … then this, before a script command is typed into it
 const LAUNCH_POLLS = 90;
 const COARSE = window.matchMedia?.('(pointer: coarse)');
 const SIDE_KEY = 'jarvis-term-side';     // '1': tabs in a rail right of the shells (unset: a row on top)
@@ -524,20 +528,21 @@ function adopt(t, inst = curInst(), { explicit = false } = {}) {
 
 /** A new shell. `inst`: the Jarvis it lives in (default: the project on screen);
  *  `project`: a workspace row to start first when it isn't running; `cwd`: only for
- *  a folder that isn't a workspace project (today's behaviour: the shown Jarvis, that folder). */
+ *  a folder that isn't a workspace project (today's behaviour: the shown Jarvis, that folder).
+ *  Resolves to the session once the server runs it, else null. */
 async function spawn({ secondary = false, inst = curInst() || null, project = null, cwd = '' } = {}) {
   build();
   if (state.sessions.length >= MAX_SESSIONS) {
     showToast(`You can have up to ${MAX_SESSIONS} terminals — close one first.`, true);
-    return;
+    return null;
   }
   if (inst && state.sessions.filter((x) => x.inst === inst && !x.stopped).length >= PER_INSTANCE) {
     showToast(`That project already has ${PER_INSTANCE} shells — close one first.`, true);
-    return;
+    return null;
   }
   if (!window.Terminal) {
     showToast('The terminal engine didn’t load — reload the page.', true);
-    return;
+    return null;
   }
   const s = makeView();
   s.inst = inst;
@@ -559,11 +564,11 @@ async function spawn({ secondary = false, inst = curInst() || null, project = nu
       renderTabs();
       syncPanes();
       showToast(err.message || `Couldn’t start ${project.name}.`, true);
-      return;
+      return null;
     }
     s.starting = false;
     s.title = 'Terminal';
-    if (s.disposed) return;
+    if (s.disposed) return null;
     s.term.reset();
   }
   rememberProject(s);
@@ -579,7 +584,7 @@ async function spawn({ secondary = false, inst = curInst() || null, project = nu
     if (!res.ok) throw new Error(res.error || 'Could not start the shell.');
     if (s.disposed) {   // closed (or project switched) while it started
       apiAt(s.inst, '/api/terminal/close', 'POST', { id: res.terminal.id }).catch(() => {});
-      return;
+      return null;
     }
     s.id = res.terminal.id;
     s.cwd = res.terminal.cwd || '';
@@ -593,6 +598,7 @@ async function spawn({ secondary = false, inst = curInst() || null, project = nu
     focusActive();
     wireSession(s);
     kick(instKey(s));
+    return s;
   } catch (err) {
     disposeView(s);
     renderTabs();
@@ -602,7 +608,32 @@ async function spawn({ secondary = false, inst = curInst() || null, project = nu
     if (local) instAllowed.set(s.inst || '', false);
     showToast(local ? 'The terminal is only available on this computer or your own network.'
       : (err.message || 'The terminal didn’t start.'), true);
+    return null;
   }
+}
+
+/** A new tab that starts in `cwd`, named `title`, with `input` typed once the
+ *  shell has drawn its prompt (the package-script dropdown's "new tab"). */
+async function runInNewShell({ inst = curInst() || null, cwd = '', title = '', input = '' } = {}) {
+  if (!state.open) open({ spawnIfEmpty: false });
+  if (!state.open) return null;
+  if (attaching) await attaching;
+  const s = await spawn({ inst, cwd });
+  if (!s) return null;
+  if (title) {
+    s.title = title;
+    renderTabs();
+    apiAt(s.inst, '/api/terminal/rename', 'POST', { id: s.id, title }).catch(() => {});
+  }
+  if (input) {
+    // Typed before the shell is ready, some setups (zsh plugins, instant prompts)
+    // drop or garble it: wait for the first output, then a beat.
+    const until = Date.now() + FIRST_PROMPT_MS;
+    while (!s.cursor && !s.exited && !s.disposed && Date.now() < until) await sleep(50);
+    await sleep(PROMPT_SETTLE_MS);
+    typeInto(s, input);
+  }
+  return s;
 }
 
 function wireSession(s) {
@@ -1754,6 +1785,15 @@ export function initTerminal(hooks = {}) {
     // Maximised hides the transcript and the composer: make room for the chat.
     roomForChat: () => { if (state.max) setMax(false); },
   }, hooks);
+  initTerminalScripts({
+    active: activeSession,
+    inst: () => activeSession()?.inst || curInst() || '',
+    typeInto,
+    focus: focusActive,
+    ensureOpen: () => { if (!state.open) open(); return state.open; },
+    ready: () => attaching || Promise.resolve(),
+    runInNewShell,
+  });
   // A tunnel visitor gets no shell unless the QR dialog's "Terminal on the link"
   // switch is on — the server answers `allowed` for this page.
   refreshAllowed();

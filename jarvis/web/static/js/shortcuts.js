@@ -25,6 +25,8 @@ const SHEET = [
   { keys: [ALT, 'Shift', 'F'], label: 'Search code in every file' },
   { keys: [MOD, 'Shift', 'P'], label: 'Find a file by name' },
   { keys: [ALT, 'T'], label: 'Light or dark mode' },
+  { keys: ['Ctrl', '`'], label: 'Show or hide the terminal' },
+  { keys: [ALT, 'Shift', 'R'], label: 'Run a package.json script (npm, pnpm, yarn, bun) in the terminal' },
   { keys: [ALT, '1…9'], label: 'Switch to workspace project 1–9 (starts it if it is stopped)' },
   { keys: [ALT, '0'], label: 'Pick a project (⌘K, projects only)' },
   { keys: ['?'], label: 'This list' },

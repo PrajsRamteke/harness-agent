@@ -817,3 +817,265 @@ body.is-term-rail-resizing .term-rail-resize { pointer-events: auto; }
   .term-projects { margin-left: 2px; padding-left: 4px; }
   .term-proj { height: 30px; }
 }
+
+/* ─── Package scripts (js/terminal_scripts.js) ─────────────────────────── */
+/* The header button: an icon + "Scripts" (the label goes on small screens). */
+.term-scripts-btn {
+  width: auto;
+  gap: 5px;
+  padding: 0 8px 0 7px;
+  grid-auto-flow: column;
+  color: var(--text-2);
+  font: 600 11.5px/1 var(--font-ui, inherit);
+}
+.term-scripts-btn svg { width: 12px; height: 12px; color: var(--green, var(--accent)); fill: currentColor; }
+.term-scripts-btn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
+
+/* The dropdown: on <body> (position: fixed), so a short panel never clips it. */
+.tsc-pop {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl, 8px);
+  background: var(--glass-strong, var(--surface-2, var(--bg)));
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font: 12.5px/1.3 var(--font-ui, inherit);
+  animation: tsc-in var(--dur-fast, 0.12s) var(--ease, ease);
+}
+.tsc-pop[hidden] { display: none; }
+.tsc-pop.is-up { animation-name: tsc-in-up; }
+@keyframes tsc-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes tsc-in-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.tsc-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 6px 0 11px;
+  border-bottom: 1px solid var(--line);
+}
+.tsc-search-ic { display: grid; color: var(--text-3); }
+.tsc-search-ic svg { width: 14px; height: 14px; }
+.tsc-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 13px/1 var(--font-ui, inherit);
+  outline: none;
+}
+.tsc-input::placeholder { color: var(--text-3); }
+.tsc-refresh.is-spinning svg { animation: spin 0.8s linear infinite; }
+
+.tsc-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 4px 4px;
+  scroll-padding: 30px 0 4px;
+}
+.tsc-group + .tsc-group { margin-top: 2px; }
+
+/* Package header: name · folder · "here" · manager. Sticks while its scripts scroll. */
+.tsc-gh {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px;
+  background: var(--glass-strong, var(--surface-2, var(--bg)));
+  color: var(--text-3);
+  font: 600 11px/1 var(--font-ui, inherit);
+  letter-spacing: 0.01em;
+}
+.tsc-gh-ic { display: grid; }
+.tsc-gh-ic svg { width: 12px; height: 12px; }
+.tsc-gh-name { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.tsc-gh-dir {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px/1 var(--font-mono);
+}
+.tsc-chip {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+}
+.tsc-pm {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text-3);
+  font: 500 10px/1 var(--font-mono);
+}
+
+/* One script: ▶ name · [package] · its command (dim) · actions on the cursor row. */
+.tsc-opt {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 6px 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.tsc-opt.is-cursor { background: var(--accent-soft); }
+.tsc-opt.is-cursor::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.tsc-run-ic { display: grid; flex: 0 0 auto; color: var(--text-3); }
+.tsc-run-ic svg { width: 10px; height: 10px; fill: currentColor; }
+.tsc-opt.is-cursor .tsc-run-ic { color: var(--accent); }
+.tsc-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font: 600 12.5px/1 var(--font-mono);
+}
+.tsc-pkg {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--line);
+  color: var(--text-2);
+  font: 500 10.5px/1.2 var(--font-mono);
+}
+.tsc-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font: 11.5px/1 var(--font-mono);
+}
+.tsc-opt mark { background: rgba(var(--accent-rgb, 139, 92, 246), 0.26); color: inherit; border-radius: 2px; }
+.tsc-opt.is-hook .tsc-name { color: var(--text-2); font-weight: 500; }
+.tsc-tag {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font: 500 10px/1 var(--font-ui, inherit);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tsc-acts { display: none; flex: 0 0 auto; gap: 2px; }
+.tsc-opt.is-cursor .tsc-acts,
+.tsc-pop.is-touch .tsc-acts { display: flex; }
+.tsc-act {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.tsc-act:hover { background: var(--line-2, var(--line)); color: var(--text); }
+.tsc-act svg { width: 13px; height: 13px; }
+
+.tsc-none { padding: 14px 10px; color: var(--text-3); text-align: center; }
+.tsc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 18px 20px;
+  color: var(--text-3);
+  text-align: center;
+}
+.tsc-empty > svg { width: 22px; height: 22px; }
+.tsc-empty.is-error > svg { color: var(--danger, var(--red)); }
+.tsc-empty p { margin: 0; max-width: 340px; line-height: 1.45; }
+.tsc-empty strong { display: block; margin-bottom: 2px; color: var(--text); font-weight: 600; }
+.tsc-empty code { font: 11.5px var(--font-mono); color: var(--text-2); }
+
+.tsc-loading { display: grid; gap: 6px; padding: 10px 8px; }
+.tsc-loading i {
+  display: block;
+  height: 18px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--line) 0%, var(--line-2, var(--line)) 50%, var(--line) 100%);
+  background-size: 200% 100%;
+  animation: scan 1.2s linear infinite;
+}
+.tsc-loading i:nth-child(2n) { width: 72%; }
+
+.tsc-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tsc-foot kbd {
+  margin-right: 3px;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: 10.5px/1.2 var(--font-mono);
+  color: var(--text-2);
+}
+.tsc-where { margin-left: auto; overflow: hidden; text-overflow: ellipsis; min-width: 0; color: var(--text-2); }
+.tsc-where.is-busy { color: var(--amber, var(--warn)); }
+.tsc-pop.is-touch .tsc-foot > span:not(.tsc-where) { display: none; }
+
+@media (max-width: 760px) {
+  .term-scripts-label { display: none; }
+  .term-scripts-btn { width: 32px; padding: 0; }
+  .tsc-opt { height: 36px; }
+  .tsc-body { display: none; }
+  .tsc-name { max-width: none; flex: 1 1 auto; }
+  .tsc-act { width: 30px; height: 28px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tsc-pop, .tsc-pop.is-up { animation: none; }
+  .tsc-refresh.is-spinning svg, .tsc-loading i { animation: none; }
+}

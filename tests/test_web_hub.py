@@ -441,7 +441,7 @@ def test_other_instances_are_reached_only_through_the_url_helpers():
     assert "urlAt(instanceId)" in api  # apiAt goes through the helper
     # the terminal panel never fetches by itself: shells go through apiAt, the
     # workspace rows through the host-level helpers (no BASE on purpose)
-    for name in ("terminal.js", "terminal_ai.js"):
+    for name in ("terminal.js", "terminal_ai.js", "terminal_scripts.js"):
         text = (js / name).read_text()
         assert not re.search(r"\bfetch\(|new EventSource\(|xhr\.open\(", text), name
         assert not re.search(r"\bapi\(", text), f"{name} must use apiAt(inst, …)"

@@ -36,6 +36,7 @@ function itemMeta(item) {
   if (item.action === 'inspector-changes') return `<span class="lr-code">${isMac ? '⌥D' : 'Alt D'}</span>`;
   if (item.action === 'files') return `<span class="lr-code">${isMac ? '⌥F' : 'Alt F'}</span>`;
   if (item.action === 'search-files') return `<span class="lr-code">${isMac ? '⌥⇧F' : 'Alt Shift F'}</span>`;
+  if (item.action === 'run-script') return `<span class="lr-code">${isMac ? '⌥⇧R' : 'Alt Shift R'}</span>`;
   if (item.hint) return `<span class="lr-code">${escapeHtml(item.hint)}</span>`;
   if (item.laptop) return '<span class="lr-meta">on computer</span>';
   if (item.cmd) return `<span class="lr-code">${escapeHtml(item.cmd.trim())}</span>`;
@@ -145,6 +146,11 @@ export async function runItem(item) {
   }
   if (item.action === 'attach') {
     openFilePicker();
+    return;
+  }
+  if (item.action === 'run-script') {
+    // terminal_scripts.js: opens the panel and the dropdown (after the palette lets go of the focus).
+    requestAnimationFrame(() => document.dispatchEvent(new CustomEvent('jarvis:term-scripts')));
     return;
   }
   if (item.fill) {

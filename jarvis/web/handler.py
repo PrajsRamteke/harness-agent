@@ -581,6 +581,25 @@ class WebHandler(BaseHTTPRequestHandler):
             wait = min(terminal_api.READ_WAIT_MAX, max(0.0, float(self._query_int(qs, "wait", 15000)) / 1000.0))
             self._send_json(200, terminal_api.read_many(cursors, wait))
             return True
+        if path in ("/api/terminal/scripts", "/api/terminal/status"):
+            # The package-script dropdown: what to offer (every package.json under
+            # the project) and what the shell is doing (busy? which folder?).
+            if not self._terminal_allowed():
+                self._send_json(200, self._TERMINAL_DENIED)
+                return True
+            session = terminal_api.get_terminal(self._query_str(qs, "id"))
+            if path == "/api/terminal/status":
+                if session is None:
+                    self._send_json(404, {"ok": False, "code": "gone", "error": "That terminal closed."})
+                else:
+                    self._send_json(200, {"ok": True, **session.status()})
+                return True
+            from . import scripts_api
+
+            result = dict(scripts_api.list_scripts(refresh=self._query_str(qs, "refresh") == "1"))
+            result["shell"] = session.status() if session is not None else None
+            self._send_json(200, result)
+            return True
         if path == "/api/terminal/read":
             if not self._terminal_allowed():
                 self._send_json(200, self._TERMINAL_DENIED)
