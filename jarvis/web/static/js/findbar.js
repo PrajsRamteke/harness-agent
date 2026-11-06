@@ -196,14 +196,14 @@ function build(root) {
   bar.setAttribute('role', 'search');
   bar.setAttribute('aria-label', 'Find in file');
   const opt = (key, label, tip) => `<button type="button" class="fb-find-opt" data-opt="${key}" aria-pressed="${state.opts[key]}" title="${tip}" aria-label="${tip}">${label}</button>`;
-  const step = (dir, ic, tip) => `<button type="button" class="tool-icon" data-find="${dir}" title="${tip}" aria-label="${tip}">${icon(ic)}</button>`;
+  const stepBtn = (dir, ic, tip) => `<button type="button" class="tool-icon" data-find="${dir}" title="${tip}" aria-label="${tip}">${icon(ic)}</button>`;
   bar.innerHTML = `
     <span class="fb-find-ic">${icon('search')}</span>
     <input class="fb-find-q" type="text" placeholder="Find" aria-label="Find in file" spellcheck="false" autocomplete="off"
       autocapitalize="off" autocorrect="off" data-esc-cancels data-gramm="false" data-1p-ignore data-lpignore="true">
     ${opt('cs', 'Aa', 'Match case')}${opt('word', '<u>ab</u>', 'Whole word')}${opt('re', '.*', 'Regular expression')}
     <span class="fb-find-n" aria-live="polite"></span>
-    ${step('prev', 'chevron-up', 'Previous match (⇧↵)')}${step('next', 'chevron-down', 'Next match (↵)')}
+    ${stepBtn('prev', 'chevron-up', 'Previous match (⇧↵)')}${stepBtn('next', 'chevron-down', 'Next match (↵)')}
     <button type="button" class="tool-icon" data-find="close" title="Close (Esc)" aria-label="Close find">${icon('x')}</button>`;
   root.appendChild(bar);
   const input = bar.querySelector('.fb-find-q');

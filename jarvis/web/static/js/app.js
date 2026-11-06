@@ -45,6 +45,7 @@ import { initQuickbar } from './quickbar.js';
 import { initShortcuts } from './shortcuts.js';
 import { initQuote } from './quote.js';
 import { initQr } from './qr.js';
+import { initFullscreen } from './fullscreen.js';
 import { newChat } from './actions.js';
 import { initBtw } from './btw.js';
 
@@ -145,6 +146,7 @@ function boot() {
   initChat();
   initQuote({ onQuote: insertQuote });
   initQr();
+  initFullscreen();
   initTabs();
   initStatus();
   initComposer({ onCatalogItem: runItem, onOpenPicker: openPickerByKind });
