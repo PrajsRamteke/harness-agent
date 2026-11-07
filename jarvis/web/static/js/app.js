@@ -43,6 +43,7 @@ import { initTheme, toggleTheme, syncAppearance } from './theme.js';
 import { initPwa } from './pwa.js';
 import { initQuickbar } from './quickbar.js';
 import { initShortcuts } from './shortcuts.js';
+import { initKeymapEditor } from './keymap_editor.js';
 import { initQuote } from './quote.js';
 import { initQr } from './qr.js';
 import { initFullscreen } from './fullscreen.js';
@@ -191,6 +192,7 @@ function boot() {
   initPrompts();
   initQuickbar({ onOpenPicker: openPickerByKind });
   initBtw();
+  initKeymapEditor(); // Settings → Keyboard shortcuts, and the key hints in the page
   initShortcuts({ newChat, openPicker: openPickerByKind, toggleTheme, enhance: enhanceMessage, toggleInspector, toggleSidebar, openFiles });
   renderStarters();
 

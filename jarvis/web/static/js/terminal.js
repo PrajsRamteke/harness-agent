@@ -39,6 +39,7 @@ import {
   initTerminalAi, attachAi, detachAi, noteInput, afterOutput, clearAi, handleAiKey,
 } from './terminal_ai.js';
 import { initTerminalScripts } from './terminal_scripts.js';
+import { matches, matchAny, withHint, onKeymapChange } from './keymap.js';
 
 const HEIGHT_KEY = 'jarvis-term-h';
 const MIN_H = 140;
@@ -189,11 +190,32 @@ function build() {
   window.addEventListener('resize', debounce(() => { applyHeight(); applyRailWidth(); fitAll(); }, 120));
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => fitAll()).observe(el.panel);
   document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && (e.key === '`' || e.code === 'Backquote')) {
+    if (!e.defaultPrevented && matches(e, 'term.toggle')) {
       e.preventDefault();
       toggle();
     }
   });
+  // The user changed a key (Settings → Keyboard shortcuts): titles follow.
+  onKeymapChange(() => {
+    syncDot();
+    if (el.allBtn) el.allBtn.title = withHint('All terminals', 'term.all');
+  });
+  // New shell / maximize / split: capture phase, so they work from inside a shell too.
+  document.addEventListener('keydown', (e) => {
+    const act = matchAny(e, ['term.new', 'term.max', 'term.split']);
+    if (!act) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (act === 'term.new') {
+      if (!state.open) open();          // an empty panel starts its first shell
+      else if (state.allowed) spawn();
+      return;
+    }
+    if (!state.open) open();
+    if (!state.open) return;            // not allowed here (open() said why)
+    if (act === 'term.max') setMax(!state.max);
+    else setSplit(!state.split);
+  }, true);
 }
 
 // ─── Panel open / close ─────────────────────────────────────────────────
@@ -303,9 +325,10 @@ function syncDot() {
   const elsewhere = othersLive();
   // The open panel already shows this project's shells; other projects' still count.
   el.dot.hidden = !((here && !state.open) || elsewhere.length);
+  const name = withHint('Terminal', 'term.toggle');
   el.btn.title = elsewhere.length
-    ? `Terminal (Ctrl + \`) · shells running in ${elsewhere.map((p) => p.project || 'project').join(', ')}`
-    : 'Terminal (Ctrl + `)';
+    ? `${name} · shells running in ${elsewhere.map((p) => p.project || 'project').join(', ')}`
+    : name;
 }
 
 function setMax(on) {
@@ -647,14 +670,16 @@ function wireSession(s) {
   s.term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
     if (handleAiKey(e)) return false;
-    const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.shiftKey && (e.key === 'C' || e.key === 'c')) { copySelection(); return false; }
-    if (mod && e.shiftKey && (e.key === 'V' || e.key === 'v')) { pasteInto(); return false; }
-    if (e.metaKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); setFind(true); return false; }
+    // keymap.js: the user's keys for the shell's own tools.
+    const act = matchAny(e, ['term.copy', 'term.paste', 'term.find', 'term.clear']);
+    if (act === 'term.copy') { e.preventDefault(); copySelection(); return false; }
+    if (act === 'term.paste') { e.preventDefault(); pasteInto(); return false; }
+    if (act === 'term.find') { e.preventDefault(); setFind(true); return false; }
+    if (act === 'term.clear') { e.preventDefault(); clearActive(); return false; }
     // Ctrl+` is the panel's toggle: keep it out of the shell and let the
     // page-level shortcut handle it once (hiding here too would bubble up
     // to that listener and reopen the panel straight away).
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === '`' || e.code === 'Backquote')) return false;
+    if (matchAny(e, ['term.toggle', 'term.new', 'term.max', 'term.split'])) return false;
     return true;
   });
   s.pane.addEventListener('contextmenu', (e) => {
@@ -1403,7 +1428,7 @@ function buildExtras() {
   el.allBtn.className = 'term-tool term-all-btn';
   el.allBtn.hidden = true;
   el.allBtn.setAttribute('aria-pressed', 'false');
-  el.allBtn.title = 'All terminals (⌥⇧T)';
+  el.allBtn.title = withHint('All terminals', 'term.all');
   el.allBtn.setAttribute('aria-label', 'All terminals');
   el.allBtn.innerHTML = `${icon('rows-3')}<span>All</span>`;
   el.panel.querySelector('.term-tools')?.prepend(el.allBtn);
@@ -1429,7 +1454,7 @@ function buildExtras() {
   });
   // ⌥⇧T: capture phase, so it works from inside a shell too (the panel stops Alt keys there).
   document.addEventListener('keydown', (e) => {
-    if (!(e.altKey && e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyT')) return;
+    if (!matches(e, 'term.all')) return;
     e.preventDefault();
     e.stopPropagation();
     if (!state.allowed) return;

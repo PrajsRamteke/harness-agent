@@ -27,6 +27,8 @@ import { toolbar, section, footer, empty } from './dialog.js';
 import { effortRows } from './effort.js';
 import { setSetting, setEffort, runAction } from './actions.js';
 import { openAppearance } from './theme.js';
+import { openKeymap } from './keymap_editor.js';
+import { customizedCount, onKeymapChange } from './keymap.js';
 
 let data = null; // last /api/settings/all
 let loadError = false;
@@ -101,9 +103,21 @@ function clientSections() {
       title: 'This browser',
       rows: [
         { label: 'Appearance', desc: 'Theme, accent colour, glass', icon: 'palette', control: go('appearance', 'Open'), keys: 'appearance theme dark light accent colour color glass' },
+        {
+          label: 'Keyboard shortcuts',
+          desc: keymapDesc(),
+          icon: 'keyboard',
+          control: go('keymap', 'Open'),
+          keys: 'keyboard shortcuts hotkeys keys keybindings bindings remap shortcut key comment editor',
+        },
       ],
     },
   ];
+}
+
+function keymapDesc() {
+  const n = customizedCount();
+  return n ? `${n} changed · see or change every key` : 'See or change every key';
 }
 
 function controlFor(it) {
@@ -396,7 +410,9 @@ function onClick(e) {
   if (act === 'open') {
     const picker = btn.dataset.picker;
     closeModal('settings');
-    if (picker === 'appearance') openAppearance();
+    // Keyboard shortcuts: its back button (and Esc) come back here.
+    if (picker === 'keymap') openKeymap({ back: openSettings });
+    else if (picker === 'appearance') openAppearance();
     else openPicker(picker);
   } else if (act === 'step') {
     const it = findItem(btn.dataset.key);
@@ -463,6 +479,9 @@ export function initSettings({ onOpenPicker } = {}) {
   $('settings-btn')?.addEventListener('click', openSettings);
   // Model, thinking, Show thinking … follow the session (this page, the terminal).
   subscribe(() => {
+    if (isModalOpen('settings')) render();
+  });
+  onKeymapChange(() => {
     if (isModalOpen('settings')) render();
   });
 }

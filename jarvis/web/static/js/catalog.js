@@ -59,6 +59,7 @@ export const CATALOG = [
 
   { group: 'Settings', action: 'install', label: 'Install Jarvis app', desc: 'Add the remote to your home screen or dock', icon: 'download', keys: 'install pwa app home screen dock add standalone' },
   { group: 'Settings', action: 'appearance', label: 'Push notifications', desc: 'Alerts on this device when a long reply finishes or Jarvis needs you', icon: 'bell-ring', keys: 'push notifications notify alert phone mobile approval background' },
+  { group: 'Settings', action: 'keymap', label: 'Customize keyboard shortcuts', desc: 'Change, add or remove the keys for any action', icon: 'keyboard', keys: 'keys hotkeys keybindings bindings shortcuts remap change customize edit settings' },
 
   { group: 'Memory', picker: 'memory', cmd: '/memory', label: 'Memory', desc: 'Facts Jarvis remembers about you: browse, add, edit or forget them', icon: 'database', keys: 'memory facts remember remembered personal about me forget dashboard' },
   { group: 'Memory', picker: 'lesson', cmd: '/lesson', label: 'Lessons', desc: 'What Jarvis learned from past tasks: browse by topic, edit or delete', icon: 'graduation-cap', keys: 'lessons learned experience tips topics tags knowledge dashboard' },

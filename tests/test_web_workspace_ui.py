@@ -80,5 +80,7 @@ def test_contracts_the_other_agents_rely_on():
 
 
 def test_shortcut_help_lists_the_project_keys():
-    src = _src("shortcuts")
-    assert "Switch to workspace project" in src and "[ALT, '0']" in src
+    # The cheat sheet (shortcuts.js) is drawn from the keymap table (keymap.js).
+    assert "./keymap.js" in _src("shortcuts")
+    src = _src("keymap")
+    assert "Switch to workspace project" in src and "'Alt+0'" in src

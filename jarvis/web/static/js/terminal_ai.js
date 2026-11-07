@@ -19,6 +19,7 @@ import { $, showToast, copyText, haptic, isMac } from './utils.js';
 import { apiAt } from './api.js';
 import { icon } from './icons.js';
 import { store } from './store.js';
+import { matches } from './keymap.js';
 
 const SCAN_MS = 220;            // output is checked for errors at most this often
 const MAX_SEND_LINES = 200;     // rows of a command's output sent to the chat …
@@ -159,8 +160,7 @@ export function clearAi(s) {
 /** Keys inside a shell that belong to the AI tools. True when handled. */
 export function handleAiKey(e) {
   if (e.type !== 'keydown') return false;
-  const k = e.key === 'K' || e.key === 'k';
-  if (k && ((isMac && e.metaKey && !e.ctrlKey && !e.shiftKey) || (!isMac && e.ctrlKey && e.shiftKey))) {
+  if (matches(e, 'term.ai')) {
     // Not the page's ⌘K palette: here it writes a command.
     e.preventDefault();
     e.stopPropagation();

@@ -737,7 +737,7 @@
 :root[data-theme="light"] .accent-dot { color: #fff; }
 .accent-dot .ic { width: 13px; height: 13px; stroke-width: 3; }
 
-.shortcut-list { padding: 4px 16px 12px; overflow-y: auto; }
+.shortcut-list { padding: 4px 16px 12px; overflow-y: auto; min-height: 0; }
 .shortcut-row {
   display: flex;
   align-items: center;
@@ -749,8 +749,19 @@
   font-size: 13px;
   color: var(--text-2);
 }
-.shortcut-row:last-child { border-bottom: none; }
-.shortcut-keys { display: inline-flex; gap: 4px; flex-shrink: 0; }
+.shortcut-row:last-child, .shortcut-row:has(+ .shortcut-group) { border-bottom: none; }
+.shortcut-keys { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.shortcut-or { padding: 0 2px; font-size: 11px; color: var(--text-3); }
+.shortcut-group {
+  margin: 14px 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.shortcut-group:first-child { margin-top: 8px; }
+.shortcut-foot { margin-top: auto; }
 
 /* ─── Agent prompts ───────────────────────────────────────────────────── */
 .prompt-card { max-width: 480px; padding: 16px; gap: 12px; max-height: min(720px, 88vh); overflow-y: auto; }

@@ -1,5 +1,5 @@
 /** ⌘K / Ctrl+K command palette */
-import { $, escapeHtml, isMac } from './utils.js';
+import { $, escapeHtml } from './utils.js';
 import { openFolders } from './folders.js';
 import { openStopAll } from './workspace.js';
 import { renameCurrent } from './rename.js';
@@ -11,11 +11,13 @@ import { newChat, toggleSetting } from './actions.js';
 import { toggleTheme, toggleGlass, isGlass, openAppearance, themeLabel } from './theme.js';
 import { submitPrompt, fillPrompt } from './composer.js';
 import { openShortcuts } from './shortcuts.js';
+import { openKeymap } from './keymap_editor.js';
 import { promptInstall } from './pwa.js';
 import { openInspector } from './inspector.js';
 import { openFiles } from './files.js';
 import { openFilePicker } from './media.js';
 import { newTab, stepTab } from './tabs.js';
+import { matches, hint, onKeymapChange } from './keymap.js';
 
 let visible = [];
 let nav = null;
@@ -26,6 +28,19 @@ function toggleOn(item) {
   return !!store.session[item.toggle];
 }
 
+/** Palette actions → their keymap.js ids (items with a /command keep showing the command). */
+const ITEM_KEYS = {
+  'inspector-changes': 'panel.changes',
+  'inspector-activity': 'panel.activity',
+  files: 'files.open',
+  'search-files': 'files.searchCode',
+  'run-script': 'term.scripts',
+  attach: 'chat.attach',
+  tab_next: 'chat.nextTab',
+  tab_prev: 'chat.prevTab',
+  shortcuts: 'app.shortcuts',
+};
+
 function itemMeta(item) {
   if (item.toggle) {
     const on = toggleOn(item);
@@ -33,10 +48,9 @@ function itemMeta(item) {
   }
   if (item.action === 'theme') return `<span class="lr-state">${themeLabel()}</span>`;
   if (item.action === 'glass') return `<span class="lr-state${isGlass() ? ' is-on' : ''}">${isGlass() ? 'On' : 'Off'}</span>`;
-  if (item.action === 'inspector-changes') return `<span class="lr-code">${isMac ? '⌥D' : 'Alt D'}</span>`;
-  if (item.action === 'files') return `<span class="lr-code">${isMac ? '⌥F' : 'Alt F'}</span>`;
-  if (item.action === 'search-files') return `<span class="lr-code">${isMac ? '⌥⇧F' : 'Alt Shift F'}</span>`;
-  if (item.action === 'run-script') return `<span class="lr-code">${isMac ? '⌥⇧R' : 'Alt Shift R'}</span>`;
+  // The item's keyboard shortcut (the user's own, keymap.js) when it has one.
+  const key = ITEM_KEYS[item.action] ? hint(ITEM_KEYS[item.action]) : '';
+  if (key) return `<span class="lr-code">${escapeHtml(key)}</span>`;
   if (item.hint) return `<span class="lr-code">${escapeHtml(item.hint)}</span>`;
   if (item.laptop) return '<span class="lr-meta">on computer</span>';
   if (item.cmd) return `<span class="lr-code">${escapeHtml(item.cmd.trim())}</span>`;
@@ -128,6 +142,10 @@ export async function runItem(item) {
     openShortcuts();
     return;
   }
+  if (item.action === 'keymap') {
+    openKeymap();
+    return;
+  }
   if (item.action === 'install') {
     promptInstall();
     return;
@@ -207,8 +225,15 @@ export function initPalette({ onOpenPicker }) {
   openPicker = onOpenPicker;
   const list = $('palette-list');
   nav = listNav(list, pick);
-  const kbd = $('palette-kbd');
-  if (kbd) kbd.textContent = isMac ? '⌘K' : 'Ctrl K';
+  // The header button's key: the user's own (Settings → Keyboard shortcuts).
+  const paintKbd = () => {
+    const kbd = $('palette-kbd');
+    if (!kbd) return;
+    kbd.textContent = hint('app.palette');
+    kbd.hidden = !kbd.textContent;
+  };
+  paintKbd();
+  onKeymapChange(paintKbd);
 
   $('palette-btn')?.addEventListener('click', openPalette);
   const input = $('palette-input');
@@ -230,7 +255,8 @@ export function initPalette({ onOpenPicker }) {
   });
 
   document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    // A key a shell or the editor already took (keymap.js scopes) is not the palette's.
+    if (!e.defaultPrevented && matches(e, 'app.palette')) {
       e.preventDefault();
       if (isModalOpen('palette')) closePalette();
       else openPalette();   // (a leftover projects-only filter is dropped: group is '' here)

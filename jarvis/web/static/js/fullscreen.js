@@ -3,6 +3,7 @@
  * which the browser handles) puts everything back. Hidden where the API is missing (iPhone Safari). */
 import { $, showToast } from './utils.js';
 import { icon } from './icons.js';
+import { withHint } from './keymap.js';
 
 function supported() {
   return !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
@@ -19,7 +20,7 @@ function sync() {
   const label = on ? 'Exit full screen' : 'Full screen';
   btn.setAttribute('aria-pressed', String(on));
   btn.setAttribute('aria-label', label);
-  btn.title = on ? 'Exit full screen (Esc)' : 'Full screen';
+  btn.title = on ? 'Exit full screen (Esc)' : withHint('Full screen', 'app.fullscreen');
   btn.innerHTML = `<span data-icon="${on ? 'minimize' : 'maximize'}">${icon(on ? 'minimize' : 'maximize')}</span>`;
 }
 

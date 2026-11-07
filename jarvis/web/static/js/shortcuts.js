@@ -1,46 +1,43 @@
-/** Global keyboard shortcuts + the "?" cheat sheet */
-import { $, escapeHtml, isMac } from './utils.js';
-import { openModal, topModal } from './modal.js';
+/** Global keyboard shortcuts + the "?" cheat sheet.
+ *
+ * Which key does what lives in keymap.js (the user can change it: Settings →
+ * Keyboard shortcuts, keymap_editor.js); this module answers the page-wide
+ * ones. Keys that belong to one place are handled there: the palette (⌘K,
+ * palette.js), the terminal (terminal.js, terminal_scripts.js), the Files
+ * drawer and its editor (files.js).
+ */
+import { $, escapeHtml } from './utils.js';
+import { openModal, closeModal, topModal } from './modal.js';
 import { switchToSlot } from './wsprojects.js';
 import { openProjectPalette } from './palette.js';
+import { ACTIONS, GROUPS, bindingsOf, keyCaps, matchAny } from './keymap.js';
+import { openKeymap } from './keymap_editor.js';
+import { openSettings } from './settings.js';
+import { toggleFullscreen } from './fullscreen.js';
+import { newTab, stepTab } from './tabs.js';
+import { renameCurrent } from './rename.js';
+import { openFilePicker } from './media.js';
+import { openInspector } from './inspector.js';
+import { openUsageStats } from './usage_stats.js';
 
-const MOD = isMac ? '⌘' : 'Ctrl';
-const ALT = isMac ? '⌥' : 'Alt';
+const caps = (b) => keyCaps(b).map((k) => `<kbd>${escapeHtml(k)}</kbd>`).join('');
 
-const SHEET = [
-  { keys: [MOD, 'K'], label: 'Command palette' },
-  { keys: ['/'], label: 'Slash commands (type in the message box)' },
-  { keys: ['Enter'], label: 'Send the message' },
-  { keys: ['Shift', 'Enter'], label: 'New line' },
-  { keys: ['↑'], label: 'Previous message (empty box)' },
-  { keys: [ALT, 'E'], label: 'Enhance: fix spelling and grammar of your message (again to undo)' },
-  { keys: ['Esc'], label: 'Stop Jarvis, or close a dialog' },
-  { keys: [ALT, 'N'], label: 'New chat' },
-  { keys: [ALT, 'M'], label: 'Switch model' },
-  { keys: [ALT, 'S'], label: 'Sessions' },
-  { keys: [ALT, 'A'], label: 'Agents' },
-  { keys: [ALT, 'B'], label: 'Show or hide the sidebar' },
-  { keys: [ALT, 'D'], label: 'Show or hide the changes panel' },
-  { keys: [ALT, 'F'], label: 'Browse and edit the project\u2019s files' },
-  { keys: [ALT, 'Shift', 'F'], label: 'Search code in every file' },
-  { keys: [MOD, 'Shift', 'P'], label: 'Find a file by name' },
-  { keys: [ALT, 'T'], label: 'Light or dark mode' },
-  { keys: ['Ctrl', '`'], label: 'Show or hide the terminal' },
-  { keys: [ALT, 'Shift', 'R'], label: 'Run a package.json script (npm, pnpm, yarn, bun) in the terminal' },
-  { keys: [ALT, '1…9'], label: 'Switch to workspace project 1–9 (starts it if it is stopped)' },
-  { keys: [ALT, '0'], label: 'Pick a project (⌘K, projects only)' },
-  { keys: ['?'], label: 'This list' },
-];
+/** The cheat sheet: every shortcut that has a key, in the user's keys. */
+function sheetHtml() {
+  return GROUPS.map((g) => {
+    const rows = ACTIONS.filter((a) => a.group === g && bindingsOf(a.id).length);
+    if (!rows.length) return '';
+    return `<h3 class="shortcut-group">${escapeHtml(g)}</h3>${rows.map((a) => `
+      <div class="shortcut-row">
+        <span>${escapeHtml(a.label)}</span>
+        <span class="shortcut-keys">${bindingsOf(a.id).map(caps).join('<span class="shortcut-or">or</span>')}</span>
+      </div>`).join('')}`;
+  }).join('');
+}
 
 export function openShortcuts() {
   const list = $('shortcut-list');
-  if (list && !list.childElementCount) {
-    list.innerHTML = SHEET.map((s) => `
-      <div class="shortcut-row">
-        <span>${escapeHtml(s.label)}</span>
-        <span class="shortcut-keys">${s.keys.map((k) => `<kbd>${escapeHtml(k)}</kbd>`).join('')}</span>
-      </div>`).join('');
-  }
+  if (list) list.innerHTML = sheetHtml(); // always fresh: keys can change in Settings
   openModal('shortcuts');
 }
 
@@ -48,51 +45,68 @@ function typing(e) {
   return !!e.target.closest?.('input, textarea, [contenteditable="true"]');
 }
 
+/** A key without ⌘ / Ctrl / ⌥ (`?`, F-keys …) is text while typing in a field. */
+const plainKey = (e) => !e.metaKey && !e.ctrlKey && !e.altKey;
+
 /** `handlers`: { newChat, openPicker(kind), toggleTheme, enhance, toggleInspector, toggleSidebar, openFiles }.
  *  ⌥ 1…9 / ⌥ 0 (workspace projects) are wired here directly: wsprojects.js + the palette. */
 export function initShortcuts(handlers) {
+  const RUN = {
+    'app.shortcuts': () => openShortcuts(),
+    'app.settings': () => openSettings(),
+    'app.theme': () => handlers.toggleTheme(),
+    'app.fullscreen': () => toggleFullscreen(),
+    'chat.new': () => handlers.newChat(),
+    'chat.newTab': () => newTab(),
+    'chat.nextTab': () => stepTab(1),
+    'chat.prevTab': () => stepTab(-1),
+    'chat.rename': () => renameCurrent(),
+    'chat.focus': () => $('prompt')?.focus(),
+    'chat.attach': () => openFilePicker(),
+    'chat.enhance': () => handlers.enhance?.(),
+    'chat.model': () => handlers.openPicker('model'),
+    'chat.sessions': () => handlers.openPicker('session'),
+    'chat.agents': () => handlers.openPicker('agent'),
+    'chat.skills': () => handlers.openPicker('skill'),
+    'chat.commands': () => handlers.openPicker('command'),
+    'chat.mcp': () => handlers.openPicker('mcp'),
+    'chat.memory': () => handlers.openPicker('memory'),
+    'chat.providers': () => handlers.openPicker('provider'),
+    'panel.sidebar': () => handlers.toggleSidebar?.(),
+    'panel.changes': () => handlers.toggleInspector?.(),
+    'panel.activity': () => openInspector('activity'),
+    'panel.usage': () => openUsageStats(),
+    'files.open': () => handlers.openFiles?.(),
+    'files.searchCode': () => handlers.openFiles?.({ pane: 'search' }),
+    // ⌘⇧P / Ctrl+Shift+P: find a file by name (inside the Files drawer the drawer handles it).
+    'files.findFile': () => handlers.openFiles?.({ pane: 'files' }),
+  };
+  const IDS = Object.keys(RUN);
+
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || topModal()) return;
 
-    if (e.key === '?' && !typing(e) && !e.metaKey && !e.ctrlKey) {
-      e.preventDefault();
-      openShortcuts();
-      return;
-    }
-
-    // ⌘⇧P / Ctrl+Shift+P: find a file by name (inside the Files drawer the drawer handles it).
-    if (e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p' && (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) {
-      e.preventDefault();
-      handlers.openFiles?.({ pane: 'files' });
-      return;
-    }
-
-    if (!e.altKey || e.metaKey || e.ctrlKey) return;
-    // e.code: on macOS ⌥ turns letters into symbols (⌥N → ˜).
-    const map = {
-      KeyN: () => handlers.newChat(),
-      KeyM: () => handlers.openPicker('model'),
-      KeyS: () => handlers.openPicker('session'),
-      KeyA: () => handlers.openPicker('agent'),
-      KeyB: () => handlers.toggleSidebar?.(),
-      KeyD: () => handlers.toggleInspector?.(),
-      KeyF: () => (e.shiftKey ? handlers.openFiles?.({ pane: 'search' }) : handlers.openFiles?.()),
-      KeyT: () => handlers.toggleTheme(),
-      KeyE: () => handlers.enhance?.(),
-    };
-    // ⌥ + digit: workspace projects. Also e.code — ⌥ rewrites the character (⌥ 1 → ¡). Without a
+    // ⌥ + digit: workspace projects. e.code — ⌥ rewrites the character (⌥ 1 → ¡). Without a
     // project at that number the key is left alone (it types what it always typed).
     const digit = /^Digit([0-9])$/.exec(e.code);
-    if (digit && !e.shiftKey) {
+    if (digit && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
       const n = Number(digit[1]);
       const done = n === 0 ? (openProjectPalette(), true) : switchToSlot(n);
-      if (done) e.preventDefault();
-      return;
+      if (done) {
+        e.preventDefault();
+        return;
+      }
     }
-    const fn = map[e.code];
-    if (fn) {
-      e.preventDefault();
-      fn();
-    }
+
+    const id = matchAny(e, IDS);
+    if (!id) return;
+    if (plainKey(e) && typing(e) && !/^F\d+$/.test(e.key)) return;
+    e.preventDefault();
+    RUN[id]();
+  });
+
+  $('shortcut-customize')?.addEventListener('click', () => {
+    closeModal('shortcuts');
+    openKeymap();
   });
 }

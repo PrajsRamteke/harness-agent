@@ -8,7 +8,8 @@
  *
  * The editor is a plain <textarea> with a line-number gutter: no library, so it
  * loads offline on the LAN. Tab / Shift+Tab indent, Enter keeps the indent,
- * ⌘/Ctrl+S saves. Native undo is kept (edits go through execCommand).
+ * ⌘/Ctrl+S saves, ⌘/ comments lines and the other line commands (editor_cmds.js)
+ * follow keymap.js. Native undo is kept (edits go through execCommand).
  * Its text is coloured by a copy laid exactly underneath (syntax.js): the
  * textarea's own glyphs are transparent, the caret line gets a quiet band.
  *
@@ -34,6 +35,8 @@ import { highlight as colorize, modeFor } from './syntax.js';
 import { initFind, openFind, closeFind, stepFind, restoreFind, refreshFind, syncFind, showFindFor, isFindOpen, pinMatch } from './findbar.js';
 import { popOpen, closePop, showPop, popKey, wirePop } from './branchpop.js';
 import { dockTerminal, undockTerminal, terminalState, toggleTerminal } from './terminal.js';
+import { matches, matchAny, withHint } from './keymap.js';
+import { commentFor, toggleLineComment, toggleBlockComment, shiftLines, moveLines, copyLines, deleteLines, insertLine, selectLine } from './editor_cmds.js';
 
 const ID = 'files';
 const STATE_KEY = 'jarvis-files';
@@ -1020,7 +1023,7 @@ function paintFileTabs() {
     return `<div class="${cls}" role="tab" aria-selected="${on}" tabindex="${on ? 0 : -1}" data-act="tab" data-i="${i}" title="${escapeHtml(tip)}">
       <span class="fb-ftab-ic">${icon(d.virtual ? 'file-diff' : fileIcon(d.name))}</span>
       <span class="fb-ftab-name">${escapeHtml(d.name)}</span>${hint}
-      <button type="button" class="fb-ftab-x" data-act="tab-close" data-i="${i}" tabindex="-1" title="Close (⌥ W)" aria-label="Close ${escapeHtml(d.name)}">${dirty ? '<i class="fb-ftab-dot" aria-hidden="true"></i>' : ''}${icon('x')}</button>
+      <button type="button" class="fb-ftab-x" data-act="tab-close" data-i="${i}" tabindex="-1" title="${escapeHtml(withHint('Close', 'files.closeTab'))}" aria-label="Close ${escapeHtml(d.name)}">${dirty ? '<i class="fb-ftab-dot" aria-hidden="true"></i>' : ''}${icon('x')}</button>
     </div>`;
   }).join('');
   el.querySelector('.fb-ftab.is-on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -3060,12 +3063,48 @@ function autoIndent(ta) {
   return true;
 }
 
+// The editor's line commands (keymap.js ids → editor_cmds.js).
+const EDITOR_CMDS = {
+  'edit.comment': (v, s, e) => toggleLineComment(v, s, e, commentFor(file.name)),
+  'edit.blockComment': (v, s, e) => toggleBlockComment(v, s, e, commentFor(file.name)),
+  'edit.indent': (v, s, e) => shiftLines(v, s, e, file.indent, false),
+  'edit.outdent': (v, s, e) => shiftLines(v, s, e, file.indent, true),
+  'edit.moveUp': (v, s, e) => moveLines(v, s, e, -1),
+  'edit.moveDown': (v, s, e) => moveLines(v, s, e, 1),
+  'edit.copyUp': (v, s, e) => copyLines(v, s, e, -1),
+  'edit.copyDown': (v, s, e) => copyLines(v, s, e, 1),
+  'edit.deleteLine': (v, s, e) => deleteLines(v, s, e),
+  'edit.lineBelow': (v, s, e) => insertLine(v, s, e, false),
+  'edit.lineAbove': (v, s, e) => insertLine(v, s, e, true),
+  'edit.selectLine': (v, s, e) => selectLine(v, s, e),
+};
+const EDITOR_IDS = Object.keys(EDITOR_CMDS);
+
+/** Run one line command on the editor: one execCommand edit (so ⌘Z undoes it in one step). */
+function runEditorCmd(ta, id) {
+  const ed = EDITOR_CMDS[id](ta.value, ta.selectionStart, ta.selectionEnd);
+  if (!ed) {
+    if ((id === 'edit.comment' || id === 'edit.blockComment') && !commentFor(file.name)) showToast(`${file.name} has no comment syntax`);
+    return;
+  }
+  if (ed.from !== ed.to || ed.text) {
+    ta.setSelectionRange(ed.from, ed.to);
+    insertText(ta, ed.text);
+  }
+  ta.setSelectionRange(ed.selStart, ed.selEnd);
+  scheduleCaret();
+}
+
 function onEditorKey(e) {
   if (e.isComposing || !file || e.target.readOnly) return;
   const mod = e.metaKey || e.ctrlKey;
-  if (e.code === 'F3' && e.altKey && !mod) {
+  const cmd = matchAny(e, EDITOR_IDS);
+  if (cmd) {
     e.preventDefault();
-    gotoChange(e.shiftKey ? -1 : 1);
+    runEditorCmd(e.target, cmd);
+  } else if (matches(e, 'edit.nextChange') || matches(e, 'edit.prevChange')) {
+    e.preventDefault();
+    gotoChange(matches(e, 'edit.prevChange') ? -1 : 1);
   } else if (e.key === 'Tab' && !mod && !e.altKey) {
     e.preventDefault();
     indentSelection(e.target, e.shiftKey);
@@ -3494,19 +3533,18 @@ function findAvailable() {
 function findKey(e) {
   if (e.isComposing || e.altKey || !findAvailable()) return false;
   const t = e.target;
-  const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  const k = e.key.toLowerCase();
   const inEditor = t.matches?.('.fb-text') || !!t.closest?.('.fb-find');
   // Other fields (tree search, commit message, rename) keep their keys; so do the tabs and the terminal.
   if (!inEditor && t.matches?.('input, textarea, select, [contenteditable]')) return false;
-  if (mod && !e.shiftKey && k === 'f') {
+  if (matches(e, 'files.find')) {
     e.preventDefault();
     openFind(viewEl());
     return true;
   }
-  if ((mod && k === 'g') || (e.key === 'F3' && !mod)) {
+  const step = matchAny(e, ['files.findPrev', 'files.findNext']);
+  if (step) {
     e.preventDefault();
-    stepFind(viewEl(), e.shiftKey ? -1 : 1);
+    stepFind(viewEl(), step === 'files.findPrev' ? -1 : 1);
     return true;
   }
   return false;
@@ -3516,33 +3554,34 @@ function onKey(e) {
   const t = e.target;
   // The docked terminal's keys go to its shell; ⌘S still saves the open file.
   if (t.closest?.('.term-panel')) {
-    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 's') {
+    // Ctrl+S stays the shell's (XOFF); a ⌘ binding still saves.
+    if (matches(e, 'files.save') && !e.ctrlKey) {
       e.preventDefault();
       save();
     }
     return;
   }
-  if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 's') {
+  if (matches(e, 'files.save')) {
     e.preventDefault();
     save();
     return;
   }
   // ⌘⇧F / Ctrl+Shift+F: search every file (the selected text, when there is one, is the query).
-  if ((isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && e.shiftKey && !e.altKey && !e.isComposing && e.key.toLowerCase() === 'f') {
+  if (matches(e, 'files.searchInDrawer')) {
     e.preventDefault();
     startGrep();
     return;
   }
   // ⌘⇧P / Ctrl+Shift+P: search files by name.
-  if ((isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && e.shiftKey && !e.altKey && !e.isComposing && e.key.toLowerCase() === 'p') {
+  if (matches(e, 'files.findFile')) {
     e.preventDefault();
     startNameSearch();
     return;
   }
   if (findKey(e)) return;
-  // ⌥W closes the shown tab (⌘W / Ctrl+W belong to the browser). e.code: ⌥ changes e.key on a Mac.
+  // ⌥W closes the shown tab (⌘W / Ctrl+W belong to the browser). keymap.js matches e.code: ⌥ changes e.key on a Mac.
   const typing = t.matches?.('input, textarea') && !t.matches('.fb-text');
-  if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'KeyW' && file && !typing) {
+  if (matches(e, 'files.closeTab') && file && !typing) {
     e.preventDefault();
     closeTab(file);
     return;
@@ -3582,7 +3621,7 @@ function onKey(e) {
     return;
   }
   if (t.id === `${ID}-msg`) {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) {
+    if (matches(e, 'files.commit')) {
       e.preventDefault();
       commitScm();
     }

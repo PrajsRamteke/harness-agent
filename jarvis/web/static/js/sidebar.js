@@ -1,6 +1,7 @@
 /** Sidebar: reasoning and transcript switches, recent sessions, usage */
-import { $, escapeHtml, formatCount, debounce, countTo, animateEl, SPRING, isMac, storageGet, storageSet } from './utils.js';
+import { $, escapeHtml, formatCount, debounce, countTo, animateEl, SPRING, storageGet, storageSet } from './utils.js';
 import { icon } from './icons.js';
+import { withHint } from './keymap.js';
 import { store, subscribe } from './store.js';
 import { fetchSessionList } from './api.js';
 import {
@@ -48,7 +49,7 @@ function setCollapsed(on) {
   if (btn) {
     const narrow = window.matchMedia('(max-width: 960px)').matches;
     btn.setAttribute('aria-expanded', String(narrow ? document.body.classList.contains('side-open') : !on));
-    btn.title = narrow ? 'Open panel' : `${on ? 'Show' : 'Hide'} sidebar (${isMac ? '⌥' : 'Alt'} B)`;
+    btn.title = narrow ? 'Open panel' : withHint(`${on ? 'Show' : 'Hide'} sidebar`, 'panel.sidebar');
   }
   storageSet(COLLAPSE_KEY, on ? '1' : '0');
 }

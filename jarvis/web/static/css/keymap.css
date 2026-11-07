@@ -1,0 +1,120 @@
+/* Settings → Keyboard shortcuts (keymap_editor.js). Same card + rows as Settings
+ * (settings.css: .set-group, .set-row, .set-text, .set-ctl, .set-reset):
+ *   Label                                   [⌥ N ×]  [+]  ↺
+ *   where it works · Default: …
+ * A key is a chip (click → record), its × removes it; the recorder is the same
+ * chip outlined in the accent; a warning / "Use here" line opens under the row. */
+
+.keymap-card.dlg-card { max-width: 720px; }
+
+.km-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px;
+  row-gap: 6px;
+  min-height: 44px;
+}
+.km-row.is-rec { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.km-row .set-text strong { font-weight: 500; }
+
+.km-ctl { gap: 4px; }
+.km-keys { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; }
+
+/* One shortcut: the keys (click to change) + a × that shows on hover / focus. */
+.km-key {
+  display: inline-flex;
+  align-items: center;
+  height: var(--h-sm);
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--line);
+  background: var(--card-sunk);
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.km-key:hover, .km-key:focus-within { border-color: var(--line-2); background: var(--card-hover); }
+.km-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 100%;
+  padding: 0 4px 0 6px;
+  border: none;
+  border-radius: var(--r-ctl) 0 0 var(--r-ctl);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.km-chip:focus-visible, .km-x:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.km-chip kbd, .km-cap kbd, .km-rec kbd { font-variant-numeric: tabular-nums; }
+.km-x {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 100%;
+  padding: 0 4px 0 0;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  opacity: 0.5;
+  transition: opacity var(--dur-fast), color var(--dur-fast);
+}
+.km-x .ic { width: 12px; height: 12px; }
+.km-key:hover .km-x, .km-key:focus-within .km-x { opacity: 1; }
+.km-x:hover { color: var(--danger); }
+
+.km-add .ic { width: 13px; height: 13px; }
+.km-none { padding: 0 4px; font-size: 12px; color: var(--text-3); }
+
+/* Recording: the chip's place, outlined in the accent, waiting for keys. */
+.km-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 96px;
+  height: var(--h-sm);
+  padding: 0 10px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.18);
+  font-size: 12px;
+  color: var(--accent);
+  animation: km-rec 1.4s var(--ease) infinite;
+}
+.km-rec .km-blank { min-width: 14px; border-style: dashed; background: transparent; }
+@keyframes km-rec { 50% { box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1); } }
+@media (prefers-reduced-motion: reduce) { .km-rec { animation: none; } }
+
+/* Built-in keys: the same caps, quieter, with a lock. */
+.km-fixed { gap: 4px; color: var(--text-3); }
+.km-fixed > .ic { width: 12px; height: 12px; margin-left: 2px; }
+.km-cap { display: inline-flex; gap: 3px; }
+.km-cap kbd { color: var(--text-3); }
+.km-or { font-size: 11px; color: var(--text-3); }
+.km-row.is-fixed .set-text strong { color: var(--text-2); }
+
+/* Under the row: what to press, why a key was refused, or "Use here / Cancel". */
+.km-msg {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-ctl);
+  background: var(--card-sunk);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.km-msg > .ic { width: 13px; height: 13px; flex-shrink: 0; color: var(--text-3); }
+.km-msg.is-warn { background: var(--warn-soft); color: var(--text); }
+.km-msg.is-warn > .ic { color: var(--warn); }
+.km-msg > span:not(.km-msg-acts) { flex: 1; min-width: 0; }
+.km-msg-acts { display: inline-flex; gap: 6px; margin-left: auto; }
+
+.keymap-card .km-reset-all .ic { width: 13px; height: 13px; }
+
+@media (max-width: 560px) {
+  .km-row { grid-template-columns: minmax(0, 1fr); }
+  .km-ctl { justify-self: start; }
+  .km-keys { justify-content: flex-start; }
+}

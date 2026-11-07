@@ -2,8 +2,9 @@
  * create a branch, Commit & push (with Commit · Push · Create PR · Stash in its
  * menu), a model-written message, and the +/− of the working tree.
  * Server side: jarvis/web/git_api.py via GET/POST /api/git (the project shown). */
-import { $, escapeHtml, showToast, storageGet, storageSet, BASE, isMac } from './utils.js';
+import { $, escapeHtml, showToast, storageGet, storageSet, BASE } from './utils.js';
 import { icon } from './icons.js';
+import { hint as keyHint } from './keymap.js';
 import { brand } from './brands.js';
 import { api } from './api.js';
 import { store, subscribe } from './store.js';
@@ -236,12 +237,12 @@ function render() {
 /** Browse and edit the project's files (files.js). With uncommitted changes,
  * their +/− sit next to it and open the drawer's Source Control tab. */
 function filesRow() {
-  const key = isMac ? '⌥F' : 'Alt F';
+  const key = escapeHtml(keyHint('files.open'));
   const files = st?.repo ? num(st.files) : 0;
   const row = `
-    <button type="button" class="gc-row gc-files" data-act="files" title="Browse and edit this project's files (${key})">
+    <button type="button" class="gc-row gc-files" data-act="files" title="Browse and edit this project's files${key ? ` (${key})` : ''}">
       ${icon('folder-open')}<span>Files</span>
-      ${files ? '' : `<span class="gc-nums"><em>${key}</em></span>`}
+      ${files || !key ? '' : `<span class="gc-nums"><em>${key}</em></span>`}
     </button>`;
   if (!files) return row;
   return `

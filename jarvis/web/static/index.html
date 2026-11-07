@@ -97,6 +97,7 @@
   <link rel="stylesheet" href="/static/css/folders.css">
   <link rel="stylesheet" href="/static/css/tabs.css">
   <link rel="stylesheet" href="/static/css/settings.css">
+  <link rel="stylesheet" href="/static/css/keymap.css">
   <link rel="stylesheet" href="/static/css/git.css">
   <link rel="stylesheet" href="/static/css/files.css">
   <link rel="stylesheet" href="/static/css/btw.css">
@@ -289,14 +290,14 @@
         <button class="icon-btn only-wide" id="fs-btn" type="button" aria-pressed="false" aria-label="Full screen" title="Full screen">
           <span data-icon="maximize"></span>
         </button>
-        <button class="cmd-btn" id="palette-btn" type="button" aria-label="Commands (Ctrl+K)">
+        <button class="cmd-btn" id="palette-btn" type="button" aria-label="Commands (Ctrl+K)" data-kbd="app.palette" data-kbd-aria="Commands">
           <span data-icon="command"></span><span class="cmd-btn-label">Commands</span><kbd id="palette-kbd">Ctrl K</kbd>
         </button>
         <button class="icon-btn term-btn" id="term-btn" type="button" aria-controls="term-panel" aria-expanded="false" aria-label="Terminal" title="Terminal (Ctrl + `)">
           <span data-icon="terminal"></span>
           <span class="term-live-dot" id="term-live-dot" hidden aria-hidden="true"></span>
         </button>
-        <button class="insp-btn" id="insp-btn" type="button" aria-controls="inspector" aria-expanded="false" aria-label="Changes and activity" title="Changes and activity (Alt D)">
+        <button class="insp-btn" id="insp-btn" type="button" aria-controls="inspector" aria-expanded="false" aria-label="Changes and activity" title="Changes and activity (Alt D)" data-kbd="panel.changes" data-kbd-title="Changes and activity">
           <span class="insp-ic" data-icon="panel-right"></span>
           <span class="insp-stat" id="insp-stat" hidden><b class="num-add" id="insp-add">+0</b><b class="num-del" id="insp-del">−0</b></span>
           <span class="insp-badge" id="insp-badge" hidden>0</span>
@@ -392,7 +393,7 @@
           <span><kbd>Shift</kbd><kbd>Enter</kbd> new line</span>
           <span><kbd>↑</kbd> last message</span>
           <span><kbd>/</kbd> commands</span>
-          <span><kbd class="kbd-alt">Alt</kbd><kbd>E</kbd> enhance</span>
+          <span data-kbd-caps="chat.enhance"><span class="kbd-caps"><kbd class="kbd-alt">Alt</kbd><kbd>E</kbd></span> enhance</span>
         </p>
       </div>
 
@@ -400,31 +401,31 @@
         <div class="term-resize" id="term-resize" role="separator" aria-orientation="horizontal" aria-label="Resize terminal" tabindex="0" title="Drag to resize · double-click to reset"></div>
         <header class="term-head">
           <div class="term-tabs" id="term-tabs" role="tablist" aria-label="Terminals"></div>
-          <button class="term-add" id="term-add" type="button" title="New terminal" aria-label="New terminal">
+          <button class="term-add" id="term-add" type="button" title="New terminal" aria-label="New terminal" data-kbd="term.new" data-kbd-title="New terminal">
             <span data-icon="plus"></span>
           </button>
           <span class="term-spacer"></span>
           <div class="term-tools" role="toolbar" aria-label="Terminal actions">
-            <button class="term-tool term-scripts-btn" id="term-scripts" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="term-scripts-pop" title="Run a package.json script (⌥⇧R)" aria-label="Run a package script">
+            <button class="term-tool term-scripts-btn" id="term-scripts" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="term-scripts-pop" title="Run a package.json script (⌥⇧R)" aria-label="Run a package script" data-kbd="term.scripts" data-kbd-title="Run a package.json script">
               <span data-icon="play"></span><span class="term-scripts-label">Scripts</span>
             </button>
-            <button class="term-tool term-ai-btn" id="term-ai" type="button" aria-pressed="false" title="Write a command with AI (⌘K)" aria-label="Write a command with AI">
+            <button class="term-tool term-ai-btn" id="term-ai" type="button" aria-pressed="false" title="Write a command with AI (⌘K)" aria-label="Write a command with AI" data-kbd="term.ai" data-kbd-title="Write a command with AI">
               <span data-icon="sparkles"></span>
             </button>
             <button class="term-tool" id="term-ai-last" type="button" title="Add the last command and its output to your message" aria-label="Add the last command and its output to your message">
               <span data-icon="message-square"></span>
             </button>
             <span class="term-sep" aria-hidden="true"></span>
-            <button class="term-tool term-touch-only" id="term-copy" type="button" title="Copy selection" aria-label="Copy selection">
+            <button class="term-tool term-touch-only" id="term-copy" type="button" title="Copy selection" aria-label="Copy selection" data-kbd="term.copy" data-kbd-title="Copy selection">
               <span data-icon="copy"></span>
             </button>
-            <button class="term-tool term-touch-only" id="term-paste" type="button" title="Paste" aria-label="Paste">
+            <button class="term-tool term-touch-only" id="term-paste" type="button" title="Paste" aria-label="Paste" data-kbd="term.paste" data-kbd-title="Paste">
               <span data-icon="clipboard-paste"></span>
             </button>
-            <button class="term-tool" id="term-search" type="button" aria-pressed="false" title="Find (⌘F)" aria-label="Find in terminal">
+            <button class="term-tool" id="term-search" type="button" aria-pressed="false" title="Find (⌘F)" aria-label="Find in terminal" data-kbd="term.find" data-kbd-title="Find">
               <span data-icon="search"></span>
             </button>
-            <button class="term-tool" id="term-clear" type="button" title="Clear" aria-label="Clear terminal">
+            <button class="term-tool" id="term-clear" type="button" title="Clear" aria-label="Clear terminal" data-kbd="term.clear" data-kbd-title="Clear">
               <span data-icon="ban"></span>
             </button>
             <button class="term-tool" id="term-split" type="button" aria-pressed="false" title="Split side by side" aria-label="Split side by side">
@@ -437,7 +438,7 @@
             <button class="term-tool" id="term-max" type="button" aria-pressed="false" title="Maximize" aria-label="Maximize terminal">
               <span data-icon="maximize-2"></span>
             </button>
-            <button class="term-tool" id="term-hide" type="button" title="Hide panel (Ctrl + `) — shells keep running" aria-label="Hide terminal panel">
+            <button class="term-tool" id="term-hide" type="button" title="Hide panel (Ctrl + `) — shells keep running" aria-label="Hide terminal panel" data-kbd="term.toggle" data-kbd-title="Hide panel ({key}) — shells keep running">
               <span data-icon="chevron-down"></span>
             </button>
           </div>
@@ -1009,6 +1010,28 @@
         <button class="icon-btn" data-close="shortcuts" type="button" aria-label="Close"><span data-icon="x"></span></button>
       </div>
       <div class="shortcut-list" id="shortcut-list"></div>
+      <div class="dlg-foot shortcut-foot">
+        <span class="dlg-note"><span>Change any of them in Settings</span></span>
+        <span class="dlg-spacer"></span>
+        <button class="btn btn-sm" id="shortcut-customize" type="button"><span data-icon="pencil"></span><span>Customize</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="keymap" hidden>
+    <div class="modal-card glass-strong ext-card settings-card keymap-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="keymap-title">
+      <div class="picker-head">
+        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
+        <span class="picker-icon"><span data-icon="keyboard"></span></span>
+        <div class="picker-titles">
+          <h2 id="keymap-title">Keyboard shortcuts</h2>
+          <p>Click a shortcut to change it</p>
+        </div>
+        <button class="icon-btn" data-close="keymap" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="dlg-bar" id="keymap-bar"></div>
+      <div class="pv-body dlg-body ex-body" id="keymap-body"></div>
+      <div class="dlg-foot" id="keymap-foot"></div>
     </div>
   </div>
 

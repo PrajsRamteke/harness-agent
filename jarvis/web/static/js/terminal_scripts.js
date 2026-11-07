@@ -23,6 +23,7 @@
 import { escapeHtml, storageGet, storageSet, showToast, isMac } from './utils.js';
 import { apiAt } from './api.js';
 import { icon } from './icons.js';
+import { matches } from './keymap.js';
 
 const RECENT_MAX = 5;
 const RECENT_KEY = 'jarvis-term-scripts:';   // + project root
@@ -60,7 +61,7 @@ export function initTerminalScripts(context) {
   el.btn?.addEventListener('click', (e) => { e.stopPropagation(); toggleScripts(); });
   // ⌥⇧R: capture phase, so it works from inside a shell too (the panel stops Alt keys there).
   document.addEventListener('keydown', (e) => {
-    if (!(e.altKey && e.shiftKey && !e.metaKey && !e.ctrlKey && e.code === 'KeyR')) return;
+    if (!matches(e, 'term.scripts')) return;
     e.preventDefault();
     e.stopPropagation();
     toggleScripts();
