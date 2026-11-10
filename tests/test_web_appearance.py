@@ -60,7 +60,7 @@ def test_save_keeps_only_valid_values(store):
     })
     assert saved == {
         "palette": "nord", "mode": "dark", "soft": True, "softAmt": 10, "glass": True, "glassOp": 100,
-        "layout": {"text": "l", "width": "default", "radius": "default", "font": "geist"},
+        "layout": {"text": "l", "width": "default", "radius": "default", "font": "geist", "pattern": "none"},
         "accent": "custom", "custom": "#abcdef",
     }
     assert api.load() == saved

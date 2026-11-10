@@ -61,7 +61,7 @@
           document.documentElement.dataset.glassOp = '';
           document.documentElement.style.setProperty('--glass-op', op + '%');
         }
-        var layout = { 'jarvis-text': ['text', 's l'], 'jarvis-width': ['width', 'narrow wide'], 'jarvis-radius': ['radius', 'sharp round'], 'jarvis-font': ['font', 'system'] };
+        var layout = { 'jarvis-text': ['text', 's l'], 'jarvis-width': ['width', 'narrow wide'], 'jarvis-radius': ['radius', 'sharp round'], 'jarvis-font': ['font', 'system'], 'jarvis-pattern': ['pattern', 'dots grid lines'] };
         for (var k in layout) {
           var v = localStorage.getItem(k);
           if (v && (' ' + layout[k][1] + ' ').indexOf(' ' + v + ' ') >= 0) document.documentElement.dataset[layout[k][0]] = v;
@@ -921,6 +921,16 @@
           <output id="glass-op-val" for="glass-op">Auto</output>
           <button type="button" class="link-btn glass-op-reset" id="glass-op-reset" title="Back to the built-in translucency">Auto</button>
         </div>
+      </div>
+      <div class="setting-block">
+        <h3 class="setting-label" id="ap-pattern">Background</h3>
+        <div class="pat-grid" role="group" aria-labelledby="ap-pattern" data-pref="pattern">
+          <button type="button" class="pat-card" data-val="none"><span class="pat-look" data-look="none"></span><span class="pat-name">None</span></button>
+          <button type="button" class="pat-card" data-val="dots"><span class="pat-look" data-look="dots"></span><span class="pat-name">Dots</span></button>
+          <button type="button" class="pat-card" data-val="grid"><span class="pat-look" data-look="grid"></span><span class="pat-name">Grid</span></button>
+          <button type="button" class="pat-card" data-val="lines"><span class="pat-look" data-look="lines"></span><span class="pat-name">Lines</span></button>
+        </div>
+        <p class="theme-hint">A faint pattern behind the chat. None keeps the plain colour.</p>
       </div>
       <div class="setting-block">
         <h3 class="setting-label">Theme</h3>

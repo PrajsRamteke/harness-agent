@@ -404,6 +404,25 @@ kbd {
   pointer-events: none;
   background: var(--bg);
 }
+/* ─── Background pattern (Appearance → Background) ───────────────────────
+   Opt-in via data-pattern (theme.js); without it the chat keeps the plain
+   colour. Drawn in the text colour at a few percent, so it follows every
+   theme and stays out of the way of reading. The Appearance previews
+   (.pat-look) use the same gradients, drawn stronger (--pat-k). The diagonal
+   period is 6·√2 px: 12px along a pixel row, so every line renders alike. */
+.main, .pat-look {
+  --pat-dots: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text) calc(10% * var(--pat-k, 1)), transparent) 1px, transparent 1.6px);
+  --pat-grid:
+    linear-gradient(color-mix(in srgb, var(--text) calc(4% * var(--pat-k, 1)), transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--text) calc(4% * var(--pat-k, 1)), transparent) 1px, transparent 1px);
+  --pat-lines: repeating-linear-gradient(135deg, color-mix(in srgb, var(--text) calc(3.5% * var(--pat-k, 1)), transparent) 0 1px, transparent 1.5px 8.485px);
+}
+:root[data-pattern="dots"] .main { background-image: var(--pat-dots); background-size: 14px 14px; }
+:root[data-pattern="grid"] .main { background-image: var(--pat-grid); background-size: 20px 20px; }
+:root[data-pattern="lines"] .main { background-image: var(--pat-lines); }
+/* Light themes: dark ink on white reads stronger than light ink on black. */
+:root[data-theme="light"] .main { --pat-k: 0.8; }
+
 .glow, .grid { display: none; }
 :root[data-surface="glass"] .glow,
 :root[data-surface="glass"] .grid { display: block; }

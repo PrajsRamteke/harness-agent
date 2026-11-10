@@ -31,8 +31,9 @@ LAYOUT_OPTIONS: dict[str, tuple[str, ...]] = {
     "width": ("narrow", "default", "wide"),
     "radius": ("sharp", "default", "round"),
     "font": ("geist", "system"),
+    "pattern": ("none", "dots", "grid", "lines"),
 }
-LAYOUT_DEFAULTS = {"text": "m", "width": "default", "radius": "default", "font": "geist"}
+LAYOUT_DEFAULTS = {"text": "m", "width": "default", "radius": "default", "font": "geist", "pattern": "none"}
 SOFT_AMT_RANGE = (10, 100)
 GLASS_OP_RANGE = (20, 100)
 _NAME_RE = re.compile(r"^[a-z0-9_-]{1,24}$")   # palette / accent ids

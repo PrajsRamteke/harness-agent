@@ -184,6 +184,8 @@ export const LAYOUT = {
   width: { key: 'jarvis-width', attr: 'width', def: 'default', opts: [['narrow', 'Narrow'], ['default', 'Default'], ['wide', 'Wide']] },
   radius: { key: 'jarvis-radius', attr: 'radius', def: 'default', opts: [['sharp', 'Sharp'], ['default', 'Default'], ['round', 'Round']] },
   font: { key: 'jarvis-font', attr: 'font', def: 'geist', opts: [['geist', 'Geist'], ['system', 'System']] },
+  // Appearance → Background: a faint pattern behind the chat (tokens.css); 'none' = the plain colour.
+  pattern: { key: 'jarvis-pattern', attr: 'pattern', def: 'none', opts: [['none', 'None'], ['dots', 'Dots'], ['grid', 'Grid'], ['lines', 'Lines']] },
 };
 
 function savedLayout(name) {
@@ -737,7 +739,7 @@ function paintGlassOpacity() {
 }
 
 function paintLayout() {
-  document.querySelectorAll('#appearance .seg[data-pref]').forEach((seg) => {
+  document.querySelectorAll('#appearance [data-pref]').forEach((seg) => {
     const current = prefs.layout[seg.dataset.pref];
     seg.querySelectorAll('[data-val]').forEach((btn) => {
       btn.setAttribute('aria-pressed', String(btn.dataset.val === current));
@@ -835,7 +837,7 @@ export function initTheme() {
   $('glass-op')?.addEventListener('input', (e) => setGlassOpacity(e.target.value));
   $('glass-op')?.addEventListener('dblclick', () => setGlassOpacity(null)); // back to Auto
   $('glass-op-reset')?.addEventListener('click', () => setGlassOpacity(null));
-  document.querySelectorAll('#appearance .seg[data-pref]').forEach((seg) => {
+  document.querySelectorAll('#appearance [data-pref]').forEach((seg) => {
     seg.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-val]');
       if (btn) setLayout(seg.dataset.pref, btn.dataset.val);
