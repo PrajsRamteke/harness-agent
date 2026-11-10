@@ -456,6 +456,20 @@ def import_skill_to_project(name: str) -> dict:
     return {"added": [name_l], "skipped": [], "path": str(target_dir / "SKILL.md")}
 
 
+# A header is sent with every request, so only enough of the description to
+# match a task goes in (the whole skill loads on demand).
+PROMPT_HEADER_CHARS = 300
+
+
+def prompt_header(description: str, limit: int = PROMPT_HEADER_CHARS) -> str:
+    """One line, cut at a word end within *limit* characters."""
+    text = " ".join(str(description or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    return cut[:cut.rfind(" ")].rstrip(",;:—-(") + "…"
+
+
 def as_prompt_block() -> str:
     """Format discovered skill headers (name + description) into the system prompt.
 
@@ -474,12 +488,13 @@ def as_prompt_block() -> str:
     if state.global_skills:
         counts += f", {global_count_value} global"
 
-    lines = [f"SKILLS: {len(skills)} available ({counts}; scope: {scope})."]
-    lines.append("HIGH PRIORITY — before responding or acting, scan these headers.")
-    lines.append("If one or more skills might apply, call skill_load for EACH match — load all of them, not just one.")
-    lines.append("Batch multiple skill_load calls in the same turn when several headers match.")
-    lines.append("Do not skip skill checks for 'simple' tasks. Headers are listed below so you can match without skill_list().")
+    lines = [
+        f"SKILLS: {len(skills)} available ({counts}; scope: {scope}). Before acting — also on 'simple' tasks — "
+        "scan these headers and call skill_load('<name>') for EVERY one that might apply (batch the calls), "
+        "then follow them. A loaded skill that needs MCP tools which are offline: tell the user to connect "
+        "them in /mcp — don't read other tools' MCP config files instead."
+    ]
     for s in skills:
         tag = " [global]" if s.get("scope") == "global" else ""
-        lines.append(f"  • {s['name']}{tag}: {s['description']}")
+        lines.append(f"  • {s['name']}{tag}: {prompt_header(s['description'])}")
     return "\n".join(lines)

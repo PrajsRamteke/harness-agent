@@ -1468,29 +1468,31 @@ def as_prompt_block() -> str:
 
     scope = "project + global" if jarvis_state.global_mcp else "project-only"
     names = sorted(servers.keys())
-    def _label(name: str) -> str:
+    off, auth, offline, live = [], [], [], []
+    for name in names:
         if name in live_names:
-            return name
-        if not mcp_toggle.server_enabled(name):
-            return f"{name} (turned off by the user — don't connect it; they can turn it on in /mcp)"
-        try:
-            status = mcp_registry.get_server_health(name, servers.get(name)).get("status")
-        except Exception:
-            status = ""
-        if status == "auth":
-            return f"{name} (needs sign-in — the user clicks Authenticate; tools appear after)"
-        return f"{name} (offline — connect via /mcp)"
+            live.append(name)
+        elif not mcp_toggle.server_enabled(name):
+            off.append(name)
+        else:
+            try:
+                status = mcp_registry.get_server_health(name, servers.get(name)).get("status")
+            except Exception:
+                status = ""
+            (auth if status == "auth" else offline).append(name)
 
-    lines.append(f"MCP ({scope}): " + ", ".join(_label(name) for name in names))
-    if live_names:
-        lines.append(
-            "Connected MCP tools are callable as mcp__<server>__<tool>."
-            " Re-check after /mcp scope or connection changes in the same session."
-        )
-    else:
-        lines.append(
-            "No MCP servers connected — open /mcp and connect before calling MCP tools."
-        )
+    parts = []
+    if live:
+        parts.append("connected: " + ", ".join(live) + " (tools are mcp__<server>__<tool>)")
+    if auth:
+        parts.append("needs sign-in (the user clicks Authenticate; tools appear after): " + ", ".join(auth))
+    if offline:
+        parts.append("offline (connect via /mcp): " + ", ".join(offline))
+    if off:
+        parts.append("turned off by the user (don't connect; they can turn one on in /mcp): " + ", ".join(off))
+    lines.append(f"MCP ({scope}) — " + "; ".join(parts) + ".")
+    if not live_names:
+        lines.append("No MCP servers connected — open /mcp and connect before calling MCP tools.")
     return "\n".join(lines)
 
 

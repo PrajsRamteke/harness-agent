@@ -52,11 +52,8 @@ SKILL_TOOLS = [
     {
         "name": "skill_list",
         "description": (
-            "List all available project-base skills with their names and descriptions. "
-            "These are reusable instructions defined in .skills/<name>/SKILL.md files. "
-            "Each entry shows only the header (name + description). "
-            "Use this only when the current task may match reusable skills, then "
-            "use skill_load('<name>') for each match — load every applicable skill."
+            "List every available skill with its full description. The system prompt "
+            "already shows the headers — call this only when one is cut short."
         ),
         "input_schema": {
             "type": "object",
@@ -67,17 +64,15 @@ SKILL_TOOLS = [
     {
         "name": "skill_load",
         "description": (
-            "Load the full content of one skill by name. "
-            "Call BEFORE responding or acting when a skill header might match — even if uncertain. "
-            "Multiple skills can apply: call skill_load once per matching skill and follow all of them. "
-            "Batch parallel skill_load calls in the same turn when several headers match."
+            "Load a skill's full instructions by name. Call it before acting whenever a "
+            "skill header might match the task — once per matching skill, batched."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "The skill name to load (e.g. 'git-release', 'example-skill')",
+                    "description": "Skill name",
                 },
             },
             "required": ["name"],

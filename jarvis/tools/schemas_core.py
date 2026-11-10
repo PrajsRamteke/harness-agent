@@ -2,50 +2,40 @@
 
 # Optional on codebase tools; only meaningful when the workspace links other projects.
 _PROJ = {"type": "string", "description": "Linked project id, 'a,b', or '*' for all linked. Default: this project."}
+_PATH = {"type": "string", "description": "Project-relative path (`id:path` for a linked project)."}
+_OUTSIDE = {"type": "boolean", "description": "Only when the user explicitly asked for a path outside the project."}
 _PROJ1 = {"type": "string", "description": "Linked project id to run in. Default: this project."}
 
 CONTEXT_TOOLS = [
     {"name": "resolve_context", "description": (
-        "ONE-CALL codebase understanding: give it a task description and get ALL "
-        "related files at once (target + imports + importers + tests + types + configs). "
-        "Instead of making 5-20 separate read_file/search_code calls, call this ONCE "
-        "and receive a bundle with every file you need to plan and execute the change.\n\n"
-        "How to use:\n"
-        "  1. User gives a coding task\n"
-        "  2. Call resolve_context with the task (be specific about the feature/file)\n"
-        "  3. Read the bundle — it contains all files + their relationships\n"
-        "  4. Plan your edits using the bundle\n"
-        "  5. Call edit_file/write_file (or multi_edit for several patches) to make changes\n"
-        "  6. Verify with run_bash (tests/lint)\n\n"
-        "Modes (default skeleton): full = all bodies (capped); skeleton = full root "
-        "targets + symbol/import summaries for related files; manifest = file list only "
-        "(then read_bundle on 3–8 paths). Budget is split across files — not read-all-then-truncate.\n"
-        "Packs from earlier turns are later shrunk to their file list to keep the conversation "
-        "inside the context window — re-read files with read_bundle when you need them again."
+        "Codebase context in ONE call: describe the task and get the related files together "
+        "(target + imports + importers + tests + types + configs) instead of 5-20 separate "
+        "reads and searches. Modes: skeleton (default) = full target files + symbol/import "
+        "summaries of related ones; full = every body (capped); manifest = file list only, "
+        "then read_bundle the 3–8 paths that matter. Packs from earlier turns shrink to "
+        "their file list later — re-read with read_bundle when needed."
     ),
      "input_schema": {"type": "object", "properties": {
         "task": {"type": "string", "description": (
-            "Natural-language description of the coding task. Be specific: "
-            "'Fix login bug in JWT token refresh' or 'Add user profile edit page'"
+            "The coding task, specific: 'Fix login bug in JWT token refresh'."
         )},
         "mode": {"type": "string", "enum": ["full", "skeleton", "manifest"],
                  "description": "Bundle density. Default skeleton."},
         "max_chars": {"type": "integer",
-                      "description": "Output cap (default ~80K chars, and never more than the model's context window allows). Rarely needed."},
+                      "description": "Output cap (default ~80K chars). Rarely needed."},
         "project": _PROJ,
      }, "required": ["task"]}},
     {"name": "read_bundle", "description": (
-        "PREFERRED for 2–20 known paths: one budget-aware bundle with parallel I/O. "
-        "Default mode full. After resolve_context(mode=manifest), call this on key paths. "
-        "Do NOT substitute 10+ separate read_file calls for the same paths."
+        "Read 2–20 known paths in one call (budget split across files, parallel I/O). "
+        "Use it instead of many read_file calls."
     ),
      "input_schema": {"type": "object", "properties": {
         "paths": {"type": "array", "items": {"type": "string"},
-                  "description": "File paths relative to project root (`id:path` for a linked project). Max 20."},
+                  "description": "Project-relative paths (`id:path` for a linked project). Max 20."},
         "mode": {"type": "string", "enum": ["full", "skeleton", "manifest"],
-                 "description": "Default full for explicit path lists."},
+                 "description": "Default full."},
         "max_chars": {"type": "integer",
-                      "description": "Output cap (default ~80K chars, and never more than the model's context window allows). Rarely needed."},
+                      "description": "Output cap (default ~80K chars). Rarely needed."},
      }, "required": ["paths"]}},
 ]
 
@@ -55,21 +45,18 @@ CONTEXT_TOOLS = [
 # the model can't reach for whole-codebase bundling on non-coding turns.
 CORE_TOOLS = [
     {"name": "ask_user_question", "description": (
-        "Ask the user one or more multiple-choice questions when you need their "
-        "input to proceed — architecture choices, scope, preferences, or "
-        "disambiguation. Do NOT guess when the answer materially changes the "
-        "plan. The UI shows options above the status bar; user selects with "
-        "↑/↓ and Enter. Returns JSON with selected option ids and labels."
+        "Ask the user multiple-choice questions when their answer changes the plan "
+        "(scope, approach, preference, ambiguity) — don't guess. Returns the selected "
+        "option ids and labels as JSON."
     ),
      "input_schema": {"type": "object", "properties": {
         "questions": {
             "type": "array",
-            "description": "One or more questions to ask in order.",
             "items": {
                 "type": "object",
                 "properties": {
-                    "id": {"type": "string", "description": "Stable id for this question."},
-                    "prompt": {"type": "string", "description": "Full question text shown to the user."},
+                    "id": {"type": "string"},
+                    "prompt": {"type": "string", "description": "The question."},
                     "header": {"type": "string", "description": "Short label (e.g. 'Auth approach')."},
                     "options": {
                         "type": "array",
@@ -78,16 +65,15 @@ CORE_TOOLS = [
                             "type": "object",
                             "properties": {
                                 "id": {"type": "string"},
-                                "label": {"type": "string", "description": "Option title."},
-                                "description": {"type": "string",
-                                                 "description": "Optional one-line detail."},
+                                "label": {"type": "string"},
+                                "description": {"type": "string"},
                             },
                             "required": ["id", "label"],
                         },
                     },
                     "allow_multiple": {
                         "type": "boolean",
-                        "description": "If true, user can toggle multiple with space, confirm with Enter.",
+                        "description": "Let the user pick several.",
                     },
                 },
                 "required": ["id", "prompt", "options"],
@@ -96,131 +82,115 @@ CORE_TOOLS = [
         },
      }, "required": ["questions"]}},
     {"name":"read_file","description":(
-        "Read ONE text file (or a line range via offset/limit). Each line comes "
-        "back as `N<TAB>text` (N = 1-based line number, not part of the file — "
-        "never copy it into old_str/new_str). Up to 2000 lines per call; a "
-        "closing [showing lines …] note gives the offset to continue from. "
-        "For 2–20 known paths use read_bundle instead. Refuses "
-        "node_modules/.venv/build/dist/caches, binary files, files > 2MB, and "
-        "outside-project paths. Avoid rereading files already in context. "
-        "Only pass force=true if the user explicitly asked for that blocked file."),
+        "Read one text file, or a line range via offset/limit. Lines come back as "
+        "`N<TAB>text` — N is the 1-based line number, not part of the file (never copy it "
+        "into old_str/new_str). Up to 2000 lines per call; a closing [showing lines …] note "
+        "gives the offset to continue from. Refuses dependency/build dirs, binaries, files "
+        "> 2MB and outside-project paths; force=true only when the user asked for that file."),
      "input_schema":{"type":"object","properties":{
-        "path":{"type":"string","description":"Project-relative path, or `id:path` for a linked project."},
+        "path":_PATH,
         "offset":{"type":"integer","description":"0-indexed starting line (offset=100 starts at line 101)"},
-        "limit":{"type":"integer","description":"number of lines; 0 = to the end (max 2000 per call)"},
-        "force":{"type":"boolean","description":"bypass binary/skip-dir guards; use sparingly"}},
+        "limit":{"type":"integer","description":"number of lines; 0 = to the end"},
+        "force":{"type":"boolean"}},
         "required":["path"]}},
     {"name":"read_document","description":(
-        "Read PDF, images (OCR), CSV/TSV, JSON, HTML, XLSX, XML, YAML, Markdown, or code/text "
-        "in one call—picks the right parser by file type. Use this instead of `read_file` for "
-        "PDFs, spreadsheets, data files, images with text, etc. Single file: pass `path`. "
-        "Several files: pass `paths`. Many files under a folder: pass `directory` and optional "
-        "`pattern` (glob, default **/*). Project-scoped by default; use force only for "
-        "explicit outside-project requests. Caps: `max_files`, `max_chars_per_file`, `csv_max_rows`."
+        "Read PDF, images (OCR), CSV/TSV, XLSX, JSON, HTML, XML, YAML or Markdown — picks "
+        "the parser by file type; use it instead of read_file for those. One file: `path`; "
+        "several: `paths`; a folder: `directory` (+ glob `pattern`)."
     ),
      "input_schema":{"type":"object","properties":{
-        "path":{"type":"string","description":"One file to read (omit if using paths or directory)."},
-        "paths":{"type":"array","items":{"type":"string"},"description":"Multiple explicit file paths."},
-        "directory":{"type":"string","description":"Folder to scan when path/paths omitted."},
-        "pattern":{"type":"string","description":"Glob under directory. Default **/*."},
-        "max_files":{"type":"integer","description":"Bulk cap. Default 32, max 80."},
-        "max_chars_per_file":{"type":"integer","description":"Per-file text cap. Default 48000."},
-        "csv_max_rows":{"type":"integer","description":"Max data rows for CSV/Excel preview. Default 200."},
+        "path":{"type":"string"},
+        "paths":{"type":"array","items":{"type":"string"}},
+        "directory":{"type":"string"},
+        "pattern":{"type":"string","description":"Default **/*."},
+        "max_files":{"type":"integer","description":"Default 32, max 80."},
+        "max_chars_per_file":{"type":"integer","description":"Default 48000."},
+        "csv_max_rows":{"type":"integer","description":"CSV/Excel rows. Default 200."},
         "project":_PROJ,
-        "force":{"type":"boolean","description":"Bypass skip-dir and large-file guard when user asked explicitly."}}}},
+        "force":{"type":"boolean","description":"Outside-project / skipped files, only when the user asked."}}}},
     {"name":"write_file","description":"Create or overwrite a file",
      "input_schema":{"type":"object","properties":{
-        "path":{"type":"string","description":"Project-relative path, or `id:path` for a linked project."},"content":{"type":"string"},
-        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to write outside the current project."}},
+        "path":_PATH,"content":{"type":"string"},
+        "allow_outside_project":_OUTSIDE},
         "required":["path","content"]}},
     {"name":"edit_file","description":"Replace old_str with new_str in ONE file. old_str must be unique unless replace_all=true. For 2+ edits (same or different files), prefer multi_edit.",
      "input_schema":{"type":"object","properties":{
-        "path":{"type":"string","description":"Project-relative path, or `id:path` for a linked project."},"old_str":{"type":"string"},
+        "path":_PATH,"old_str":{"type":"string"},
         "new_str":{"type":"string"},"replace_all":{"type":"boolean"},
-        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
+        "allow_outside_project":_OUTSIDE},
         "required":["path","old_str","new_str"]}},
     {"name":"multi_edit","description":(
-        "Apply multiple search-replace edits in ONE call — same rules as edit_file per entry. "
-        "Use instead of many separate edit_file calls when changing 2–30 locations across one "
-        "or more files. Edits run in array order; consecutive edits on the same path share "
-        "one read/write. Returns per-edit status plus a success/fail summary."
+        "Several edit_file patches in ONE call (2–30, one or more files), applied in "
+        "order. Returns a status per edit."
     ),
      "input_schema":{"type":"object","properties":{
-        "edits":{"type":"array","maxItems":30,"description":"Edits in order. Max 30.",
+        "edits":{"type":"array","maxItems":30,
                  "items":{"type":"object","properties":{
                     "path":{"type":"string"},
                     "old_str":{"type":"string"},
                     "new_str":{"type":"string"},
                     "replace_all":{"type":"boolean"},
-                    "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to edit outside the current project."}},
+                    "allow_outside_project":{"type":"boolean"}},
                     "required":["path","old_str","new_str"]}},
-        "allow_outside_project":{"type":"boolean","description":"Default false. Applies to ALL edits. Only true if the user explicitly asked to edit outside the current project."}},
+        "allow_outside_project":_OUTSIDE},
         "required":["edits"]}},
     {"name":"list_dir","description":(
-        "List project directory entries with full paths. Refuses outside-project "
-        "paths unless allow_outside_project=true. By default hides node_modules/"
-        ".venv/build/dist/caches — pass show_all=true to include them."),
+        "List a directory (full paths). Hides node_modules/.venv/build/dist/caches "
+        "unless show_all=true."),
      "input_schema":{"type":"object","properties":{
         "path":{"type":"string"},
         "show_all":{"type":"boolean"},
-        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to inspect outside the current project."}}}},
+        "allow_outside_project":_OUTSIDE}}},
     {"name":"run_bash","description":(
-        "Run a shell command (/bin/sh) in the project root — no need to `cd` there first. "
-        "Read-only commands (ls, cat, head, tail, rg, grep, find, sed -n 'N,Mp', wc, "
-        "git status/log/diff/show) need no approval and run in parallel: issue several in one "
-        "turn. Default timeout 120s (max 600); for long builds / test suites / servers use run_bg."),
+        "Run a shell command (/bin/sh) in the project root — no `cd` needed. Read-only "
+        "commands (ls, cat, head, tail, rg, grep, find, sed -n, wc, git status/log/diff/show) "
+        "need no approval and run in parallel. Timeout 120s (max 600); slow builds, test "
+        "suites and servers go to run_bg."),
      "input_schema":{"type":"object","properties":{
         "cmd":{"type":"string"},"timeout":{"type":"integer"},"project":_PROJ1},"required":["cmd"]}},
     {"name":"search_code","description":"Regex search with ripgrep (or grep fallback). Project-scoped by default.",
      "input_schema":{"type":"object","properties":{
         "pattern":{"type":"string"},"path":{"type":"string"},"project":_PROJ,
-        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to search outside the current project."}},"required":["pattern"]}},
+        "allow_outside_project":_OUTSIDE},"required":["pattern"]}},
     {"name":"glob_files","description":(
-        "Find files by glob pattern under a specific project directory. Pass `path` "
-        "when the pattern belongs under a known subfolder. Project-scoped by default "
-        "and skips dependency/cache dirs."
+        "Find files by glob pattern (skips dependency/cache dirs)."
     ),
      "input_schema":{"type":"object","properties":{
-        "pattern":{"type":"string","description":"Relative glob under `path`, e.g. '**/*.py' or '**/analytics/constants*'."},
-        "path":{"type":"string","description":"Directory to search under. Default current project root."},
-        "max_results":{"type":"integer","description":"Maximum file paths to return. Default 200, max 1000."},
+        "pattern":{"type":"string","description":"Glob under `path`, e.g. '**/*.py'."},
+        "path":{"type":"string","description":"Default: project root."},
+        "max_results":{"type":"integer","description":"Default 200, max 1000."},
         "project":_PROJ,
-        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to glob outside the current project."}},
+        "allow_outside_project":_OUTSIDE},
         "required":["pattern"]}},
     {"name":"rank_files","description":(
-        "Cheaply rank likely relevant files before reading many files. Use this first "
-        "for broad tasks like finding code, resumes, IDs, screenshots, docs, configs, "
-        "or unknown files in a folder. Returns compact paths/scores and optional snippets."
+        "Rank the files most likely relevant to a query before reading any — for broad "
+        "tasks where you don't know which files matter. Returns paths with scores."
     ),
      "input_schema":{"type":"object","properties":{
         "query":{"type":"string","description":"What you are trying to find or solve."},
-        "path":{"type":"string","description":"Folder or file to scan. Default current directory."},
-        "pattern":{"type":"string","description":"Glob under path. Default **/*."},
-        "max_files":{"type":"integer","description":"Maximum ranked results. Default 30, max 100."},
-        "scan_limit":{"type":"integer","description":"Maximum files to inspect cheaply. Default 700, max 3000."},
-        "include_snippets":{"type":"boolean","description":"Read small text previews to score content matches. Default false."},
-        "max_snippet_chars":{"type":"integer","description":"Snippet chars per matched text file. Default 240."},
+        "path":{"type":"string","description":"Default: project root."},
+        "pattern":{"type":"string","description":"Default **/*."},
+        "max_files":{"type":"integer","description":"Default 30, max 100."},
+        "scan_limit":{"type":"integer","description":"Files to inspect. Default 700, max 3000."},
+        "include_snippets":{"type":"boolean","description":"Also score file contents. Default false."},
+        "max_snippet_chars":{"type":"integer","description":"Default 240."},
         "project":_PROJ,
-        "allow_outside_project":{"type":"boolean","description":"Default false. Only true if the user explicitly asked to rank files outside the current project."}},
+        "allow_outside_project":_OUTSIDE},
         "required":["query"]}},
     {"name":"fast_find","description":(
-        "Fast file/folder search by name across the Mac using Spotlight (mdfind) — "
-        "near-instant (milliseconds), indexed. Falls back to 'fd' if installed. "
-        "ALWAYS prefer this over `run_bash` with 'find ~', 'find /', or recursive "
-        "globbing — those scan the disk and take 30s+. Use fast_find for any query "
-        "of the form 'where is X', 'find my Y', 'locate Z', 'find all PNGs named qr', "
-        "'search for resume.pdf', etc. Supports an ext filter so you can combine name "
-        "+ extension in one call (e.g. query='qr', ext='png')."
+        "Find files/folders by name anywhere on the Mac via Spotlight — milliseconds. "
+        "Use it for 'where is X' / 'find my Y' instead of `find ~` or `find /` in run_bash "
+        "(those scan the disk for 30s+)."
     ),
      "input_schema":{"type":"object","properties":{
-        "query":{"type":"string","description":"Name or substring to search for, e.g. 'resume', 'harness', 'qr'."},
-        "path":{"type":"string","description":"Optional folder to scope the search, e.g. '~/Desktop'. Empty = whole Mac."},
-        "kind":{"type":"string","enum":["any","file","folder"],"description":"Filter results. Default 'any'."},
-        "max_results":{"type":"integer","description":"Max results. Default 50, max 500."},
-        "ext":{"type":"string","description":"Extension filter, e.g. '.png' or 'png,jpg'. Optional."}},
+        "query":{"type":"string","description":"Name or part of it."},
+        "path":{"type":"string","description":"Folder to search in. Empty = whole Mac."},
+        "kind":{"type":"string","enum":["any","file","folder"]},
+        "max_results":{"type":"integer","description":"Default 50, max 500."},
+        "ext":{"type":"string","description":"e.g. 'png' or 'png,jpg'."}},
         "required":["query"]}},
     {"name":"git_status","description":"git status","input_schema":{"type":"object","properties":{"project":_PROJ1}}},
-    {"name":"git_diff","description":"git diff. By default shows both staged and unstaged changes (vs HEAD). Set staged=true for only staged (git add'ed) changes, staged=false for only unstaged.","input_schema":{"type":"object","properties":{"path":{"type":"string"},"staged":{"type":"boolean"},"project":_PROJ1}}},
+    {"name":"git_diff","description":"git diff — staged + unstaged vs HEAD by default; staged=true / false for only one.","input_schema":{"type":"object","properties":{"path":{"type":"string"},"staged":{"type":"boolean"},"project":_PROJ1}}},
     {"name":"git_log","description":"git log","input_schema":{"type":"object","properties":{"n":{"type":"integer"},"project":_PROJ1}}},
 ]
 
@@ -305,28 +275,23 @@ VISION_TOOLS = [
 
 BACKGROUND_TOOLS = [
     {"name":"run_bg","description":(
-        "Run a shell command in the BACKGROUND and return immediately with a job id. "
-        "Use it for anything slow — test suites, builds, installs, type-checks, dev "
-        "servers, watchers, benchmarks — so you keep working (read/edit files, run other "
-        "tools) while it runs. Don't sit waiting on it: keep working, or end your turn — "
-        "the result says whether Jarvis wakes you with the output when the job finishes. "
-        "Same approval as run_bash. Jobs survive across turns and are listed under "
-        "BACKGROUND JOBS in the system prompt; finished ones say so. Use run_bash for quick commands."
+        "Run a shell command in the BACKGROUND; returns a job id at once. For anything "
+        "slow — test suites, builds, installs, dev servers, watchers. Keep working or end "
+        "your turn instead of waiting: the result says whether Jarvis wakes you when it "
+        "finishes. Same approval as run_bash; jobs survive across turns."
     ),
      "input_schema":{"type":"object","properties":{
-        "cmd":{"type":"string","description":"Shell command, run in the project directory"},"project":_PROJ1},"required":["cmd"]}},
+        "cmd":{"type":"string"},"project":_PROJ1},"required":["cmd"]}},
     {"name":"bg_output","description":(
-        "Check a background job: status, exit code and its latest output. No job_id = "
-        "list all jobs. wait=N blocks up to N seconds until the job finishes — only for a "
-        "job about to finish (capped at 30s when Jarvis auto-wakes you; then end your turn "
-        "instead). new_only=true returns only output since your last check (cheap polling)."
+        "A background job's status, exit code and latest output; no job_id lists all "
+        "jobs. wait=N blocks up to N seconds — only for a job about to finish."
     ),
      "input_schema":{"type":"object","properties":{
         "job_id":{"type":"integer"},
-        "wait":{"type":"number","description":"Seconds to wait for the job to finish (default 0)"},
-        "tail":{"type":"integer","description":"Lines of output to return (default 60)"},
-        "new_only":{"type":"boolean","description":"Only output produced since the last bg_output call"}}}},
-    {"name":"bg_kill","description":"Stop a background job and all of its child processes (e.g. a dev server you no longer need).",
+        "wait":{"type":"number","description":"Seconds (default 0)"},
+        "tail":{"type":"integer","description":"Lines of output (default 60)"},
+        "new_only":{"type":"boolean","description":"Only output since your last check"}}}},
+    {"name":"bg_kill","description":"Stop a background job and its child processes.",
      "input_schema":{"type":"object","properties":{
         "job_id":{"type":"integer"}},"required":["job_id"]}},
 ]

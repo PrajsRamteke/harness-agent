@@ -72,7 +72,7 @@ class LazyContextLoadingTests(unittest.TestCase):
                         mock.patch.object(system, "skills_prompt_block", return_value=""):
                     prompt = system._build_static_body()
 
-                self.assertIn("PROJECT CONTEXT: AGENT.md exists", prompt)
+                self.assertIn("PROJECT CONTEXT: AGENT.md holds", prompt)
                 self.assertIn("read_file('AGENT.md')", prompt)
                 self.assertNotIn("DO NOT INLINE THIS UNIQUE CONTENT", prompt)
             finally:
@@ -101,9 +101,20 @@ class LazyContextLoadingTests(unittest.TestCase):
         self.assertIn("debug-helper", block)
         # Instruction says to call skill_load for full body, not headers
         self.assertIn("skill_load", block)
-        self.assertIn("HIGH PRIORITY", block)
         self.assertIn("call skill_load", block)
-        self.assertIn("each match", block.lower())
+        self.assertIn("every one that might apply", block.lower())
+
+    def test_skill_header_is_clipped_in_the_prompt(self):
+        """A long description is cut at a word end; the skill itself keeps it all."""
+        long = "Audit an existing UI. " + "Use this whenever the user asks to polish a page. " * 20
+        with mock.patch.object(skills, "discover_skills", return_value=[
+            {"name": "ui-audit", "description": long, "scope": "project"},
+        ]):
+            block = skills.as_prompt_block()
+        line = block.splitlines()[-1]
+        self.assertTrue(line.startswith("  • ui-audit: Audit an existing UI."))
+        self.assertTrue(line.endswith("…"))
+        self.assertLessEqual(len(line), skills.PROMPT_HEADER_CHARS + len("  • ui-audit: ") + 1)
 
 
 if __name__ == "__main__":

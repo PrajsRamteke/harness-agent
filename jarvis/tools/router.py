@@ -191,12 +191,14 @@ def reset_sticky_groups() -> None:
     _sticky_others.clear()
 
 
-def select_tools(messages: list[dict]) -> list[dict]:
-    """Return only the tool groups likely needed for this turn.
+def select_groups(messages: list[dict]) -> list[str]:
+    """The tool groups likely needed for this turn, in ``_GROUP_ORDER``.
 
     Core file/code tools are always available. Specialized groups are added
     from the latest user/task text and from recent tool_use blocks, and then
-    stay for the rest of the session (see _STICKY_GROUPS).
+    stay for the rest of the session (see _STICKY_GROUPS). The system prompt
+    is built from the same list (``repl/system.py``), so guidance for a group
+    is only sent with its tools.
     """
     text = _latest_text(messages)
     groups = ["core"]
@@ -284,6 +286,35 @@ def select_tools(messages: list[dict]) -> list[dict]:
             groups.append(g)
     rank = {g: i for i, g in enumerate(_GROUP_ORDER)}
     groups.sort(key=lambda g: rank.get(g, len(rank)))
+    return groups
+
+
+def _has_linked_projects() -> bool:
+    try:
+        from .linked import linked_ids
+
+        return bool(linked_ids())
+    except Exception:
+        return True  # unsure: keep the argument
+
+
+def _without_project_arg(tool: dict) -> dict:
+    """The optional ``project`` argument names a linked project: with nothing
+    linked it is ~20 tokens of schema on a dozen tools that can only be
+    misused. MCP tools keep theirs (it's their own argument)."""
+    props = (tool.get("input_schema") or {}).get("properties")
+    if not isinstance(props, dict) or "project" not in props or tool["name"].startswith("mcp__"):
+        return tool
+    schema = dict(tool["input_schema"])
+    schema["properties"] = {k: v for k, v in props.items() if k != "project"}
+    if isinstance(schema.get("required"), list):
+        schema["required"] = [r for r in schema["required"] if r != "project"]
+    return {**tool, "input_schema": schema}
+
+
+def select_tools(messages: list[dict]) -> list[dict]:
+    """Tool schemas for this request (see ``select_groups``)."""
+    groups = select_groups(messages)
 
     # Defense in depth: sanitize every tool schema right before it leaves
     # the process. Anthropic rejects top-level oneOf/anyOf/allOf, and some
@@ -292,6 +323,8 @@ def select_tools(messages: list[dict]) -> list[dict]:
     # leak the broken shape into the API call.
     tools = sanitize_tools(_dedupe_tools(groups))
     tools = [t for t in tools if t["name"] in FUNC]
+    if not _has_linked_projects():
+        tools = [_without_project_arg(t) for t in tools]
     if state.plan_mode:
         tools = [t for t in tools if t["name"] in PLAN_MODE_ALLOWED]
     return tools

@@ -208,6 +208,17 @@ def _background_jobs_block() -> str:
         return ""
 
 
+def _tool_groups() -> tuple:
+    """The tool groups this conversation's requests carry (router) — the
+    prompt only explains tools that are actually offered."""
+    try:
+        from ..tools.router import select_groups
+
+        return tuple(select_groups(state.messages or []))
+    except Exception:
+        return ()
+
+
 def _build_static_body() -> str:
     """Everything except the date/time line and agent addon. Cached between turns."""
     global _cached_body, _cached_mem_key, _cached_sk_key, _cached_skills_key
@@ -226,7 +237,8 @@ def _build_static_body() -> str:
     branch = _get_git_branch(cwd)
     from ..constants.system_prompt import linked_projects_block
 
-    cwd_branch_key = cwd + "|" + (branch or "") + "|" + linked_projects_block(cwd)
+    groups = _tool_groups()
+    cwd_branch_key = cwd + "|" + (branch or "") + "|" + linked_projects_block(cwd) + "|" + ",".join(groups)
 
     if (mem_block == _cached_mem_key
             and sk_block == _cached_sk_key
@@ -239,61 +251,30 @@ def _build_static_body() -> str:
             and _cached_body):
         return _cached_body
 
-    body = build_base_system(Path(cwd), git_branch=branch)
+    body = build_base_system(Path(cwd), git_branch=branch, groups=groups)
     if pinned_for_prompt:
         body += "\n\nPINNED CONTEXT (user-supplied, always remember):\n" + pinned_for_prompt
 
-    # ── Lazy-load system prompt section ──────────────────────────────────
-    # Skill headers (name + description) ARE injected so the agent can match
-    # without an extra tool call. Memory, lessons, agents, and project
-    # context remain lazy (summaries/counts only, full content on demand).
-    body += (
-        "\n\nLAZY-LOAD CONTEXT (full content loaded on demand unless noted):\n"
-        "To save tokens, the following are NOT injected with full content:"
-        "\n- SKILLS (check first): headers listed below — scan before every task; call skill_load for every header that might match (one or more)."
-        "\n- MEMORY: use memory_list() only when saved user facts/preferences matter"
-        "\n- LESSONS: use lesson_search('<topic>') only when prior experience could help"
-        "\n- PROJECT CONTEXT: use read_file('<project_context_file>') only when repository instructions matter"
-    )
-
+    # Only headers / counts are injected; full content loads on demand
+    # (skill_load, memory_list, lesson_search, read_file). The how-to lines
+    # are sent only with the tools they name.
     if skills_block:
-        body += "\n" + skills_block
-    if mem_block:
+        body += "\n\n" + skills_block
+    if mem_block and "memory" in groups:
         body += "\n" + mem_block
-    if sk_block:
+    if sk_block and "lessons" in groups:
         body += "\n" + sk_block
     if mcp_block:
         body += "\n" + mcp_block
     if agents_block:
         body += "\n" + agents_block
     if state.project_context_file:
-        body += "\n" + f"PROJECT CONTEXT: {state.project_context_file} exists. Use read_file('{state.project_context_file}') only when needed."
-
-    body += (
-        "\n\nMEMORY: memory_save/memory_list/memory_delete.\n"
-        "- Proactively save durable user facts using memory_save WITHOUT asking — when they become evident.\n"
-        "- View full memory with memory_list() only when relevant."
-    )
-
-    body += (
-        "\n\nLESSONS: lesson_search/lesson_save/lesson_list/lesson_delete.\n"
-        "- Use lesson_search when a similar past lesson could help the task.\n"
-        "- END of task → lesson_save if you learned something non-obvious.\n"
-        "- The system prompt only shows a lesson count/topic cloud."
-    )
-
-    if skills_block:
-        body += (
-            "\n\nSKILLS: skill_load('<name>').\n"
-            "- BEFORE responding or acting: scan the skill headers above.\n"
-            "- Load every skill whose description might apply — call skill_load once per match.\n"
-            "- Multiple skills can apply to the same task; load and follow all of them.\n"
-            "- Batch parallel skill_load calls in one turn when several match.\n"
-            "- Do not skip skill checks for 'simple' tasks.\n"
-            "- If a loaded skill references MCP tools (mcp__*) but MCP is offline or global "
-            "scope is off, tell the user to enable /mcp global scope and connect — do NOT "
-            "read ~/.claude, ~/.cursor, or other MCP config files as a workaround."
-        )
+        body += "\n" + (f"PROJECT CONTEXT: {state.project_context_file} holds this repository's instructions "
+                        f"— read_file('{state.project_context_file}') when they matter.")
+    if "memory" in groups:
+        body += "\nMEMORY: memory_save durable user facts as they become evident, without asking."
+    if "lessons" in groups:
+        body += "\nLESSONS: lesson_save at the end of a task when you learned something non-obvious."
 
     _cached_body = body
     _cached_mem_key = mem_block
@@ -351,7 +332,8 @@ def build_system() -> Union[str, List[Dict]]:
     prompt, so the provider's prompt cache keeps hitting (and Claude 5's
     thinking blocks stay valid — they are bound to the system prompt). Things
     that change mid-turn — background-job timers, a saved memory or lesson, the
-    loop countdown — show up from the next user turn; plan/model/agent/folder
+    loop countdown, guidance for a tool group that just joined (its schemas say
+    enough meanwhile) — show up from the next user turn; plan/model/agent/folder
     changes apply at once (_critical_key).
     """
     turn = (state.current_session_id, _turn_anchor())

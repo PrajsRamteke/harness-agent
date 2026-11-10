@@ -125,7 +125,8 @@ def _system_prompt(team: Team, agent: AgentRun, cfg: RequestConfig) -> Any:
 
     cwd = Path.cwd()
     try:
-        body = build_base_system(cwd, git_branch=_get_git_branch(str(cwd)))
+        # Subagents have no Mac, screenshot or background tools.
+        body = build_base_system(cwd, git_branch=_get_git_branch(str(cwd)), groups=("core", "internet", "ocr"))
     except Exception:
         body = f"You are Jarvis, a coding agent. Working directory: {cwd}"
     try:

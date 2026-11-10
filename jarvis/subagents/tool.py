@@ -29,55 +29,44 @@ EXPLICIT_RE = re.compile(
 SPAWN_AGENTS_TOOL = {
     "name": "spawn_agents",
     "description": (
-        "Run 2-20 subagents IN PARALLEL, each with its own fresh context and tools, and get "
-        "their reports back in one result. Several agents working at once finish a big job "
-        "far sooner than doing every part yourself in sequence.\n"
-        "USE IT for big tasks that split into independent parts: exploring or auditing "
-        "several areas of a codebase, answering several research questions, reviewing many "
-        "files, or making changes across separate files/modules (one agent per area).\n"
-        "DON'T use it for small tasks (a few reads, one edit) or for steps that depend on "
-        "each other — do those yourself.\n"
-        "When the user asks for (sub)agents or parallel agents, use this tool — that's the request.\n"
-        "Each agent knows NOTHING of this conversation: its `task` must be a complete brief "
-        "— what to do, where (absolute paths, names), constraints, and exactly what to report "
-        "back. Images the user attached to their message are shown to every agent.\n"
-        "BUILDING ONE APP/PAGE: first lay the shared ground yourself in a few calls (folder, "
-        "file layout, shared CSS variables / data shapes / global names — e.g. a short "
-        "SPEC.md), then one agent per part (each view/tab/module in its own files, mode "
-        "'edit'), then wire it together and check it after they report.\n"
-        "Use mode 'explore' (read-only, the default) for investigation; 'edit' lets an agent "
-        "change files and run commands — give every edit agent its own files so they don't "
-        "collide. Agents can't ask the user anything. The user doesn't see the reports: "
-        "after it returns, check what matters, then give one combined answer."
+        "Run 2-20 subagents IN PARALLEL, each with a fresh context and its own tools; their "
+        "reports come back in one result. Use it for a big task that splits into independent "
+        "parts (several areas to explore or audit, several research questions, changes in "
+        "separate files/modules) and whenever the user asks for (sub)agents — not for small "
+        "or step-by-step work.\n"
+        "An agent knows NOTHING of this conversation: its `task` is a complete brief — what "
+        "to do, where (absolute paths), constraints, what to report. Attached images reach "
+        "every agent. mode 'explore' (default) is read-only; 'edit' may change files and run "
+        "commands — give each edit agent its own files. Building one app: lay the shared "
+        "ground first (layout, conventions — e.g. a short SPEC.md), then one agent per part. "
+        "Agents can't ask the user, and the user doesn't see the reports: check what "
+        "matters, then give one combined answer."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
             "goal": {
                 "type": "string",
-                "description": "The overall goal in 1-2 sentences, shared with every agent as context.",
+                "description": "The overall goal in 1-2 sentences, shared with every agent.",
             },
             "agents": {
                 "type": "array",
-                "description": "2-20 agents (1 is allowed for one long isolated job).",
+                "description": "2-20 agents (1 for one long isolated job).",
                 "items": {
                     "type": "object",
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Short title of this agent's part, 2-4 words (e.g. 'Auth flow').",
+                            "description": "2-4 word title (e.g. 'Auth flow').",
                         },
                         "task": {
                             "type": "string",
-                            "description": (
-                                "Self-contained brief: the job, the files/dirs/areas it covers, "
-                                "constraints, and what the report must contain."
-                            ),
+                            "description": "The self-contained brief.",
                         },
                         "mode": {
                             "type": "string",
                             "enum": ["explore", "edit"],
-                            "description": "explore = read-only research (default) · edit = may change files and run commands.",
+                            "description": "Default explore.",
                         },
                     },
                     "required": ["name", "task"],
