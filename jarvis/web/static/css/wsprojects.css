@@ -64,9 +64,12 @@
   border: 1.5px dashed var(--text-3);
   opacity: 0.8;
 }
-.project-row.is-stopped .pr-name,
+/* The name stays readable — the dimmed ring and stripe already say "not running". */
+.project-row.is-stopped .pr-name { color: var(--text-2); }
 .project-row.is-stopped .pr-meta { color: var(--text-3); }
-.project-row.is-stopped:hover .pr-name { color: var(--text-2); }
+.project-row.is-stopped:hover .pr-name { color: var(--text); }
+/* Its branch is alone on the line: let it use the width. */
+.project-row.is-stopped .ws-branch { flex: 0 1 auto; max-width: 100%; }
 .project-row.is-stopped .pr-sub { font-style: italic; }
 
 /* starting: a spinner in place of the ring */
@@ -404,16 +407,33 @@ body.is-booting .chat-scroll { opacity: 0.35; transition: opacity 0.18s var(--ea
 .ws-gbadge { display: inline-grid; place-items: center; flex-shrink: 0; color: var(--text-3); cursor: help; }
 .ws-gbadge .ic { width: 11px; height: 11px; }
 
-.ws-members { position: relative; margin: 0 0 4px 14px; padding-left: 8px; border-left: 1px solid var(--line); }
-.ws-members-toggle {
-  display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; border: 0; border-radius: var(--r-ctl);
-  background: transparent; color: var(--text-3); font-size: 11px; font-weight: 500; letter-spacing: 0.02em;
-}
-.ws-members-toggle .ic { width: 12px; height: 12px; transition: transform var(--dur-fast) var(--ease); }
-.ws-members.is-folded .ws-members-toggle .ic { transform: rotate(-90deg); }
-.ws-members-toggle:hover { color: var(--text); }
-.ws-members-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.ws-members { position: relative; margin: 2px 0 4px 14px; padding-left: 8px; border-left: 1px solid var(--line); }
 .ws-members.is-folded .ws-member-list { display: none; }
+
+/* The disclosure arrow sits at the group row's left, like a file tree: the right edge
+   keeps the same ⌥N + ⋯ layout as every other row, so the shortcuts line up. The
+   member rail below drops from under it. */
+.ws-item.is-group .project-row { padding-left: 28px; }
+.ws-fold {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.ws-fold .ic { width: 14px; height: 14px; transition: transform var(--dur-fast) var(--ease); }
+.ws-fold[aria-expanded='false'] .ic { transform: rotate(-90deg); }
+.ws-fold:hover { background: var(--card-hover); color: var(--text); }
+.ws-fold:focus { outline: none; }
+.ws-fold:focus-visible { box-shadow: inset 0 0 0 1.5px var(--focus); }
 .ws-member-list { display: flex; flex-direction: column; gap: 1px; }
 .ws-nested .ws-item .project-row { padding-top: 5px; padding-bottom: 5px; }
 

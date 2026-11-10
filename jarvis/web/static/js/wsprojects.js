@@ -279,6 +279,9 @@ function folded() {
   try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || '[]')); } catch { return new Set(); }
 }
 
+const groupMembers = (row) => (row.members || []).map((id) => workspaceProject(id)).filter(Boolean);
+const foldLabel = (row, fold) => `${fold ? 'Show' : 'Hide'} ${row.name}’s projects`;
+
 function toggleFold(id, btn) {
   const set = folded();
   const fold = !set.has(id);
@@ -286,17 +289,28 @@ function toggleFold(id, btn) {
   else set.delete(id);
   try { localStorage.setItem(FOLD_KEY, JSON.stringify([...set])); } catch { /* private mode */ }
   btn.setAttribute('aria-expanded', String(!fold));
-  btn.closest('.ws-members')?.classList.toggle('is-folded', fold);
+  const row = workspaceProject(id);
+  if (row) btn.setAttribute('aria-label', foldLabel(row, fold));
+  btn.title = fold ? 'Expand' : 'Collapse';
+  for (const box of document.querySelectorAll('.ws-members[data-members-of]')) {
+    if (box.dataset.membersOf === id) box.classList.toggle('is-folded', fold);
+  }
+}
+
+/** The chevron on a group row that folds its member list. */
+function foldButtonHtml(row) {
+  if (!groupMembers(row).length) return '';
+  const fold = folded().has(row.id);
+  return `<button type="button" class="ws-fold" data-ws-fold="${escapeHtml(row.id)}" aria-expanded="${!fold}" aria-label="${escapeHtml(foldLabel(row, fold))}" title="${fold ? 'Expand' : 'Collapse'}">${icon('chevron-down')}</button>`;
 }
 
 /** The collapsible member list under a group row: each member is a full project row, nested. */
 function membersHtml(row, ctx) {
-  const members = (row.members || []).map((id) => workspaceProject(id)).filter(Boolean);
+  const members = groupMembers(row);
   if (!members.length) return '';
   const fold = folded().has(row.id);
   const list = members.map((m) => `<div class="ws-nested" data-member-of="${escapeHtml(row.id)}">${rowHtml(m, ctx, { nested: true })}</div>`).join('');
-  return `<div class="ws-members${fold ? ' is-folded' : ''}" style="--ws-color:${escapeHtml(row.color)}">
-    <button type="button" class="ws-members-toggle" data-ws-fold="${escapeHtml(row.id)}" aria-expanded="${!fold}">${icon('chevron-down')}<span>${members.length} ${members.length === 1 ? 'project' : 'projects'}</span></button>
+  return `<div class="ws-members${fold ? ' is-folded' : ''}" data-members-of="${escapeHtml(row.id)}" style="--ws-color:${escapeHtml(row.color)}">
     <div class="ws-member-list" role="list">${list}</div>
   </div>`;
 }
@@ -314,12 +328,11 @@ function metaFor(row, inst, st, secs, ctx) {
     }
   } else if (row.status === 'starting') bits.push('<span class="pr-state">Starting…</span>');
   else if (row.status === 'missing') bits.push('<span class="pr-state">Folder not found</span>');
-  else bits.push('<span class="pr-state">Stopped</span>');
-  if (row.branch) bits.push(`<span class="ws-branch" title="Branch">${icon('git-branch')}<span class="ws-branch-name">${escapeHtml(row.branch)}</span></span>`);
-  const sub = isGroupRow(row) ? (row.status === 'stopped' ? 'click to open' : '')
-    : row.status === 'running' ? (inst?.session_title || inst?.model || 'New chat')
-      : row.status === 'stopped' ? (row.last_state?.session_title || 'click to start') : '';
+  // Stopped: the dashed ring already says so; the line keeps room for the branch.
+  if (row.branch) bits.push(`<span class="ws-branch" title="Branch ${escapeHtml(row.branch)}">${icon('git-branch')}<span class="ws-branch-name">${escapeHtml(row.branch)}</span></span>`);
+  const sub = !isGroupRow(row) && row.status === 'running' ? (inst?.session_title || inst?.model || 'New chat') : '';
   if (sub) bits.push(`<span class="pr-sub">${escapeHtml(sub)}</span>`);
+  if (!bits.length && row.status === 'stopped') bits.push('<span class="pr-state">Stopped</span>');
   return bits.join('<span class="pr-sep" aria-hidden="true">·</span>');
 }
 
@@ -332,9 +345,12 @@ function rowHtml(row, ctx, { nested = false } = {}) {
   const active = running ? row.instances.some((i) => i.id === ctx.shown) : isBoot;
   const secs = inst?.busy ? ctx.busyFor(inst) : null;
   const href = running && inst ? ctx.hrefFor(inst.id) : '#';
-  const hint = running ? row.display : row.status === 'missing' ? `${row.display} — not found` : `${row.display} — click to start`;
-  const chats = row.instances.length > 1 ? `<span class="pr-n" title="${row.instances.length} chats running here">${row.instances.length}</span>` : '';
   const group = isGroupRow(row);
+  const last = row.last_state?.session_title;
+  const hint = running ? row.display
+    : row.status === 'missing' ? `${row.display} — not found`
+      : `${row.display}${last ? ` · last chat: ${last}` : ''} — stopped, click to ${group ? 'open' : 'start'}`;
+  const chats = row.instances.length > 1 ? `<span class="pr-n" title="${row.instances.length} chats running here">${row.instances.length}</span>` : '';
   const globe = group ? `<span class="ws-globe" aria-hidden="true">${icon('globe')}</span>` : '';
   const masters = row.masters || [];
   const badge = !group && !nested && masters.length
@@ -353,7 +369,7 @@ function rowHtml(row, ctx, { nested = false } = {}) {
           <span class="pr-meta">${metaFor(row, inst, st, secs, ctx)}</span>
         </span>
       </a>
-      <button type="button" class="ws-more" data-ws-menu="${escapeHtml(row.id)}" aria-haspopup="menu" aria-label="Actions for ${escapeHtml(row.name)}" title="${group ? 'Master chat, members, colour, start / stop…' : 'Rename, colour, links, start / stop…'}">${icon('ellipsis')}</button>${missing}
+      <button type="button" class="ws-more" data-ws-menu="${escapeHtml(row.id)}" aria-haspopup="menu" aria-label="Actions for ${escapeHtml(row.name)}" title="${group ? 'Master chat, members, colour, start / stop…' : 'Rename, colour, links, start / stop…'}">${icon('ellipsis')}</button>${group ? foldButtonHtml(row) : ''}${missing}
     </div>${group ? membersHtml(row, ctx) : ''}`;
 }
 
