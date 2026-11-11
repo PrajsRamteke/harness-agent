@@ -830,73 +830,18 @@
         </div>
         <button class="icon-btn" data-close="settings" type="button" aria-label="Close"><span data-icon="x"></span></button>
       </div>
-      <div class="dlg-bar" id="settings-bar"></div>
-      <div class="pv-body dlg-body ex-body" id="settings-body"></div>
-      <div class="dlg-foot" id="settings-foot"></div>
-      <div class="set-menu" id="set-menu" role="listbox" hidden></div>
-    </div>
-  </div>
-
-  <div class="modal" id="local" hidden>
-    <div class="modal-card glass-strong ext-card local-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="local-title">
-      <div class="picker-head">
-        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
-        <span class="picker-icon"><span data-icon="cpu"></span></span>
-        <div class="picker-titles">
-          <h2 id="local-title">Local models</h2>
-          <p id="local-sub-title">Running on your own hardware · no key, no cost</p>
-        </div>
-        <button class="icon-btn" data-close="local" type="button" aria-label="Close"><span data-icon="x"></span></button>
-      </div>
-      <div class="dlg-bar" id="local-bar"></div>
-      <div class="pv-body dlg-body ex-body" id="local-body"></div>
-      <div class="dlg-foot" id="local-foot"></div>
-    </div>
-  </div>
-
-  <div class="modal" id="stopall" hidden>
-    <div class="modal-card glass-strong sa-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="stopall-title">
-      <div class="picker-head">
-        <span class="picker-icon"><span data-icon="power"></span></span>
-        <div class="picker-titles">
-          <h2 id="stopall-title">Stop everything?</h2>
-          <p id="stopall-sub"></p>
-        </div>
-        <button class="icon-btn" data-close="stopall" type="button" aria-label="Close"><span data-icon="x"></span></button>
-      </div>
-      <div class="sa-body" id="stopall-body"></div>
-      <div class="dlg-foot sa-foot" id="stopall-foot"></div>
-    </div>
-  </div>
-
-  <div class="modal" id="folders" hidden>
-    <div class="modal-card glass-strong ext-card folders-card dlg-card" id="folders-card" role="dialog" aria-modal="true" aria-labelledby="folders-title">
-      <div class="picker-head">
-        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
-        <span class="picker-icon"><span data-icon="folder-open"></span></span>
-        <div class="picker-titles">
-          <h2 id="folders-title">Open a folder</h2>
-          <p id="folders-sub-title">Browse to a project — open it alongside this one, or move this chat there</p>
-        </div>
-        <button class="icon-btn" data-close="folders" type="button" aria-label="Close"><span data-icon="x"></span></button>
-      </div>
-      <div class="dlg-bar fd-bar" id="folders-bar"></div>
-      <div class="dlg-body fd-body" id="folders-body"></div>
-      <div class="dlg-foot fd-foot" id="folders-foot"></div>
-    </div>
-  </div>
-
-  <div class="modal" id="appearance" hidden>
-    <div class="modal-card glass-strong small-card" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
-      <div class="picker-head">
-        <span class="picker-icon"><span data-icon="palette"></span></span>
-        <div class="picker-titles">
-          <h2 id="appearance-title">Appearance</h2>
-          <p>Saved in this browser</p>
-        </div>
-        <button class="icon-btn" data-close="appearance" type="button" aria-label="Close"><span data-icon="x"></span></button>
-      </div>
-      <div class="settings-body">
+      <div class="set-shell">
+        <nav class="set-nav" id="settings-nav" aria-label="Settings sections">
+          <div class="dlg-bar" id="settings-bar"></div>
+          <div class="set-nav-list" id="settings-nav-list"></div>
+        </nav>
+        <div class="set-main">
+          <div class="set-pane pv-body dlg-body ex-body" id="settings-body"></div>
+          <div class="set-pane" id="appearance" role="region" aria-labelledby="appearance-title" hidden>
+            <div class="set-pane-head">
+              <h3 class="set-pane-title" id="appearance-title">Appearance</h3>
+              <p class="set-pane-desc">Theme, accent colour, glass and layout, saved in this browser</p>
+            </div>
       <div class="setting-block">
         <h3 class="setting-label">Mode</h3>
         <div class="mode-grid" id="mode-grid" role="radiogroup" aria-label="Color mode"></div>
@@ -1005,7 +950,69 @@
           <input type="checkbox" class="switch" id="sw-compact" role="switch">
         </label>
       </div>
+          </div>
+          <div class="set-pane set-pane-col" id="keymap" role="region" aria-labelledby="keymap-title" hidden>
+            <div class="set-pane-head">
+              <h3 class="set-pane-title" id="keymap-title">Keyboard shortcuts</h3>
+              <p class="set-pane-desc">Click a shortcut to change it</p>
+            </div>
+            <div class="dlg-bar" id="keymap-bar"></div>
+            <div class="pv-body dlg-body ex-body" id="keymap-body"></div>
+            <div class="dlg-foot" id="keymap-foot"></div>
+          </div>
+        </div>
       </div>
+      <div class="dlg-foot" id="settings-foot"></div>
+      <div class="set-menu" id="set-menu" role="listbox" hidden></div>
+    </div>
+  </div>
+
+  <div class="modal" id="local" hidden>
+    <div class="modal-card glass-strong ext-card local-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="local-title">
+      <div class="picker-head">
+        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
+        <span class="picker-icon"><span data-icon="cpu"></span></span>
+        <div class="picker-titles">
+          <h2 id="local-title">Local models</h2>
+          <p id="local-sub-title">Running on your own hardware · no key, no cost</p>
+        </div>
+        <button class="icon-btn" data-close="local" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="dlg-bar" id="local-bar"></div>
+      <div class="pv-body dlg-body ex-body" id="local-body"></div>
+      <div class="dlg-foot" id="local-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="stopall" hidden>
+    <div class="modal-card glass-strong sa-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="stopall-title">
+      <div class="picker-head">
+        <span class="picker-icon"><span data-icon="power"></span></span>
+        <div class="picker-titles">
+          <h2 id="stopall-title">Stop everything?</h2>
+          <p id="stopall-sub"></p>
+        </div>
+        <button class="icon-btn" data-close="stopall" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="sa-body" id="stopall-body"></div>
+      <div class="dlg-foot sa-foot" id="stopall-foot"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="folders" hidden>
+    <div class="modal-card glass-strong ext-card folders-card dlg-card" id="folders-card" role="dialog" aria-modal="true" aria-labelledby="folders-title">
+      <div class="picker-head">
+        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
+        <span class="picker-icon"><span data-icon="folder-open"></span></span>
+        <div class="picker-titles">
+          <h2 id="folders-title">Open a folder</h2>
+          <p id="folders-sub-title">Browse to a project — open it alongside this one, or move this chat there</p>
+        </div>
+        <button class="icon-btn" data-close="folders" type="button" aria-label="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="dlg-bar fd-bar" id="folders-bar"></div>
+      <div class="dlg-body fd-body" id="folders-body"></div>
+      <div class="dlg-foot fd-foot" id="folders-foot"></div>
     </div>
   </div>
 
@@ -1025,23 +1032,6 @@
         <span class="dlg-spacer"></span>
         <button class="btn btn-sm" id="shortcut-customize" type="button"><span data-icon="pencil"></span><span>Customize</span></button>
       </div>
-    </div>
-  </div>
-
-  <div class="modal" id="keymap" hidden>
-    <div class="modal-card glass-strong ext-card settings-card keymap-card dlg-card" role="dialog" aria-modal="true" aria-labelledby="keymap-title">
-      <div class="picker-head">
-        <button class="icon-btn dlg-back" type="button" hidden aria-label="Back"><span data-icon="arrow-left"></span></button>
-        <span class="picker-icon"><span data-icon="keyboard"></span></span>
-        <div class="picker-titles">
-          <h2 id="keymap-title">Keyboard shortcuts</h2>
-          <p>Click a shortcut to change it</p>
-        </div>
-        <button class="icon-btn" data-close="keymap" type="button" aria-label="Close"><span data-icon="x"></span></button>
-      </div>
-      <div class="dlg-bar" id="keymap-bar"></div>
-      <div class="pv-body dlg-body ex-body" id="keymap-body"></div>
-      <div class="dlg-foot" id="keymap-foot"></div>
     </div>
   </div>
 

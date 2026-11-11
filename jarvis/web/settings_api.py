@@ -31,6 +31,10 @@ SECTIONS: list[tuple[str, str]] = [
     ("web", "Web remote"),
 ]
 
+# The page's left nav draws one icon per section (static/js/icons.js names).
+SECTION_ICONS = {"chat": "message-circle", "sources": "sparkles", "subagents": "users",
+                 "terminal": "terminal", "web": "globe"}
+
 ITEMS: list[dict[str, Any]] = [
     {"key": "trace.on", "section": "chat", "label": "Show thinking",
      "desc": "The model's reasoning in the chat", "kind": "switch", "icon": "brain"},
@@ -154,7 +158,7 @@ def public() -> dict[str, Any]:
                 row["value"] = _default(it["key"])
             row["default"] = _default(it["key"])
             rows.append(row)
-        sections.append({"id": sid, "title": title, "items": rows})
+        sections.append({"id": sid, "title": title, "icon": SECTION_ICONS.get(sid, "settings"), "items": rows})
     return {"sections": sections, "file": str(SETTINGS_FILE)}
 
 

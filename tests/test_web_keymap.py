@@ -203,11 +203,15 @@ def test_block_comment_and_line_commands():
 def test_page_wires_the_keymap():
     html = (STATIC / "index.html").read_text()
     assert 'id="keymap"' in html and "/static/css/keymap.css" in html and 'id="shortcut-customize"' in html
+    # the editor is a pane of the Settings modal, not a dialog of its own
+    start = html.index('<div class="modal" id="settings"')
+    assert start < html.index('id="keymap"') < html.index('<div class="modal"', start + 1)
+    assert '<div class="modal" id="keymap"' not in html
     assert (STATIC / "css" / "keymap.css").is_file()
     app = (JS / "app.js").read_text()
     assert "initKeymapEditor" in app
     settings = (JS / "settings.js").read_text()
-    assert "openKeymap" in settings and "'keymap'" in settings
+    assert "setKeymapHost(" in settings and "openSettings('keymap')" in settings
     files = (JS / "files.js").read_text()
     assert "./editor_cmds.js" in files and "'edit.comment'" in files
     # Every id the code asks keymap.js about exists in its table.

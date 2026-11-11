@@ -2,7 +2,6 @@
 import { $, escapeHtml, storageGet, storageSet, reducedMotion, haptic } from './utils.js';
 import { icon } from './icons.js';
 import { patchStore } from './store.js';
-import { openModal } from './modal.js';
 import { api, hasToken } from './api.js';
 import { notifyLocal, pushActive } from './pwa.js';
 
@@ -664,7 +663,7 @@ function setThemePicker(on) {
   paintThemes();
 }
 
-function paintAppearance() {
+export function paintAppearance() {
   paintThemes();
   const modes = $('mode-grid');
   if (!modes) return;
@@ -792,9 +791,16 @@ function syncCustomAccent() {
   if (chip) chip.style.setProperty('--swatch', custom.swatch);
 }
 
+// Appearance is a section of the Settings dialog; settings.js (which imports
+// this file) registers how to open it, so there is no import cycle.
+let opener = null;
+export function setAppearanceOpener(fn) {
+  opener = fn;
+}
+
 export function openAppearance() {
   paintAppearance();
-  openModal('appearance');
+  opener?.();
 }
 
 export function initTheme() {

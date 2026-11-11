@@ -1,11 +1,10 @@
-/* Settings → Keyboard shortcuts (keymap_editor.js). Same card + rows as Settings
+/* Settings → Keyboard shortcuts (keymap_editor.js; the #keymap pane of the Settings
+ * dialog, see settings.css). Same card + rows as Settings
  * (settings.css: .set-group, .set-row, .set-text, .set-ctl, .set-reset):
  *   Label                                   [⌥ N ×]  [+]  ↺
  *   where it works · Default: …
  * A key is a chip (click → record), its × removes it; the recorder is the same
  * chip outlined in the accent; a warning / "Use here" line opens under the row. */
-
-.keymap-card.dlg-card { max-width: 720px; }
 
 .km-row {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -111,7 +110,7 @@
 .km-msg > span:not(.km-msg-acts) { flex: 1; min-width: 0; }
 .km-msg-acts { display: inline-flex; gap: 6px; margin-left: auto; }
 
-.keymap-card .km-reset-all .ic { width: 13px; height: 13px; }
+.km-reset-all .ic { width: 13px; height: 13px; }
 
 @media (max-width: 560px) {
   .km-row { grid-template-columns: minmax(0, 1fr); }

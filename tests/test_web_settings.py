@@ -55,6 +55,12 @@ def test_public_lists_every_setting_with_value_and_default():
             assert it["label"] and it["kind"] in ("switch", "number", "choice")
             assert it.get("icon"), f"{it['key']} has no icon"
             assert "value" in it and "default" in it
+    # the page's left nav draws one icon per section, all bundled in icons.js
+    icons_js = (STATIC / "js" / "icons.js").read_text()
+    bundled = set(json.loads(re.search(r"const ICONS = (\{.*\});", icons_js).group(1)))
+    for sec in pub["sections"]:
+        assert sec.get("icon"), f"section {sec['id']} has no icon"
+        assert sec["icon"] in bundled, f"section icon {sec['icon']!r} is not in icons.js"
     from jarvis.tui.theme import PALETTES
 
     themes = _row("theme")["options"]
@@ -204,6 +210,25 @@ def test_settings_opens_in_the_browser_with_a_gear():
     assert not re.search(r"<select[\s>]|<option", js.replace("native <select>", ""))
     assert '<div class="set-menu" id="set-menu" role="listbox" hidden>' in html
     assert "set-menu" in js and "data-pick" in js
+
+
+def test_settings_is_a_two_pane_modal_with_appearance_and_keymap_inside():
+    html = (STATIC / "index.html").read_text()
+    start = html.index('<div class="modal" id="settings"')
+    end = html.index('<div class="modal"', start + 1)
+    assert 'id="settings-nav"' in html[start:end]
+    for pane in ("appearance", "keymap"):
+        assert start < html.index(f'id="{pane}"') < end, f"#{pane} is not a pane of #settings"
+        assert f'<div class="modal" id="{pane}"' not in html  # no standalone dialog any more
+    js = (STATIC / "js" / "settings.js").read_text()
+    assert "export function showSection" in js and "export function openSettings" in js
+    assert "jarvis-settings-section" in js  # last section is remembered
+    # the two browser-side panes hand their host to settings.js, which opens them as sections
+    assert "export function setAppearanceOpener" in (STATIC / "js" / "theme.js").read_text()
+    km = (STATIC / "js" / "keymap_editor.js").read_text()
+    assert "export function setKeymapHost" in km and "export function paintKeymap" in km
+    assert "setAppearanceOpener(" in js and "setKeymapHost(" in js
+    assert "openSettings('appearance')" in js and "openSettings('keymap')" in js
 
 
 def test_sidebar_has_one_thinking_switch_pinned_below_the_sessions():

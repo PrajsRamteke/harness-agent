@@ -1,5 +1,7 @@
 /** Settings → Keyboard shortcuts: every shortcut (keymap.js), grouped, and a way to
- * change it. Saved in this browser (localStorage), like Appearance.
+ * change it. Saved in this browser (localStorage), like Appearance. It is a pane
+ * of the Settings dialog (`#keymap` inside `#settings`), not a dialog of its own:
+ * settings.js tells it where it lives (`setKeymapHost`) and when to paint.
  *
  *   [🔍 Search shortcuts or keys                                   ]
  *   CHAT
@@ -16,8 +18,8 @@
  */
 import { $, escapeHtml } from './utils.js';
 import { icon } from './icons.js';
-import { openModal, closeModal, isModalOpen, topModal } from './modal.js';
-import { toolbar, section, footer, empty, setView } from './dialog.js';
+import { topModal } from './modal.js';
+import { toolbar, section, footer, empty } from './dialog.js';
 import { patch } from './extui.js';
 import {
   ACTIONS, GROUPS, IS_MAC, actionOf, bindingsOf, defaultsOf, isCustomized, customizedCount, setBindings, resetBindings,
@@ -29,7 +31,13 @@ const SCOPE_NOTE = { editor: 'In the Files editor', files: 'In Files', commit: '
 
 let query = '';
 let rec = null;        // { id, i (index, -1 = add), msg, pending, conflicts, held }
-let onBack = null;     // opened from Settings: the back button returns there
+// Where the editor lives: `open()` shows its Settings section, `isShown()` says it is on screen.
+let host = { open: () => {}, isShown: () => false };
+
+/** settings.js: `{ open, isShown }`. */
+export function setKeymapHost(h) {
+  host = { ...host, ...h };
+}
 
 // ─── Markup ───────────────────────────────────────────────────────────────
 
@@ -133,7 +141,10 @@ function focusSel() {
 }
 
 function render() {
-  if (!isModalOpen(ID)) return;
+  if (!host.isShown()) {
+    rec = null; // recording never outlives the section being on screen
+    return;
+  }
   const keep = focusSel();
   patch($(`${ID}-body`), bodyHtml());
   patch($(`${ID}-foot`), footHtml());
@@ -152,7 +163,7 @@ function startRec(id, i) {
   render();
   $(`${ID}-body`)?.querySelector(`.km-row[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
   // The recorder takes the keys; keep focus inside the dialog (on the row's card).
-  $(ID)?.querySelector('.modal-card')?.focus({ preventScroll: true });
+  $('settings')?.querySelector('.modal-card')?.focus({ preventScroll: true });
 }
 
 function stopRec({ focus = true } = {}) {
@@ -215,7 +226,12 @@ const MODS = { Control: 'Ctrl', Meta: 'Meta', Alt: 'Alt', Shift: 'Shift' };
 
 /** Window, capture phase: ahead of every other shortcut on the page while recording. */
 function onRecKey(e) {
-  if (!rec || topModal() !== ID) return;
+  if (!rec) return;
+  if (!host.isShown()) {
+    rec = null;
+    return;
+  }
+  if (topModal() !== 'settings') return; // a dialog stacked on Settings owns the keys
   if (rec.pending) {
     // Answering "Use here / Cancel": Esc cancels, the rest is normal navigation.
     if (e.key === 'Escape') {
@@ -310,27 +326,23 @@ export function applyKeyHints(root = document) {
 
 // ─── Open / init ──────────────────────────────────────────────────────────
 
-/** `from: 'settings'` shows a back button (and Esc) that returns to Settings. */
-export function openKeymap({ back = null } = {}) {
+/** Show the Keyboard shortcuts section of Settings. */
+export function openKeymap() {
+  host.open();
+}
+
+/** The section was just shown: start from a clean list. */
+export function paintKeymap() {
   query = '';
   rec = null;
-  onBack = back;
   const search = $(`${ID}-search`);
   if (search) search.value = '';
-  openModal(ID, { focus: `${ID}-search`, onClose: () => { rec = null; onBack = null; } });
-  if (back) {
-    setView(ID, {
-      title: 'Keyboard shortcuts',
-      sub: 'Click a shortcut to change it',
-      backLabel: 'Settings',
-      back: () => {
-        const fn = onBack;
-        closeModal(ID);
-        fn?.();
-      },
-    });
-  }
   render();
+}
+
+/** The section went away (another section, a search, Settings closed): stop recording. */
+export function leaveKeymap() {
+  rec = null;
 }
 
 export function initKeymapEditor() {
@@ -342,8 +354,8 @@ export function initKeymapEditor() {
     render();
   });
   $(ID)?.addEventListener('click', onClick);
-  // A click outside the row being recorded cancels it.
-  $(ID)?.addEventListener('pointerdown', (e) => {
+  // A click outside the row being recorded cancels it (anywhere in Settings: the nav, the header).
+  $('settings')?.addEventListener('pointerdown', (e) => {
     if (rec && !e.target.closest?.('.km-row.is-rec')) stopRec({ focus: false });
   });
   window.addEventListener('keydown', onRecKey, true);

@@ -1,38 +1,50 @@
-/** Settings — the web /settings: every Jarvis setting as a switch, stepper or choice.
+/** Settings — the web /settings: one two-pane dialog.
  *
- *   [🔍 Search settings                                    ]
- *   MODEL          Model      gpt-6-luna                    Change ›
- *                  Thinking   [ High ▾ ]
- *   CHAT           Show thinking                              [●]
- *   …              At once    [ − 20 + ]                       ↺
- *   ──────────────────────────────────────────────────────────────────
- *   📄 ~/.config/harness-agent/settings.json                    esc close
+ *   ┌ ⚙ Settings ·················································· × ┐
+ *   │ [🔍 Search ]  │  Chat                                          │
+ *   │  Model        │  ┌──────────────────────────────────────────┐  │
+ *   │ ▌Chat         │  │ Show thinking                        [●] │  │
+ *   │  Agents …     │  │ Auto-approve commands                [ ] │  │
+ *   │  Terminal     │  └──────────────────────────────────────────┘  │
+ *   │  ─ This browser                                                │
+ *   │  Appearance   │                                                │
+ *   │  Keyboard     │                                                │
+ *   ├───────────────┴────────────────────────────────────────────────┤
+ *   │ 📄 Saved for every chat · ~/.config/harness-agent/settings.json │
+ *   └────────────────────────────────────────────────────────────────┘
  *
- * Model / provider / agent / thinking / appearance come from the session state
- * and open the existing pickers; everything else is `GET /api/settings/all`
- * (jarvis/web/settings_api.py) and saves one key at a time on the terminal's
- * thread, which repaints what it shows (theme, pet, QR …). Show thinking and
- * auto-approve go through `setSetting`, like the sidebar switches, so the
- * transcript and every switch follow at once. Opened by /settings, ⌘K
- * "Settings" or the gear in the sidebar header.
+ * The left nav picks a section: Model (session state — model / provider /
+ * agent / thinking open the existing pickers), every section of
+ * `GET /api/settings/all` (jarvis/web/settings_api.py: switches, steppers,
+ * choices that save one key at a time on the terminal's thread, which repaints
+ * what it shows — theme, pet, QR …), then, under "This browser", Appearance
+ * (theme.js) and Keyboard shortcuts (keymap_editor.js), whose markup lives in
+ * the dialog as panes (#appearance, #keymap) and which paint themselves when
+ * shown. Typing in the search shows matching rows from every section instead.
+ * Show thinking and auto-approve go through `setSetting`, like the sidebar
+ * switches, so the transcript and every switch follow at once. Opened by
+ * /settings, /theme, ⌘K, the gear in the sidebar header; `openSettings('chat')`
+ * picks the section, a bare call reopens the last one.
  */
-import { $, escapeHtml, showToast } from './utils.js';
+import { $, escapeHtml, showToast, storageGet, storageSet } from './utils.js';
 import { icon } from './icons.js';
 import { brandSlug } from './brands.js';
 import { store, subscribe } from './store.js';
 import { openModal, closeModal, isModalOpen } from './modal.js';
 import { fetchSettingsAll, settingsPost } from './api.js';
 import { patch } from './extui.js';
-import { toolbar, section, footer, empty } from './dialog.js';
+import { toolbar, section, footer, empty, arrowRows } from './dialog.js';
 import { effortRows } from './effort.js';
 import { setSetting, setEffort, runAction } from './actions.js';
-import { openAppearance } from './theme.js';
-import { openKeymap } from './keymap_editor.js';
+import { paintAppearance, setAppearanceOpener } from './theme.js';
+import { paintKeymap, leaveKeymap, setKeymapHost } from './keymap_editor.js';
 import { customizedCount, onKeymapChange } from './keymap.js';
 
 let data = null; // last /api/settings/all
 let loadError = false;
 let query = '';
+let active = 'model'; // the section on the right
+let shownPane = null; // 'body' | 'appearance' | 'keymap': what is on screen now
 let openPicker = () => {};
 const saving = new Set(); // keys with a request in flight
 
@@ -74,46 +86,62 @@ function currentEffort() {
   return store.session.think_mode ? store.session.think_effort || 'high' : 'none';
 }
 
-/** Rows built from the session state: `{ label, desc, icon, control, keys }`. */
-function clientSections() {
+/** The Model section's rows, built from the session state: `{ label, desc, icon, control, keys }`. */
+function modelRows() {
   const s = store.session;
-  const go = (picker, label = 'Change') => `<button type="button" class="row-btn set-go" data-act="open" data-picker="${picker}">${escapeHtml(label)}${icon('chevron-right')}</button>`;
+  const go = (picker, label = 'Change') => goBtn(picker, label);
   return [
+    { label: 'Model', desc: shortModel(s.model), icon: 'cpu', control: go('model'), keys: 'model llm switch' },
+    { label: 'Provider', desc: s.provider || 'Not set', icon: brandSlug(s.provider) ? `brand:${s.provider}` : 'plug', control: go('provider'), keys: 'provider login key api account' },
+    { label: 'Agent', desc: s.agent || 'No agent', icon: 'sparkles', control: go('agent'), keys: 'agent persona mode' },
     {
-      title: 'Model',
-      rows: [
-        { label: 'Model', desc: shortModel(s.model), icon: 'cpu', control: go('model'), keys: 'model llm switch' },
-        { label: 'Provider', desc: s.provider || 'Not set', icon: brandSlug(s.provider) ? `brand:${s.provider}` : 'plug', control: go('provider'), keys: 'provider login key api account' },
-        { label: 'Agent', desc: s.agent || 'No agent', icon: 'sparkles', control: go('agent'), keys: 'agent persona mode' },
-        {
-          label: 'Thinking effort', desc: s.think?.summary || 'How hard the model thinks', icon: 'brain',
-          control: pickHtml('effort', 'Thinking effort', effortChoices().find((o) => o.value === currentEffort())),
-          keys: 'thinking effort reasoning think level',
-        },
-        {
-          label: 'Commit text model',
-          desc: sideModelDesc(s),
-          icon: 'git-branch',
-          control: pickHtml('side_model', 'Commit text model', { label: sideModelLabel(s) }),
-          keys: 'commit git stash pr title description branch text side model cheap fast',
-        },
-      ],
+      label: 'Thinking effort', desc: s.think?.summary || 'How hard the model thinks', icon: 'brain',
+      control: pickHtml('effort', 'Thinking effort', effortChoices().find((o) => o.value === currentEffort())),
+      keys: 'thinking effort reasoning think level',
     },
     {
-      title: 'This browser',
-      rows: [
-        { label: 'Appearance', desc: 'Theme, accent colour, glass', icon: 'palette', control: go('appearance', 'Open'), keys: 'appearance theme dark light accent colour color glass' },
-        {
-          label: 'Keyboard shortcuts',
-          desc: keymapDesc(),
-          icon: 'keyboard',
-          control: go('keymap', 'Open'),
-          keys: 'keyboard shortcuts hotkeys keys keybindings bindings remap shortcut key comment editor',
-        },
-      ],
+      label: 'Commit text model',
+      desc: sideModelDesc(s),
+      icon: 'git-branch',
+      control: pickHtml('side_model', 'Commit text model', { label: sideModelLabel(s) }),
+      keys: 'commit git stash pr title description branch text side model cheap fast',
     },
   ];
 }
+
+const goBtn = (picker, label = 'Change') => `<button type="button" class="row-btn set-go" data-act="open" data-picker="${picker}">${escapeHtml(label)}${icon('chevron-right')}</button>`;
+
+// ─── Sections ─────────────────────────────────────────────────────────────
+
+const MODEL_SECTION = { id: 'model', title: 'Model', icon: 'cpu', sub: 'The model, provider and agent for this chat' };
+// Sections the server sends (settings_api.SECTIONS), drawn before the first answer arrives.
+const SERVER_FALLBACK = [
+  { id: 'chat', title: 'Chat', icon: 'message-circle' },
+  { id: 'sources', title: 'Agents, skills & tools', icon: 'sparkles' },
+  { id: 'subagents', title: 'Parallel agents', icon: 'users' },
+  { id: 'terminal', title: 'Terminal', icon: 'terminal' },
+  { id: 'web', title: 'Web remote', icon: 'globe' },
+];
+const SECTION_SUBS = {
+  chat: 'How replies, approvals and pinned context behave',
+  sources: 'Where agents, skills, commands and MCP servers are read from',
+  subagents: 'Let Jarvis split big tasks across helpers',
+  terminal: 'The terminal app: theme, pet and notifications',
+  web: 'The connect QR and the Anywhere link',
+};
+// "This browser": panes of this dialog, saved in localStorage rather than settings.json.
+const BROWSER_SECTIONS = [
+  { id: 'appearance', title: 'Appearance', icon: 'palette', sub: 'Theme, accent colour, glass', keys: 'appearance theme dark light accent colour color glass' },
+  { id: 'keymap', title: 'Keyboard shortcuts', icon: 'keyboard', keys: 'keyboard shortcuts hotkeys keys keybindings bindings remap shortcut key comment editor' },
+];
+const LAST_SECTION = 'jarvis-settings-section';
+
+function serverSections() {
+  return (data?.sections || SERVER_FALLBACK).map((x) => ({ id: x.id, title: x.title, icon: x.icon || 'settings', sub: SECTION_SUBS[x.id] || '' }));
+}
+
+const allSections = () => [MODEL_SECTION, ...serverSections(), ...BROWSER_SECTIONS];
+const sectionOf = (id) => allSections().find((x) => x.id === id) || null;
 
 function keymapDesc() {
   const n = customizedCount();
@@ -309,18 +337,50 @@ function serverRow(it) {
 
 const matches = (...texts) => !query || texts.join(' ').toLowerCase().includes(query);
 
+/** The search's way into "This browser": rows that jump to the pane. */
+function browserRows() {
+  return BROWSER_SECTIONS.map((x) => ({
+    label: x.title,
+    desc: x.id === 'keymap' ? keymapDesc() : x.sub,
+    icon: x.icon,
+    control: goBtn(x.id, 'Open'),
+    keys: x.keys,
+  }));
+}
+
+const rowsOut = (rows) => rows.map((r) => rowHtml({ label: r.label, desc: r.desc, ic: r.icon, control: r.control })).join('');
+
+function paneHead(sec) {
+  return `<div class="set-pane-head"><h3 class="set-pane-title">${escapeHtml(sec.title)}</h3>${sec.sub ? `<p class="set-pane-desc">${escapeHtml(sec.sub)}</p>` : ''}</div>`;
+}
+
+/** The right pane for a Model / server section, or the cross-section results while searching. */
 function bodyHtml() {
-  const groups = [];
-  for (const g of clientSections()) {
-    const rows = g.rows.filter((r) => matches(g.title, r.label, r.desc, r.keys));
-    if (rows.length) groups.push({ title: g.title, html: rows.map((r) => rowHtml({ label: r.label, desc: r.desc, ic: r.icon, control: r.control })).join('') });
+  if (query) return resultsHtml();
+  const sec = sectionOf(active) || MODEL_SECTION;
+  let rows = '';
+  if (sec.id === 'model') rows = rowsOut(modelRows());
+  else {
+    const mine = data?.sections.find((x) => x.id === sec.id);
+    if (mine) rows = mine.items.map(serverRow).join('');
+    else if (loadError && !data) return paneHead(sec) + empty('Couldn’t load these settings', 'Check the connection to Jarvis.', { ic: 'wifi-off' });
+    else return `${paneHead(sec)}<div class="skeleton"></div><div class="skeleton"></div>`;
   }
+  return `${paneHead(sec)}<div class="set-group">${rows}</div>`;
+}
+
+function resultsHtml() {
+  const groups = [];
+  const mine = modelRows().filter((r) => matches(MODEL_SECTION.title, r.label, r.desc, r.keys));
+  if (mine.length) groups.push({ title: MODEL_SECTION.title, html: rowsOut(mine) });
   if (data) {
     for (const sec of data.sections) {
       const rows = sec.items.filter((it) => matches(sec.title, it.label, it.desc, it.key));
       if (rows.length) groups.push({ title: sec.title, html: rows.map(serverRow).join('') });
     }
   }
+  const jumps = browserRows().filter((r) => matches('This browser', r.label, r.desc, r.keys));
+  if (jumps.length) groups.push({ title: 'This browser', html: rowsOut(jumps) });
   let html = groups.map((g) => `${section(g.title)}<div class="set-group">${g.html}</div>`).join('');
   if (!data && loadError) html += empty('Couldn’t load the other settings', 'Check the connection to Jarvis.', { ic: 'wifi-off' });
   else if (!data) html += '<div class="skeleton"></div><div class="skeleton"></div>';
@@ -341,14 +401,114 @@ function focusKey() {
   return '';
 }
 
+// ─── Nav ──────────────────────────────────────────────────────────────────
+
+function navItemHtml(sec) {
+  const on = !query && sec.id === active;
+  const n = sec.id === 'keymap' ? customizedCount() : 0;
+  const badge = n ? `<span class="set-nav-badge" title="${n} changed" aria-label="${n} changed">${n}</span>` : '';
+  return `<button type="button" class="set-nav-item" data-section="${sec.id}"${on ? ' aria-current="page"' : ''}>${icon(sec.icon)}<span class="sn-label">${escapeHtml(sec.title)}</span>${badge}</button>`;
+}
+
+function navHtml() {
+  return `${[MODEL_SECTION, ...serverSections()].map(navItemHtml).join('')}
+    <div class="set-nav-sep" role="separator"><span>This browser</span></div>
+    ${BROWSER_SECTIONS.map(navItemHtml).join('')}`;
+}
+
+function paintNav() {
+  const list = $('settings-nav-list');
+  if (!list) return;
+  const keep = document.activeElement?.closest?.('.set-nav-item')?.dataset.section;
+  patch(list, navHtml());
+  if (keep && !list.contains(document.activeElement)) list.querySelector(`[data-section="${CSS.escape(keep)}"]`)?.focus({ preventScroll: true });
+}
+
+/** Phones show the nav as a chip strip: bring the active chip into view. */
+function revealActiveNav() {
+  $('settings-nav-list')?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+
+// ─── Panes ────────────────────────────────────────────────────────────────
+
+/** Which pane is on screen: the search always shows the results. */
+const paneNow = () => (!query && (active === 'appearance' || active === 'keymap') ? active : 'body');
+
+const paneEl = (pane) => $(pane === 'body' ? 'settings-body' : pane);
+
+function paintPanes() {
+  const pane = paneNow();
+  if (pane === shownPane) return;
+  const before = shownPane;
+  shownPane = pane;
+  for (const id of ['body', 'appearance', 'keymap']) {
+    const el = paneEl(id);
+    if (el) el.hidden = id !== pane;
+  }
+  // Recording stops when the keyboard pane goes away; the embedded panes paint when they come.
+  if (before === 'keymap') leaveKeymap();
+  if (pane === 'appearance') paintAppearance();
+  else if (pane === 'keymap') paintKeymap();
+}
+
+function paintFoot() {
+  const foot = $('settings-foot');
+  if (!foot) return;
+  // The keyboard pane has its own footer (count + Reset all). Emptied as well as
+  // hidden: `.dlg-foot:empty` is what hides a footer whatever its display rule.
+  foot.hidden = shownPane === 'keymap';
+  if (foot.hidden) {
+    patch(foot, '');
+    return;
+  }
+  const file = data?.file ? escapeHtml(data.file.replace(/^\/(Users|home)\/[^/]+/, '~')) : 'settings.json';
+  let note = 'Changes apply right away';
+  let noteIc = 'settings';
+  if (!query) {
+    if (active === 'model') {
+      note = 'Applies to this chat';
+      noteIc = 'message-circle';
+    } else if (active === 'appearance') {
+      note = 'Saved in this browser';
+      noteIc = 'monitor';
+    } else {
+      note = `Saved for every chat · <code>${file}</code>`;
+      noteIc = 'file';
+    }
+  }
+  patch(foot, footer({ note, noteIc, hints: [['esc', 'close']] }));
+}
+
 function render() {
   const keep = focusKey();
+  paintNav();
+  paintPanes();
   patch($('settings-body'), bodyHtml());
   if (keep && !$('settings-body').contains(document.activeElement)) {
     $('settings-body').querySelector(keep)?.focus({ preventScroll: true });
   }
-  const file = data?.file ? escapeHtml(data.file.replace(/^\/(Users|home)\/[^/]+/, '~')) : 'settings.json';
-  patch($('settings-foot'), footer({ note: `Saved for every chat · <code>${file}</code>`, noteIc: 'file', hints: [['esc', 'close']] }));
+  paintFoot();
+}
+
+/** Show a section on the right. Clears a typed search; nothing closes. */
+export function showSection(id) {
+  active = sectionOf(id) ? id : 'model';
+  storageSet(LAST_SECTION, active);
+  if (query) {
+    query = '';
+    const search = $('settings-search');
+    if (search) search.value = '';
+  }
+  closeMenu({ focus: false });
+  render();
+  const pane = paneEl(paneNow());
+  if (pane) {
+    pane.scrollTop = 0;
+    pane.classList.remove('is-in');
+    void pane.offsetWidth; // restart the fade
+    pane.classList.add('is-in');
+  }
+  revealActiveNav();
 }
 
 // ─── Saving ───────────────────────────────────────────────────────────────
@@ -393,9 +553,15 @@ function commitNumber(input) {
 }
 
 function onClick(e) {
+  if (e.target.closest('#keymap')) return; // the keyboard editor handles its own buttons
   const opt = e.target.closest('.set-opt');
   if (opt && menu) {
     if (opt.getAttribute('aria-disabled') !== 'true') pickValue(menu.key, opt.dataset.val);
+    return;
+  }
+  const nav = e.target.closest('.set-nav-item');
+  if (nav) {
+    showSection(nav.dataset.section);
     return;
   }
   const btn = e.target.closest('[data-act]');
@@ -409,11 +575,13 @@ function onClick(e) {
   }
   if (act === 'open') {
     const picker = btn.dataset.picker;
+    // Appearance and Keyboard shortcuts are sections of this dialog; the rest are their own dialogs.
+    if (picker === 'appearance' || picker === 'keymap') {
+      showSection(picker);
+      return;
+    }
     closeModal('settings');
-    // Keyboard shortcuts: its back button (and Esc) come back here.
-    if (picker === 'keymap') openKeymap({ back: openSettings });
-    else if (picker === 'appearance') openAppearance();
-    else openPicker(picker);
+    openPicker(picker);
   } else if (act === 'step') {
     const it = findItem(btn.dataset.key);
     if (it) save(it.key, Math.min(it.max, Math.max(it.min, Number(it.value) + Number(btn.dataset.step))));
@@ -448,24 +616,57 @@ function onKey(e) {
 
 // ─── Open / init ──────────────────────────────────────────────────────────
 
-export function openSettings() {
+/** ↑ ↓ (← → on the chip strip) walk the nav; from the search ↓ lands on the first section. */
+function onNavKey(e) {
+  const items = [...($('settings-nav-list')?.querySelectorAll('.set-nav-item') || [])];
+  if (arrowRows(e, $('settings-search'), items)) return;
+  if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.target.classList?.contains('set-nav-item')) {
+    const next = items[items.indexOf(e.target) + (e.key === 'ArrowRight' ? 1 : -1)];
+    if (next) {
+      e.preventDefault();
+      next.focus();
+    }
+  }
+}
+
+/** `section` (a string) picks that section; anything else (no argument, a click event)
+ *  reopens the last one. An unknown id falls back to Model. */
+export function openSettings(section) {
+  const want = typeof section === 'string' ? section : storageGet(LAST_SECTION) || 'model';
   query = '';
   const search = $('settings-search');
   if (search) search.value = '';
-  render();
-  openModal('settings', { focus: 'settings-search', onClose: () => closeMenu({ focus: false }) });
+  active = sectionOf(want) ? want : 'model';
+  shownPane = null; // the embedded panes paint again on every open
+  openModal('settings', {
+    focus: 'settings-search',
+    onClose: () => {
+      closeMenu({ focus: false });
+      leaveKeymap();
+      shownPane = null;
+    },
+  });
+  showSection(active);
   load();
 }
 
 export function initSettings({ onOpenPicker } = {}) {
   if (onOpenPicker) openPicker = onOpenPicker;
+  // Appearance and the keyboard editor are panes of this dialog.
+  setAppearanceOpener(() => openSettings('appearance'));
+  setKeymapHost({
+    open: () => openSettings('keymap'),
+    isShown: () => isModalOpen('settings') && shownPane === 'keymap',
+  });
   const bar = $('settings-bar');
   if (bar) bar.innerHTML = toolbar({ id: 'settings-search', placeholder: 'Search settings', kbd: false });
   $('settings-search')?.addEventListener('input', (e) => {
     query = e.target.value.trim().toLowerCase();
     closeMenu({ focus: false });
     render();
+    $('settings-body').scrollTop = 0;
   });
+  $('settings-nav')?.addEventListener('keydown', onNavKey);
   const card = $('settings');
   card?.addEventListener('click', onClick);
   card?.addEventListener('change', onChange);
