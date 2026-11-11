@@ -74,7 +74,9 @@ KIND_OPENAI = "openai"
 
 
 def enabled() -> bool:
-    return os.getenv("HARNESS_LOCAL_MODELS", "1").strip() != "0"
+    from ..storage.settings import env_flag
+
+    return env_flag("HARNESS_LOCAL_MODELS", "models.local")
 
 
 def is_local_provider(provider: str | None) -> bool:

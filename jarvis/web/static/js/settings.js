@@ -60,7 +60,12 @@ async function load() {
   } catch {
     if (!data) loadError = true;
   }
-  if (isModalOpen('settings')) render();
+  // The section asked for before the list arrived (the page was just loaded and
+  // the last one used was a server-driven one): go there now.
+  const want = pending;
+  pending = null;
+  if (isModalOpen('settings') && want && sectionOf(want)) showSection(want);
+  else if (isModalOpen('settings')) render();
 }
 
 /** Another page or the terminal changed a setting. */
@@ -117,13 +122,19 @@ const MODEL_SECTION = { id: 'model', title: 'Model', icon: 'cpu', sub: 'The mode
 // Sections the server sends (settings_api.SECTIONS), drawn before the first answer arrives.
 const SERVER_FALLBACK = [
   { id: 'chat', title: 'Chat', icon: 'message-circle' },
+  { id: 'catalogs', title: 'Catalogs & caching', icon: 'database' },
   { id: 'sources', title: 'Agents, skills & tools', icon: 'sparkles' },
   { id: 'subagents', title: 'Parallel agents', icon: 'users' },
+  { id: 'notifications', title: 'Notifications', icon: 'bell' },
+  { id: 'uploads', title: 'Uploads', icon: 'paperclip' },
   { id: 'terminal', title: 'Terminal', icon: 'terminal' },
   { id: 'web', title: 'Web remote', icon: 'globe' },
 ];
 const SECTION_SUBS = {
   chat: 'How replies, approvals and pinned context behave',
+  catalogs: 'Where model lists come from, and how requests are cached',
+  notifications: 'Alerts on your phone or this computer, even with the page closed',
+  uploads: 'Attachments you add to a message',
   sources: 'Where agents, skills, commands and MCP servers are read from',
   subagents: 'Let Jarvis split big tasks across helpers',
   terminal: 'The terminal app: theme, pet and notifications',
@@ -135,6 +146,7 @@ const BROWSER_SECTIONS = [
   { id: 'keymap', title: 'Keyboard shortcuts', icon: 'keyboard', keys: 'keyboard shortcuts hotkeys keys keybindings bindings remap shortcut key comment editor' },
 ];
 const LAST_SECTION = 'jarvis-settings-section';
+let pending = null; // a server-driven section asked for before its list arrived
 
 function serverSections() {
   return (data?.sections || SERVER_FALLBACK).map((x) => ({ id: x.id, title: x.title, icon: x.icon || 'settings', sub: SECTION_SUBS[x.id] || '' }));
@@ -151,15 +163,16 @@ function keymapDesc() {
 function controlFor(it) {
   const v = valueOf(it);
   const busy = saving.has(it.key);
+  const off = it.locked ? ' disabled' : '';
   if (it.kind === 'switch') {
-    return `<input type="checkbox" class="switch${busy ? ' is-pending' : ''}" role="switch" data-key="${escapeHtml(it.key)}" aria-label="${escapeHtml(it.label)}"${v ? ' checked' : ''}>`;
+    return `<input type="checkbox" class="switch${busy ? ' is-pending' : ''}" role="switch" data-key="${escapeHtml(it.key)}" aria-label="${escapeHtml(it.label)}"${v ? ' checked' : ''}${off}>`;
   }
   if (it.kind === 'number') {
     const step = it.step || 1;
     return `<span class="set-num">
-      <button type="button" class="set-step" data-act="step" data-key="${escapeHtml(it.key)}" data-step="${-step}" aria-label="Less"${v <= it.min ? ' disabled' : ''}>${icon('minus')}</button>
-      <input type="number" inputmode="numeric" class="set-num-in" data-key="${escapeHtml(it.key)}" value="${escapeHtml(String(v))}" min="${it.min}" max="${it.max}" step="${step}" aria-label="${escapeHtml(it.label)}">
-      <button type="button" class="set-step" data-act="step" data-key="${escapeHtml(it.key)}" data-step="${step}" aria-label="More"${v >= it.max ? ' disabled' : ''}>${icon('plus')}</button>
+      <button type="button" class="set-step" data-act="step" data-key="${escapeHtml(it.key)}" data-step="${-step}" aria-label="Less"${v <= it.min || it.locked ? ' disabled' : ''}>${icon('minus')}</button>
+      <input type="number" inputmode="numeric" class="set-num-in" data-key="${escapeHtml(it.key)}" value="${escapeHtml(String(v))}" min="${it.min}" max="${it.max}" step="${step}" aria-label="${escapeHtml(it.label)}"${off}>
+      <button type="button" class="set-step" data-act="step" data-key="${escapeHtml(it.key)}" data-step="${step}" aria-label="More"${v >= it.max || it.locked ? ' disabled' : ''}>${icon('plus')}</button>
       ${it.unit ? `<span class="set-unit">${escapeHtml(it.unit)}</span>` : ''}
     </span>`;
   }
@@ -316,23 +329,26 @@ function onMenuKey(e) {
   opts[next].scrollIntoView({ block: 'nearest' });
 }
 
-function rowHtml({ label, desc, ic, control, extra = '', changed = '' }) {
-  return `<div class="set-row">
+function rowHtml({ label, desc, ic, control, extra = '', changed = '', locked = '' }) {
+  const pin = locked
+    ? `<span class="set-pinned" title="Unset ${escapeHtml(locked)} to change this here">${icon('lock')}Pinned by <code>${escapeHtml(locked)}</code></span>`
+    : '';
+  return `<div class="set-row${locked ? ' is-locked' : ''}">
     <span class="set-ic">${ic ? icon(ic) : ''}</span>
-    <span class="set-text"><strong>${escapeHtml(label)}</strong>${desc ? `<span>${escapeHtml(desc)}</span>` : ''}</span>
+    <span class="set-text"><strong>${escapeHtml(label)}</strong>${desc ? `<span>${escapeHtml(desc)}</span>` : ''}${pin}</span>
     <span class="set-ctl">${changed}${extra}${control}</span>
   </div>`;
 }
 
 function serverRow(it) {
   const v = valueOf(it);
-  const changed = it.kind !== 'switch' && it.default !== null && v !== it.default
+  const changed = !it.locked && it.kind !== 'switch' && it.default !== null && v !== it.default
     ? `<button type="button" class="row-btn is-icon set-reset" data-act="reset" data-key="${escapeHtml(it.key)}" title="Back to the default (${escapeHtml(String(it.default))})" aria-label="Reset ${escapeHtml(it.label)}">${icon('rotate-ccw')}</button>`
     : '';
   const extra = it.link
     ? `<button type="button" class="row-btn set-go" data-act="open" data-picker="${escapeHtml(it.link.picker)}">${escapeHtml(it.link.label)}${icon('chevron-right')}</button>`
     : '';
-  return rowHtml({ label: it.label, desc: it.desc, ic: it.icon || '', control: controlFor(it), extra, changed });
+  return rowHtml({ label: it.label, desc: it.desc, ic: it.icon || '', control: controlFor(it), extra, changed, locked: it.locked || '' });
 }
 
 const matches = (...texts) => !query || texts.join(' ').toLowerCase().includes(query);
@@ -491,9 +507,12 @@ function render() {
 }
 
 /** Show a section on the right. Clears a typed search; nothing closes. */
-export function showSection(id) {
+export function showSection(id, { remember = true } = {}) {
   active = sectionOf(id) ? id : 'model';
-  storageSet(LAST_SECTION, active);
+  if (remember) {
+    pending = null; // a choice made now beats one waiting for the list
+    storageSet(LAST_SECTION, active);
+  }
   if (query) {
     query = '';
     const search = $('settings-search');
@@ -637,6 +656,9 @@ export function openSettings(section) {
   const search = $('settings-search');
   if (search) search.value = '';
   active = sectionOf(want) ? want : 'model';
+  // Not known yet (the settings list is still loading): wait for it instead of
+  // dropping to Model and forgetting where the user was.
+  pending = !sectionOf(want) && !data && want !== 'model' ? want : null;
   shownPane = null; // the embedded panes paint again on every open
   openModal('settings', {
     focus: 'settings-search',
@@ -646,7 +668,7 @@ export function openSettings(section) {
       shownPane = null;
     },
   });
-  showSection(active);
+  showSection(active, { remember: !pending });
   load();
 }
 

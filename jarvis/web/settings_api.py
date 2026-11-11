@@ -16,6 +16,7 @@ builds those rows from the session state and opens the existing pickers.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from .. import state
@@ -25,15 +26,18 @@ from ..storage.settings import DEFAULTS, SETTINGS_FILE, get_settings
 # "session.*" keys live only in this run (never written to settings.json).
 SECTIONS: list[tuple[str, str]] = [
     ("chat", "Chat"),
+    ("catalogs", "Catalogs & caching"),
     ("sources", "Agents, skills & tools"),
     ("subagents", "Parallel agents"),
+    ("notifications", "Notifications"),
+    ("uploads", "Uploads"),
     ("terminal", "Terminal"),
     ("web", "Web remote"),
 ]
 
 # The page's left nav draws one icon per section (static/js/icons.js names).
-SECTION_ICONS = {"chat": "message-circle", "sources": "sparkles", "subagents": "users",
-                 "terminal": "terminal", "web": "globe"}
+SECTION_ICONS = {"chat": "message-circle", "catalogs": "database", "sources": "sparkles", "subagents": "users",
+                 "notifications": "bell", "uploads": "paperclip", "terminal": "terminal", "web": "globe"}
 
 ITEMS: list[dict[str, Any]] = [
     {"key": "trace.on", "section": "chat", "label": "Show thinking",
@@ -43,6 +47,20 @@ ITEMS: list[dict[str, Any]] = [
     {"key": "pin.enabled", "section": "chat", "label": "Pinned context",
      "desc": "Send your pinned rules with every message", "kind": "switch", "icon": "pin",
      "link": {"picker": "pin", "label": "Edit"}},
+
+    {"key": "models.prompt_cache", "section": "catalogs", "label": "Prompt caching",
+     "desc": "Reuse the unchanged start of each request (Anthropic, OpenRouter Claude): faster and cheaper",
+     "kind": "switch", "icon": "zap", "env": "HARNESS_PROMPT_CACHE"},
+    {"key": "models.catalog", "section": "catalogs", "label": "models.dev catalog",
+     "desc": "Hundreds of extra providers and models, prices and vision support (refreshed in the background)",
+     "kind": "switch", "icon": "database", "env": "HARNESS_MODELS_DEV"},
+    {"key": "models.local", "section": "catalogs", "label": "Local models",
+     "desc": "Look for Ollama, LM Studio and other servers on this computer",
+     "kind": "switch", "icon": "cpu", "env": "HARNESS_LOCAL_MODELS",
+     "link": {"picker": "local", "label": "Manage"}},
+    {"key": "models.openrouter_usage", "section": "catalogs", "label": "OpenRouter spend",
+     "desc": "Show what your OpenRouter key has used and what is left",
+     "kind": "switch", "icon": "gauge", "env": "HARNESS_OPENROUTER_USAGE"},
 
     {"key": "agent.global", "section": "sources", "label": "Global agents",
      "desc": "Agents from ~/.harness, ~/.claude, ~/.cursor …", "kind": "switch", "icon": "sparkles"},
@@ -66,10 +84,27 @@ ITEMS: list[dict[str, Any]] = [
     {"key": "subagents.timeout_min", "section": "subagents", "label": "Time limit",
      "desc": "Minutes per helper", "kind": "number", "min": 1, "max": 120, "unit": "min", "icon": "timer"},
 
+    {"key": "notify.push", "section": "notifications", "label": "Push notifications",
+     "desc": "Alert subscribed devices when a long reply finishes or Jarvis needs you, even with the page closed",
+     "kind": "switch", "icon": "bell-ring", "env": "HARNESS_WEB_PUSH"},
+    {"key": "notify.push_min_seconds", "section": "notifications", "label": "Only after",
+     "desc": "Shortest reply that sends an alert (0 = every reply)", "kind": "number", "min": 0, "max": 3600,
+     "step": 5, "unit": "sec", "icon": "hourglass", "env": "HARNESS_PUSH_MIN_SECONDS"},
+
+    {"key": "uploads.max_mb", "section": "uploads", "label": "Largest file",
+     "desc": "Attachments bigger than this are refused", "kind": "number", "min": 1, "max": 500, "step": 10,
+     "unit": "MB", "icon": "paperclip", "env": "HARNESS_UPLOAD_MAX_MB"},
+    {"key": "uploads.keep_days", "section": "uploads", "label": "Keep sent files",
+     "desc": "Attachments you sent are deleted from this computer after this long", "kind": "number",
+     "min": 1, "max": 365, "unit": "days", "icon": "archive", "env": "HARNESS_UPLOAD_KEEP_DAYS"},
+
     {"key": "theme", "section": "terminal", "label": "Terminal theme",
      "desc": "Colours of the terminal app", "kind": "choice", "icon": "palette"},
     {"key": "ui.sticky_prompt", "section": "terminal", "label": "Sticky prompt",
      "desc": "Pin your prompt above its reply while you scroll", "kind": "switch", "icon": "pin"},
+    {"key": "ui.mouse", "section": "terminal", "label": "Mouse in the terminal",
+     "desc": "Wheel scroll and click. Off gives your terminal's own text selection (next start)",
+     "kind": "switch", "icon": "terminal", "env": "HARNESS_MOUSE"},
     {"key": "pet.enabled", "section": "terminal", "label": "Pet",
      "desc": "Your buddy in the sidebar", "kind": "switch", "icon": "cat"},
     {"key": "pet.nudges", "section": "terminal", "label": "Pet nudges",
@@ -113,7 +148,21 @@ def _default(key: str) -> Any:
     return cur
 
 
+def _env_pinned(item: dict[str, Any] | None) -> str:
+    """The environment variable that pins this setting right now, or ``""``."""
+    env = (item or {}).get("env") or ""
+    return env if env and os.environ.get(env, "").strip() else ""
+
+
 def _value(key: str) -> Any:
+    item = _BY_KEY.get(key)
+    if _env_pinned(item):
+        from ..storage.settings import env_flag, env_number
+
+        if item["kind"] == "switch":
+            return env_flag(item["env"], key)
+        if item["kind"] == "number":
+            return int(env_number(item["env"], key, _default(key) or 0))
     if key in _STATE_KEYS:
         return bool(getattr(state, _STATE_KEYS[key], False))
     if key == "pin.enabled":
@@ -157,6 +206,8 @@ def public() -> dict[str, Any]:
             except Exception:
                 row["value"] = _default(it["key"])
             row["default"] = _default(it["key"])
+            if _env_pinned(it):
+                row["locked"] = it["env"]  # the variable wins; the page shows the row read-only
             rows.append(row)
         sections.append({"id": sid, "title": title, "icon": SECTION_ICONS.get(sid, "settings"), "items": rows})
     return {"sections": sections, "file": str(SETTINGS_FILE)}
@@ -221,6 +272,9 @@ def apply(data: dict[str, Any]) -> dict[str, Any]:
     item = _BY_KEY.get(key)
     if item is None:
         return {"ok": False, "error": f"unknown setting: {key or '(none)'}"}
+    if _env_pinned(item):
+        return {"ok": False, "key": key, "settings": public(),
+                "error": f"{item['label']} is pinned by {item['env']} in the environment. Unset it to change it here."}
     try:
         raw = _default(key) if op == "reset" else data.get("value")
         if op not in ("set", "reset"):

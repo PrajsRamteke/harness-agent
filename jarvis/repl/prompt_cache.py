@@ -20,7 +20,6 @@ markers can't pile up past the limit of four.
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
 EPHEMERAL = {"type": "ephemeral"}
@@ -32,7 +31,9 @@ _disabled_reason: str | None = None
 
 def enabled_for(provider: str, model: str, client: Any) -> bool:
     """Whether this request goes somewhere that understands cache_control."""
-    if _disabled_reason or os.getenv("HARNESS_PROMPT_CACHE", "1").strip() == "0":
+    from ..storage.settings import env_flag
+
+    if _disabled_reason or not env_flag("HARNESS_PROMPT_CACHE", "models.prompt_cache"):
         return False
     from anthropic import Anthropic
 

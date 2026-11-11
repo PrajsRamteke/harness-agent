@@ -165,7 +165,7 @@ def start_web_server(
 
     mcp_registry.add_listener(push_mcp)
     server.mcp_listener = push_mcp  # type: ignore[attr-defined]
-    # Old attachments (never sent: a day; sent: HARNESS_UPLOAD_KEEP_DAYS).
+    # Old attachments (never sent: a day; sent: HARNESS_UPLOAD_KEEP_DAYS / Settings → Uploads).
     from .. import media
 
     media.prune_in_background()

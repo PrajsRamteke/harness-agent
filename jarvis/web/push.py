@@ -98,16 +98,16 @@ def _hmac(key: bytes, data: bytes) -> bytes:
 
 
 def _enabled_by_env() -> bool:
-    return os.environ.get("HARNESS_WEB_PUSH", "1").strip() != "0"
+    """Push is on unless ``HARNESS_WEB_PUSH=0`` or Settings → Notifications turned it off."""
+    from ..storage.settings import env_flag
+
+    return env_flag("HARNESS_WEB_PUSH", "notify.push")
 
 
 def min_turn_seconds() -> float:
-    raw = os.environ.get("HARNESS_PUSH_MIN_SECONDS", "")
-    try:
-        value = float(raw) if raw.strip() else DEFAULT_MIN_TURN_SECONDS
-    except ValueError:
-        return DEFAULT_MIN_TURN_SECONDS
-    return max(0.0, value)
+    from ..storage.settings import env_number
+
+    return env_number("HARNESS_PUSH_MIN_SECONDS", "notify.push_min_seconds", DEFAULT_MIN_TURN_SECONDS)
 
 
 def active_seconds() -> float:

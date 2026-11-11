@@ -72,7 +72,7 @@ def test_bad_uploads_are_refused_and_leave_nothing_behind(uploads, name, data, c
 
 
 def test_too_large_is_refused_before_reading(monkeypatch):
-    monkeypatch.setattr(media, "MAX_FILE_BYTES", 10)
+    monkeypatch.setattr(media, "max_file_bytes", lambda: 10)
     stream = io.BytesIO(b"x" * 100)
     with pytest.raises(media.UploadError) as err:
         media.save_upload(stream, 100, "big.txt")
@@ -259,7 +259,7 @@ def test_snapshot_shows_files_not_paths(monkeypatch):
     assert msgs[1]["text"] == "" and msgs[1]["attachments"]  # files only
     assert "uploads" not in json.dumps(msgs)
     snap = state_api.snapshot_from_state()
-    assert snap["upload_limits"] == {"max_mb": media.MAX_FILE_MB, "max_files": media.MAX_FILES}
+    assert snap["upload_limits"] == {"max_mb": media.max_file_mb(), "max_files": media.MAX_FILES}
 
 
 def test_snapshot_tool_rows_carry_their_screenshots(monkeypatch, tmp_path):
@@ -348,7 +348,7 @@ def test_upload_errors_come_back_as_readable_json(server, monkeypatch):
     assert status == 415 and json.loads(body)["code"] == "bad_image"
     assert "pic.png" in json.loads(body)["error"]
 
-    monkeypatch.setattr(media, "MAX_FILE_BYTES", 16)
+    monkeypatch.setattr(media, "max_file_bytes", lambda: 16)
     status, headers, body = _upload(base, b"x" * 64, "big.txt")
     assert status == 413 and json.loads(body)["code"] == "too_large"
     assert headers.get("Connection") == "close"

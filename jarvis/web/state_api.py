@@ -527,7 +527,7 @@ def snapshot_from_state(*, busy: bool = False) -> dict[str, Any]:
     snap = state_fields(busy=busy)
     snap["messages"] = snapshot_messages()
     snap["changes"] = file_changes.summaries()
-    snap["upload_limits"] = {"max_mb": media.MAX_FILE_MB, "max_files": media.MAX_FILES}
+    snap["upload_limits"] = {"max_mb": media.max_file_mb(), "max_files": media.MAX_FILES}
     snap["now"] = time.time()  # the page's clock may differ: timers use busy_since against this
     snap["activity"] = tabs.current().activity_label if busy else ""
     # Why the last request failed, while nothing happened since — a page that

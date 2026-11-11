@@ -46,19 +46,29 @@ from typing import Any, BinaryIO, Iterable
 from .constants import CONFIG_DIR
 
 
-def _env_int(name: str, default: int) -> int:
-    try:
-        value = int(os.environ.get(name, "") or default)
-    except ValueError:
-        return default
-    return value if value > 0 else default
+def _limit(env: str, path: str, default: int) -> int:
+    """A positive whole-number limit: the environment variable, else Settings → Uploads."""
+    from .storage.settings import env_number
+
+    return int(env_number(env, path, default, minimum=1))
+
+
+def max_file_mb() -> int:
+    """Largest attachment in MB (``HARNESS_UPLOAD_MAX_MB`` or Settings → Uploads); read per upload."""
+    return _limit("HARNESS_UPLOAD_MAX_MB", "uploads.max_mb", 50)
+
+
+def max_file_bytes() -> int:
+    return max_file_mb() * 1024 * 1024
+
+
+def keep_days() -> int:
+    """Days a sent attachment is kept (``HARNESS_UPLOAD_KEEP_DAYS`` or Settings → Uploads)."""
+    return _limit("HARNESS_UPLOAD_KEEP_DAYS", "uploads.keep_days", 30)
 
 
 UPLOAD_DIR = CONFIG_DIR / "uploads"
-MAX_FILE_MB = _env_int("HARNESS_UPLOAD_MAX_MB", 50)
-MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
 MAX_FILES = 10                  # per message
-KEEP_DAYS = _env_int("HARNESS_UPLOAD_KEEP_DAYS", 30)
 UNSENT_TTL = 24 * 3600          # attached, never sent
 
 # What the model gets: newest images first, within a count and byte budget
@@ -443,9 +453,9 @@ def save_upload(stream: BinaryIO, length: int, filename: str, content_type: str 
     shown = _clean_name(filename) or "This file"
     if length <= 0:
         raise UploadError(400, "empty", f"“{shown}” is empty.")
-    if length > MAX_FILE_BYTES:
+    if length > max_file_bytes():
         raise UploadError(413, "too_large",
-                          f"“{shown}” is {human_size(length)}. Files can be up to {MAX_FILE_MB} MB.")
+                          f"“{shown}” is {human_size(length)}. Files can be up to {max_file_mb()} MB.")
     uid = secrets.token_hex(8)
     folder = UPLOAD_DIR / uid
     try:
@@ -578,7 +588,7 @@ def mark_sent(metas: Iterable[dict[str, Any]]) -> None:
 
 
 def prune(now: float | None = None) -> int:
-    """Remove unsent uploads after a day and sent ones after KEEP_DAYS."""
+    """Remove unsent uploads after a day and sent ones after :func:`keep_days`."""
     now = time.time() if now is None else now
     removed = 0
     try:
@@ -599,7 +609,7 @@ def prune(now: float | None = None) -> int:
             except OSError:
                 continue
         if sent_at:
-            stale = now - sent_at > KEEP_DAYS * 86400
+            stale = now - sent_at > keep_days() * 86400
         else:
             stale = now - created > UNSENT_TTL
         if stale:

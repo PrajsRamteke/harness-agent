@@ -94,9 +94,9 @@ WIRE_ANTHROPIC = "anthropic"  # Anthropic /v1/messages
 
 
 def enabled() -> bool:
-    return (os.getenv("HARNESS_MODELS_DEV", "1") or "").strip().lower() not in (
-        "0", "false", "no", "off",
-    )
+    from ..storage.settings import env_flag
+
+    return env_flag("HARNESS_MODELS_DEV", "models.catalog")
 
 
 # ── data ──────────────────────────────────────────────────────────────────────

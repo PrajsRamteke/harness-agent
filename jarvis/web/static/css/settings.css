@@ -185,6 +185,13 @@
 .set-go .ic { width: 14px; height: 14px; color: var(--text-3); }
 .set-go:hover .ic { color: var(--text-2); }
 
+/* A row an environment variable pins: dimmed controls and a note saying which. */
+.set-row.is-locked .set-ctl > :not(.set-go) { opacity: 0.5; }
+.set-row.is-locked .switch, .set-row.is-locked .set-num-in { cursor: not-allowed; }
+.set-text .set-pinned { display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; color: var(--text-3); }
+.set-pinned .ic { width: 12px; height: 12px; }
+.set-pinned code { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); }
+
 .set-reset { width: var(--h-sm); padding: 0; display: grid; place-items: center; color: var(--text-3); }
 .set-reset .ic { width: 14px; height: 14px; }
 

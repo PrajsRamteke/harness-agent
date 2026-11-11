@@ -54,7 +54,9 @@ _inflight = False
 # ─── key ─────────────────────────────────────────────────────────────────
 
 def enabled() -> bool:
-    return (os.getenv("HARNESS_OPENROUTER_USAGE", "") or "").strip().lower() not in ("0", "false", "no", "off")
+    from ..storage.settings import env_flag
+
+    return env_flag("HARNESS_OPENROUTER_USAGE", "models.openrouter_usage")
 
 
 def api_key() -> str:

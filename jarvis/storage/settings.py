@@ -63,13 +63,19 @@ DEFAULTS: dict[str, Any] = {
     "trace":  {"on": True},   # show thinking + tool panels in TUI transcript
     "pin":    {"enabled": True},  # inject pinned.txt into every system prompt
     "pet":    {"enabled": True, "nudges": True, "notify": True},  # the TUI pets
-    "ui":     {"sticky_prompt": True},
+    "ui":     {"sticky_prompt": True, "mouse": True},  # mouse: terminal wheel / click / select-to-copy (off = native selection)
     # parallel subagents (spawn_agents): on/off · agents running at once · model requests per agent · minutes per agent
     "subagents": {"enabled": True, "max_parallel": 20, "max_steps": 40, "timeout_min": 20},  # pin your prompt above a long reply
     "web":    {"qr": True, "tunnel": "auto", "keep_awake": True},  # corner QR · Anywhere provider (auto|cloudflare|ngrok) · keep the Mac awake while Anywhere runs
     # model that writes git text (commit / PR title + description / branch):
     # empty source+model = Auto, i.e. whatever the chat is using
     "side":   {"source": "", "model": ""},
+    # alerts on subscribed devices (web/push.py): on/off · shortest reply (seconds) that sends one
+    "notify": {"push": True, "push_min_seconds": 20},
+    # web attachments (media.py): largest file (MB) · days a sent file is kept
+    "uploads": {"max_mb": 50, "keep_days": 30},
+    # prompt caching (Anthropic / OpenRouter Claude) · models.dev catalog · local model servers · OpenRouter spend
+    "models": {"prompt_cache": True, "catalog": True, "local": True, "openrouter_usage": True},
 }
 
 
@@ -181,6 +187,9 @@ _INT_RANGES = {
     "subagents.max_parallel": (1, 20),
     "subagents.max_steps": (4, 200),
     "subagents.timeout_min": (1, 120),
+    "notify.push_min_seconds": (0, 3600),
+    "uploads.max_mb": (1, 500),
+    "uploads.keep_days": (1, 365),
 }
 
 
@@ -206,7 +215,8 @@ def _coerce(path: str, value: Any) -> Any:
         return sorted({v.strip() for v in value if v.strip()})
     if path in ("skills.global", "mcp.global", "mcp.enabled", "agent.global", "think.mode", "pin.enabled", "ui.mouse",
                 "ui.sticky_prompt", "pet.enabled", "pet.nudges", "pet.notify", "web.qr", "web.keep_awake",
-                "subagents.enabled"):
+                "subagents.enabled", "notify.push", "models.prompt_cache", "models.catalog", "models.local",
+                "models.openrouter_usage"):
         if isinstance(value, str):
             v = value.strip().lower()
             if v in ("true", "1", "yes", "on"):
@@ -469,6 +479,41 @@ def get_settings() -> Settings:
         _singleton = Settings(SETTINGS_FILE)
         _singleton.load()
     return _singleton
+
+
+_OFF = ("0", "false", "no", "off")
+
+
+def env_flag(env: str, path: str, default: bool = True) -> bool:
+    """A yes/no option: the environment variable when it is set, else the saved setting.
+
+    The variables (``HARNESS_PROMPT_CACHE=0`` …) predate the Settings dialog and still win,
+    so a script or a service file that pins one keeps working; the dialog shows that row locked.
+    """
+    raw = os.environ.get(env)
+    if raw is not None and raw.strip():
+        return raw.strip().lower() not in _OFF
+    try:
+        val = get_settings().get(path)
+    except Exception:
+        return default
+    return default if val is None else bool(val)
+
+
+def env_number(env: str, path: str, default: float, *, minimum: float = 0) -> float:
+    """A numeric option: the environment variable when it is a valid number, else the setting."""
+    raw = os.environ.get(env)
+    if raw is not None and raw.strip():
+        try:
+            value = float(raw)
+            return value if value >= minimum else default
+        except ValueError:
+            return default
+    try:
+        val = get_settings().get(path)
+        return default if val is None else max(minimum, float(val))
+    except Exception:
+        return default
 
 
 def reload_settings() -> Settings:
